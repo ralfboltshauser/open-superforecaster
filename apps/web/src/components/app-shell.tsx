@@ -20,6 +20,7 @@ import {
   SidebarMenuItem,
   SidebarProvider,
   SidebarSeparator,
+  SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { formatModeLabel, runTitle, statusTone, type JsonRecord } from "@/lib/records"
 
@@ -147,7 +148,12 @@ export function AppShell({ children, runs = [] }: { children: React.ReactNode; r
           <span className="truncate">Personal workspace</span>
         </SidebarFooter>
       </Sidebar>
-      <SidebarInset>{children}</SidebarInset>
+      <div className="fixed inset-x-0 top-0 z-30 flex h-12 items-center gap-2 border-b border-border/70 bg-background/95 px-3 backdrop-blur md:hidden">
+        <SidebarTrigger aria-label="Open navigation" className="text-foreground" />
+        <LogoMark className="size-6 text-primary" />
+        <span className="truncate text-sm font-medium tracking-[0.04em] text-foreground">Open Superforecaster</span>
+      </div>
+      <SidebarInset className="pt-12 md:pt-0">{children}</SidebarInset>
     </SidebarProvider>
   )
 }

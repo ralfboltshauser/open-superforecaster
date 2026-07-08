@@ -46,13 +46,15 @@ export function RunWorkspace({ taskId }: { taskId: string }) {
         {detail.task ? (
           <Tabs defaultValue="overview" className="mt-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <TabsList>
-                <TabsTrigger value="overview">overview</TabsTrigger>
-                <TabsTrigger value="results">results</TabsTrigger>
-                <TabsTrigger value="researchers">researchers</TabsTrigger>
-                <TabsTrigger value="sources">sources</TabsTrigger>
-                <TabsTrigger value="debug">debug</TabsTrigger>
-              </TabsList>
+              <div className="-mx-1 overflow-x-auto px-1">
+                <TabsList className="min-w-max">
+                  <TabsTrigger value="overview">overview</TabsTrigger>
+                  <TabsTrigger value="results">results</TabsTrigger>
+                  <TabsTrigger value="researchers">researchers</TabsTrigger>
+                  <TabsTrigger value="sources">sources</TabsTrigger>
+                  <TabsTrigger value="debug">debug</TabsTrigger>
+                </TabsList>
+              </div>
               <RunStreamPanel streamState={streamState} />
             </div>
 
