@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 
 import { AppShell } from "@/components/app-shell"
+import { SourceGraphBackground } from "@/components/source-graph-background"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -161,7 +162,9 @@ export function RunWorkspace({ taskId }: { taskId: string }) {
 
   return (
     <AppShell runs={runs}>
-      <main className="min-h-svh px-4 py-4 md:px-8">
+      <main className="relative min-h-svh overflow-hidden px-4 py-4 md:px-8">
+        <SourceGraphBackground runs={runs} variant="workspace" className="opacity-80" />
+        <div className="relative z-10">
         <header className="flex flex-col gap-5 border-b border-border/70 pb-6 md:flex-row md:items-start md:justify-between">
           <div className="max-w-4xl">
             <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/" />}>
@@ -289,6 +292,7 @@ export function RunWorkspace({ taskId }: { taskId: string }) {
             </TabsContent>
           </Tabs>
         ) : null}
+        </div>
       </main>
     </AppShell>
   )

@@ -153,6 +153,14 @@
       );
   }
 
+  .fs-graph-sheen {
+    background:
+      linear-gradient(to bottom, oklch(1 0 0 / 0.035), transparent 18%, transparent 78%, oklch(0 0 0 / 0.36)),
+      repeating-linear-gradient(to bottom, transparent 0, transparent 9px, oklch(1 0 0 / 0.018) 10px);
+    mix-blend-mode: screen;
+    opacity: 0.55;
+  }
+
   /* Source-graph node treatments */
   .fs-node {
     color: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
