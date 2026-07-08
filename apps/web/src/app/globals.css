@@ -193,3 +193,36 @@
     background-image: linear-gradient(to right, transparent, oklch(1 0 0 / 0.18), transparent);
   }
 }
+
+@media print {
+  @page {
+    margin: 16mm;
+  }
+
+  html,
+  body {
+    background: white !important;
+    color: #0f172a !important;
+  }
+
+  a {
+    color: #1d4ed8 !important;
+    text-decoration: none;
+  }
+
+  [data-slot="card"] {
+    background: white !important;
+    color: #0f172a !important;
+    box-shadow: none !important;
+  }
+
+  .report-hero {
+    color: #0f172a !important;
+  }
+
+  .fs-artifact,
+  .fs-panel {
+    background: white !important;
+    box-shadow: none !important;
+  }
+}

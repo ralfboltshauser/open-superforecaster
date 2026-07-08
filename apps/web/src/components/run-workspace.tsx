@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, FileText } from "lucide-react"
 
 import { DecisionBriefPanel } from "@/components/run-workspace/decision-brief"
 import {
@@ -34,7 +34,7 @@ export function RunWorkspace({ taskId }: { taskId: string }) {
     <main className="relative min-h-svh overflow-hidden px-4 py-4 md:px-8">
       <SourceGraphBackground runs={runs} variant="workspace" className="opacity-80" />
       <div className="relative z-10">
-        <RunHeader detail={detail} streamState={streamState} />
+        <RunHeader detail={detail} streamState={streamState} taskId={taskId} />
 
         {error ? (
           <Card className="mt-6 border-destructive/40">
@@ -118,9 +118,11 @@ export function RunWorkspace({ taskId }: { taskId: string }) {
 function RunHeader({
   detail,
   streamState,
+  taskId,
 }: {
   detail: ReturnType<typeof useRunWorkspace>["detail"]
   streamState: ReturnType<typeof useRunWorkspace>["streamState"]
+  taskId: string
 }) {
   return (
     <header className="flex flex-col gap-5 border-b border-border/70 pb-6 md:flex-row md:items-start md:justify-between">
@@ -135,13 +137,21 @@ function RunHeader({
           {detail.task ? `${formatModeLabel(detail.task.operationSubmode ?? detail.task.operationMode)} · ${String(detail.task.status ?? "unknown")}` : "Loading run"}
         </p>
       </div>
-      <div className="flex flex-wrap gap-2">
-        <Badge variant="outline" className={cn(streamState.connected && "border-primary text-primary")}>
-          {streamState.connected ? "Live" : "Idle"}
-        </Badge>
-        <Badge variant="secondary" className={statusTone(detail.task?.status)}>
-          {String(detail.task?.status ?? streamState.status)}
-        </Badge>
+      <div className="flex flex-wrap items-center gap-2">
+        {detail.task ? (
+          <Button variant="outline" size="sm" nativeButton={false} render={<Link href={`/runs/${taskId}/report`} />}>
+            <FileText data-icon="inline-start" />
+            Report
+          </Button>
+        ) : null}
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline" className={cn(streamState.connected && "border-primary text-primary")}>
+            {streamState.connected ? "Live" : "Idle"}
+          </Badge>
+          <Badge variant="secondary" className={statusTone(detail.task?.status)}>
+            {String(detail.task?.status ?? streamState.status)}
+          </Badge>
+        </div>
       </div>
     </header>
   )
