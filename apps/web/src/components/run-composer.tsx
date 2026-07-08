@@ -1,4 +1,3 @@
-import { useForm } from "@tanstack/react-form";
 import { FileUp, Play, SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -13,59 +12,31 @@ type ClassificationPreview = {
 };
 
 type PreviewStatus = "idle" | "loading" | "ready" | "error";
-type PreviewInput = {
+type ComposerValues = {
   prompt: string;
   mode: string;
   forecastType: string;
+  effort: "low" | "medium" | "high";
+};
+
+const defaultComposerValues: ComposerValues = {
+  prompt: "",
+  mode: "auto",
+  forecastType: "auto",
+  effort: "medium",
 };
 
 export function RunComposer({ onLaunch }: { onLaunch?: () => Promise<void> | void }) {
   const [csvText, setCsvText] = useState("");
-  const [previewInput, setPreviewInput] = useState<PreviewInput>({
-    prompt: "",
-    mode: "auto",
-    forecastType: "auto",
-  });
+  const [values, setValues] = useState<ComposerValues>(defaultComposerValues);
   const [preview, setPreview] = useState<ClassificationPreview | null>(null);
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus>("idle");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const parsedRows = useMemo(() => parseCsvRows(csvText), [csvText]);
-  const form = useForm({
-    defaultValues: {
-      prompt: "",
-      mode: "auto",
-      forecastType: "auto",
-      effort: "medium",
-    },
-    onSubmit: async ({ value }) => {
-      const tableRows = parsedRows.slice(0, 50);
-      const isTableMode = ["agent_map", "rank", "classify", "dedupe"].includes(value.mode);
-      const response = await fetch("/api/runs", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          mode: value.mode,
-          forecastType: value.forecastType === "auto" ? undefined : value.forecastType,
-          effort: value.effort,
-          prompt: value.prompt,
-          ...(isTableMode && tableRows.length ? { rows: tableRows } : {}),
-        }),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text);
-      }
-
-      await onLaunch?.();
-      setCsvText("");
-    },
-  });
 
   useEffect(() => {
-    const prompt = previewInput.prompt.trim();
-    const hasOverride = previewInput.mode !== "auto" || previewInput.forecastType !== "auto";
+    const prompt = values.prompt.trim();
+    const hasOverride = values.mode !== "auto" || values.forecastType !== "auto";
     if (!prompt && !hasOverride) {
       setPreview(null);
       setPreviewStatus("idle");
@@ -82,8 +53,8 @@ export function RunComposer({ onLaunch }: { onLaunch?: () => Promise<void> | voi
         },
         body: JSON.stringify({
           prompt,
-          mode: previewInput.mode,
-          forecastType: previewInput.forecastType === "auto" ? undefined : previewInput.forecastType,
+          mode: values.mode,
+          forecastType: values.forecastType === "auto" ? undefined : values.forecastType,
         }),
         signal: controller.signal,
       })
@@ -112,14 +83,45 @@ export function RunComposer({ onLaunch }: { onLaunch?: () => Promise<void> | voi
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [previewInput]);
+  }, [values.prompt, values.mode, values.forecastType]);
 
-  const updatePreviewInput = <Key extends keyof PreviewInput>(key: Key, value: PreviewInput[Key]) => {
-    setPreviewInput((current) => ({
+  const updateValue = <Key extends keyof ComposerValues>(key: Key, value: ComposerValues[Key]) => {
+    setValues((current) => ({
       ...current,
       [key]: value,
     }));
   };
+
+  async function submitRun() {
+    setIsSubmitting(true);
+    try {
+      const tableRows = parsedRows.slice(0, 50);
+      const isTableMode = ["agent_map", "rank", "classify", "dedupe"].includes(values.mode);
+      const response = await fetch("/api/runs", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          mode: values.mode,
+          forecastType: values.forecastType === "auto" ? undefined : values.forecastType,
+          effort: values.effort,
+          prompt: values.prompt,
+          ...(isTableMode && tableRows.length ? { rows: tableRows } : {}),
+        }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text);
+      }
+
+      await onLaunch?.();
+      setCsvText("");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
     <form
@@ -127,23 +129,16 @@ export function RunComposer({ onLaunch }: { onLaunch?: () => Promise<void> | voi
       onSubmit={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        void form.handleSubmit();
+        void submitRun();
       }}
     >
       <div className="composer-row">
-        <form.Field name="prompt">
-          {(field) => (
-            <textarea
-              aria-label="Research or forecast prompt"
-              placeholder="Ask a forecasting, research, or table-agent question..."
-              value={field.state.value}
-              onChange={(event) => {
-                field.handleChange(event.target.value);
-                updatePreviewInput("prompt", event.target.value);
-              }}
-            />
-          )}
-        </form.Field>
+        <textarea
+          aria-label="Research or forecast prompt"
+          placeholder="Ask a forecasting, research, or table-agent question..."
+          value={values.prompt}
+          onChange={(event) => updateValue("prompt", event.target.value)}
+        />
       </div>
       <div className="table-input">
         <label className="file-control">
@@ -177,66 +172,42 @@ export function RunComposer({ onLaunch }: { onLaunch?: () => Promise<void> | voi
       </div>
       <ClassificationPreviewPanel preview={preview} status={previewStatus} />
       <div className="composer-controls">
-        <form.Field name="mode">
-          {(field) => (
-            <label>
-              <SlidersHorizontal size={16} />
-              <select
-                value={field.state.value}
-                onChange={(event) => {
-                  field.handleChange(event.target.value);
-                  updatePreviewInput("mode", event.target.value);
-                }}
-              >
-                <option value="auto">Auto</option>
-                <option value="forecast">Forecast</option>
-                <option value="multi_agent">Deep research</option>
-                <option value="agent_map">Agent map</option>
-                <option value="rank">Rank</option>
-                <option value="classify">Classify</option>
-                <option value="merge">Merge</option>
-                <option value="dedupe">Dedupe</option>
-              </select>
-            </label>
-          )}
-        </form.Field>
-        <form.Field name="forecastType">
-          {(field) => (
-            <label>
-              Forecast
-              <select
-                value={field.state.value}
-                onChange={(event) => {
-                  field.handleChange(event.target.value);
-                  updatePreviewInput("forecastType", event.target.value);
-                }}
-              >
-                <option value="auto">Auto type</option>
-                <option value="binary">Binary</option>
-                <option value="date">Date</option>
-                <option value="numeric">Numeric</option>
-                <option value="categorical">Categorical</option>
-                <option value="thresholded">Thresholded</option>
-                <option value="conditional">Conditional</option>
-              </select>
-            </label>
-          )}
-        </form.Field>
-        <form.Field name="effort">
-          {(field) => (
-            <label>
-              Effort
-              <select value={field.state.value} onChange={(event) => field.handleChange(event.target.value)}>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-            </label>
-          )}
-        </form.Field>
-        <button type="submit" disabled={form.state.isSubmitting}>
+        <label>
+          <SlidersHorizontal size={16} />
+          <select value={values.mode} onChange={(event) => updateValue("mode", event.target.value)}>
+            <option value="auto">Auto</option>
+            <option value="forecast">Forecast</option>
+            <option value="multi_agent">Deep research</option>
+            <option value="agent_map">Agent map</option>
+            <option value="rank">Rank</option>
+            <option value="classify">Classify</option>
+            <option value="merge">Merge</option>
+            <option value="dedupe">Dedupe</option>
+          </select>
+        </label>
+        <label>
+          Forecast
+          <select value={values.forecastType} onChange={(event) => updateValue("forecastType", event.target.value)}>
+            <option value="auto">Auto type</option>
+            <option value="binary">Binary</option>
+            <option value="date">Date</option>
+            <option value="numeric">Numeric</option>
+            <option value="categorical">Categorical</option>
+            <option value="thresholded">Thresholded</option>
+            <option value="conditional">Conditional</option>
+          </select>
+        </label>
+        <label>
+          Effort
+          <select value={values.effort} onChange={(event) => updateValue("effort", event.target.value as ComposerValues["effort"])}>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+        <button type="submit" disabled={isSubmitting}>
           <Play size={16} />
-          {form.state.isSubmitting ? "Queueing" : "Queue run"}
+          {isSubmitting ? "Queueing" : "Queue run"}
         </button>
       </div>
     </form>
