@@ -25,7 +25,9 @@ const dateAggregate = z.object({
   targetDate: z.string(),
   dateDistribution: z.object({
     p10: z.string().optional(),
+    p25: z.string().optional(),
     p50: z.string(),
+    p75: z.string().optional(),
     p90: z.string().optional(),
   }),
   neverProbability: z.number().min(0).max(100),
@@ -77,6 +79,12 @@ export default smithers((ctx) => {
   const attemptNeeds = Object.fromEntries(attemptIds.map((id) => [id, id]));
   const attempts = ctx.outputs.dateAttempt ?? [];
   const sortedDates = attempts.map((attempt) => attempt.targetDate).filter(Boolean).sort();
+  const quantileDate = (quantile: number) => {
+    if (sortedDates.length === 0) {
+      return undefined;
+    }
+    return sortedDates[Math.round((sortedDates.length - 1) * quantile)];
+  };
   const p50 = sortedDates[Math.floor(sortedDates.length / 2)] ?? "unknown";
   const neverProbability = attempts.length
     ? Math.round((attempts.reduce((sum, attempt) => sum + (attempt.neverProbability ?? 0), 0) / attempts.length) * 10) / 10
@@ -123,9 +131,11 @@ Return a date forecast. Use ISO date strings like YYYY-MM-DD for targetDate, ear
             forecastType: "date",
             targetDate: p50,
             dateDistribution: {
-              p10: sortedDates[0],
+              p10: quantileDate(0.1),
+              p25: quantileDate(0.25),
               p50,
-              p90: sortedDates[sortedDates.length - 1],
+              p75: quantileDate(0.75),
+              p90: quantileDate(0.9),
             },
             neverProbability,
             method: "median_of_three_differentiated_date_forecasters_v0",

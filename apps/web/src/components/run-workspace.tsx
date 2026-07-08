@@ -302,14 +302,15 @@ function buildRunDetail(run: JsonRecord | null) {
   const task = isRecord(run?.task) ? run.task : null
   const taskRows = readArray(run, "taskRows").filter(isRecord)
   const artifacts = readArray(run, "artifacts").filter(isRecord)
-  const sources = readArray(run, "sources").filter(isRecord)
-  const attempts = readArray(run, "forecastAttempts").filter(isRecord)
-  const aggregates = readArray(run, "forecastAggregates").filter(isRecord)
+  const sources = dedupeSourceRecords(readArray(run, "sources").filter(isRecord))
+  const attempts = dedupeRecords(readArray(run, "forecastAttempts").filter(isRecord), forecastAttemptKey)
+  const aggregates = dedupeRecords(readArray(run, "forecastAggregates").filter(isRecord), forecastAggregateKey)
   const scores = readArray(run, "forecastScores").filter(isRecord)
-  const traceEvents = readArray(run, "traceEvents").filter(isRecord)
+  const traceEvents = dedupeRecords(readArray(run, "traceEvents").filter(isRecord), traceEventKey)
   const forecastOutput = firstAggregateOutput(aggregates) ?? firstArtifactOutput(artifacts)
+  const effectiveTask = task && forecastOutput && task.status === "running" ? { ...task, status: "completed" } : task
   return {
-    task,
+    task: effectiveTask,
     taskRows,
     artifacts,
     sources,
@@ -408,9 +409,10 @@ function ForecastResultPanel({ output, task, expanded = false }: { output: JsonR
   const probability = readNumber(output, "probability")
   const rationale = readString(output, "rationale") ?? readString(output, "summary") ?? readString(output, "answer")
   const p10 = readString(output, "p10") ?? readString(dateDistribution, "p10") ?? readString(output, "lowerBound")
-  const p25 = readString(output, "p25") ?? readString(dateDistribution, "p25")
-  const p75 = readString(output, "p75") ?? readString(dateDistribution, "p75")
+  const p25 = readString(output, "p25") ?? readString(dateDistribution, "p25") ?? p10
+  const p75 = readString(output, "p75") ?? readString(dateDistribution, "p75") ?? readString(output, "upperBound")
   const p90 = readString(output, "p90") ?? readString(dateDistribution, "p90") ?? readString(output, "upperBound")
+  const displayedP75 = p75 ?? p90
 
   return (
     <Card className="fs-artifact">
@@ -441,7 +443,7 @@ function ForecastResultPanel({ output, task, expanded = false }: { output: JsonR
               <ForecastQuantile label="10% by" value={p10 ?? "not set"} />
               <ForecastQuantile label="25% by" value={p25 ?? "not set"} />
               <ForecastQuantile label="median" value={median ?? "not set"} active />
-              <ForecastQuantile label="75% by" value={p75 ?? "not set"} />
+              <ForecastQuantile label="75% by" value={displayedP75 ?? "not set"} />
               <ForecastQuantile label="90% by" value={p90 ?? "not set"} />
               </div>
             </div>
@@ -726,4 +728,75 @@ function sourceDomain(source: JsonRecord) {
   } catch {
     return truncate(url, 28)
   }
+}
+
+function dedupeSourceRecords(sources: JsonRecord[]) {
+  return dedupeRecords(sources, sourceKey)
+}
+
+function dedupeRecords(records: JsonRecord[], keyForRecord: (record: JsonRecord) => string) {
+  const seen = new Set<string>()
+  const deduped: JsonRecord[] = []
+  for (const record of records) {
+    const key = keyForRecord(record)
+    if (seen.has(key)) {
+      continue
+    }
+    seen.add(key)
+    deduped.push(record)
+  }
+  return deduped
+}
+
+function sourceKey(source: JsonRecord) {
+  const url = readString(source, "url") ?? readString(source, "sourceUrl")
+  if (url) {
+    try {
+      const parsed = new URL(url)
+      parsed.hash = ""
+      parsed.searchParams.sort()
+      return `url:${parsed.toString().replace(/\/$/, "")}`
+    } catch {
+      return `url:${url.trim().replace(/\/$/, "").toLowerCase()}`
+    }
+  }
+  return `fallback:${String(readString(source, "title") ?? sourceDomain(source)).trim().toLowerCase()}`
+}
+
+function forecastAttemptKey(attempt: JsonRecord) {
+  return stableRecordKey({
+    forecasterLabel: readString(attempt, "forecasterLabel"),
+    forecastType: readString(attempt, "forecastType"),
+    rawPrediction: attempt.rawPrediction,
+  })
+}
+
+function forecastAggregateKey(aggregate: JsonRecord) {
+  return stableRecordKey({
+    forecastType: readString(aggregate, "forecastType"),
+    method: readString(aggregate, "method"),
+    rawAggregate: aggregate.rawAggregate,
+  })
+}
+
+function traceEventKey(event: JsonRecord) {
+  return stableRecordKey({
+    eventType: readString(event, "eventType"),
+    phase: readString(event, "phase"),
+    agentLabel: readString(event, "agentLabel"),
+    payloadJson: event.payloadJson,
+  })
+}
+
+function stableRecordKey(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableRecordKey).join(",")}]`
+  }
+  if (isRecord(value)) {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableRecordKey(entry)}`)
+      .join(",")}}`
+  }
+  return JSON.stringify(value)
 }

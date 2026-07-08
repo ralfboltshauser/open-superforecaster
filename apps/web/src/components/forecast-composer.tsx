@@ -60,6 +60,7 @@ export function ForecastComposer({ className, compact = false }: { className?: s
           )}
           aria-label="Forecast prompt"
           placeholder="Ask a forecasting or research question"
+          suppressHydrationWarning
         />
         <div className="flex items-center justify-between gap-3 border-t border-border/70 px-1 pt-2">
           <Button type="button" variant="ghost" size="icon-sm" aria-label="Attach context">

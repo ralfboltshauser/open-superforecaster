@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useEffect, useState } from "react"
 import { BarChart3, BookOpen, FlaskConical, KeyRound, MessageSquarePlus, Workflow } from "lucide-react"
 
 import {
@@ -22,15 +23,16 @@ import {
 import { formatModeLabel, runTitle, statusTone, type JsonRecord } from "@/lib/records"
 
 const nav = [
-  { href: "/", label: "New Forecast", icon: MessageSquarePlus },
-  { href: "/lab", label: "Lab", icon: FlaskConical },
-  { href: "/lab#workflows", label: "Workflows", icon: Workflow },
-  { href: "/lab#benchmarks", label: "Benchmarks", icon: BarChart3 },
-  { href: "/lab#diagnostics", label: "Diagnostics", icon: KeyRound },
+  { href: "/", label: "New Forecast", icon: MessageSquarePlus, path: "/" },
+  { href: "/lab", label: "Lab", icon: FlaskConical, path: "/lab" },
+  { href: "/lab#workflows", label: "Workflows", icon: Workflow, path: "/lab", hash: "#workflows" },
+  { href: "/lab#benchmarks", label: "Benchmarks", icon: BarChart3, path: "/lab", hash: "#benchmarks" },
+  { href: "/lab#diagnostics", label: "Diagnostics", icon: KeyRound, path: "/lab", hash: "#diagnostics" },
 ]
 
 export function AppShell({ children, runs = [] }: { children: React.ReactNode; runs?: JsonRecord[] }) {
   const pathname = usePathname()
+  const currentHash = useCurrentHash(pathname)
 
   return (
     <SidebarProvider>
@@ -52,10 +54,15 @@ export function AppShell({ children, runs = [] }: { children: React.ReactNode; r
               <SidebarMenu>
                 {nav.map((item) => {
                   const Icon = item.icon
-                  const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href.split("#")[0])
+                  const active = isNavItemActive(pathname, currentHash, item)
                   return (
                     <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton tooltip={item.label} isActive={active} render={<Link href={item.href} />}>
+                      <SidebarMenuButton
+                        tooltip={item.label}
+                        isActive={active}
+                        aria-current={active ? "page" : undefined}
+                        render={<Link href={item.href} />}
+                      >
                         <Icon />
                         <span>{item.label}</span>
                       </SidebarMenuButton>
@@ -110,4 +117,36 @@ export function AppShell({ children, runs = [] }: { children: React.ReactNode; r
       <SidebarInset>{children}</SidebarInset>
     </SidebarProvider>
   )
+}
+
+function useCurrentHash(pathname: string) {
+  const [hash, setHash] = useState("")
+
+  useEffect(() => {
+    function updateHash() {
+      setHash(window.location.hash)
+    }
+
+    updateHash()
+    window.addEventListener("hashchange", updateHash)
+    return () => window.removeEventListener("hashchange", updateHash)
+  }, [pathname])
+
+  return hash
+}
+
+function isNavItemActive(pathname: string, currentHash: string, item: (typeof nav)[number]) {
+  if (item.path === "/") {
+    return pathname === "/"
+  }
+
+  if (pathname !== item.path) {
+    return false
+  }
+
+  if (item.hash) {
+    return currentHash === item.hash
+  }
+
+  return currentHash === ""
 }

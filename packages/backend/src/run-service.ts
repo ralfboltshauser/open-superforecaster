@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, asc, desc, eq, gt, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import {
   artifactRows,
   artifacts,
@@ -876,6 +876,15 @@ async function persistBinaryForecastLedger(
     root: string;
   },
 ) {
+  const lockAcquired = await acquireForecastLedgerLock(db, input.smithersRunId);
+  if (!lockAcquired) {
+    return;
+  }
+  try {
+  if (await hasForecastLedgerForRun(db, input.smithersRunId)) {
+    return;
+  }
+
   const attemptOutputs = await readBinaryAttemptOutputs(input.smithersRunId, input.root);
   const componentFallbacks = readArray(input.aggregateOutput, "componentProbabilities", "component_probabilities");
   const attemptsToPersist = attemptOutputs.length
@@ -917,6 +926,17 @@ async function persistBinaryForecastLedger(
       .returning({ id: forecastAttempts.id });
     componentAttemptIds.push(attempt.id);
   }
+  await appendTraceEvent(db, {
+    taskId: input.taskId,
+    eventType: "trace_summary",
+    phase: "forecast_attempts",
+    agentLabel: "forecast-ledger",
+    payloadJson: {
+      forecastType: "binary",
+      attemptCount: componentAttemptIds.length,
+      forecasters: attemptsToPersist.map((attempt) => readString(attempt, "forecasterLabel", "forecaster_label") ?? "binary forecaster"),
+    },
+  });
 
   await db.insert(forecastAggregates).values({
     forecastType: "binary",
@@ -924,6 +944,17 @@ async function persistBinaryForecastLedger(
     componentAttemptIds,
     rawAggregate: input.aggregateOutput,
     rationale: readString(input.aggregateOutput, "rationale") ?? "No aggregate rationale was provided.",
+  });
+  await appendTraceEvent(db, {
+    taskId: input.taskId,
+    eventType: "synthesis",
+    phase: "aggregate",
+    agentLabel: "forecast-ledger",
+    payloadJson: {
+      forecastType: "binary",
+      method: readString(input.aggregateOutput, "method") ?? "unknown",
+      componentAttemptCount: componentAttemptIds.length,
+    },
   });
 
   const citedSources = dedupeSources([
@@ -938,6 +969,19 @@ async function persistBinaryForecastLedger(
     sources: citedSources,
     sourceType: "agent_reported_citation",
   });
+  await appendTraceEvent(db, {
+    taskId: input.taskId,
+    eventType: "source_added",
+    phase: "source_bank",
+    agentLabel: "forecast-ledger",
+    payloadJson: {
+      sourceCount: citedSources.length,
+      domains: uniqueDomains(citedSources),
+    },
+  });
+  } finally {
+    await releaseForecastLedgerLock(db, input.smithersRunId);
+  }
 }
 
 async function persistNonBinaryForecastLedger(
@@ -952,6 +996,15 @@ async function persistNonBinaryForecastLedger(
     root: string;
   },
 ) {
+  const lockAcquired = await acquireForecastLedgerLock(db, input.smithersRunId);
+  if (!lockAcquired) {
+    return;
+  }
+  try {
+  if (await hasForecastLedgerForRun(db, input.smithersRunId)) {
+    return;
+  }
+
   const forecastType = forecastTypeFromSubmode(input.operationSubmode);
   const attemptOutputs = await readForecastAttemptOutputs(input.smithersRunId, input.root);
   const componentAttemptIds: string[] = [];
@@ -978,6 +1031,17 @@ async function persistNonBinaryForecastLedger(
       .returning({ id: forecastAttempts.id });
     componentAttemptIds.push(attempt.id);
   }
+  await appendTraceEvent(db, {
+    taskId: input.taskId,
+    eventType: "trace_summary",
+    phase: "forecast_attempts",
+    agentLabel: "forecast-ledger",
+    payloadJson: {
+      forecastType,
+      attemptCount: componentAttemptIds.length,
+      forecasters: attemptOutputs.map((attempt) => readString(attempt, "forecasterLabel", "forecaster_label") ?? `${forecastType} forecaster`),
+    },
+  });
 
   await db.insert(forecastAggregates).values({
     forecastType,
@@ -986,17 +1050,42 @@ async function persistNonBinaryForecastLedger(
     rawAggregate: input.aggregateOutput,
     rationale: readString(input.aggregateOutput, "rationale") ?? "No aggregate rationale was provided.",
   });
+  await appendTraceEvent(db, {
+    taskId: input.taskId,
+    eventType: "synthesis",
+    phase: "aggregate",
+    agentLabel: "forecast-ledger",
+    payloadJson: {
+      forecastType,
+      method: readString(input.aggregateOutput, "method") ?? "unknown",
+      componentAttemptCount: componentAttemptIds.length,
+    },
+  });
 
+  const citedSources = dedupeSources([
+    ...extractCitedSources(input.aggregateOutput),
+    ...attemptOutputs.flatMap((attempt) => extractCitedSources(attempt)),
+  ]);
   await persistSources(db, {
     taskId: input.taskId,
     artifactId: input.artifactId,
     artifactRowId: input.artifactRowId,
-    sources: dedupeSources([
-      ...extractCitedSources(input.aggregateOutput),
-      ...attemptOutputs.flatMap((attempt) => extractCitedSources(attempt)),
-    ]),
+    sources: citedSources,
     sourceType: `agent_reported_${forecastType}_forecast_citation`,
   });
+  await appendTraceEvent(db, {
+    taskId: input.taskId,
+    eventType: "source_added",
+    phase: "source_bank",
+    agentLabel: "forecast-ledger",
+    payloadJson: {
+      sourceCount: citedSources.length,
+      domains: uniqueDomains(citedSources),
+    },
+  });
+  } finally {
+    await releaseForecastLedgerLock(db, input.smithersRunId);
+  }
 }
 
 async function persistCitedSources(
@@ -1074,7 +1163,7 @@ async function persistSources(
     sourceType: string;
   },
 ) {
-  for (const source of input.sources) {
+  for (const source of dedupeSources(input.sources)) {
     const [sourceRow] = await db
       .insert(sourceBankEntries)
       .values({
@@ -1103,6 +1192,24 @@ async function persistSources(
 
 async function readBinaryAttemptOutputs(smithersRunId: string, root: string) {
   return readForecastAttemptOutputs(smithersRunId, root);
+}
+
+async function hasForecastLedgerForRun(db: Db, smithersRunId: string) {
+  const [attempt] = await db
+    .select({ id: forecastAttempts.id })
+    .from(forecastAttempts)
+    .where(eq(forecastAttempts.researchPassId, smithersRunId))
+    .limit(1);
+  return Boolean(attempt);
+}
+
+async function acquireForecastLedgerLock(db: Db, smithersRunId: string) {
+  const rows = await db.execute(sql<{ acquired: boolean }>`select pg_try_advisory_lock(hashtext(${smithersRunId})) as acquired`);
+  return Boolean(rows[0]?.acquired);
+}
+
+async function releaseForecastLedgerLock(db: Db, smithersRunId: string) {
+  await db.execute(sql`select pg_advisory_unlock(hashtext(${smithersRunId}))`);
 }
 
 async function readForecastAttemptOutputs(smithersRunId: string, root: string) {
@@ -1150,7 +1257,7 @@ function dedupeSources(sources: Array<{ title: string | null; url: string | null
   const seen = new Set<string>();
   const deduped = [];
   for (const source of sources) {
-    const key = `${source.url ?? ""}::${source.claim}`;
+    const key = canonicalSourceKey(source);
     if (seen.has(key)) {
       continue;
     }
@@ -1158,6 +1265,62 @@ function dedupeSources(sources: Array<{ title: string | null; url: string | null
     deduped.push(source);
   }
   return deduped;
+}
+
+function canonicalSourceKey(source: { title: string | null; url: string | null; claim: string }) {
+  if (source.url) {
+    try {
+      const url = new URL(source.url);
+      url.hash = "";
+      url.searchParams.sort();
+      return `url:${url.toString().replace(/\/$/, "")}`;
+    } catch {
+      return `url:${source.url.trim().replace(/\/$/, "").toLowerCase()}`;
+    }
+  }
+  return `fallback:${(source.title ?? "").trim().toLowerCase()}::${source.claim.trim().toLowerCase()}`;
+}
+
+function uniqueDomains(sources: Array<{ url: string | null }>) {
+  return Array.from(new Set(sources.flatMap((source) => {
+    if (!source.url) {
+      return [];
+    }
+    const domain = safeDomain(source.url);
+    return domain ? [domain] : [];
+  }))).slice(0, 12);
+}
+
+async function appendTraceEvent(
+  db: Db,
+  input: {
+    taskId: string;
+    eventType: string;
+    phase: string;
+    agentLabel?: string;
+    payloadJson?: Record<string, unknown>;
+  },
+) {
+  const [latest] = await db
+    .select({ sequenceNumber: traceEvents.sequenceNumber })
+    .from(traceEvents)
+    .where(eq(traceEvents.taskId, input.taskId))
+    .orderBy(desc(traceEvents.sequenceNumber))
+    .limit(1);
+
+  await db
+    .insert(traceEvents)
+    .values({
+      taskId: input.taskId,
+      eventType: input.eventType,
+      phase: input.phase,
+      agentLabel: input.agentLabel,
+      payloadJson: input.payloadJson ?? {},
+      sequenceNumber: (latest?.sequenceNumber ?? 0) + 1,
+    })
+    .onConflictDoNothing({
+      target: [traceEvents.taskId, traceEvents.sequenceNumber],
+    });
 }
 
 function csvEscape(value: unknown) {
