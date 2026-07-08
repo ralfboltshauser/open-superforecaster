@@ -1,0 +1,12 @@
+{
+  "mode": "dedupe",
+  "prompt": "Deduplicate rows that refer to the same real-world company.",
+  "strategy": "combine",
+  "rows": [
+    { "rowId": "a", "name": "OpenAI", "domain": "openai.com" },
+    { "rowId": "b", "name": "OpenAI Inc.", "website": "https://openai.com" },
+    { "rowId": "c", "name": "Anthropic", "domain": "anthropic.com" },
+    { "rowId": "d", "name": "Anthropic PBC", "website": "https://www.anthropic.com" },
+    { "rowId": "e", "name": "Notion", "domain": "notion.so" }
+  ]
+}

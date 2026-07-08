@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src"
+  },
+  "references": [
+    { "path": "../artifact-store" },
+    { "path": "../config" },
+    { "path": "../db" },
+    { "path": "../workflow-contracts" }
+  ],
+  "include": ["src"]
+}

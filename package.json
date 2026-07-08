@@ -1,0 +1,58 @@
+{
+  "name": "open-superforecaster",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.14",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun --cwd apps/web dev",
+    "dev:worker": "bun --cwd apps/worker dev",
+    "build": "bun --cwd apps/web build",
+    "start": "bun --cwd apps/web start",
+    "check": "bun run typecheck && bun run build",
+    "typecheck": "tsc --noEmit -p tsconfig.check.json",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down",
+    "smoke:local": "bun scripts/smoke-check.ts",
+    "workflow:samples": "bun scripts/run-sample-workflows.ts",
+    "onboarding:check": "bun scripts/onboarding-check.ts",
+    "object-storage:smoke": "bun scripts/object-storage-smoke.ts",
+    "workflow:coverage": "bun scripts/workflow-coverage.ts",
+    "duckdb:sync": "bun scripts/sync-duckdb.ts",
+    "export-local": "bun scripts/export-local.ts",
+    "cleanup-local": "bun scripts/cleanup-local.ts",
+    "reset-local": "bun scripts/reset-local.ts",
+    "clean": "rm -rf apps/web/.output apps/web/.tanstack apps/web/src/routeTree.gen.ts"
+  },
+  "dependencies": {
+    "@duckdb/node-api": "1.5.4-r.1",
+    "@tanstack/react-form": "1.33.0",
+    "@tanstack/react-query": "5.101.2",
+    "@tanstack/react-router": "1.170.17",
+    "@tanstack/react-start": "1.168.27",
+    "@tanstack/react-table": "8.21.3",
+    "drizzle-orm": "0.45.2",
+    "lucide-react": "1.23.0",
+    "postgres": "3.4.9",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "smithers-orchestrator": "0.27.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "drizzle-kit": "latest",
+    "typescript": "6.0.3",
+    "vite": "8.1.3"
+  }
+}

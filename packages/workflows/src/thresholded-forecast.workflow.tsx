@@ -1,0 +1,244 @@
+/** @jsxImportSource smithers-orchestrator */
+import { createSmithers, Parallel, Sequence, Task } from "smithers-orchestrator";
+import { z } from "zod";
+import { codexResearchAgent } from "./agents";
+
+const citedSource = z.object({
+  title: z.string().optional(),
+  url: z.string().optional(),
+  claim: z.string(),
+});
+
+const thresholdProbability = z.object({
+  threshold: z.string(),
+  probability: z.number().min(0).max(100),
+  rationale: z.string().default(""),
+});
+
+const thresholdedAttempt = z.object({
+  forecasterLabel: z.string(),
+  thresholdDirection: z.enum(["at_least", "at_most"]),
+  units: z.string().optional(),
+  probabilities: z.array(thresholdProbability),
+  rationale: z.string(),
+  monotonicityNotes: z.string(),
+  keyUncertainties: z.array(z.string()).default([]),
+  premortem: z.string().default(""),
+  wildcards: z.array(z.string()).default([]),
+  citedSources: z.array(citedSource).default([]),
+});
+
+const thresholdedAggregate = z.object({
+  forecastType: z.literal("thresholded"),
+  thresholdDirection: z.enum(["at_least", "at_most"]),
+  thresholds: z.array(z.string()),
+  units: z.string().optional(),
+  probabilities: z.array(thresholdProbability),
+  probabilityMap: z.record(z.string(), z.number()),
+  method: z.string(),
+  attemptCount: z.number().int(),
+  monotonicityRepaired: z.boolean(),
+  monotonicityNotes: z.string(),
+  rationale: z.string(),
+  componentCurves: z.array(z.object({
+    forecasterLabel: z.string(),
+    probabilities: z.array(thresholdProbability),
+  })),
+  citedSources: z.array(citedSource).default([]),
+});
+
+const { Workflow, smithers, outputs } = createSmithers({
+  thresholdedAttempt,
+  thresholdedAggregate,
+});
+
+const forecasterBriefs = [
+  {
+    id: "base-rate",
+    label: "base-rate forecaster",
+    focus: "Build a reference class and estimate the ordered threshold curve from historical frequencies.",
+  },
+  {
+    id: "inside-view",
+    label: "inside-view forecaster",
+    focus: "Estimate the threshold curve from concrete mechanisms, current evidence, capacity, incentives, and blockers.",
+  },
+  {
+    id: "skeptic",
+    label: "skeptical forecaster",
+    focus: "Stress-test the curve for impossible jumps, resolution ambiguity, and overconfident thresholds.",
+  },
+];
+
+export default smithers((ctx) => {
+  const input = (ctx.input ?? {}) as {
+    question?: unknown;
+    prompt?: unknown;
+    resolutionCriteria?: unknown;
+    background?: unknown;
+    thresholds?: unknown;
+    thresholdDirection?: unknown;
+    units?: unknown;
+  };
+  const question = String(input.question ?? input.prompt ?? "");
+  const resolutionCriteria = String(input.resolutionCriteria ?? "Resolve according to the plain-language question.");
+  const background = String(input.background ?? "");
+  const thresholds = normalizeThresholds(input.thresholds, question);
+  const thresholdDirection = normalizeDirection(input.thresholdDirection, question);
+  const units = typeof input.units === "string" ? input.units : undefined;
+  const attemptIds = forecasterBriefs.map((brief) => `attempt-${brief.id}`);
+  const attemptNeeds = Object.fromEntries(attemptIds.map((id) => [id, id]));
+  const attempts = ctx.outputs.thresholdedAttempt ?? [];
+  const componentCurves = attempts.map((attempt) => ({
+    forecasterLabel: attempt.forecasterLabel,
+    probabilities: alignCurve(attempt.probabilities ?? [], thresholds),
+  }));
+  const rawAggregate = thresholds.map((threshold) => ({
+    threshold,
+    probability: roundOne(median(componentCurves.map((curve) => probabilityForThreshold(curve.probabilities, threshold)))),
+    rationale: `Median of ${componentCurves.length} forecaster estimates for ${threshold}.`,
+  }));
+  const repairedAggregate = repairMonotonic(rawAggregate, thresholdDirection);
+  const monotonicityRepaired = rawAggregate.some((item, index) => item.probability !== repairedAggregate[index]?.probability);
+  const probabilityMap = Object.fromEntries(repairedAggregate.map((item) => [item.threshold, item.probability]));
+  const citedSources = attempts.flatMap((attempt) => attempt.citedSources ?? []);
+
+  return (
+    <Workflow name="thresholded-forecast">
+      <Sequence>
+        <Parallel maxConcurrency={3}>
+          {forecasterBriefs.map((brief) => (
+            <Task
+              key={brief.id}
+              id={`attempt-${brief.id}`}
+              output={outputs.thresholdedAttempt}
+              agent={codexResearchAgent}
+            >
+              {`You are the ${brief.label} for Open Superforecaster.
+
+Question:
+${question}
+
+Resolution criteria:
+${resolutionCriteria}
+
+Background:
+${background || "No extra background provided."}
+
+Threshold direction:
+${thresholdDirection}
+
+Units:
+${units ?? "not specified"}
+
+Thresholds, in caller-provided order. Preserve labels exactly:
+${thresholds.map((threshold, index) => `${index + 1}. ${threshold}`).join("\n")}
+
+Focus:
+${brief.focus}
+
+Return one probability for every threshold label. For at_least, probabilities must be non-increasing as thresholds become stricter. For at_most, probabilities must be non-decreasing. Include a short rationale for each threshold plus overall rationale, monotonicity notes, uncertainties, premortem, wildcards, and cited sources when available. Set forecasterLabel to "${brief.label}".`}
+            </Task>
+          ))}
+        </Parallel>
+
+        <Task id="aggregate" output={outputs.thresholdedAggregate} needs={attemptNeeds}>
+          {{
+            forecastType: "thresholded",
+            thresholdDirection,
+            thresholds,
+            units,
+            probabilities: repairedAggregate,
+            probabilityMap,
+            method: "median_threshold_curve_with_monotonic_repair_v0",
+            attemptCount: attempts.length,
+            monotonicityRepaired,
+            monotonicityNotes: monotonicityRepaired
+              ? "Median curve violated monotonicity and was repaired by one-pass clipping in caller order."
+              : "Median curve satisfied monotonicity in caller order.",
+            componentCurves,
+            citedSources,
+            rationale:
+              attempts.length === 0
+                ? "No attempts were available; this fallback should only appear in graph rendering."
+                : `Aggregated ${attempts.length} threshold curves by median per threshold, then enforced ${thresholdDirection} monotonicity.`,
+          }}
+        </Task>
+      </Sequence>
+    </Workflow>
+  );
+});
+
+function normalizeThresholds(raw: unknown, question: string) {
+  if (Array.isArray(raw)) {
+    const thresholds = raw.map((item) => String(item).trim()).filter(Boolean);
+    if (thresholds.length >= 2) {
+      return thresholds.slice(0, 50);
+    }
+  }
+  const numericMatches = [...question.matchAll(/(?:[$€£]\s*)?\b\d+(?:\.\d+)?\s*(?:k|m|b|bn|million|billion|trillion|%|percent|launches|users|usd|dollars)?\b/gi)]
+    .map((match) => match[0].trim())
+    .filter((value, index, values) => values.indexOf(value) === index);
+  if (numericMatches.length >= 2) {
+    return numericMatches.slice(0, 50);
+  }
+  const years = [...question.matchAll(/\b20\d{2}\b/g)].map((match) => match[0]);
+  if (years.length >= 2) {
+    return [...new Set(years)].slice(0, 50);
+  }
+  return ["low threshold", "high threshold"];
+}
+
+function normalizeDirection(raw: unknown, question: string): "at_least" | "at_most" {
+  const value = String(raw ?? "").trim();
+  if (value === "at_most") {
+    return "at_most";
+  }
+  if (/\b(at most|no more than|under|below|before)\b/i.test(question)) {
+    return "at_most";
+  }
+  return "at_least";
+}
+
+function alignCurve(curve: Array<z.infer<typeof thresholdProbability>>, thresholds: string[]) {
+  return thresholds.map((threshold) => {
+    const match = curve.find((item) => item.threshold === threshold);
+    return {
+      threshold,
+      probability: match?.probability ?? 50,
+      rationale: match?.rationale ?? "Missing threshold estimate filled with neutral fallback.",
+    };
+  });
+}
+
+function probabilityForThreshold(curve: Array<z.infer<typeof thresholdProbability>>, threshold: string) {
+  return curve.find((item) => item.threshold === threshold)?.probability ?? 50;
+}
+
+function repairMonotonic(curve: Array<z.infer<typeof thresholdProbability>>, direction: "at_least" | "at_most") {
+  const repaired = curve.map((item) => ({ ...item }));
+  for (let index = 1; index < repaired.length; index += 1) {
+    const previous = repaired[index - 1];
+    const current = repaired[index];
+    if (direction === "at_least" && current.probability > previous.probability) {
+      current.probability = previous.probability;
+    }
+    if (direction === "at_most" && current.probability < previous.probability) {
+      current.probability = previous.probability;
+    }
+  }
+  return repaired;
+}
+
+function median(values: number[]) {
+  if (values.length === 0) {
+    return 50;
+  }
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+}
+
+function roundOne(value: number) {
+  return Math.round(value * 10) / 10;
+}

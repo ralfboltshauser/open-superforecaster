@@ -1,0 +1,16 @@
+{
+  "mode": "merge",
+  "prompt": "Match CRM company rows to vendor records by real-world company identity.",
+  "leftKey": "name",
+  "rightKey": "name",
+  "leftRows": [
+    { "rowId": "crm-1", "name": "OpenAI", "website": "openai.com" },
+    { "rowId": "crm-2", "name": "Anthropic", "website": "anthropic.com" },
+    { "rowId": "crm-3", "name": "Notion Labs", "website": "notion.so" }
+  ],
+  "rightRows": [
+    { "rowId": "vendor-1", "name": "OpenAI Inc.", "domain": "openai.com" },
+    { "rowId": "vendor-2", "name": "Anthropic PBC", "domain": "anthropic.com" },
+    { "rowId": "vendor-3", "name": "Notion", "domain": "notion.so" }
+  ]
+}

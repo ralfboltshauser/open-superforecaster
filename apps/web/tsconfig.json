@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": ".",
+    "types": ["vite/client", "bun"]
+  },
+  "references": [
+    { "path": "../../packages/config" },
+    { "path": "../../packages/db" },
+    { "path": "../../packages/workflow-contracts" },
+    { "path": "../../packages/backend" },
+    { "path": "../../packages/ui" }
+  ],
+  "include": ["src", "vite.config.ts"]
+}

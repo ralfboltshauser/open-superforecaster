@@ -1,0 +1,14 @@
+node_modules
+.git
+.env
+.output
+.tanstack
+data
+.smithers/runs
+.smithers/executions
+.smithers/state
+.smithers/tmp
+*.log
+smithers.db
+smithers.db-shm
+smithers.db-wal

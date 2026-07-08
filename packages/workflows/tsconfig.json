@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "jsxImportSource": "smithers-orchestrator"
+  },
+  "references": [
+    { "path": "../workflow-contracts" }
+  ],
+  "include": ["src"]
+}

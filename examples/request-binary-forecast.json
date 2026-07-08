@@ -1,0 +1,5 @@
+{
+  "mode": "auto",
+  "prompt": "Will Apple release a foldable iPhone before January 1, 2028?",
+  "resolutionCriteria": "Resolve true if Apple publicly sells an iPhone model with a foldable display before 2028-01-01."
+}

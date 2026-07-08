@@ -1,0 +1,24 @@
+{
+  "mode": "rank",
+  "prompt": "Rank these companies by likely near-term need for enterprise AI research automation. Higher score means stronger fit.",
+  "rows": [
+    {
+      "rowId": "acme-industrial",
+      "name": "Acme Industrial",
+      "segment": "manufacturing",
+      "signals": "Large compliance research team, slow manual supplier due diligence, new AI transformation budget"
+    },
+    {
+      "rowId": "northstar-legal",
+      "name": "Northstar Legal",
+      "segment": "legal services",
+      "signals": "Partners already use generic chatbots, heavy document review load, budget owner unclear"
+    },
+    {
+      "rowId": "lakeview-cafe",
+      "name": "Lakeview Cafe",
+      "segment": "local hospitality",
+      "signals": "Small team, simple operations, low research volume"
+    }
+  ]
+}

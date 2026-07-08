@@ -1,0 +1,18 @@
+{
+  "mode": "agent_map",
+  "prompt": "For each company row, summarize the most likely operational AI use case and assign one concise label.",
+  "rows": [
+    {
+      "rowId": "openai",
+      "name": "OpenAI",
+      "domain": "openai.com",
+      "notes": "AI lab and product company serving developers and enterprises"
+    },
+    {
+      "rowId": "notion",
+      "name": "Notion",
+      "domain": "notion.so",
+      "notes": "Productivity workspace for docs, projects, wiki, and team knowledge"
+    }
+  ]
+}

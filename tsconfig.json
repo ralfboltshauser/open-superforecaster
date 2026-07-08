@@ -1,0 +1,14 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/config" },
+    { "path": "./packages/workflow-contracts" },
+    { "path": "./packages/db" },
+    { "path": "./packages/artifact-store" },
+    { "path": "./packages/evals" },
+    { "path": "./packages/backend" },
+    { "path": "./packages/workflows" },
+    { "path": "./apps/worker" },
+    { "path": "./apps/web" }
+  ]
+}

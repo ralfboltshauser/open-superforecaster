@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "ignoreDeprecations": "6.0",
+    "jsx": "react-jsx",
+    "strict": true,
+    "strictNullChecks": true,
+    "skipLibCheck": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "types": ["bun", "node"],
+    "baseUrl": ".",
+    "paths": {
+      "@open-superforecaster/backend": ["packages/backend/src/index.ts"],
+      "@open-superforecaster/config": ["packages/config/src/index.ts"],
+      "@open-superforecaster/db": ["packages/db/src/index.ts"],
+      "@open-superforecaster/workflow-contracts": ["packages/workflow-contracts/src/index.ts"],
+      "@open-superforecaster/artifact-store": ["packages/artifact-store/src/index.ts"],
+      "@open-superforecaster/evals": ["packages/evals/src/index.ts"],
+      "@open-superforecaster/ui": ["packages/ui/src/index.ts"],
+      "@open-superforecaster/workflows": ["packages/workflows/src/index.ts"]
+    }
+  }
+}

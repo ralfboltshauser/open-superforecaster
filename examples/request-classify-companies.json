@@ -1,0 +1,9 @@
+{
+  "mode": "classify",
+  "prompt": "Classify each row as ai_lab, productivity_software, infrastructure, or other. Include a short reason.",
+  "rows": [
+    { "rowId": "row-1", "name": "OpenAI", "domain": "openai.com", "notes": "Frontier AI models and products" },
+    { "rowId": "row-2", "name": "Notion", "domain": "notion.so", "notes": "Workspace documents, databases, and collaboration" },
+    { "rowId": "row-3", "name": "Cloudflare", "domain": "cloudflare.com", "notes": "Network, security, and edge compute platform" }
+  ]
+}

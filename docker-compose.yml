@@ -1,0 +1,220 @@
+services:
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    command: bun run db:migrate
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://open_superforecaster:open_superforecaster@postgres:5432/open_superforecaster
+    volumes:
+      - .:/app
+      - bun-cache:/root/.bun
+      - app-node-modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    command: bun --cwd apps/web dev
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: 3000
+      DATABASE_URL: postgres://open_superforecaster:open_superforecaster@postgres:5432/open_superforecaster
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: http://minio:9000
+      DUCKDB_PATH: /data/duckdb/open-superforecaster.duckdb
+      ARTIFACTS_DIR: /data/artifacts
+      EXPORTS_DIR: /data/exports
+      EVALS_DIR: /data/evals
+      SMITHERS_STATE_DIR: /data/smithers
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - .:/app
+      - bun-cache:/root/.bun
+      - app-node-modules:/app/node_modules
+      - ./data/duckdb:/data/duckdb
+      - ./data/artifacts:/data/artifacts
+      - ./data/exports:/data/exports
+      - ./data/evals:/data/evals
+      - ./data/smithers:/data/smithers
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  smithers:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    command: bun --cwd apps/worker start
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_HOST: 0.0.0.0
+      WORKER_PORT: 3010
+      DATABASE_URL: postgres://open_superforecaster:open_superforecaster@postgres:5432/open_superforecaster
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: http://minio:9000
+      DUCKDB_PATH: /data/duckdb/open-superforecaster.duckdb
+      ARTIFACTS_DIR: /data/artifacts
+      EXPORTS_DIR: /data/exports
+      EVALS_DIR: /data/evals
+      SMITHERS_STATE_DIR: /data/smithers
+      CODEX_HOME: ${CODEX_CONTAINER_HOME:-/home/bun/.codex}
+    ports:
+      - "127.0.0.1:3010:3010"
+    volumes:
+      - .:/app
+      - bun-cache:/root/.bun
+      - app-node-modules:/app/node_modules
+      - ./data/duckdb:/data/duckdb
+      - ./data/artifacts:/data/artifacts
+      - ./data/exports:/data/exports
+      - ./data/evals:/data/evals
+      - ./data/smithers:/data/smithers
+      - ${CODEX_HOST_HOME:-${HOME}/.codex}:${CODEX_CONTAINER_HOME:-/home/bun/.codex}:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3010/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: open_superforecaster
+      POSTGRES_PASSWORD: open_superforecaster
+      POSTGRES_DB: open_superforecaster
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U open_superforecaster -d open_superforecaster"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: open_superforecaster
+      MINIO_ROOT_PASSWORD: open-superforecaster-local-dev
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - ./data/minio:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: open_superforecaster
+      MINIO_ROOT_PASSWORD: open-superforecaster-local-dev
+      MINIO_BUCKET_ARTIFACTS: open-superforecaster-artifacts
+      MINIO_BUCKET_EVALS: open-superforecaster-evals
+      MINIO_BUCKET_EXPORTS: open-superforecaster-exports
+    entrypoint: ["/bin/sh", "-lc"]
+    command:
+      - |
+        set -eu
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$MINIO_BUCKET_ARTIFACTS"
+        mc mb --ignore-existing "local/$$MINIO_BUCKET_EVALS"
+        mc mb --ignore-existing "local/$$MINIO_BUCKET_EXPORTS"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.145.0
+    command: ["--config=/etc/otel-collector.yml"]
+    volumes:
+      - ./docker/otel/otel-collector.yml:/etc/otel-collector.yml:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    depends_on:
+      - tempo
+      - prometheus
+
+  prometheus:
+    image: prom/prometheus:v3.9.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  tempo:
+    image: grafana/tempo:2.9.0
+    command: ["-config.file=/etc/tempo.yml"]
+    volumes:
+      - ./docker/otel/tempo.yml:/etc/tempo.yml:ro
+    ports:
+      - "127.0.0.1:3200:3200"
+
+  grafana:
+    image: grafana/grafana:13.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: open-superforecaster
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - tempo
+
+volumes:
+  bun-cache:
+  app-node-modules:
