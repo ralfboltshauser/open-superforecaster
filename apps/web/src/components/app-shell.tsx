@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
 import { BarChart3, FlaskConical, KeyRound, MessageSquarePlus, Workflow } from "lucide-react"
 
+import { LogoMark } from "@/components/logo-mark"
 import {
   Sidebar,
   SidebarContent,
@@ -51,12 +52,10 @@ export function AppShell({ children, runs = [] }: { children: React.ReactNode; r
       <Sidebar collapsible="icon" className="border-sidebar-border bg-sidebar/95">
         <SidebarHeader className="border-b border-sidebar-border p-3">
           <Link className="flex min-w-0 items-center gap-2 rounded-md px-1 py-2" href="/">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-primary/30 bg-primary/10 text-xs font-semibold text-primary">
-              △
-            </span>
+            <LogoMark className="size-8 text-primary" />
             <span className="min-w-0">
-              <span className="block truncate text-sm font-medium tracking-[0.14em] text-primary/90">forecast</span>
-              <span className="block truncate text-xs text-muted-foreground">local research lab</span>
+              <span className="block truncate text-sm font-medium tracking-[0.08em] text-primary/90">Open Superforecaster</span>
+              <span className="block truncate text-xs text-muted-foreground">local forecast lab</span>
             </span>
           </Link>
         </SidebarHeader>

@@ -16,6 +16,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Open Superforecaster",
   description: "A local forecast-first research workspace.",
+  icons: {
+    icon: "/logo.svg",
+  },
 };
 
 export default function RootLayout({
