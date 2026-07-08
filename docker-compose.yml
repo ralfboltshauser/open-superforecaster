@@ -28,6 +28,7 @@ services:
     environment:
       APP_HOST: 0.0.0.0
       APP_PORT: 3000
+      VITE_USE_POLLING: "true"
       DATABASE_URL: postgres://open_superforecaster:open_superforecaster@postgres:5432/open_superforecaster
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: http://minio:9000
@@ -36,6 +37,7 @@ services:
       EXPORTS_DIR: /data/exports
       EVALS_DIR: /data/evals
       SMITHERS_STATE_DIR: /data/smithers
+      CODEX_HOME: ${CODEX_CONTAINER_HOME:-/home/bun/.codex}
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
@@ -47,6 +49,7 @@ services:
       - ./data/exports:/data/exports
       - ./data/evals:/data/evals
       - ./data/smithers:/data/smithers
+      - ${CODEX_HOST_HOME:-${HOME}/.codex}:${CODEX_CONTAINER_HOME:-/home/bun/.codex}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -95,7 +98,7 @@ services:
       - ./data/exports:/data/exports
       - ./data/evals:/data/evals
       - ./data/smithers:/data/smithers
-      - ${CODEX_HOST_HOME:-${HOME}/.codex}:${CODEX_CONTAINER_HOME:-/home/bun/.codex}:ro
+      - ${CODEX_HOST_HOME:-${HOME}/.codex}:${CODEX_CONTAINER_HOME:-/home/bun/.codex}
     depends_on:
       migrate:
         condition: service_completed_successfully
