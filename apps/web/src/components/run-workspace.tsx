@@ -321,11 +321,13 @@ function buildRunDetail(run: JsonRecord | null) {
 function RunStreamPanel({ streamState }: { streamState: RunStreamState }) {
   const progress = streamState.progress
   const percent = progress && progress.total > 0 ? Math.round(((progress.completed + progress.failed) / progress.total) * 100) : 0
+  const streamLabel =
+    percent >= 100 ? "Run events complete" : streamState.connected ? "Receiving run events" : "Waiting for run events"
   return (
     <Card size="sm" className="min-w-72 bg-card/60">
       <CardContent className="space-y-2">
         <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>{streamState.connected ? "Receiving run events" : "Waiting for run events"}</span>
+          <span>{streamLabel}</span>
           <span>{percent}%</span>
         </div>
         <Progress value={percent} />
@@ -391,19 +393,25 @@ function ResearchNarrativePanel({
 }
 
 function ForecastResultPanel({ output, task, expanded = false }: { output: JsonRecord | null; task: JsonRecord; expanded?: boolean }) {
+  const dateDistribution = parseRecord(readString(output, "date_distribution") ?? output?.dateDistribution)
   const target = readString(output, "targetVariable") ?? readString(output, "metricName") ?? "forecast"
-  const median = readString(output, "median") ?? readString(output, "parity_date") ?? readString(output, "answer")
+  const median =
+    readString(output, "median") ??
+    readString(output, "parity_date") ??
+    readString(output, "target_date") ??
+    readString(dateDistribution, "p50") ??
+    readString(output, "answer")
   const probability = readNumber(output, "probability")
   const rationale = readString(output, "rationale") ?? readString(output, "summary") ?? readString(output, "answer")
-  const p10 = readString(output, "p10") ?? readString(output, "lowerBound")
-  const p25 = readString(output, "p25")
-  const p75 = readString(output, "p75")
-  const p90 = readString(output, "p90") ?? readString(output, "upperBound")
+  const p10 = readString(output, "p10") ?? readString(dateDistribution, "p10") ?? readString(output, "lowerBound")
+  const p25 = readString(output, "p25") ?? readString(dateDistribution, "p25")
+  const p75 = readString(output, "p75") ?? readString(dateDistribution, "p75")
+  const p90 = readString(output, "p90") ?? readString(dateDistribution, "p90") ?? readString(output, "upperBound")
 
   return (
     <Card className="fs-artifact">
       <CardHeader>
-        <CardTitle className="text-xl leading-tight text-forecast md:text-2xl">{questionTitle(task)}</CardTitle>
+        <CardTitle className="text-lg leading-tight text-forecast md:text-xl">{questionTitle(task)}</CardTitle>
         <CardDescription className="text-primary">
           {target} {median ? <span className="font-medium text-success">{median}</span> : null}
         </CardDescription>
@@ -674,12 +682,27 @@ function TraceEvents({ events }: { events: JsonRecord[] }) {
 
 function firstAggregateOutput(aggregates: JsonRecord[]) {
   for (const aggregate of aggregates) {
-    const output = aggregate.outputJson ?? aggregate.output
+    const output = aggregate.rawAggregate ?? aggregate.outputJson ?? aggregate.output
     if (isRecord(output)) {
       return output
     }
   }
   return null
+}
+
+function parseRecord(value: unknown) {
+  if (isRecord(value)) {
+    return value
+  }
+  if (typeof value !== "string") {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(value)
+    return isRecord(parsed) ? parsed : null
+  } catch {
+    return null
+  }
 }
 
 function firstArtifactOutput(artifacts: JsonRecord[]) {

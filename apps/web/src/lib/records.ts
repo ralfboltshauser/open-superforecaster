@@ -61,10 +61,12 @@ export function runTitle(run: JsonRecord) {
 
 export function questionTitle(task: JsonRecord) {
   const input = isRecord(task.input) ? task.input : {}
+  const config = isRecord(task.configJson) ? task.configJson : {}
   const question =
     readString(input, "question") ??
     readString(input, "prompt") ??
     readString(input, "topic") ??
+    readString(config, "prompt") ??
     String(task.label ?? "")
   return truncate(question || "Forecast run", 180)
 }
