@@ -1,30 +1,19 @@
 import {
-  backfillBinaryForecastLedgers,
-  backfillTableTaskRows,
   createBootstrapArtifact,
   createQueuedWorkflowTask,
   launchSmithersDetached,
-  listRecentTasks,
   markTaskFailed,
   markTaskRunning,
   markTaskRowsRunning,
-  reconcileRunningTasks,
   seedTaskRows,
 } from "@open-superforecaster/backend";
 
 import { getServerContext } from "@/lib/server-db";
+import { listRecentRunsForServer } from "@/lib/server-runs";
 import { createRunPlan } from "./run-request";
 
 export async function GET() {
-  const { db, root, sql } = getServerContext();
-  try {
-    await reconcileRunningTasks(db, root);
-    await backfillBinaryForecastLedgers(db, root);
-    await backfillTableTaskRows(db);
-    return Response.json({ runs: await listRecentTasks(db) });
-  } finally {
-    await sql.end();
-  }
+  return Response.json({ runs: await listRecentRunsForServer() });
 }
 
 export async function POST(request: Request) {
