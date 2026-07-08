@@ -23,7 +23,7 @@ import { Progress } from "@/components/ui/progress"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
-import { formatModeLabel, questionTitle, readNumber, readString, truncate, type JsonRecord } from "@/lib/records"
+import { formatModeLabel, questionTitle, readArray, readNumber, readString, truncate, type JsonRecord } from "@/lib/records"
 
 export function RunStreamPanel({ streamState }: { streamState: RunStreamState }) {
   const progress = streamState.progress
@@ -149,6 +149,7 @@ export function ResearchNarrativePanel({
 export function ForecastResultPanel({ output, task, expanded = false }: { output: JsonRecord | null; task: JsonRecord; expanded?: boolean }) {
   const dateDistribution = parseRecord(readString(output, "date_distribution") ?? output?.dateDistribution)
   const target = readString(output, "targetVariable") ?? readString(output, "metricName") ?? "forecast"
+  const forecastType = readString(output, "forecastType") ?? readString(output, "forecast_type")
   const median =
     readString(output, "median") ??
     readString(output, "parity_date") ??
@@ -162,6 +163,20 @@ export function ForecastResultPanel({ output, task, expanded = false }: { output
   const p75 = readString(output, "p75") ?? readString(dateDistribution, "p75") ?? readString(output, "upperBound")
   const p90 = readString(output, "p90") ?? readString(dateDistribution, "p90") ?? readString(output, "upperBound")
   const displayedP75 = p75 ?? p90
+  const isBinaryForecast = forecastType === "binary" || (typeof probability === "number" && !median)
+  const probabilityLabel = typeof probability === "number" ? formatProbabilityPercent(probability) : null
+  const componentProbabilities = readArray(output, "componentProbabilities")
+    .filter((component): component is JsonRecord => Boolean(component) && typeof component === "object" && !Array.isArray(component))
+    .flatMap((component, index) => {
+      const componentProbability = readNumber(component, "probability")
+      if (componentProbability === null) {
+        return []
+      }
+      return [{
+        label: readString(component, "forecasterLabel") ?? readString(component, "forecaster_label") ?? `forecaster ${index + 1}`,
+        probability: componentProbability,
+      }]
+    })
 
   return (
     <Card className="fs-artifact">
@@ -183,19 +198,34 @@ export function ForecastResultPanel({ output, task, expanded = false }: { output
             <div>
               <p className="text-sm text-primary">{target}</p>
               <p className="mt-2 text-3xl font-medium text-success md:text-5xl">
-                {median ?? (typeof probability === "number" ? `${Math.round(probability * 100)}%` : "Forecast ready")}
+                {median ?? probabilityLabel ?? "Forecast ready"}
               </p>
             </div>
-            <div className="flex flex-col gap-3">
-              <div className="mx-auto h-0.5 w-2/3 bg-border" />
-              <div className="grid gap-3 md:grid-cols-5">
-                <ForecastQuantile label="10% by" value={p10 ?? "not set"} />
-                <ForecastQuantile label="25% by" value={p25 ?? "not set"} />
-                <ForecastQuantile label="median" value={median ?? "not set"} active />
-                <ForecastQuantile label="75% by" value={displayedP75 ?? "not set"} />
-                <ForecastQuantile label="90% by" value={p90 ?? "not set"} />
+            {isBinaryForecast ? (
+              componentProbabilities.length ? (
+                <div className="grid gap-3 md:grid-cols-3">
+                  {componentProbabilities.map((component) => (
+                    <ForecastQuantile
+                      active={component.probability === probability}
+                      key={component.label}
+                      label={component.label}
+                      value={formatProbabilityPercent(component.probability)}
+                    />
+                  ))}
+                </div>
+              ) : null
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="mx-auto h-0.5 w-2/3 bg-border" />
+                <div className="grid gap-3 md:grid-cols-5">
+                  <ForecastQuantile label="10% by" value={p10 ?? "not set"} />
+                  <ForecastQuantile label="25% by" value={p25 ?? "not set"} />
+                  <ForecastQuantile label="median" value={median ?? "not set"} active />
+                  <ForecastQuantile label="75% by" value={displayedP75 ?? "not set"} />
+                  <ForecastQuantile label="90% by" value={p90 ?? "not set"} />
+                </div>
               </div>
-            </div>
+            )}
             <div className="flex flex-col gap-3 text-sm leading-7 text-muted-foreground">
               <p>
                 <span className="font-medium text-primary">rationale: </span>
@@ -211,6 +241,12 @@ export function ForecastResultPanel({ output, task, expanded = false }: { output
       </CardContent>
     </Card>
   )
+}
+
+function formatProbabilityPercent(probability: number) {
+  const percent = probability >= 0 && probability <= 1 ? probability * 100 : probability
+  const rounded = Math.round(percent * 10) / 10
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}%`
 }
 
 function ForecastQuantile({ label, value, active = false }: { label: string; value: string; active?: boolean }) {
