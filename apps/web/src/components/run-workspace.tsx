@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 
+import { DecisionBriefPanel } from "@/components/run-workspace/decision-brief"
 import {
   EvidenceStrip,
   ForecastLedger,
@@ -59,13 +60,26 @@ export function RunWorkspace({ taskId }: { taskId: string }) {
             </div>
 
             <TabsContent value="overview" className="mt-6">
-              <div className="grid gap-4 xl:grid-cols-[minmax(360px,0.52fr)_minmax(0,0.48fr)]">
-                <div className="grid gap-6">
-                  <ResearchNarrativePanel task={detail.task} sources={detail.sources} streamState={streamState} traceEvents={detail.traceEvents} />
-                  <ResearchTeamPanel attempts={detail.attempts} traceEvents={detail.traceEvents} streamState={streamState} />
-                  <SourceMap sources={detail.sources} />
+              <div className="grid gap-6">
+                <DecisionBriefPanel
+                  task={detail.task}
+                  output={detail.forecastOutput}
+                  sources={detail.sources}
+                  attempts={detail.attempts}
+                  aggregates={detail.aggregates}
+                  scores={detail.scores}
+                  taskRows={detail.taskRows}
+                  traceEvents={detail.traceEvents}
+                  streamState={streamState}
+                />
+                <div className="grid gap-4 xl:grid-cols-[minmax(360px,0.52fr)_minmax(0,0.48fr)]">
+                  <div className="grid gap-6">
+                    <ResearchNarrativePanel task={detail.task} sources={detail.sources} streamState={streamState} traceEvents={detail.traceEvents} />
+                    <ResearchTeamPanel attempts={detail.attempts} traceEvents={detail.traceEvents} streamState={streamState} />
+                    <SourceMap sources={detail.sources} />
+                  </div>
+                  <ForecastResultPanel output={detail.forecastOutput} task={detail.task} />
                 </div>
-                <ForecastResultPanel output={detail.forecastOutput} task={detail.task} />
               </div>
             </TabsContent>
 
