@@ -1,35 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
-
 import { AppShell } from "@/components/app-shell"
 import { ForecastComposer } from "@/components/forecast-composer"
 import { SourceGraphBackground } from "@/components/source-graph-background"
 import { Button } from "@/components/ui/button"
-import type { JsonRecord } from "@/lib/records"
+import { useRuns } from "@/hooks/use-runs"
 
 export function HomeDashboard() {
-  const [runs, setRuns] = useState<JsonRecord[]>([])
-
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      const response = await fetch("/api/runs")
-      if (!response.ok) {
-        return
-      }
-      const payload = (await response.json()) as { runs?: JsonRecord[] }
-      if (!cancelled) {
-        setRuns(Array.isArray(payload.runs) ? payload.runs : [])
-      }
-    }
-    void load()
-    const interval = window.setInterval(() => void load(), 5000)
-    return () => {
-      cancelled = true
-      window.clearInterval(interval)
-    }
-  }, [])
+  const { runs } = useRuns()
 
   return (
     <AppShell runs={runs}>
@@ -46,8 +24,12 @@ export function HomeDashboard() {
             </p>
             <ForecastComposer className="mx-auto mt-10 max-w-3xl text-left" />
             <div className="mt-6 flex flex-wrap justify-center gap-2">
-              <Button type="button" variant="outline" size="sm">What can I forecast?</Button>
-              <Button type="button" variant="ghost" size="sm">Browse recent runs</Button>
+              <Button type="button" variant="outline" size="sm">
+                What can I forecast?
+              </Button>
+              <Button type="button" variant="ghost" size="sm">
+                Browse recent runs
+              </Button>
             </div>
           </div>
           <footer className="absolute bottom-5 left-5 right-5 z-10 flex flex-wrap justify-center gap-x-5 gap-y-2 text-xs text-muted-foreground">

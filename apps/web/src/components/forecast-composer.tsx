@@ -6,6 +6,7 @@ import { Loader2, Paperclip, SendHorizonal } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { postJson } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
 
 const DEFAULT_PROMPT =
@@ -25,14 +26,9 @@ export function ForecastComposer({ className, compact = false }: { className?: s
     setSubmitting(true)
     setError(null)
     try {
-      const response = await fetch("/api/runs", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: trimmed }),
-      })
-      const payload = (await response.json().catch(() => null)) as { taskId?: string; error?: string } | null
-      if (!response.ok || !payload?.taskId) {
-        throw new Error(payload?.error ?? "Could not start the forecast run.")
+      const payload = await postJson<{ taskId?: string }>("/api/runs", { prompt: trimmed })
+      if (!payload.taskId) {
+        throw new Error("Could not start the forecast run.")
       }
       router.push(`/runs/${payload.taskId}`)
     } catch (caught) {
@@ -56,11 +52,10 @@ export function ForecastComposer({ className, compact = false }: { className?: s
           }}
           className={cn(
             "max-h-52 min-h-24 resize-none border-0 bg-transparent text-sm leading-6 shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 md:text-base",
-            compact && "min-h-16 text-sm"
+            compact && "min-h-16 text-sm",
           )}
           aria-label="Forecast prompt"
           placeholder="Ask a forecasting or research question"
-          suppressHydrationWarning
         />
         <div className="flex items-center justify-between gap-3 border-t border-border/70 px-1 pt-2">
           <Button type="button" variant="ghost" size="icon-sm" aria-label="Attach context">

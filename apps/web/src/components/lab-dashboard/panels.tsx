@@ -1,0 +1,191 @@
+"use client"
+
+import Link from "next/link"
+import type { LucideIcon } from "lucide-react"
+import { Activity, BarChart3, Database, FlaskConical, Play, Server, ShieldCheck, Wrench } from "lucide-react"
+
+import type { BenchmarkMode } from "@/components/lab-dashboard/use-lab-dashboard"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Progress } from "@/components/ui/progress"
+import { Separator } from "@/components/ui/separator"
+import { formatModeLabel, runTitle, statusTone, type JsonRecord } from "@/lib/records"
+
+type DiagnosticCounts = {
+  rows: Array<{ name: string; ok: boolean }>
+  total: number
+  ok: number
+}
+
+export function LabMetricGrid({
+  benchmarkCount,
+  diagnosticCounts,
+  healthStatus,
+  pendingForecastCount,
+}: {
+  benchmarkCount: number
+  diagnosticCounts: DiagnosticCounts
+  healthStatus: unknown
+  pendingForecastCount: unknown
+}) {
+  return (
+    <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <MetricCard icon={Server} label="System" value={String(healthStatus ?? "unknown")} />
+      <MetricCard icon={Activity} label="Diagnostics" value={`${diagnosticCounts.ok}/${diagnosticCounts.total} ok`} />
+      <MetricCard icon={BarChart3} label="Benchmarks" value={String(benchmarkCount)} />
+      <MetricCard icon={ShieldCheck} label="Pending resolutions" value={String(pendingForecastCount ?? 0)} />
+    </section>
+  )
+}
+
+export function WorkflowLauncher({
+  busy,
+  importBtf2,
+  launchBenchmark,
+}: {
+  busy: string | null
+  importBtf2: () => Promise<void>
+  launchBenchmark: (mode: BenchmarkMode) => Promise<void>
+}) {
+  return (
+    <Card id="workflows">
+      <CardHeader>
+        <CardTitle>Workflow launcher</CardTitle>
+        <CardDescription>Start smoke checks without leaving the dashboard.</CardDescription>
+        <CardAction>
+          <FlaskConical className="text-primary" />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="grid gap-3 md:grid-cols-3">
+        <Button type="button" variant="outline" onClick={() => void launchBenchmark("fixed_evidence")} disabled={busy !== null}>
+          <Play data-icon="inline-start" />
+          Fixed evidence
+        </Button>
+        <Button type="button" variant="outline" onClick={() => void launchBenchmark("agentic_pastcasting_smoke")} disabled={busy !== null}>
+          <Play data-icon="inline-start" />
+          Live web smoke
+        </Button>
+        <Button type="button" variant="secondary" onClick={() => void importBtf2()} disabled={busy !== null}>
+          <Database data-icon="inline-start" />
+          Import BTF-2
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+export function RecentRunsCard({ runs }: { runs: JsonRecord[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Recent runs</CardTitle>
+        <CardDescription>{runs.length} runs in the local ledger</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {runs.slice(0, 8).map((run) => (
+          <Link
+            className="grid gap-2 rounded-lg border p-3 text-sm transition-colors hover:bg-muted/50 md:grid-cols-[1fr_auto]"
+            href={`/runs/${String(run.id ?? "")}`}
+            key={String(run.id ?? runTitle(run))}
+          >
+            <span className="min-w-0">
+              <span className="block truncate font-medium">{runTitle(run)}</span>
+              <span className="block truncate text-xs text-muted-foreground">{formatModeLabel(run.operationSubmode ?? run.operationMode)}</span>
+            </span>
+            <Badge variant="secondary" className={statusTone(run.status)}>
+              {String(run.status ?? "queued")}
+            </Badge>
+          </Link>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+export function DiagnosticsCard({ diagnosticCounts }: { diagnosticCounts: DiagnosticCounts }) {
+  return (
+    <Card id="diagnostics">
+      <CardHeader>
+        <CardTitle>Diagnostics</CardTitle>
+        <CardDescription>Backend dependencies and local workflow prerequisites.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <Progress value={diagnosticCounts.total ? Math.round((diagnosticCounts.ok / diagnosticCounts.total) * 100) : 0} />
+        <div className="flex flex-col gap-2">
+          {diagnosticCounts.rows.slice(0, 8).map((row) => (
+            <div className="flex items-center justify-between gap-3 text-sm" key={row.name}>
+              <span className="truncate">{row.name}</span>
+              <Badge variant={row.ok ? "outline" : "destructive"}>{row.ok ? "ok" : "check"}</Badge>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+export function BenchmarksCard({ benchmarks }: { benchmarks: { benchmarkRuns: JsonRecord[]; benchmarkSuites: JsonRecord[] } }) {
+  return (
+    <Card id="benchmarks">
+      <CardHeader>
+        <CardTitle>Benchmarks</CardTitle>
+        <CardDescription>{benchmarks.benchmarkSuites.length} suites · {benchmarks.benchmarkRuns.length} runs</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {benchmarks.benchmarkRuns.slice(0, 6).map((run) => (
+          <div className="rounded-md border p-3 text-sm" key={String(run.id ?? run.label)}>
+            <p className="truncate font-medium">{String(run.experimentLabel ?? run.evalMode ?? "benchmark")}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{String(run.status ?? "unknown")}</p>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+export function MaintenanceCard({
+  actions,
+  busy,
+  runMaintenance,
+}: {
+  actions: string[]
+  busy: string | null
+  runMaintenance: (action: string) => Promise<void>
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Maintenance</CardTitle>
+        <CardDescription>Run local cleanup and repair jobs.</CardDescription>
+        <CardAction>
+          <Wrench className="text-primary" />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        {actions.slice(0, 6).map((action) => (
+          <Button className="w-full justify-start" disabled={busy !== null} key={action} onClick={() => void runMaintenance(action)} type="button" variant="outline">
+            <Wrench data-icon="inline-start" />
+            {action}
+          </Button>
+        ))}
+        <Separator />
+        <p className="text-xs text-muted-foreground">Jobs are written to the local maintenance ledger.</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+function MetricCard({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+  return (
+    <Card size="sm">
+      <CardContent className="flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="mt-2 text-2xl font-medium">{value}</p>
+        </div>
+        <Icon className="text-primary" />
+      </CardContent>
+    </Card>
+  )
+}
