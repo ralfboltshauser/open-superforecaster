@@ -28,15 +28,10 @@
     "export-local": "bun scripts/export-local.ts",
     "cleanup-local": "bun scripts/cleanup-local.ts",
     "reset-local": "bun scripts/reset-local.ts",
-    "clean": "rm -rf apps/web/.output apps/web/.tanstack apps/web/src/routeTree.gen.ts"
+    "clean": "rm -rf apps/web/.next"
   },
   "dependencies": {
     "@duckdb/node-api": "1.5.4-r.1",
-    "@tanstack/react-form": "1.33.0",
-    "@tanstack/react-query": "5.101.2",
-    "@tanstack/react-router": "1.170.17",
-    "@tanstack/react-start": "1.168.27",
-    "@tanstack/react-table": "8.21.3",
     "drizzle-orm": "0.45.2",
     "lucide-react": "1.23.0",
     "postgres": "3.4.9",
@@ -50,9 +45,7 @@
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "@vitejs/plugin-react": "latest",
     "drizzle-kit": "latest",
-    "typescript": "6.0.3",
-    "vite": "8.1.3"
+    "typescript": "6.0.3"
   }
 }

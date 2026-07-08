@@ -11,7 +11,7 @@ forecasts, and benchmark evidence.
 
 ## Milestone Status
 
-- Phase 0 complete: repo/runtime skeleton, TanStack Start shell, Bun worker,
+- Phase 0 complete: repo/runtime skeleton, local web shell, Bun worker,
   Docker Compose, Codex auth mount contract, persistent Smithers/Postgres/MinIO
   data mounts, OTEL stack configuration, role-aware Codex health checks, and
   Docker image installation of the scoped `@openai/codex` CLI for Smithers
@@ -22,9 +22,9 @@ forecasts, and benchmark evidence.
 - Run detail inspection complete for v1: each task has a local detail route and
   API response that surfaces persisted artifact rows, source-bank entries,
   forecast attempts, aggregates, scores, benchmark case results, recent trace
-  events, and trace-bundle export links. Artifact rows render through TanStack
-  Table with stable metadata/output columns, compact nested-value summaries, and
-  raw-row disclosure for deeper inspection.
+  events, and trace-bundle export links. Artifact rows render through the Next
+  app workspace with stable metadata/output summaries and raw artifact access
+  for deeper inspection.
 - Typed forecast-output rendering complete for v1: binary, date, numeric,
   categorical, thresholded, and conditional forecast runs render dedicated
   summary cards on the run detail page, including probability bars, percentile
@@ -61,8 +61,8 @@ forecasts, and benchmark evidence.
   downloaded from each run detail page or
   `/api/artifacts/<artifact-id>/{csv,parquet}`, with row metadata and JSON
   output fields flattened into deterministic columns. Parquet export is backed
-  by DuckDB and is loaded through a server-only dynamic import so Vite dev mode
-  does not optimize native DuckDB bindings into the client graph.
+  by DuckDB and loaded through server-only code so native DuckDB bindings stay
+  out of the browser graph.
 - Merge and dedupe paths complete for v1: JSON table inputs route to Smithers
   workflows with deterministic candidate generation, CodexAgent pair/edge
   judgment, merge breakdowns, dedupe equivalence classes, synthetic combined
@@ -242,8 +242,8 @@ expose the app publicly without adding auth.
 ## Architecture
 
 ```text
-TanStack Start UI
-  -> Bun server routes and server functions
+Next.js App Router UI
+  -> Next route handlers
   -> Postgres product ledger
   -> MinIO object storage
   -> DuckDB local analytics files
@@ -846,9 +846,9 @@ Verified locally in this workspace:
   with `1 retry`, `notion` as completed, and retry buttons for both rows.
 - run-detail visual smoke captured
   `data/screenshots/run-detail-artifact-table.png` after waiting for persisted
-  artifact rows on task `30a928de-e018-46c0-9fbc-92069379a5d3`; the TanStack
-  artifact table renders stable preview columns with nested JSON summarized and
-  raw first-row disclosure preserved.
+  artifact rows on task `30a928de-e018-46c0-9fbc-92069379a5d3`; the run
+  workspace renders stable previews with nested JSON summarized and raw
+  artifact access preserved.
 - dashboard navigation visual smoke captured
   `data/screenshots/dashboard-artifacts-anchor.png` after waiting for recent
   artifact links under `/#artifacts`; the sidebar now targets concrete dashboard

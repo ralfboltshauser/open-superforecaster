@@ -510,7 +510,7 @@ export async function exportArtifactRowsParquet(db: Db, artifactId: string) {
   const exported = await buildArtifactRowsExport(db, artifactId);
   const tempDir = await mkdtemp(join(tmpdir(), "open-superforecaster-artifact-"));
   const parquetPath = join(tempDir, `artifact-${exported.artifact.id}.parquet`);
-  const { DuckDBInstance } = await import(/* @vite-ignore */ "@duckdb/node-api");
+  const { DuckDBInstance } = await import("@duckdb/node-api");
   const instance = await DuckDBInstance.create(":memory:");
   const duck = await instance.connect();
 
