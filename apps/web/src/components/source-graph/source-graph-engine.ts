@@ -207,7 +207,7 @@ export class SourceGraphEngine {
     const dx = node.x - this.pointer.x
     const dy = node.y - this.pointer.y
     const dist = Math.hypot(dx, dy) || 1
-    const force = Math.max(0, 1 - dist / 230)
+    const force = Math.max(0, 1 - dist / 170)
     const direction = node.kind === "agent" ? -0.09 : 0.16
     node.vx += (dx / dist) * force * direction * step
     node.vy += (dy / dist) * force * direction * step
@@ -226,7 +226,7 @@ export class SourceGraphEngine {
     this.drawEdges()
     this.drawPointerGlow()
     for (const node of this.nodes) {
-      const pulse = 0.78 + Math.sin(this.elapsed * 0.0048 + node.seed) * 0.22
+      const pulse = 0.86 + Math.sin(this.elapsed * 0.0048 + node.seed) * 0.08
       this.drawNodeSprite(node, pulse)
     }
     this.drawLabels()
@@ -287,11 +287,11 @@ export class SourceGraphEngine {
   }
 
   private drawPointerEdges() {
-    this.ctx.strokeStyle = `${NODE_COLORS.accent}${0.2 * this.settings.alpha})`
+    this.ctx.strokeStyle = `${NODE_COLORS.accent}${0.1 * this.settings.alpha})`
     for (const node of this.nodes) {
       const dist = Math.hypot(node.x - this.pointer.x, node.y - this.pointer.y)
-      if (dist < 190) {
-        this.ctx.globalAlpha = 1 - dist / 190
+      if (dist < 135) {
+        this.ctx.globalAlpha = 1 - dist / 135
         this.ctx.beginPath()
         this.ctx.moveTo(this.pointer.x, this.pointer.y)
         this.ctx.lineTo(node.x, node.y)
@@ -306,12 +306,12 @@ export class SourceGraphEngine {
       return
     }
 
-    const gradient = this.ctx.createRadialGradient(this.pointer.x, this.pointer.y, 0, this.pointer.x, this.pointer.y, 160)
-    gradient.addColorStop(0, `${NODE_COLORS.accent}${0.13 * this.settings.alpha})`)
+    const gradient = this.ctx.createRadialGradient(this.pointer.x, this.pointer.y, 0, this.pointer.x, this.pointer.y, 110)
+    gradient.addColorStop(0, `${NODE_COLORS.accent}${0.06 * this.settings.alpha})`)
     gradient.addColorStop(1, "rgba(106, 239, 198, 0)")
     this.ctx.fillStyle = gradient
     this.ctx.beginPath()
-    this.ctx.arc(this.pointer.x, this.pointer.y, 160, 0, Math.PI * 2)
+    this.ctx.arc(this.pointer.x, this.pointer.y, 110, 0, Math.PI * 2)
     this.ctx.fill()
   }
 
@@ -321,7 +321,7 @@ export class SourceGraphEngine {
     this.ctx.save()
     this.ctx.translate(node.x, node.y)
     this.ctx.rotate(Math.sin(this.elapsed * 0.0024 + node.seed) * 0.05)
-    this.ctx.globalAlpha = 0.78 + pulse * 0.22
+    this.ctx.globalAlpha = 0.58 + pulse * 0.12
     this.ctx.drawImage(sprite, -size * 0.5, -size * 0.5, size, size)
     this.ctx.restore()
   }
@@ -340,7 +340,7 @@ export class SourceGraphEngine {
 
 function settingsForVariant(variant: SourceGraphVariant): GraphSettings {
   return variant === "hero"
-    ? { edgeDistance: 150, nodeBase: 66, velocity: 0.54, alpha: 0.92, centerClear: 0.72, maxPixelRatio: 1.35, speed: 1.65 }
+    ? { edgeDistance: 130, nodeBase: 54, velocity: 0.34, alpha: 0.62, centerClear: 0.72, maxPixelRatio: 1.35, speed: 0.95 }
     : { edgeDistance: 120, nodeBase: 44, velocity: 0.38, alpha: 0.5, centerClear: 0.4, maxPixelRatio: 1.2, speed: 1.35 }
 }
 
