@@ -52,8 +52,8 @@ export class SourceGraphEngine {
 
   start() {
     this.resizeObserver.observe(this.canvas)
-    this.canvas.addEventListener("pointermove", this.onPointerMove)
-    this.canvas.addEventListener("pointerleave", this.onPointerLeave)
+    window.addEventListener("mousemove", this.onMouseMove)
+    window.addEventListener("mouseout", this.onMouseOut)
     document.addEventListener("visibilitychange", this.onVisibilityChange)
     this.observeVisibility()
     this.resize()
@@ -66,8 +66,8 @@ export class SourceGraphEngine {
   destroy() {
     this.resizeObserver.disconnect()
     this.intersectionObserver?.disconnect()
-    this.canvas.removeEventListener("pointermove", this.onPointerMove)
-    this.canvas.removeEventListener("pointerleave", this.onPointerLeave)
+    window.removeEventListener("mousemove", this.onMouseMove)
+    window.removeEventListener("mouseout", this.onMouseOut)
     document.removeEventListener("visibilitychange", this.onVisibilityChange)
     window.cancelAnimationFrame(this.animationFrame)
   }
@@ -102,7 +102,8 @@ export class SourceGraphEngine {
     }
   }
 
-  private readonly onPointerMove = (event: PointerEvent) => {
+  private readonly onMouseMove = (event: MouseEvent) => {
+    this.bounds = this.canvas.getBoundingClientRect()
     this.pointer.active = true
     this.pointer.tx = event.clientX - this.bounds.left
     this.pointer.ty = event.clientY - this.bounds.top
@@ -112,8 +113,10 @@ export class SourceGraphEngine {
     }
   }
 
-  private readonly onPointerLeave = () => {
-    this.pointer.active = false
+  private readonly onMouseOut = (event: MouseEvent) => {
+    if (!event.relatedTarget) {
+      this.pointer.active = false
+    }
   }
 
   private readonly animate = (time: number) => {

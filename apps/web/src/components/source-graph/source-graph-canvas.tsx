@@ -25,5 +25,5 @@ export function SourceGraphCanvas({ domains, variant }: SourceGraphCanvasProps) 
     return () => engine.destroy()
   }, [domainKey, variant])
 
-  return <canvas ref={canvasRef} className="pointer-events-auto absolute inset-0 size-full" />
+  return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 size-full" />
 }
