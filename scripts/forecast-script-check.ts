@@ -273,6 +273,105 @@ await check("forecast attention backlog filters batch review status", async () =
   return "attention backlog reads batch indexes and filters review status";
 });
 
+await check("forecast batch health summarizes latest indexed batch", async () => {
+  const batchIndexRoot = resolve(tempRoot, "batch-health", "batches");
+  const outputDir = resolve(tempRoot, "batch-health", "out");
+  await mkdir(resolve(batchIndexRoot, "old-batch"), { recursive: true });
+  await mkdir(resolve(batchIndexRoot, "latest-batch"), { recursive: true });
+  await writeJson(resolve(batchIndexRoot, "old-batch", "batch-index.json"), {
+    reportType: "forecast_batch_index",
+    batchId: "old-batch",
+    generatedAt: "2026-07-08T00:00:00.000Z",
+    counts: {
+      entries: 3,
+      forecastOps: 1,
+      resolutions: 1,
+      performanceReports: 1,
+      completedForecasts: 1,
+      failedForecasts: 0,
+      resolvedCases: 1,
+      failedResolutions: 0,
+      performanceScoreRows: 2,
+      attentionItems: 0,
+      openAttentionItems: 0,
+      reviewedAttentionItems: 0,
+      deferredAttentionItems: 0,
+    },
+    attentionItems: [],
+  });
+  await writeJson(resolve(batchIndexRoot, "latest-batch", "batch-index.json"), {
+    reportType: "forecast_batch_index",
+    batchId: "latest-batch",
+    generatedAt: "2026-07-09T00:00:00.000Z",
+    counts: {
+      entries: 2,
+      forecastOps: 1,
+      resolutions: 1,
+      performanceReports: 0,
+      completedForecasts: 2,
+      failedForecasts: 1,
+      resolvedCases: 1,
+      failedResolutions: 0,
+      performanceScoreRows: null,
+      attentionItems: 2,
+      openAttentionItems: 1,
+      reviewedAttentionItems: 0,
+      deferredAttentionItems: 1,
+    },
+    attentionItems: [
+      {
+        id: "poor:task-1:brier",
+        kind: "poor_resolved_forecast",
+        severity: "high",
+        reason: "brier exceeded review threshold",
+        recommendedActions: ["Open the run report."],
+        metric: "brier",
+        score: 0.4,
+        delta: null,
+        taskId: "task-1",
+        taskLabel: "Hard forecast",
+        forecastType: "binary",
+        reviewStatus: "open",
+      },
+      {
+        id: "drift:task-2:log",
+        kind: "forecast_score_regression",
+        severity: "medium",
+        reason: "log score worsened",
+        recommendedActions: ["Compare the previous report."],
+        metric: "logScore",
+        score: 0.8,
+        delta: 0.2,
+        taskId: "task-2",
+        taskLabel: "Drifting forecast",
+        forecastType: "numeric",
+        reviewStatus: "deferred",
+      },
+    ],
+  });
+  await runScript("scripts/forecast-batch-health.ts", [
+    "--batch-index-dir",
+    batchIndexRoot,
+    "--out-dir",
+    outputDir,
+  ]);
+  const report = readRecord(await readJson(resolve(outputDir, "batch-health.json")));
+  const summary = readRecord(report, "summary");
+  const missingPhases = readStringArray(report, "missingPhases");
+  const issues = readArray(report, "issues");
+  assert(report, "health report is not an object");
+  assert(readString(report, "reportType") === "forecast_batch_health", "health report type mismatch");
+  assert(readString(report, "batchId") === "latest-batch", "latest batch was not selected");
+  assert(readString(report, "status") === "needs_attention", "health status mismatch");
+  assert(summary, "health summary missing");
+  assert(readNumber(summary, "failedForecasts") === 1, "failed forecast summary mismatch");
+  assert(readNumber(summary, "unresolvedAttentionItems") === 2, "unresolved attention summary mismatch");
+  assert(readNumber(summary, "scoreRegressionItems") === 1, "score regression summary mismatch");
+  assert(missingPhases.includes("forecast_performance"), "missing performance phase was not reported");
+  assert(issues.some((issue) => readString(issue, "kind") === "failed_forecasts"), "failed forecast issue missing");
+  return "batch health summarizes latest indexed batch issues";
+});
+
 const failed = checks.filter((result) => !result.ok);
 for (const result of checks) {
   console.log(`${result.ok ? "PASS" : "FAIL"} ${result.name}: ${result.detail}`);
@@ -318,6 +417,11 @@ function readArray(record: unknown, key: string) {
 function readNumber(record: unknown, key: string) {
   const value = readRecord(record)?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readStringArray(record: unknown, key: string) {
+  const value = readRecord(record)?.[key];
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
 function assert(condition: unknown, message: string): asserts condition {

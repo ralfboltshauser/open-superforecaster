@@ -1,6 +1,7 @@
-import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
+  listFilesNamed,
   readArgValue,
   readArgValues,
   readJson,
@@ -93,7 +94,7 @@ if (report.items.length > 20) {
 }
 
 async function readBacklogItems(batchRoot: string, statuses: ReviewStatus[], batchIds: Set<string>) {
-  const paths = await listBatchIndexFiles(batchRoot);
+  const paths = await listFilesNamed(batchRoot, "batch-index.json");
   const items: BacklogItem[] = [];
   for (const path of paths) {
     const payload = readRecord(await readJson(path));
@@ -112,33 +113,6 @@ async function readBacklogItems(batchRoot: string, statuses: ReviewStatus[], bat
     }
   }
   return sortBacklog(items);
-}
-
-async function listBatchIndexFiles(path: string): Promise<string[]> {
-  try {
-    const info = await stat(path);
-    if (info.isFile()) {
-      return path.endsWith("batch-index.json") ? [path] : [];
-    }
-    if (!info.isDirectory()) {
-      return [];
-    }
-  } catch {
-    return [];
-  }
-
-  const children = await readdir(path, { withFileTypes: true });
-  const nested = await Promise.all(
-    children.map((child) => {
-      const childPath = resolve(path, child.name);
-      return child.isDirectory()
-        ? listBatchIndexFiles(childPath)
-        : child.name === "batch-index.json"
-          ? Promise.resolve([childPath])
-          : Promise.resolve([]);
-    }),
-  );
-  return nested.flat();
 }
 
 function readBacklogItem(item: JsonRecord, batchId: string, sourcePath: string): BacklogItem | null {

@@ -1,4 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 
 export type JsonRecord = Record<string, unknown>;
 
@@ -50,6 +51,33 @@ export async function writeJson(path: string, value: unknown) {
 
 export async function readJson(path: string) {
   return JSON.parse(await readFile(path, "utf8")) as unknown;
+}
+
+export async function listFilesNamed(path: string, name: string): Promise<string[]> {
+  try {
+    const info = await stat(path);
+    if (info.isFile()) {
+      return path.endsWith(name) ? [path] : [];
+    }
+    if (!info.isDirectory()) {
+      return [];
+    }
+  } catch {
+    return [];
+  }
+
+  const children = await readdir(path, { withFileTypes: true });
+  const nested = await Promise.all(
+    children.map((child) => {
+      const childPath = resolve(path, child.name);
+      return child.isDirectory()
+        ? listFilesNamed(childPath, name)
+        : child.name === name
+          ? Promise.resolve([childPath])
+          : Promise.resolve([]);
+    }),
+  );
+  return nested.flat();
 }
 
 export function safeSegment(value: string) {

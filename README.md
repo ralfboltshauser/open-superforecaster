@@ -276,6 +276,15 @@ bun run forecast:attention -- --batch-id july-smoke --status open
 The attention backlog writes JSON and Markdown to
 `data/reports/forecast-attention-backlog` and only reads the local
 `batch-index.json` outputs.
+For a one-screen health summary of the latest indexed batch:
+
+```bash
+bun run forecast:health
+bun run forecast:health -- --batch-id july-smoke
+```
+
+The health report flags missing artifact phases, failed forecast or resolution
+steps, unresolved attention items, and score-regression attention signals.
 
 To check the local forecast script contracts:
 

@@ -141,6 +141,17 @@ By default, the backlog includes `open` and `deferred` items and writes
 `attention-backlog.json` plus `attention-backlog.md` under
 `data/reports/forecast-attention-backlog`.
 
+To summarize the latest indexed batch health in the terminal:
+
+```bash
+bun run forecast:health
+bun run forecast:health -- --batch-id july-smoke
+```
+
+The health report is generated from batch indexes, so it should be run after
+`forecast:batches`. It highlights missing phases, failed run or resolution
+steps, unresolved attention items, and score-regression attention signals.
+
 Run the script contract checks before changing these tools:
 
 ```bash
