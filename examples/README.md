@@ -95,6 +95,9 @@ review.
 
 Use the same `--batch-id` across forecast ops, resolution, and performance
 commands to keep their manifests tied to the same operational batch.
+Binary forecasts also run through a deterministic final calibration guard for
+known threshold, timing, and production-ramp failure modes. Contract checks pin
+those adjustments so future calibration changes are deliberate.
 
 To generate a local batch audit from those manifests:
 

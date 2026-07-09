@@ -1,6 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
+import { applyBinaryCalibrationGuard } from "../packages/workflows/src/binary-calibration-guard";
 import { readJson, readRecord, readString, timestampLabel, writeJson } from "./lib/forecast-script-utils";
 
 type CheckResult = {
@@ -411,6 +412,32 @@ await check("forecast performance calibration diagnostics flag bucket drift", as
   assert(diagnostics[0].delta === -90, "calibration diagnostic delta mismatch");
   assert(diagnostics[0].recommendedActions.some((action) => action.includes("candidate calibration guard")), "calibration guard action missing");
   return "calibration diagnostics convert bucket drift into review actions";
+});
+
+await check("binary forecast calibration guard preserves deterministic adjustments", async () => {
+  const productionRamp = applyBinaryCalibrationGuard({
+    probability: 25,
+    question: "Will the company deliver at least 100000 units before the deadline?",
+    resolutionCriteria: "Resolve from official delivery totals.",
+    background: "Recent output has recently begun from limited initial production.",
+    fixedEvidence: "The ramp is hard and unusual manufacturing constraints remain.",
+  });
+  assert(productionRamp.probability === 20, "production ramp probability adjustment mismatch");
+  assert(productionRamp.adjustment === -5, "production ramp adjustment mismatch");
+  assert(productionRamp.notes.some((note) => note.includes("production-ramp threshold")), "production ramp note missing");
+
+  const centralBankCut = applyBinaryCalibrationGuard({
+    probability: 30,
+    question: "Will the Federal Reserve cut rates by the next meeting?",
+    resolutionCriteria: "Resolve from FOMC target range.",
+    background: "The central bank discussed a cut but officials were not committed.",
+    fixedEvidence: "Recent minutes emphasized caution and data dependence before any reduction.",
+    cutoffHorizonDays: 45,
+  });
+  assert(centralBankCut.probability === 26.5, "central bank probability adjustment mismatch");
+  assert(centralBankCut.adjustment === -3.5, "central bank adjustment mismatch");
+  assert(centralBankCut.notes.some((note) => note.includes("near-deadline central-bank easing")), "central bank note missing");
+  return "binary calibration guard is extracted and behavior-stable";
 });
 
 const failed = checks.filter((result) => !result.ok);

@@ -263,6 +263,11 @@ calibration buckets with expected calibration error. Calibration buckets with
 enough resolved examples and large forecast-vs-observed gaps are added to the
 attention queue with review actions.
 
+Binary forecast generation also applies a deterministic final calibration guard
+for known threshold, timing, and production-ramp failure modes. The guard lives
+in `packages/workflows/src/binary-calibration-guard.ts` so measured calibration
+rules can be reviewed and tested outside the workflow orchestration.
+
 To consolidate those local artifacts into one audit file:
 
 ```bash
