@@ -177,7 +177,8 @@ scores, worsening trends, or poor large moves away from component base-rate
 anchors, adds binary aggregate calibration buckets with expected calibration
 error, turns large calibration bucket gaps into attention items, emits
 candidate calibration guard rules for review, and writes JSON plus Markdown
-snapshots.
+snapshots. The lab dashboard renders the same calibration-guard and
+baseline-sanity outcome groups for quick scan review.
 
 Use the same `--batch-id` across forecast ops, resolution, and performance
 commands to keep their manifests tied to the same operational batch.

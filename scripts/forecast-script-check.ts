@@ -817,11 +817,14 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("calibrationReplayRows: calibrationReplayRows(aggregateBrierScores)"), "performance report missing calibration replay rows");
   assert(resolutionSource.includes("## Calibration guard impact"), "performance Markdown missing calibration guard impact section");
   assert(resolutionSource.includes("renderCalibrationGuardRuleImpactTable"), "performance Markdown missing rule-level calibration guard impact table");
+  assert(resolutionSource.includes("## Baseline sanity groups"), "performance Markdown missing baseline sanity group section");
   assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");
   assert(dashboardSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not read candidate calibration guard rules");
   assert(dashboardSource.includes("Candidate calibration guards"), "lab dashboard does not render candidate calibration guard rules");
   assert(dashboardSource.includes("PerformanceGuardImpact"), "lab dashboard does not render calibration guard impact summary");
   assert(dashboardSource.includes("readArray(impact, \"byRule\")"), "lab dashboard does not render rule-level guard impact");
+  assert(dashboardSource.includes("byBaselineSanity"), "lab dashboard does not read baseline sanity performance groups");
+  assert(dashboardSource.includes("Baseline sanity outcomes"), "lab dashboard does not render baseline sanity performance groups");
   return "candidate calibration guard rules are visible in report artifacts and the lab dashboard";
 });
 
