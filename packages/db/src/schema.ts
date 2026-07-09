@@ -418,6 +418,9 @@ export const workflowChangeProposals = pgTable("workflow_change_proposals", {
   implementationNote: text("implementation_note"),
   implementationUpdatedBy: text("implementation_updated_by"),
   implementationUpdatedAt: timestamp("implementation_updated_at", { withTimezone: true }),
+  validationBenchmarkRunId: uuid("validation_benchmark_run_id").references(() => benchmarkRuns.id),
+  validationLaunchedBy: text("validation_launched_by"),
+  validationLaunchedAt: timestamp("validation_launched_at", { withTimezone: true }),
   ...timestamps,
 });
 

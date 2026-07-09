@@ -736,6 +736,9 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
         implementationNote: workflowChangeProposals.implementationNote,
         implementationUpdatedBy: workflowChangeProposals.implementationUpdatedBy,
         implementationUpdatedAt: workflowChangeProposals.implementationUpdatedAt,
+        validationBenchmarkRunId: workflowChangeProposals.validationBenchmarkRunId,
+        validationLaunchedBy: workflowChangeProposals.validationLaunchedBy,
+        validationLaunchedAt: workflowChangeProposals.validationLaunchedAt,
         createdAt: workflowChangeProposals.createdAt,
       })
       .from(workflowChangeProposals)
@@ -1113,10 +1116,68 @@ export async function updateWorkflowChangeProposalStatus(
       implementationNote: workflowChangeProposals.implementationNote,
       implementationUpdatedBy: workflowChangeProposals.implementationUpdatedBy,
       implementationUpdatedAt: workflowChangeProposals.implementationUpdatedAt,
+      validationBenchmarkRunId: workflowChangeProposals.validationBenchmarkRunId,
+      validationLaunchedBy: workflowChangeProposals.validationLaunchedBy,
+      validationLaunchedAt: workflowChangeProposals.validationLaunchedAt,
       createdAt: workflowChangeProposals.createdAt,
       updatedAt: workflowChangeProposals.updatedAt,
     });
   return proposal;
+}
+
+export async function startWorkflowChangeProposalValidation(
+  db: Db,
+  input: {
+    root: string;
+    benchmarkRunId: string;
+    proposalId: string;
+    launchedBy?: string;
+    maxCases?: number;
+    rollouts?: number;
+  },
+) {
+  const [existing] = await db
+    .select()
+    .from(workflowChangeProposals)
+    .where(and(eq(workflowChangeProposals.id, input.proposalId), eq(workflowChangeProposals.sourceBenchmarkRunId, input.benchmarkRunId)))
+    .limit(1);
+  if (!existing) {
+    throw new Error(`Workflow change proposal not found for benchmark run: ${input.proposalId}`);
+  }
+  if (existing.status !== "accepted" && existing.status !== "implemented") {
+    throw new Error("Accept the workflow change proposal before launching validation.");
+  }
+  if (existing.validationBenchmarkRunId) {
+    throw new Error(`Workflow change proposal already has validation benchmark run: ${existing.validationBenchmarkRunId}`);
+  }
+  const launchedBy = input.launchedBy?.trim() || "local-user";
+  const implementationExperimentLabel = existing.implementationExperimentLabel || `proposal-${existing.id.slice(0, 8)}`;
+  const validationRun = await startBenchmarkRun(db, {
+    root: input.root,
+    evalMode: evalModeForProposalTargetWorkflow(existing.targetWorkflowId),
+    maxCases: input.maxCases ?? 1,
+    rollouts: input.rollouts,
+    experimentLabel: implementationExperimentLabel,
+  });
+  const [proposal] = await db
+    .update(workflowChangeProposals)
+    .set({
+      implementationExperimentLabel,
+      implementationStatus: existing.implementationStatus === "validated" ? "validated" : "in_progress",
+      implementationUpdatedBy: launchedBy,
+      implementationUpdatedAt: new Date(),
+      implementationNote: `Validation benchmark ${validationRun.benchmarkRunId} launched for implementation evidence.`,
+      validationBenchmarkRunId: validationRun.benchmarkRunId,
+      validationLaunchedBy: launchedBy,
+      validationLaunchedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(workflowChangeProposals.id, existing.id))
+    .returning();
+  return {
+    proposal,
+    benchmarkRun: validationRun,
+  };
 }
 
 export async function createBenchmarkComparisonReport(
@@ -1321,6 +1382,16 @@ function implementationNoteForProposalTransition(
     return "Workflow patch work started from accepted proposal.";
   }
   return "Accepted for workflow implementation.";
+}
+
+function evalModeForProposalTargetWorkflow(targetWorkflowId: string): BenchmarkEvalMode {
+  if (targetWorkflowId === "fixed-evidence-eval") {
+    return "fixed_evidence";
+  }
+  if (targetWorkflowId === "agentic-pastcasting-eval") {
+    return "agentic_pastcasting_smoke";
+  }
+  throw new Error(`Unknown proposal target workflow: ${targetWorkflowId}`);
 }
 
 async function loadWorkflowVariantSummary(db: Db, workflowVariantId: string) {

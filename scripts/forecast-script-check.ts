@@ -664,6 +664,7 @@ await check("workflow change proposal lifecycle is exported as metrics", async (
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_info"), "workflow proposal info metric missing");
   assert(metricsSource.includes("implementation_status"), "workflow proposal metric missing implementation status label");
   assert(metricsSource.includes("implementation_experiment_label"), "workflow proposal metric missing implementation experiment label");
+  assert(metricsSource.includes("validation_benchmark_run_id"), "workflow proposal metric missing validation benchmark label");
   assert(metricsSource.includes("reviewed_by"), "workflow proposal metric missing reviewer label");
   assert(metricsSource.includes("source_benchmark_run_id"), "workflow proposal metric missing source benchmark label");
   assert(smokeSource.includes("open_superforecaster_workflow_change_proposals_total"), "smoke check does not require workflow proposal metric");
@@ -712,6 +713,9 @@ await check("workflow change proposals are exported to DuckDB", async () => {
   assert(syncSource.includes("implementation_status"), "workflow proposal mart missing implementation status");
   assert(syncSource.includes("implementation_experiment_label"), "workflow proposal mart missing implementation experiment label");
   assert(syncSource.includes("implementation_note"), "workflow proposal mart missing implementation note");
+  assert(syncSource.includes("validation_benchmark_run_id"), "workflow proposal mart missing validation benchmark run id");
+  assert(syncSource.includes("validation_launched_by"), "workflow proposal mart missing validation launcher");
+  assert(syncSource.includes("validation_launched_at"), "workflow proposal mart missing validation launch timestamp");
   return "benchmark-derived workflow proposals are visible in local DuckDB analytics";
 });
 
@@ -726,7 +730,9 @@ await check("workflow change proposals are visible in the lab dashboard", async 
   assert(dashboardSource.includes("updateWorkflowChangeProposal"), "lab dashboard does not expose workflow proposal lifecycle actions");
   assert(dashboardSource.includes("implemented"), "lab dashboard proposal section missing implemented action");
   assert(dashboardSource.includes("start patch"), "lab dashboard proposal section missing implementation start action");
+  assert(dashboardSource.includes("run validation"), "lab dashboard proposal section missing validation launch action");
   assert(dashboardSource.includes("implementationExperimentLabel"), "lab dashboard proposal section missing implementation experiment label");
+  assert(dashboardSource.includes("validationBenchmarkRunId"), "lab dashboard proposal section missing validation benchmark link");
   return "benchmark-derived workflow proposals are visible where promotion blockers are reviewed";
 });
 
@@ -737,12 +743,17 @@ await check("workflow change proposal lifecycle is auditable", async () => {
     resolve(root, "apps/web/src/app/api/benchmarks/[benchmarkRunId]/proposals/[proposalId]/route.ts"),
     "utf8",
   );
+  const validationRouteSource = await readFile(
+    resolve(root, "apps/web/src/app/api/benchmarks/[benchmarkRunId]/proposals/[proposalId]/validation/route.ts"),
+    "utf8",
+  );
   assert(schemaSource.includes("reviewNote: text(\"review_note\")"), "workflow proposal schema missing review note");
   assert(schemaSource.includes("reviewedBy: text(\"reviewed_by\")"), "workflow proposal schema missing reviewer");
   assert(schemaSource.includes("reviewedAt: timestamp(\"reviewed_at\""), "workflow proposal schema missing review timestamp");
   assert(schemaSource.includes("implementationTaskTitle: text(\"implementation_task_title\")"), "workflow proposal schema missing implementation task title");
   assert(schemaSource.includes("implementationStatus: text(\"implementation_status\")"), "workflow proposal schema missing implementation status");
   assert(schemaSource.includes("implementationExperimentLabel: text(\"implementation_experiment_label\")"), "workflow proposal schema missing implementation experiment label");
+  assert(schemaSource.includes("validationBenchmarkRunId: uuid(\"validation_benchmark_run_id\")"), "workflow proposal schema missing validation benchmark run id");
   assert(backendSource.includes("workflowChangeProposalStatuses"), "backend missing shared workflow proposal status set");
   assert(backendSource.includes("workflowChangeProposalImplementationStatuses"), "backend missing shared implementation status set");
   for (const status of ["candidate", "accepted", "rejected", "implemented"]) {
@@ -755,9 +766,14 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(backendSource.includes("eq(workflowChangeProposals.sourceBenchmarkRunId, input.benchmarkRunId)"), "proposal update does not verify benchmark ownership");
   assert(backendSource.includes("implementationStatusForProposalTransition"), "backend missing proposal implementation transition helper");
   assert(backendSource.includes("proposal-${existing.id.slice(0, 8)}"), "backend missing deterministic proposal experiment label");
+  assert(backendSource.includes("startWorkflowChangeProposalValidation"), "backend missing proposal validation launcher");
+  assert(backendSource.includes("evalModeForProposalTargetWorkflow"), "backend missing proposal target workflow mapper");
+  assert(backendSource.includes("validationBenchmarkRunId"), "backend missing validation benchmark linkage");
+  assert(backendSource.includes("already has validation benchmark run"), "backend does not block duplicate proposal validation launches");
   assert(routeSource.includes("updateWorkflowChangeProposalStatus"), "proposal lifecycle API route missing backend update call");
   assert(routeSource.includes("reviewNote"), "proposal lifecycle API route missing review note");
   assert(routeSource.includes("implementationStatus"), "proposal lifecycle API route missing implementation status");
+  assert(validationRouteSource.includes("startWorkflowChangeProposalValidation"), "proposal validation API route missing backend launch call");
   return "workflow proposal status changes keep reviewer context and benchmark ownership";
 });
 

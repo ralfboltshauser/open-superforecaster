@@ -107,6 +107,17 @@ export function useLabDashboard() {
     [runAction],
   )
 
+  const launchWorkflowProposalValidation = useCallback(
+    (benchmarkRunId: string, proposalId: string) =>
+      runAction(`proposal:${proposalId}:validation`, () =>
+        postJson(`/api/benchmarks/${benchmarkRunId}/proposals/${proposalId}/validation`, {
+          launchedBy: "local-user",
+          maxCases: 1,
+        }),
+      ),
+    [runAction],
+  )
+
   return {
     actions,
     benchmarks,
@@ -114,6 +125,7 @@ export function useLabDashboard() {
     diagnosticCounts,
     health,
     importBtf2,
+    launchWorkflowProposalValidation,
     launchBenchmark,
     performance,
     resolutionSummary,

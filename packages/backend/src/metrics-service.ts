@@ -105,6 +105,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
         reviewedAt: workflowChangeProposals.reviewedAt,
         implementationStatus: workflowChangeProposals.implementationStatus,
         implementationExperimentLabel: workflowChangeProposals.implementationExperimentLabel,
+        validationBenchmarkRunId: workflowChangeProposals.validationBenchmarkRunId,
         createdAt: workflowChangeProposals.createdAt,
       })
       .from(workflowChangeProposals)
@@ -336,6 +337,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       status: proposal.status,
       implementation_status: proposal.implementationStatus,
       implementation_experiment_label: proposal.implementationExperimentLabel ?? "none",
+      validation_benchmark_run_id: proposal.validationBenchmarkRunId ?? "none",
       reviewed_by: proposal.reviewedBy ?? "none",
       reviewed: proposal.reviewedAt ? "true" : "false",
     });

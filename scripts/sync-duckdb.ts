@@ -273,6 +273,9 @@ try {
       implementation_note,
       implementation_updated_by,
       implementation_updated_at::text as implementation_updated_at,
+      validation_benchmark_run_id::text as validation_benchmark_run_id,
+      validation_launched_by,
+      validation_launched_at::text as validation_launched_at,
       created_at::text as created_at,
       updated_at::text as updated_at
     from workflow_change_proposals
@@ -316,7 +319,7 @@ try {
       "select * from osf_benchmark_runs order by created_at desc limit 5;",
       "select benchmark_run_id, paired_mean_brier_delta, paired_brier_ci_lower, paired_brier_ci_upper, recommendation_status from osf_benchmark_runs where comparison_report_artifact_id is not null;",
       "select benchmark_run_id, promotion_gate_status, promotion_gate_blockers from osf_benchmark_runs order by created_at desc limit 5;",
-      "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label from osf_workflow_change_proposals order by created_at desc limit 5;",
+      "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label, validation_benchmark_run_id from osf_workflow_change_proposals order by created_at desc limit 5;",
       "select operation_mode, operation_submode, status, count(*) from osf_tasks group by 1,2,3 order by 4 desc;",
     ],
   }, null, 2));
@@ -459,6 +462,9 @@ const workflowChangeProposalColumns = [
   { name: "implementation_note", type: "VARCHAR" },
   { name: "implementation_updated_by", type: "VARCHAR" },
   { name: "implementation_updated_at", type: "VARCHAR" },
+  { name: "validation_benchmark_run_id", type: "VARCHAR" },
+  { name: "validation_launched_by", type: "VARCHAR" },
+  { name: "validation_launched_at", type: "VARCHAR" },
   { name: "created_at", type: "VARCHAR" },
   { name: "updated_at", type: "VARCHAR" },
 ] satisfies DuckColumn[];

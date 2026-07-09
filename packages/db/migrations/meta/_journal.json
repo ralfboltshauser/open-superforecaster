@@ -29,6 +29,13 @@
       "when": 1783614417045,
       "tag": "0003_sour_dust",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783614742243,
+      "tag": "0004_slim_rawhide_kid",
+      "breakpoints": true
     }
   ]
 }

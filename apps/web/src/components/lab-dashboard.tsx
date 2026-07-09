@@ -20,6 +20,7 @@ export function LabDashboard() {
     diagnosticCounts,
     health,
     importBtf2,
+    launchWorkflowProposalValidation,
     launchBenchmark,
     performance,
     resolutionSummary,
@@ -60,6 +61,7 @@ export function LabDashboard() {
           <BenchmarksCard
             benchmarks={benchmarks}
             busy={busy}
+            launchWorkflowProposalValidation={launchWorkflowProposalValidation}
             updateWorkflowChangeProposal={updateWorkflowChangeProposal}
           />
           <MaintenanceCard actions={actions} busy={busy} runMaintenance={runMaintenance} />

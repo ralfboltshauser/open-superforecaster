@@ -54,7 +54,9 @@ recent benchmark runs, so blocked promotion reasons can be monitored outside the
 lab dashboard.
 It also exports workflow proposal lifecycle counts and recent proposal metadata,
 including implementation status and experiment label, so accepted, rejected, and
-implemented changes remain monitorable after review.
+implemented changes remain monitorable after review. When validation is launched
+from a proposal, the resulting benchmark run id is exported with the same
+proposal metadata.
 `scripts/sync-duckdb.ts` also exports those gate statuses, blocker strings,
 holdout evidence counts, source-quality counts, trace/schema counts, and
 analysis-finding counts into `osf_benchmark_runs` for local analytics.
@@ -66,7 +68,8 @@ The lab benchmark list also shows the latest proposals beside promotion
 blockers, so review can connect observed failures to concrete workflow changes
 and mark each proposal accepted, rejected, implemented, or reopened. Accepted
 proposals get a planned implementation task title and deterministic experiment
-label, and the lab can move that implementation into patching before validation.
+label, and the lab can move that implementation into patching before launching a
+validation benchmark under that label.
 
 ## Forecast And Research Prompts
 

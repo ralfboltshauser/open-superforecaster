@@ -132,10 +132,12 @@ export function DiagnosticsCard({ diagnosticCounts }: { diagnosticCounts: Diagno
 export function BenchmarksCard({
   benchmarks,
   busy,
+  launchWorkflowProposalValidation,
   updateWorkflowChangeProposal,
 }: {
   benchmarks: { benchmarkRuns: JsonRecord[]; benchmarkSuites: JsonRecord[] }
   busy: string | null
+  launchWorkflowProposalValidation: (benchmarkRunId: string, proposalId: string) => Promise<void>
   updateWorkflowChangeProposal: (
     benchmarkRunId: string,
     proposalId: string,
@@ -153,6 +155,7 @@ export function BenchmarksCard({
         {benchmarks.benchmarkRuns.slice(0, 6).map((run) => (
           <BenchmarkRunSummary
             busy={busy}
+            launchWorkflowProposalValidation={launchWorkflowProposalValidation}
             run={run}
             updateWorkflowChangeProposal={updateWorkflowChangeProposal}
             key={String(run.id ?? run.label)}
@@ -165,10 +168,12 @@ export function BenchmarksCard({
 
 function BenchmarkRunSummary({
   busy,
+  launchWorkflowProposalValidation,
   run,
   updateWorkflowChangeProposal,
 }: {
   busy: string | null
+  launchWorkflowProposalValidation: (benchmarkRunId: string, proposalId: string) => Promise<void>
   run: JsonRecord
   updateWorkflowChangeProposal: (
     benchmarkRunId: string,
@@ -271,6 +276,7 @@ function BenchmarkRunSummary({
               <WorkflowProposalSummary
                 benchmarkRunId={benchmarkRunId}
                 busy={busy}
+                launchWorkflowProposalValidation={launchWorkflowProposalValidation}
                 proposal={proposal}
                 updateWorkflowChangeProposal={updateWorkflowChangeProposal}
                 key={String(proposal.id ?? proposal.proposedChange)}
@@ -286,11 +292,13 @@ function BenchmarkRunSummary({
 function WorkflowProposalSummary({
   benchmarkRunId,
   busy,
+  launchWorkflowProposalValidation,
   proposal,
   updateWorkflowChangeProposal,
 }: {
   benchmarkRunId: string | null
   busy: string | null
+  launchWorkflowProposalValidation: (benchmarkRunId: string, proposalId: string) => Promise<void>
   proposal: JsonRecord
   updateWorkflowChangeProposal: (
     benchmarkRunId: string,
@@ -304,6 +312,7 @@ function WorkflowProposalSummary({
   const implementationStatus = normalizeProposalImplementationStatus(proposal.implementationStatus)
   const implementationTaskTitle = typeof proposal.implementationTaskTitle === "string" ? proposal.implementationTaskTitle : null
   const implementationExperimentLabel = typeof proposal.implementationExperimentLabel === "string" ? proposal.implementationExperimentLabel : null
+  const validationBenchmarkRunId = typeof proposal.validationBenchmarkRunId === "string" ? proposal.validationBenchmarkRunId : null
   const reviewedBy = typeof proposal.reviewedBy === "string" ? proposal.reviewedBy : null
   const reviewedAt = typeof proposal.reviewedAt === "string" ? proposal.reviewedAt : null
   const canUpdate = Boolean(benchmarkRunId && proposalId)
@@ -315,6 +324,12 @@ function WorkflowProposalSummary({
       return
     }
     void updateWorkflowChangeProposal(benchmarkRunId, proposalId, nextStatus, nextImplementationStatus)
+  }
+  const launchValidation = () => {
+    if (!benchmarkRunId || !proposalId) {
+      return
+    }
+    void launchWorkflowProposalValidation(benchmarkRunId, proposalId)
   }
   return (
     <div className="rounded-md border px-3 py-2">
@@ -344,6 +359,7 @@ function WorkflowProposalSummary({
             implementation {implementationStatus}{implementationExperimentLabel ? ` · ${implementationExperimentLabel}` : ""}
           </p>
           {implementationTaskTitle ? <p className="mt-1 line-clamp-1">{implementationTaskTitle}</p> : null}
+          {validationBenchmarkRunId ? <p className="mt-1 truncate">validation run {validationBenchmarkRunId}</p> : null}
         </div>
       ) : null}
       {canUpdate ? (
@@ -369,6 +385,17 @@ function WorkflowProposalSummary({
               variant="outline"
             >
               start patch
+            </Button>
+          ) : null}
+          {status === "accepted" && implementationStatus !== "not_started" && !validationBenchmarkRunId ? (
+            <Button
+              disabled={busy !== null}
+              onClick={launchValidation}
+              size="xs"
+              type="button"
+              variant="outline"
+            >
+              run validation
             </Button>
           ) : null}
           {status !== "candidate" ? (
