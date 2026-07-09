@@ -147,6 +147,7 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
   const componentDisagreement = isRecord(run.componentDisagreementFindings) ? run.componentDisagreementFindings : null
   const forecastError = isRecord(run.forecastErrorFindings) ? run.forecastErrorFindings : null
   const splitFindings = isRecord(run.splitFindings) ? run.splitFindings : null
+  const sourceQuality = isRecord(run.sourceQualityFindings) ? run.sourceQualityFindings : null
   const blockers = readArray(promotionGate, "blockers").filter((blocker): blocker is string => typeof blocker === "string")
   const recommendationStatus = typeof promotionGate?.recommendationStatus === "string" ? promotionGate.recommendationStatus : null
   const missingBaselineSanity = typeof baselineSanity?.missingBaselineSanityCases === "number" ? baselineSanity.missingBaselineSanityCases : null
@@ -157,6 +158,9 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
   const worseThanBaselineCases = typeof forecastError?.worseThanBaselineCases === "number" ? forecastError.worseThanBaselineCases : null
   const holdoutCaseResults = typeof splitFindings?.holdoutCaseResults === "number" ? splitFindings.holdoutCaseResults : null
   const requiredHoldoutCaseResults = typeof splitFindings?.requiredHoldoutCaseResults === "number" ? splitFindings.requiredHoldoutCaseResults : null
+  const sourceLeakageCases = typeof sourceQuality?.sourceLeakageCases === "number" ? sourceQuality.sourceLeakageCases : null
+  const informationAdvantageCases = typeof sourceQuality?.informationAdvantageCases === "number" ? sourceQuality.informationAdvantageCases : null
+  const humanForecastSourceCases = typeof sourceQuality?.humanForecastSourceCases === "number" ? sourceQuality.humanForecastSourceCases : null
   return (
     <div className="rounded-md border p-3 text-sm">
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -191,6 +195,11 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
       {splitFindings ? (
         <p className="mt-2 truncate text-xs text-muted-foreground">
           holdout evidence {String(holdoutCaseResults ?? 0)}/{String(requiredHoldoutCaseResults ?? 0)} cases
+        </p>
+      ) : null}
+      {sourceQuality ? (
+        <p className="mt-2 truncate text-xs text-muted-foreground">
+          source quality {String(sourceLeakageCases ?? 0)} cutoff leak · {String(informationAdvantageCases ?? 0)} info advantage · {String(humanForecastSourceCases ?? 0)} human forecast
         </p>
       ) : null}
       {blockers.length ? (

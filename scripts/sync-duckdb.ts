@@ -89,6 +89,10 @@ try {
       gate.holdout_case_results,
       gate.required_holdout_case_results,
       gate.unspecified_case_results,
+      gate.source_leakage_cases,
+      gate.information_advantage_cases,
+      gate.post_cutoff_source_cases,
+      gate.human_forecast_source_cases,
       gate.promotion_gate_status,
       gate.promotion_gate_blockers,
       cr.row_json #>> '{baselines,0,baselineBenchmarkRunId}' as baseline_benchmark_run_id,
@@ -123,7 +127,11 @@ try {
           coalesce(nullif(ar.row_json #>> '{forecastErrorFindings,worseThanBaselineCases}', '')::integer, 0) as worse_than_baseline_cases,
           coalesce(nullif(ar.row_json #>> '{splitFindings,holdoutCaseResults}', '')::integer, 0) as holdout_case_results,
           coalesce(nullif(ar.row_json #>> '{splitFindings,requiredHoldoutCaseResults}', '')::integer, 10) as required_holdout_case_results,
-          coalesce(nullif(ar.row_json #>> '{splitFindings,unspecifiedCaseResults}', '')::integer, 0) as unspecified_case_results
+          coalesce(nullif(ar.row_json #>> '{splitFindings,unspecifiedCaseResults}', '')::integer, 0) as unspecified_case_results,
+          coalesce(nullif(ar.row_json #>> '{sourceQualityFindings,sourceLeakageCases}', '')::integer, 0) as source_leakage_cases,
+          coalesce(nullif(ar.row_json #>> '{sourceQualityFindings,informationAdvantageCases}', '')::integer, 0) as information_advantage_cases,
+          coalesce(nullif(ar.row_json #>> '{sourceQualityFindings,postCutoffSourceCases}', '')::integer, 0) as post_cutoff_source_cases,
+          coalesce(nullif(ar.row_json #>> '{sourceQualityFindings,humanForecastSourceCases}', '')::integer, 0) as human_forecast_source_cases
       ),
       blockers as (
         select
@@ -140,7 +148,9 @@ try {
             case when findings.unexplained_component_disagreement_cases > 0 then 'unexplained_component_disagreement' end,
             case when findings.large_probability_miss_cases > 0 then 'large_probability_misses' end,
             case when findings.worse_than_baseline_cases > 0 then 'worse_than_baseline_cases' end,
-            case when findings.holdout_case_results < findings.required_holdout_case_results then 'insufficient_holdout_evidence' end
+            case when findings.holdout_case_results < findings.required_holdout_case_results then 'insufficient_holdout_evidence' end,
+            case when findings.source_leakage_cases > 0 or findings.post_cutoff_source_cases > 0 then 'source_cutoff_leakage' end,
+            case when findings.information_advantage_cases > 0 or findings.human_forecast_source_cases > 0 then 'human_forecast_leakage' end
           ]::text[], null) as blocker_values
         from counts, findings
       )
@@ -155,6 +165,10 @@ try {
         holdout_case_results,
         required_holdout_case_results,
         unspecified_case_results,
+        source_leakage_cases,
+        information_advantage_cases,
+        post_cutoff_source_cases,
+        human_forecast_source_cases,
         case when cardinality(blocker_values) = 0 then 'review_for_promotion' else 'needs_more_evidence' end as promotion_gate_status,
         array_to_string(blocker_values, ',') as promotion_gate_blockers
       from blockers
@@ -322,6 +336,10 @@ const benchmarkRunColumns = [
   { name: "holdout_case_results", type: "INTEGER" },
   { name: "required_holdout_case_results", type: "INTEGER" },
   { name: "unspecified_case_results", type: "INTEGER" },
+  { name: "source_leakage_cases", type: "INTEGER" },
+  { name: "information_advantage_cases", type: "INTEGER" },
+  { name: "post_cutoff_source_cases", type: "INTEGER" },
+  { name: "human_forecast_source_cases", type: "INTEGER" },
   { name: "promotion_gate_status", type: "VARCHAR" },
   { name: "promotion_gate_blockers", type: "VARCHAR" },
   { name: "baseline_benchmark_run_id", type: "VARCHAR" },

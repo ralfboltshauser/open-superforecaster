@@ -36,6 +36,9 @@ sanity, unexplained component disagreement, large misses, and worse-than-baselin
 cases must be cleared before a run is ready for promotion review. Smoke cases
 remain useful for debugging, but promotion also requires enough cases labeled as
 held-out split evidence.
+Agentic pastcasting runs also block promotion when source audits find cutoff
+leakage, prediction-market style information advantage, or human forecast
+sources. Those failures are audit failures, not forecast-skill wins.
 The promotion decision API enforces the same gate for promoted states; use
 `needs_more_cases`, `candidate`, or `rejected` when recording non-promoting
 review outcomes with blockers still present.
@@ -43,8 +46,8 @@ The metrics endpoint exports promotion-gate status and blocker series for
 recent benchmark runs, so blocked promotion reasons can be monitored outside the
 lab dashboard.
 `scripts/sync-duckdb.ts` also exports those gate statuses, blocker strings,
-holdout evidence counts, and analysis-finding counts into `osf_benchmark_runs`
-for local analytics.
+holdout evidence counts, source-quality counts, and analysis-finding counts
+into `osf_benchmark_runs` for local analytics.
 
 ## Forecast And Research Prompts
 

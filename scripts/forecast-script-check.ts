@@ -521,12 +521,15 @@ await check("benchmark promotion gate requires paired improvement", async () => 
     componentDisagreementFindings: { unexplainedHighDisagreementCases: 1 },
     forecastErrorFindings: { largeProbabilityMissCases: 1, worseThanBaselineCases: 1 },
     splitFindings: { holdoutCaseResults: 10 },
+    sourceQualityFindings: { sourceLeakageCases: 1, informationAdvantageCases: 1 },
   });
   assert(qualityBlocked.status === "needs_more_evidence", "analysis quality findings should block promotion review");
   assert(qualityBlocked.blockers.includes("missing_baseline_sanity"), "baseline sanity blocker missing");
   assert(qualityBlocked.blockers.includes("unexplained_component_disagreement"), "component disagreement blocker missing");
   assert(qualityBlocked.blockers.includes("large_probability_misses"), "large miss blocker missing");
   assert(qualityBlocked.blockers.includes("worse_than_baseline_cases"), "worse-than-baseline blocker missing");
+  assert(qualityBlocked.blockers.includes("source_cutoff_leakage"), "source cutoff leakage blocker missing");
+  assert(qualityBlocked.blockers.includes("human_forecast_leakage"), "human forecast leakage blocker missing");
   assertBenchmarkPromotionDecisionAllowed("needs_more_cases", qualityBlocked);
   const blockedPromotion = catchError(() => assertBenchmarkPromotionDecisionAllowed("promoted_for_local_default", qualityBlocked));
   assert(blockedPromotion?.message.includes("missing_baseline_sanity"), "blocked promotion did not report blockers");
@@ -575,6 +578,18 @@ await check("benchmark analysis summarizes forecast error findings", async () =>
   return "benchmark analysis and lab dashboard expose forecast error findings";
 });
 
+await check("benchmark promotion blocks source independence failures", async () => {
+  const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(backendSource.includes("sourceQualityFindings"), "benchmark promotion gate does not read source quality findings");
+  assert(backendSource.includes("source_cutoff_leakage"), "source cutoff leakage blocker missing");
+  assert(backendSource.includes("human_forecast_leakage"), "human forecast leakage blocker missing");
+  assert(metricsSource.includes("sourceQualityFindings"), "metrics promotion gate does not read source quality findings");
+  assert(dashboardSource.includes("source quality"), "lab dashboard does not surface source quality findings");
+  return "source leakage and human forecast leakage block benchmark promotion";
+});
+
 await check("benchmark promotion requires held-out case evidence", async () => {
   const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
   const importerSource = await readFile(resolve(root, "packages/backend/src/btf2-importer.ts"), "utf8");
@@ -610,6 +625,9 @@ await check("benchmark promotion gate blockers are exported to DuckDB", async ()
   assert(syncSource.includes("worse_than_baseline_cases"), "DuckDB benchmark run mart missing worse-than-baseline count");
   assert(syncSource.includes("holdout_case_results"), "DuckDB benchmark run mart missing holdout evidence count");
   assert(syncSource.includes("required_holdout_case_results"), "DuckDB benchmark run mart missing required holdout evidence count");
+  assert(syncSource.includes("source_leakage_cases"), "DuckDB benchmark run mart missing source leakage count");
+  assert(syncSource.includes("information_advantage_cases"), "DuckDB benchmark run mart missing information advantage count");
+  assert(syncSource.includes("human_forecast_source_cases"), "DuckDB benchmark run mart missing human forecast source count");
   for (const blockerId of benchmarkPromotionGateBlockerIds) {
     assert(syncSource.includes(blockerId), `DuckDB promotion gate export missing blocker ${blockerId}`);
   }

@@ -86,6 +86,8 @@ export const benchmarkPromotionGateBlockerIds = [
   "large_probability_misses",
   "worse_than_baseline_cases",
   "insufficient_holdout_evidence",
+  "source_cutoff_leakage",
+  "human_forecast_leakage",
 ] as const;
 
 const [
@@ -99,6 +101,8 @@ const [
   blockerLargeProbabilityMisses,
   blockerWorseThanBaselineCases,
   blockerInsufficientHoldoutEvidence,
+  blockerSourceCutoffLeakage,
+  blockerHumanForecastLeakage,
 ] = benchmarkPromotionGateBlockerIds;
 
 export const benchmarkHoldoutSplitIds = ["holdout", "test", "validation", "eval", "evaluation"] as const;
@@ -114,6 +118,7 @@ export type BenchmarkPromotionGateEvidenceInput = {
   componentDisagreementFindings?: Record<string, unknown> | null;
   forecastErrorFindings?: Record<string, unknown> | null;
   splitFindings?: Record<string, unknown> | null;
+  sourceQualityFindings?: Record<string, unknown> | null;
 };
 
 export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotionGateEvidenceInput) {
@@ -149,6 +154,18 @@ export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotio
   }
   if (readFindingCount(input.splitFindings, "holdoutCaseResults", "holdout_case_results") < minimumPromotionHoldoutCases) {
     blockers.push(blockerInsufficientHoldoutEvidence);
+  }
+  if (
+    readFindingCount(input.sourceQualityFindings, "sourceLeakageCases", "source_leakage_cases") > 0 ||
+    readFindingCount(input.sourceQualityFindings, "postCutoffSourceCases", "post_cutoff_source_cases") > 0
+  ) {
+    blockers.push(blockerSourceCutoffLeakage);
+  }
+  if (
+    readFindingCount(input.sourceQualityFindings, "informationAdvantageCases", "information_advantage_cases") > 0 ||
+    readFindingCount(input.sourceQualityFindings, "humanForecastSourceCases", "human_forecast_source_cases") > 0
+  ) {
+    blockers.push(blockerHumanForecastLeakage);
   }
   return {
     status: blockers.length === 0 ? "review_for_promotion" : "needs_more_evidence",
@@ -725,6 +742,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
     const baselineSanityFindings = readRecord(analysisReportRow, "baselineSanityFindings", "baseline_sanity_findings") ?? null;
     const componentDisagreementFindings = readRecord(analysisReportRow, "componentDisagreementFindings", "component_disagreement_findings") ?? null;
     const forecastErrorFindings = readRecord(analysisReportRow, "forecastErrorFindings", "forecast_error_findings") ?? null;
+    const sourceQualityFindings = readRecord(analysisReportRow, "sourceQualityFindings", "source_quality_findings") ?? null;
     enriched.push({
       ...row,
       workflowId: variant?.workflowId ?? null,
@@ -735,6 +753,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
       baselineSanityFindings,
       componentDisagreementFindings,
       forecastErrorFindings,
+      sourceQualityFindings,
       splitFindings,
       promotionGate: summarizeBenchmarkPromotionGateEvidence({
         runStatus: row.status,
@@ -746,6 +765,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
         componentDisagreementFindings,
         forecastErrorFindings,
         splitFindings,
+        sourceQualityFindings,
       }),
       completedCases: results.filter((result) => result.status === "completed").length,
       failedCases: results.filter((result) => result.status === "failed").length,
@@ -2980,6 +3000,7 @@ function benchmarkPromotionGateSummary(input: {
     componentDisagreementFindings: readRecord(input.analysisReport, "componentDisagreementFindings", "component_disagreement_findings"),
     forecastErrorFindings: readRecord(input.analysisReport, "forecastErrorFindings", "forecast_error_findings"),
     splitFindings: input.splitFindings ?? readRecord(input.analysisReport, "splitFindings", "split_findings"),
+    sourceQualityFindings: readRecord(input.analysisReport, "sourceQualityFindings", "source_quality_findings"),
   });
 }
 
