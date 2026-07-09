@@ -954,6 +954,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       numeric_interval_band: "none",
       unit: "unknown",
       p50_disagreement_band: "unknown",
+      resolved_position_band: "unknown",
     };
     metrics.gauge(
       "open_superforecaster_numeric_distribution_scores_total",
@@ -975,6 +976,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       numeric_interval_band: numericForecast?.intervalWidthBand ?? "unknown",
       unit: numericForecast?.unit ?? "unknown",
       p50_disagreement_band: numericForecast?.p50DisagreementBand ?? "unknown",
+      resolved_position_band: numericForecast?.resolvedPositionBand ?? "unknown",
     });
   })) {
     const labels = parseLabelKey(key);
@@ -1002,6 +1004,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       date_interval_band: "none",
       never_probability_band: "unknown",
       p50_disagreement_band: "unknown",
+      resolved_position_band: "unknown",
     };
     metrics.gauge(
       "open_superforecaster_date_distribution_scores_total",
@@ -1023,6 +1026,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       date_interval_band: dateForecast?.intervalBand ?? "unknown",
       never_probability_band: dateForecast?.neverProbabilityBand ?? "unknown",
       p50_disagreement_band: dateForecast?.p50DisagreementBand ?? "unknown",
+      resolved_position_band: dateForecast?.resolvedPositionBand ?? "unknown",
     });
   })) {
     const labels = parseLabelKey(key);

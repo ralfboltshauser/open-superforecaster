@@ -4,6 +4,8 @@ export type DateForecastSnapshot = {
   p90: string | null;
   intervalDays: number | null;
   intervalBand: "narrow" | "moderate" | "wide" | "unknown";
+  actualDate: string | null;
+  resolvedPositionBand: "before_p10" | "p10_to_p50" | "p50_to_p90" | "after_p90" | "unknown";
   neverProbability: number | null;
   neverProbabilityBand: "low" | "moderate" | "high" | "unknown";
   attemptCount: number | null;
@@ -23,6 +25,8 @@ export function readDateForecastSnapshot(value: unknown): DateForecastSnapshot |
   const p10 = readString(distribution, "p10") ?? readString(dateForecast, "p10");
   const p50 = readString(distribution, "p50", "median") ?? readString(dateForecast, "targetDate", "target_date", "p50");
   const p90 = readString(distribution, "p90") ?? readString(dateForecast, "p90");
+  const actualDate = readString(dateForecast, "actualDate", "actual_date", "resolvedDate", "resolved_date", "date")
+    ?? readString(record, "actualDate", "actual_date", "resolvedDate", "resolved_date", "date");
   const neverProbability = readNumber(dateForecast, "neverProbability", "never_probability");
   const attemptCount = readNumber(dateForecast, "attemptCount", "attempt_count");
   const componentStats = readComponentDateStats(dateForecast);
@@ -43,11 +47,45 @@ export function readDateForecastSnapshot(value: unknown): DateForecastSnapshot |
     p90,
     intervalDays,
     intervalBand: dateIntervalBand(intervalDays),
+    actualDate,
+    resolvedPositionBand: dateResolvedPositionBand({ actualDate, p10, p50, p90 }),
     neverProbability,
     neverProbabilityBand: neverBand(neverProbability),
     attemptCount,
     ...componentStats,
   };
+}
+
+export function dateResolvedPositionBand(input: {
+  actualDate: string | null;
+  p10: string | null;
+  p50: string | null;
+  p90: string | null;
+}): DateForecastSnapshot["resolvedPositionBand"] {
+  const actual = dateTime(input.actualDate);
+  const p10 = dateTime(input.p10);
+  const p50 = dateTime(input.p50);
+  const p90 = dateTime(input.p90);
+  if (
+    actual === null ||
+    p10 === null ||
+    p50 === null ||
+    p90 === null ||
+    p10 > p50 ||
+    p50 > p90
+  ) {
+    return "unknown";
+  }
+  if (actual < p10) {
+    return "before_p10";
+  }
+  if (actual <= p50) {
+    return "p10_to_p50";
+  }
+  if (actual <= p90) {
+    return "p50_to_p90";
+  }
+  return "after_p90";
 }
 
 export function dateIntervalBand(days: number | null): DateForecastSnapshot["intervalBand"] {
@@ -148,6 +186,14 @@ function dateIntervalDays(p10: string | null, p90: string | null) {
     return null;
   }
   return Math.round(Math.abs(end - start) / 86_400_000);
+}
+
+function dateTime(value: string | null) {
+  if (!value) {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 function readRecordArray(value: Record<string, unknown>, ...keys: string[]) {

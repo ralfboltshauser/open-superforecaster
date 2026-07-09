@@ -417,9 +417,11 @@ export async function getForecastPerformanceReport(db: Db) {
   const byNumericInterval = groupScores(aggregateScores, numericIntervalGroupKey);
   const byNumericUnit = groupScores(aggregateScores, numericUnitGroupKey);
   const byNumericP50Disagreement = groupScores(aggregateScores, numericP50DisagreementGroupKey);
+  const byNumericResolvedPosition = groupScores(aggregateScores, numericResolvedPositionGroupKey);
   const byDateInterval = groupScores(aggregateScores, dateIntervalGroupKey);
   const byDateNeverProbability = groupScores(aggregateScores, dateNeverProbabilityGroupKey);
   const byDateP50Disagreement = groupScores(aggregateScores, dateP50DisagreementGroupKey);
+  const byDateResolvedPosition = groupScores(aggregateScores, dateResolvedPositionGroupKey);
   const byCategoricalConfidence = groupScores(aggregateScores, categoricalConfidenceGroupKey);
   const byCategoricalEntropy = groupScores(aggregateScores, categoricalEntropyGroupKey);
   const byCategoricalSource = groupScores(aggregateScores, categoricalSourceGroupKey);
@@ -501,9 +503,11 @@ export async function getForecastPerformanceReport(db: Db) {
       byNumericInterval,
       byNumericUnit,
       byNumericP50Disagreement,
+      byNumericResolvedPosition,
       byDateInterval,
       byDateNeverProbability,
       byDateP50Disagreement,
+      byDateResolvedPosition,
       byCategoricalConfidence,
       byCategoricalEntropy,
       byCategoricalSource,
@@ -575,9 +579,11 @@ export async function getForecastPerformanceReport(db: Db) {
       byNumericInterval,
       byNumericUnit,
       byNumericP50Disagreement,
+      byNumericResolvedPosition,
       byDateInterval,
       byDateNeverProbability,
       byDateP50Disagreement,
+      byDateResolvedPosition,
       byCategoricalConfidence,
       byCategoricalEntropy,
       byCategoricalSource,
@@ -799,7 +805,7 @@ function scoreForecastPrediction(input: {
     if (predicted === null || actual === null) {
       return [];
     }
-    const numericForecast = readNumericForecastSnapshot(input.prediction);
+    const numericForecast = readNumericForecastSnapshot({ ...input.prediction, actualValue: actual });
     const error = predicted - actual;
     const absoluteError = Math.abs(error);
     const rows: ScoreRowInput[] = [
@@ -830,7 +836,8 @@ function scoreForecastPrediction(input: {
     if (!predicted || !actual) {
       return [];
     }
-    const dateForecast = readDateForecastSnapshot(input.prediction);
+    const actualDate = actual.toISOString().slice(0, 10);
+    const dateForecast = readDateForecastSnapshot({ ...input.prediction, actualDate });
     const errorDays = Math.round(((predicted.getTime() - actual.getTime()) / 86_400_000) * 100) / 100;
     const absoluteDays = Math.abs(errorDays);
     return [
@@ -839,7 +846,7 @@ function scoreForecastPrediction(input: {
         scoreValue: absoluteDays,
         scoreConfig: {
           predictedDate: predicted.toISOString().slice(0, 10),
-          actualDate: actual.toISOString().slice(0, 10),
+          actualDate,
           errorDays,
           ...(dateForecast ? { dateForecast } : {}),
           ...evidenceConfig,
@@ -850,7 +857,7 @@ function scoreForecastPrediction(input: {
         scoreValue: errorDays ** 2,
         scoreConfig: {
           predictedDate: predicted.toISOString().slice(0, 10),
-          actualDate: actual.toISOString().slice(0, 10),
+          actualDate,
           errorDays,
           ...(dateForecast ? { dateForecast } : {}),
           ...evidenceConfig,
@@ -1427,6 +1434,14 @@ function numericP50DisagreementGroupKey(score: typeof forecastScores.$inferSelec
   return `numeric_p50_disagreement:${numericForecast?.p50DisagreementBand ?? "unrecorded"}`;
 }
 
+function numericResolvedPositionGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "numeric") {
+    return "numeric_resolved_position:not_numeric";
+  }
+  const numericForecast = readNumericForecastSnapshot(score.scoreConfig);
+  return `numeric_resolved_position:${numericForecast?.resolvedPositionBand ?? "unrecorded"}`;
+}
+
 function dateIntervalGroupKey(score: typeof forecastScores.$inferSelect) {
   if (readString(score.scoreConfig, "forecastType") !== "date") {
     return "date_interval:not_date";
@@ -1449,6 +1464,14 @@ function dateP50DisagreementGroupKey(score: typeof forecastScores.$inferSelect) 
   }
   const dateForecast = readDateForecastSnapshot(score.scoreConfig);
   return `date_p50_disagreement:${dateForecast?.p50DisagreementBand ?? "unrecorded"}`;
+}
+
+function dateResolvedPositionGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "date") {
+    return "date_resolved_position:not_date";
+  }
+  const dateForecast = readDateForecastSnapshot(score.scoreConfig);
+  return `date_resolved_position:${dateForecast?.resolvedPositionBand ?? "unrecorded"}`;
 }
 
 function categoricalConfidenceGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2175,6 +2198,19 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
   if (
     item.forecastType === "numeric" &&
     item.numericForecast !== null &&
+    (item.numericForecast.resolvedPositionBand === "below_p10" || item.numericForecast.resolvedPositionBand === "above_p90")
+  ) {
+    return {
+      reason:
+        `resolved value was ${item.numericForecast.resolvedPositionBand.replace(/_/g, " ")} for numeric forecast interval ${formatNullableMetric(item.numericForecast.p10)}-${formatNullableMetric(item.numericForecast.p90)} ${item.numericForecast.unit ?? "units"}`,
+      delta: item.numericForecast.actualValue,
+      severity: "high",
+    };
+  }
+
+  if (
+    item.forecastType === "numeric" &&
+    item.numericForecast !== null &&
     ["moderate", "wide"].includes(item.numericForecast.p50DisagreementBand)
   ) {
     return {
@@ -2182,6 +2218,19 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
         `${item.numericForecast.p50DisagreementBand} numeric component-value disagreement of ${formatNullableMetric(item.numericForecast.p50Disagreement)} ${item.numericForecast.unit ?? "units"}`,
       delta: item.numericForecast.p50Disagreement,
       severity: item.numericForecast.p50DisagreementBand === "wide" ? "high" : "medium",
+    };
+  }
+
+  if (
+    item.forecastType === "date" &&
+    item.dateForecast !== null &&
+    (item.dateForecast.resolvedPositionBand === "before_p10" || item.dateForecast.resolvedPositionBand === "after_p90")
+  ) {
+    return {
+      reason:
+        `resolved date was ${item.dateForecast.resolvedPositionBand.replace(/_/g, " ")} for date forecast interval ${item.dateForecast.p10 ?? "unknown"}-${item.dateForecast.p90 ?? "unknown"}`,
+      delta: item.dateForecast.intervalDays,
+      severity: "high",
     };
   }
 
@@ -2545,9 +2594,11 @@ function renderPerformanceMarkdown(input: {
   byNumericInterval: PerformanceGroup[];
   byNumericUnit: PerformanceGroup[];
   byNumericP50Disagreement: PerformanceGroup[];
+  byNumericResolvedPosition: PerformanceGroup[];
   byDateInterval: PerformanceGroup[];
   byDateNeverProbability: PerformanceGroup[];
   byDateP50Disagreement: PerformanceGroup[];
+  byDateResolvedPosition: PerformanceGroup[];
   byCategoricalConfidence: PerformanceGroup[];
   byCategoricalEntropy: PerformanceGroup[];
   byCategoricalSource: PerformanceGroup[];
@@ -2667,6 +2718,9 @@ function renderPerformanceMarkdown(input: {
     "## Numeric component-value groups",
     ...renderGroupTable(input.byNumericP50Disagreement),
     "",
+    "## Numeric resolved-position groups",
+    ...renderGroupTable(input.byNumericResolvedPosition),
+    "",
     "## Date interval groups",
     ...renderGroupTable(input.byDateInterval),
     "",
@@ -2675,6 +2729,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Date component timing groups",
     ...renderGroupTable(input.byDateP50Disagreement),
+    "",
+    "## Date resolved-position groups",
+    ...renderGroupTable(input.byDateResolvedPosition),
     "",
     "## Categorical confidence groups",
     ...renderGroupTable(input.byCategoricalConfidence),

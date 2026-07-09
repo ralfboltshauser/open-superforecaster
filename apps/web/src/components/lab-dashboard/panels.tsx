@@ -640,9 +640,11 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byNumericInterval = readArray(groups, "byNumericInterval").filter(isRecord)
   const byNumericUnit = readArray(groups, "byNumericUnit").filter(isRecord)
   const byNumericP50Disagreement = readArray(groups, "byNumericP50Disagreement").filter(isRecord)
+  const byNumericResolvedPosition = readArray(groups, "byNumericResolvedPosition").filter(isRecord)
   const byDateInterval = readArray(groups, "byDateInterval").filter(isRecord)
   const byDateNeverProbability = readArray(groups, "byDateNeverProbability").filter(isRecord)
   const byDateP50Disagreement = readArray(groups, "byDateP50Disagreement").filter(isRecord)
+  const byDateResolvedPosition = readArray(groups, "byDateResolvedPosition").filter(isRecord)
   const byCategoricalConfidence = readArray(groups, "byCategoricalConfidence").filter(isRecord)
   const byCategoricalEntropy = readArray(groups, "byCategoricalEntropy").filter(isRecord)
   const byCategoricalSource = readArray(groups, "byCategoricalSource").filter(isRecord)
@@ -733,9 +735,11 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byNumericInterval.length ? <PerformancePlanShapeGroupList groups={byNumericInterval} title="Numeric interval outcomes" skipKey="numeric_interval:not_numeric" fallback="numeric interval" /> : null}
         {byNumericUnit.length ? <PerformancePlanShapeGroupList groups={byNumericUnit} title="Numeric unit outcomes" skipKey="numeric_unit:not_numeric" fallback="numeric unit" /> : null}
         {byNumericP50Disagreement.length ? <PerformancePlanShapeGroupList groups={byNumericP50Disagreement} title="Numeric component-value outcomes" skipKey="numeric_p50_disagreement:not_numeric" fallback="numeric component value" /> : null}
+        {byNumericResolvedPosition.length ? <PerformancePlanShapeGroupList groups={byNumericResolvedPosition} title="Numeric resolved-position outcomes" skipKey="numeric_resolved_position:not_numeric" fallback="numeric resolved position" /> : null}
         {byDateInterval.length ? <PerformancePlanShapeGroupList groups={byDateInterval} title="Date interval outcomes" skipKey="date_interval:not_date" fallback="date interval" /> : null}
         {byDateNeverProbability.length ? <PerformancePlanShapeGroupList groups={byDateNeverProbability} title="Date never-probability outcomes" skipKey="date_never_probability:not_date" fallback="date never probability" /> : null}
         {byDateP50Disagreement.length ? <PerformancePlanShapeGroupList groups={byDateP50Disagreement} title="Date component-timing outcomes" skipKey="date_p50_disagreement:not_date" fallback="date component timing" /> : null}
+        {byDateResolvedPosition.length ? <PerformancePlanShapeGroupList groups={byDateResolvedPosition} title="Date resolved-position outcomes" skipKey="date_resolved_position:not_date" fallback="date resolved position" /> : null}
         {byCategoricalConfidence.length ? <PerformancePlanShapeGroupList groups={byCategoricalConfidence} title="Categorical confidence outcomes" skipKey="categorical_confidence:not_categorical" fallback="categorical confidence" /> : null}
         {byCategoricalEntropy.length ? <PerformancePlanShapeGroupList groups={byCategoricalEntropy} title="Categorical entropy outcomes" skipKey="categorical_entropy:not_categorical" fallback="categorical entropy" /> : null}
         {byCategoricalSource.length ? <PerformancePlanShapeGroupList groups={byCategoricalSource} title="Categorical source outcomes" skipKey="categorical_source:not_categorical" fallback="categorical source" /> : null}

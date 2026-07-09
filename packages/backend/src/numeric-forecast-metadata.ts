@@ -5,6 +5,8 @@ export type NumericForecastSnapshot = {
   p90: number | null;
   intervalWidth: number | null;
   intervalWidthBand: "narrow" | "moderate" | "wide" | "unknown";
+  actualValue: number | null;
+  resolvedPositionBand: "below_p10" | "p10_to_p50" | "p50_to_p90" | "above_p90" | "unknown";
   attemptCount: number | null;
   componentValueCount: number | null;
   p50Disagreement: number | null;
@@ -23,6 +25,8 @@ export function readNumericForecastSnapshot(value: unknown): NumericForecastSnap
   const p50 = readNumber(distribution, "p50", "median") ?? readNumber(numeric, "value", "p50");
   const p90 = readNumber(distribution, "p90", "high") ?? readNumber(numeric, "p90");
   const unit = readString(numeric, "unit") ?? readString(distribution, "unit");
+  const actualValue = readNumber(numeric, "actualValue", "actual_value", "actual", "resolvedNumeric", "resolved_numeric")
+    ?? readNumber(record, "actualValue", "actual_value", "actual", "resolvedNumeric", "resolved_numeric");
   const attemptCount = readNumber(numeric, "attemptCount", "attempt_count");
   const componentStats = readComponentValueStats(numeric, unit, p50);
   if (
@@ -43,9 +47,43 @@ export function readNumericForecastSnapshot(value: unknown): NumericForecastSnap
     p90,
     intervalWidth,
     intervalWidthBand: numericIntervalWidthBand(intervalWidth, p50),
+    actualValue,
+    resolvedPositionBand: numericResolvedPositionBand({ actualValue, p10, p50, p90 }),
     attemptCount,
     ...componentStats,
   };
+}
+
+export function numericResolvedPositionBand(input: {
+  actualValue: number | null;
+  p10: number | null;
+  p50: number | null;
+  p90: number | null;
+}): NumericForecastSnapshot["resolvedPositionBand"] {
+  if (
+    input.actualValue === null ||
+    input.p10 === null ||
+    input.p50 === null ||
+    input.p90 === null ||
+    !Number.isFinite(input.actualValue) ||
+    !Number.isFinite(input.p10) ||
+    !Number.isFinite(input.p50) ||
+    !Number.isFinite(input.p90) ||
+    input.p10 > input.p50 ||
+    input.p50 > input.p90
+  ) {
+    return "unknown";
+  }
+  if (input.actualValue < input.p10) {
+    return "below_p10";
+  }
+  if (input.actualValue <= input.p50) {
+    return "p10_to_p50";
+  }
+  if (input.actualValue <= input.p90) {
+    return "p50_to_p90";
+  }
+  return "above_p90";
 }
 
 export function numericIntervalWidthBand(width: number | null, center: number | null): NumericForecastSnapshot["intervalWidthBand"] {
