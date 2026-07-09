@@ -11,6 +11,13 @@ export type BinaryCalibrationGuardResult = {
   probability: number;
   adjustment: number;
   notes: string[];
+  appliedRules: BinaryCalibrationGuardRule[];
+};
+
+export type BinaryCalibrationGuardRule = {
+  id: string;
+  adjustment: number;
+  note: string;
 };
 
 export function applyBinaryCalibrationGuard(input: BinaryCalibrationGuardInput): BinaryCalibrationGuardResult {
@@ -22,7 +29,7 @@ export function applyBinaryCalibrationGuard(input: BinaryCalibrationGuardInput):
     input.fixedEvidence,
   ].join("\n").toLowerCase();
   let probability = input.probability;
-  const notes: string[] = [];
+  const appliedRules: BinaryCalibrationGuardRule[] = [];
 
   if (
     /outright majority|seat majority|majority in/.test(questionText) &&
@@ -31,8 +38,13 @@ export function applyBinaryCalibrationGuard(input: BinaryCalibrationGuardInput):
     probability >= 70 &&
     probability <= 90
   ) {
-    probability += 2;
-    notes.push("Added 2 points for a large persistent lead in a seat-amplifying electoral system.");
+    const rule = appliedRule(
+      "electoral-seat-amplification",
+      2,
+      "Added 2 points for a large persistent lead in a seat-amplifying electoral system.",
+    );
+    probability += rule.adjustment;
+    appliedRules.push(rule);
   }
 
   if (
@@ -42,8 +54,13 @@ export function applyBinaryCalibrationGuard(input: BinaryCalibrationGuardInput):
     probability >= 30 &&
     probability <= 55
   ) {
-    probability += 1;
-    notes.push("Added 1 point for named BOJ normalization triggers plus first-half market debate.");
+    const rule = appliedRule(
+      "boj-normalization-triggers",
+      1,
+      "Added 1 point for named BOJ normalization triggers plus first-half market debate.",
+    );
+    probability += rule.adjustment;
+    appliedRules.push(rule);
   }
 
   if (
@@ -51,8 +68,13 @@ export function applyBinaryCalibrationGuard(input: BinaryCalibrationGuardInput):
     includesAny(contextText, [/limited initial production/, /ramp .* hard/, /recently begun/, /unusual .* manufacturing/]) &&
     probability >= 10
   ) {
-    probability -= 5;
-    notes.push("Subtracted 5 points for a hard production-ramp threshold with limited initial output evidence.");
+    const rule = appliedRule(
+      "production-ramp-threshold",
+      -5,
+      "Subtracted 5 points for a hard production-ramp threshold with limited initial output evidence.",
+    );
+    probability += rule.adjustment;
+    appliedRules.push(rule);
   }
 
   if (
@@ -61,8 +83,13 @@ export function applyBinaryCalibrationGuard(input: BinaryCalibrationGuardInput):
     /below 4|below four|would require|material .*deterioration|remained resilient/.test(contextText) &&
     probability >= 10
   ) {
-    probability -= 2.5;
-    notes.push("Subtracted 2.5 points for a deterioration threshold starting from a strong labor-market base.");
+    const rule = appliedRule(
+      "labor-deterioration-threshold",
+      -2.5,
+      "Subtracted 2.5 points for a deterioration threshold starting from a strong labor-market base.",
+    );
+    probability += rule.adjustment;
+    appliedRules.push(rule);
   }
 
   if (
@@ -73,15 +100,29 @@ export function applyBinaryCalibrationGuard(input: BinaryCalibrationGuardInput):
     probability >= 15 &&
     probability <= 45
   ) {
-    probability -= 3.5;
-    notes.push("Subtracted 3.5 points for a near-deadline central-bank easing question with explicit no-commitment/caution evidence.");
+    const rule = appliedRule(
+      "near-deadline-central-bank-easing",
+      -3.5,
+      "Subtracted 3.5 points for a near-deadline central-bank easing question with explicit no-commitment/caution evidence.",
+    );
+    probability += rule.adjustment;
+    appliedRules.push(rule);
   }
 
   const calibratedProbability = roundProbability(Math.min(100, Math.max(0, probability)));
   return {
     probability: calibratedProbability,
     adjustment: roundProbability(calibratedProbability - input.probability),
-    notes,
+    notes: appliedRules.map((rule) => rule.note),
+    appliedRules,
+  };
+}
+
+function appliedRule(id: string, adjustment: number, note: string): BinaryCalibrationGuardRule {
+  return {
+    id,
+    adjustment,
+    note,
   };
 }
 

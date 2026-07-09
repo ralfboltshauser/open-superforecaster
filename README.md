@@ -266,7 +266,9 @@ attention queue with review actions.
 Binary forecast generation also applies a deterministic final calibration guard
 for known threshold, timing, and production-ramp failure modes. The guard lives
 in `packages/workflows/src/binary-calibration-guard.ts` so measured calibration
-rules can be reviewed and tested outside the workflow orchestration.
+rules can be reviewed and tested outside the workflow orchestration. Final
+binary aggregates include a structured `calibrationGuard` block with applied
+rule ids and point adjustments.
 
 To consolidate those local artifacts into one audit file:
 

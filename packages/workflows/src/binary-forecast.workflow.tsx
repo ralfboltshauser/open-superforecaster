@@ -221,7 +221,17 @@ const binaryQualityReview = z.object({
   rationale: z.string(),
 });
 
+const calibrationGuardRule = z.object({
+  id: z.string(),
+  adjustment: z.number(),
+  note: z.string(),
+});
+
 const binaryAggregate = aggregateCore.extend({
+  calibrationGuard: z.object({
+    adjustment: z.number(),
+    appliedRules: z.array(calibrationGuardRule).default([]),
+  }),
   convergenceStatus: z.enum(["approved", "max_iterations_return_last"]),
   roundsUsed: z.number().int().min(1),
   qualityApproved: z.boolean(),
@@ -423,7 +433,7 @@ export default smithers((ctx) => {
       fixedEvidence,
       cutoffHorizonDays,
     })
-    : { probability: 50, adjustment: 0, notes: [] };
+    : { probability: 50, adjustment: 0, notes: [], appliedRules: [] };
 
   return (
     <Workflow name="binary-forecast">
@@ -674,6 +684,10 @@ Return round ${round}, approved, confidenceScore, disagreementExplained, issues,
               calibrationWarnings: finalCalibration.notes.length
                 ? [...latestCandidate.calibrationWarnings, ...finalCalibration.notes]
                 : latestCandidate.calibrationWarnings,
+              calibrationGuard: {
+                adjustment: finalCalibration.adjustment,
+                appliedRules: finalCalibration.appliedRules,
+              },
               convergenceStatus: qualityApproved ? "approved" as const : "max_iterations_return_last" as const,
               roundsUsed,
               qualityApproved,

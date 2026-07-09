@@ -424,6 +424,8 @@ await check("binary forecast calibration guard preserves deterministic adjustmen
   });
   assert(productionRamp.probability === 20, "production ramp probability adjustment mismatch");
   assert(productionRamp.adjustment === -5, "production ramp adjustment mismatch");
+  assert(productionRamp.appliedRules.length === 1, "production ramp applied rule count mismatch");
+  assert(productionRamp.appliedRules[0].id === "production-ramp-threshold", "production ramp applied rule id mismatch");
   assert(productionRamp.notes.some((note) => note.includes("production-ramp threshold")), "production ramp note missing");
 
   const centralBankCut = applyBinaryCalibrationGuard({
@@ -436,6 +438,8 @@ await check("binary forecast calibration guard preserves deterministic adjustmen
   });
   assert(centralBankCut.probability === 26.5, "central bank probability adjustment mismatch");
   assert(centralBankCut.adjustment === -3.5, "central bank adjustment mismatch");
+  assert(centralBankCut.appliedRules.length === 1, "central bank applied rule count mismatch");
+  assert(centralBankCut.appliedRules[0].id === "near-deadline-central-bank-easing", "central bank applied rule id mismatch");
   assert(centralBankCut.notes.some((note) => note.includes("near-deadline central-bank easing")), "central bank note missing");
   return "binary calibration guard is extracted and behavior-stable";
 });
