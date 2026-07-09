@@ -392,6 +392,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byComplexityScore = groupScores(aggregateScores, complexityScoreGroupKey);
   const byConditionalBranch = groupScores(aggregateScores, conditionalBranchGroupKey);
   const byConditionalEffect = groupScores(aggregateScores, conditionalEffectGroupKey);
+  const byConditionalBranchDisagreement = groupScores(aggregateScores, conditionalBranchDisagreementGroupKey);
   const byThresholdedDirection = groupScores(aggregateScores, thresholdedDirectionGroupKey);
   const byThresholdedSource = groupScores(aggregateScores, thresholdedSourceGroupKey);
   const byThresholdedRepair = groupScores(aggregateScores, thresholdedRepairGroupKey);
@@ -461,6 +462,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byComplexityScore,
       byConditionalBranch,
       byConditionalEffect,
+      byConditionalBranchDisagreement,
       byThresholdedDirection,
       byThresholdedSource,
       byThresholdedRepair,
@@ -520,6 +522,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byComplexityScore,
       byConditionalBranch,
       byConditionalEffect,
+      byConditionalBranchDisagreement,
       byThresholdedDirection,
       byThresholdedSource,
       byThresholdedRepair,
@@ -1272,6 +1275,16 @@ function conditionalEffectGroupKey(score: typeof forecastScores.$inferSelect) {
   }
   const conditionalForecast = readConditionalForecastSnapshot(score.scoreConfig);
   return conditionalForecast ? `conditional_effect:${conditionalForecast.effectBand}` : "conditional_effect:unrecorded";
+}
+
+function conditionalBranchDisagreementGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "conditional") {
+    return "conditional_branch_disagreement:not_conditional";
+  }
+  const conditionalForecast = readConditionalForecastSnapshot(score.scoreConfig);
+  return conditionalForecast
+    ? `conditional_branch_disagreement:${conditionalForecast.branchDisagreementBand}:${conditionalForecast.effectDirectionAgreement}`
+    : "conditional_branch_disagreement:unrecorded";
 }
 
 function thresholdedDirectionGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2045,6 +2058,7 @@ function renderPerformanceMarkdown(input: {
   byComplexityScore: PerformanceGroup[];
   byConditionalBranch: PerformanceGroup[];
   byConditionalEffect: PerformanceGroup[];
+  byConditionalBranchDisagreement: PerformanceGroup[];
   byThresholdedDirection: PerformanceGroup[];
   byThresholdedSource: PerformanceGroup[];
   byThresholdedRepair: PerformanceGroup[];
@@ -2129,6 +2143,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Conditional effect groups",
     ...renderGroupTable(input.byConditionalEffect),
+    "",
+    "## Conditional branch disagreement groups",
+    ...renderGroupTable(input.byConditionalBranchDisagreement),
     "",
     "## Thresholded direction groups",
     ...renderGroupTable(input.byThresholdedDirection),

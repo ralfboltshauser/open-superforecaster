@@ -786,6 +786,8 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       score_type: "all",
       conditional_branch: "none",
       conditional_effect_band: "unknown",
+      conditional_branch_disagreement_band: "unknown",
+      conditional_effect_direction_agreement: "unknown",
     };
     metrics.gauge(
       "open_superforecaster_conditional_scores_total",
@@ -807,6 +809,8 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       score_type: row.scoreType,
       conditional_branch: readString(config, "branch") ?? (row.scoreType.startsWith("condition_") ? "condition_probability" : "unknown"),
       conditional_effect_band: conditionalForecast?.effectBand ?? "unknown",
+      conditional_branch_disagreement_band: conditionalForecast?.branchDisagreementBand ?? "unknown",
+      conditional_effect_direction_agreement: conditionalForecast?.effectDirectionAgreement ?? "unknown",
     });
   })) {
     const labels = parseLabelKey(key);

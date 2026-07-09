@@ -1424,6 +1424,11 @@ await check("conditional forecast metadata reaches resolved score analytics", as
       probabilityDelta: 34,
       condition: "the stated catalyst happens",
       attemptCount: 3,
+      componentBranches: [
+        { forecasterLabel: "base-rate", probabilityGivenCondition: 72, probabilityGivenNotCondition: 38 },
+        { forecasterLabel: "inside-view", probabilityGivenCondition: 65, probabilityGivenNotCondition: 41 },
+        { forecasterLabel: "skeptic", probabilityGivenCondition: 54, probabilityGivenNotCondition: 52 },
+      ],
     },
   });
   assert(snapshot?.conditionProbability === 40, "conditional metadata condition probability mismatch");
@@ -1431,6 +1436,12 @@ await check("conditional forecast metadata reaches resolved score analytics", as
   assert(snapshot?.probabilityGivenNotCondition === 38, "conditional metadata false-branch probability mismatch");
   assert(snapshot?.probabilityDelta === 34, "conditional metadata probability delta mismatch");
   assert(snapshot?.effectBand === "large", "conditional metadata effect band mismatch");
+  assert(snapshot?.componentBranchCount === 3, "conditional metadata component branch count mismatch");
+  assert(snapshot?.givenConditionDisagreement === 18, "conditional metadata true-branch disagreement mismatch");
+  assert(snapshot?.givenNotConditionDisagreement === 14, "conditional metadata false-branch disagreement mismatch");
+  assert(snapshot?.effectDisagreement === 32, "conditional metadata effect disagreement mismatch");
+  assert(snapshot?.branchDisagreementBand === "wide", "conditional metadata branch disagreement band mismatch");
+  assert(snapshot?.effectDirectionAgreement === "mixed", "conditional metadata effect direction agreement mismatch");
   const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
@@ -1438,11 +1449,15 @@ await check("conditional forecast metadata reaches resolved score analytics", as
   assert(resolutionSource.includes("readConditionalForecastSnapshot(input.prediction)"), "resolution scoring does not persist conditional metadata");
   assert(resolutionSource.includes("byConditionalBranch"), "performance report does not group by conditional branch");
   assert(resolutionSource.includes("byConditionalEffect"), "performance report does not group by conditional effect size");
+  assert(resolutionSource.includes("byConditionalBranchDisagreement"), "performance report does not group by conditional branch disagreement");
   assert(metricsSource.includes("open_superforecaster_conditional_scores_total"), "metrics missing conditional score counts");
+  assert(metricsSource.includes("conditional_branch_disagreement_band"), "metrics missing conditional branch disagreement labels");
   assert(syncSource.includes("probability_given_condition"), "DuckDB forecast score mart missing conditional true branch probability");
   assert(syncSource.includes("conditional_probability_delta"), "DuckDB forecast score mart missing conditional probability delta");
+  assert(syncSource.includes("conditional_effect_disagreement"), "DuckDB forecast score mart missing conditional effect disagreement");
   assert(dashboardSource.includes("Conditional branch outcomes"), "lab dashboard does not render conditional branch outcomes");
   assert(dashboardSource.includes("Conditional effect outcomes"), "lab dashboard does not render conditional effect outcomes");
+  assert(dashboardSource.includes("Conditional branch-disagreement outcomes"), "lab dashboard does not render conditional branch disagreement outcomes");
   return "conditional forecast metadata is persisted and visible in resolved score analytics";
 });
 
