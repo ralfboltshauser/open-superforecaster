@@ -150,6 +150,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byForecastType = readArray(groups, "byForecastType").filter(isRecord)
   const bestForecasts = readArray(performance, "bestResolvedForecasts").filter(isRecord)
   const worstForecasts = readArray(performance, "worstResolvedForecasts").filter(isRecord)
+  const scoreTrends = readArray(performance, "scoreTrends").filter(isRecord)
   return (
     <Card id="performance">
       <CardHeader>
@@ -185,6 +186,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
             <PerformanceCaseList title="Worst" cases={worstForecasts} />
           </div>
         ) : null}
+        {scoreTrends.length ? <PerformanceTrendList trends={scoreTrends} /> : null}
       </CardContent>
     </Card>
   )
@@ -252,6 +254,30 @@ function PerformanceCaseList({ title, cases }: { title: string; cases: JsonRecor
               {String(item.primaryMetric ?? "score")} {formatMetric(item.primaryScore)}
             </span>
           </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function PerformanceTrendList({ trends }: { trends: JsonRecord[] }) {
+  const visibleTrends = trends
+    .filter((trend) => trend.direction !== "insufficient_data")
+    .slice(0, 4)
+  if (visibleTrends.length === 0) {
+    return null
+  }
+  return (
+    <div className="border-t pt-3">
+      <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Trends</p>
+      <div className="grid gap-2 md:grid-cols-2">
+        {visibleTrends.map((trend) => (
+          <div className="rounded-md border px-3 py-2 text-sm" key={String(trend.key ?? `${trend.label}-${trend.metric}`)}>
+            <span className="block truncate font-medium">{String(trend.label ?? "window")} · {String(trend.metric ?? "metric")}</span>
+            <span className="mt-1 block truncate text-xs text-muted-foreground">
+              {String(trend.direction ?? "trend")} · delta {formatMetric(trend.delta)}
+            </span>
+          </div>
         ))}
       </div>
     </div>

@@ -66,6 +66,19 @@ type PerformanceCase = {
   createdAt: Date;
 };
 
+type PerformanceTrend = {
+  key: string;
+  label: string;
+  metric: string;
+  recentDays: number;
+  recentCount: number;
+  baselineCount: number;
+  recentMean: number | null;
+  baselineMean: number | null;
+  delta: number | null;
+  direction: "improved" | "worse" | "flat" | "insufficient_data";
+};
+
 export async function resolveBinaryForecastTask(db: Db, input: BinaryResolutionInput) {
   return resolveForecastTask(db, {
     taskId: input.taskId,
@@ -310,6 +323,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
   const worstResolvedForecasts = [...rankedAggregateCases].reverse().slice(0, 8);
+  const scoreTrends = buildScoreTrends(aggregateScores);
 
   return {
     reportType: "forecast_performance_report",
@@ -332,6 +346,7 @@ export async function getForecastPerformanceReport(db: Db) {
     },
     bestResolvedForecasts,
     worstResolvedForecasts,
+    scoreTrends,
     recentResolvedTasks: resolutionRows.slice(0, 12).map((resolution) => {
       const taskId = readScoreTaskIdFromResolution(resolution.resolvedValue);
       const task = taskId ? taskMeta.get(taskId) : null;
@@ -355,6 +370,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byForecaster,
       bestResolvedForecasts,
       worstResolvedForecasts,
+      scoreTrends,
     }),
   };
 }
@@ -983,6 +999,49 @@ function rankAggregateCases(
     });
 }
 
+function buildScoreTrends(rows: Array<typeof forecastScores.$inferSelect>): PerformanceTrend[] {
+  const windows = [
+    { key: "last_7_days", label: "Last 7 days", days: 7 },
+    { key: "last_30_days", label: "Last 30 days", days: 30 },
+    { key: "last_90_days", label: "Last 90 days", days: 90 },
+  ];
+  const metricKeys = uniqueStrings(rows.map((row) => row.scoreType)).sort();
+  const now = new Date();
+  return windows.flatMap((window) =>
+    metricKeys.map((metric) => {
+      const metricRows = rows.filter((row) => row.scoreType === metric);
+      const cutoff = now.getTime() - window.days * 86_400_000;
+      const recentRows = metricRows.filter((row) => row.createdAt.getTime() >= cutoff);
+      const baselineRows = metricRows.filter((row) => row.createdAt.getTime() < cutoff);
+      const recentMean = meanScore(recentRows);
+      const baselineMean = meanScore(baselineRows);
+      const delta = recentMean === null || baselineMean === null ? null : recentMean - baselineMean;
+      return {
+        key: `${window.key}:${metric}`,
+        label: window.label,
+        metric,
+        recentDays: window.days,
+        recentCount: recentRows.length,
+        baselineCount: baselineRows.length,
+        recentMean,
+        baselineMean,
+        delta,
+        direction: trendDirection(delta),
+      };
+    }),
+  );
+}
+
+function trendDirection(delta: number | null): PerformanceTrend["direction"] {
+  if (delta === null) {
+    return "insufficient_data";
+  }
+  if (Math.abs(delta) < 0.0001) {
+    return "flat";
+  }
+  return delta < 0 ? "improved" : "worse";
+}
+
 function selectPrimaryMetric(meanScores: Record<string, number>) {
   const preference = [
     "brier",
@@ -1011,6 +1070,7 @@ function renderPerformanceMarkdown(input: {
   byForecaster: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
   worstResolvedForecasts: PerformanceCase[];
+  scoreTrends: PerformanceTrend[];
 }) {
   const lines = [
     "# Forecast performance report",
@@ -1032,6 +1092,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Worst resolved forecasts",
     ...renderCaseTable(input.worstResolvedForecasts),
+    "",
+    "## Score trends",
+    ...renderTrendTable(input.scoreTrends),
     "",
   ];
   return `${lines.join("\n")}\n`;
@@ -1061,6 +1124,23 @@ function renderCaseTable(cases: PerformanceCase[]) {
     "| --- | --- | --- | ---: | --- |",
     ...cases.map((item) =>
       `| ${escapeMarkdownCell(item.taskLabel)} | ${escapeMarkdownCell(item.forecastType)} | ${item.primaryMetric} | ${roundMetric(item.primaryScore)} | ${item.taskId} |`,
+    ),
+  ];
+}
+
+function renderTrendTable(trends: PerformanceTrend[]) {
+  if (trends.length === 0) {
+    return ["No aggregate score trends yet."];
+  }
+  return [
+    "| Window | Metric | Recent count | Baseline count | Recent mean | Baseline mean | Delta | Direction |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+    ...trends.map((trend) =>
+      `| ${trend.label} | ${trend.metric} | ${trend.recentCount} | ${trend.baselineCount} | ${
+        trend.recentMean === null ? "" : roundMetric(trend.recentMean)
+      } | ${trend.baselineMean === null ? "" : roundMetric(trend.baselineMean)} | ${
+        trend.delta === null ? "" : roundMetric(trend.delta)
+      } | ${trend.direction} |`,
     ),
   ];
 }
