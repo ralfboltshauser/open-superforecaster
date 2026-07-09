@@ -221,6 +221,15 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
   const baselineProbability = readNumberAny(baselineSanity, "baselineProbability", "baseline_probability")
   const baselineDelta = readNumberAny(baselineSanity, "baselineDelta", "baseline_delta")
   const baselineDisagreement = readNumberAny(baselineSanity, "componentBaseRateDisagreement", "component_base_rate_disagreement")
+  const aggregateQuality = readAggregateQualityRecord(output)
+  const convergenceStatus = readStringAny(aggregateQuality, "convergenceStatus", "convergence_status")
+  const qualityApproved = readBooleanAny(aggregateQuality, "qualityApproved", "quality_approved")
+  const maxIterationsReached = readBooleanAny(aggregateQuality, "maxIterationsReached", "max_iterations_reached")
+  const roundsUsed = readNumberAny(aggregateQuality, "roundsUsed", "rounds_used")
+  const qualityIssueCount =
+    readNumberAny(aggregateQuality, "qualityIssueCount", "quality_issue_count") ??
+    readStringArray(aggregateQuality, "qualityIssues", "quality_issues").length
+  const finalReviewRationale = readStringAny(aggregateQuality, "finalReviewRationale", "final_review_rationale")
   const rationale = readRationale(output)
   const components = recordArray(output, "componentProbabilities", "component_probabilities").flatMap((component, index) => {
     const componentProbability = readNumber(component, "probability")
@@ -280,6 +289,18 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
             />
           </div>
           <p className="mt-2 text-xs text-muted-foreground">{String(baselineSanity.note ?? "")}</p>
+        </ReportSection>
+      ) : null}
+      {Object.keys(aggregateQuality).length ? (
+        <ReportSection label="aggregate quality">
+          <div className="grid gap-2 md:grid-cols-5">
+            <MiniMetric label="status" value={convergenceStatus ? convergenceStatus.replace(/_/g, " ") : "unknown"} />
+            <MiniMetric label="approved" value={qualityApproved === null ? "n/a" : qualityApproved ? "yes" : "no"} />
+            <MiniMetric label="max rounds" value={maxIterationsReached === null ? "n/a" : maxIterationsReached ? "yes" : "no"} />
+            <MiniMetric label="rounds" value={roundsUsed === null ? "n/a" : formatNumber(roundsUsed)} />
+            <MiniMetric label="issues" value={qualityIssueCount === null ? "n/a" : formatNumber(qualityIssueCount)} />
+          </div>
+          {finalReviewRationale ? <p className="mt-2 text-xs text-muted-foreground">{finalReviewRationale}</p> : null}
         </ReportSection>
       ) : null}
       {calibrationWarnings.length ? (
@@ -657,6 +678,19 @@ function readStringAny(record: unknown, ...keys: string[]) {
   return null
 }
 
+function readBooleanAny(record: unknown, ...keys: string[]) {
+  if (!isJsonRecord(record)) {
+    return null
+  }
+  for (const key of keys) {
+    const raw = record[key]
+    if (typeof raw === "boolean") {
+      return raw
+    }
+  }
+  return null
+}
+
 function readRecordAny(record: unknown, ...keys: string[]) {
   if (!isJsonRecord(record)) {
     return {}
@@ -669,6 +703,14 @@ function readRecordAny(record: unknown, ...keys: string[]) {
     }
   }
   return {}
+}
+
+function readAggregateQualityRecord(output: JsonRecord) {
+  const wrapped = readRecordAny(output, "aggregateQuality", "aggregate_quality")
+  if (Object.keys(wrapped).length) {
+    return wrapped
+  }
+  return readStringAny(output, "convergenceStatus", "convergence_status") ? output : {}
 }
 
 function parseJsonValue(value: string) {

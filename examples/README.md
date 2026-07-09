@@ -190,7 +190,9 @@ those adjustments. The live guard is an explicit rule registry in
 `packages/workflows/src/binary-calibration-guard.ts`, so future reviewed
 defaults have one place to land. Final aggregates include structured
 `calibrationGuard` metadata and deterministic `baselineSanity` deltas visible
-in run reports, so future calibration changes are deliberate and auditable.
+in run reports, along with aggregate review status, approval, review rounds,
+max-iteration state, and final review rationale, so future calibration changes
+are deliberate and auditable.
 Future binary score rows keep the same
 guard metadata for performance review, including guarded-vs-unguarded score
 groups and a dedicated calibration guard impact summary with per-rule rows.

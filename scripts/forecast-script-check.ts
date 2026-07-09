@@ -1028,6 +1028,21 @@ await check("binary aggregate quality metadata reaches resolved score analytics"
   return "binary aggregate quality metadata is persisted and visible in resolved score analytics";
 });
 
+await check("binary aggregate quality metadata is visible before resolution", async () => {
+  const reportSource = await readFile(resolve(root, "packages/backend/src/run-service.ts"), "utf8");
+  const panelSource = await readFile(resolve(root, "apps/web/src/components/run-workspace/panels.tsx"), "utf8");
+  assert(reportSource.includes("readAggregateQualitySnapshot(output)"), "run report quality summary does not use aggregate quality metadata reader");
+  assert(reportSource.includes("aggregateQuality"), "run report quality payload missing aggregate quality");
+  assert(reportSource.includes("readReportAggregateQuality"), "generated report Markdown missing aggregate quality renderer");
+  assert(reportSource.includes("## Uncertainty"), "run report Markdown shape changed unexpectedly");
+  assert(reportSource.includes("Aggregate quality"), "run report Markdown missing aggregate quality section label");
+  assert(panelSource.includes("aggregate quality"), "run workspace does not render aggregate quality");
+  assert(panelSource.includes("readAggregateQualityRecord"), "run workspace does not normalize raw aggregate quality metadata");
+  assert(panelSource.includes("finalReviewRationale"), "run workspace does not render final review rationale");
+  assert(panelSource.includes("qualityIssues"), "run workspace does not count raw quality issues");
+  return "binary aggregate quality metadata is visible in run reports before resolution";
+});
+
 await check("binary forecast calibration guard preserves deterministic adjustments", async () => {
   assert(BINARY_CALIBRATION_GUARD_RULES.length === 5, "calibration guard registry rule count mismatch");
   assert(

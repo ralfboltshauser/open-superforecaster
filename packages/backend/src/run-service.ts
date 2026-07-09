@@ -20,6 +20,7 @@ import {
   type createDb,
 } from "@open-superforecaster/db";
 import type { OperationMode } from "@open-superforecaster/workflow-contracts";
+import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
 import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { inspectSmithersRun, launchSmithersDetached, readSmithersNodeOutput } from "./smithers-launcher";
 
@@ -837,6 +838,7 @@ function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited
   const calibrationGuard = readCalibrationGuardSnapshot(output);
   const calibrationGuardRules = calibrationGuard?.appliedRules ?? [];
   const baselineSanity = readRecord(output, "baselineSanity", "baseline_sanity");
+  const aggregateQuality = readAggregateQualitySnapshot(output);
   return {
     status: detail.task.status,
     outputPresent: Object.keys(output).length > 0,
@@ -847,6 +849,7 @@ function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited
     calibrationGuardRules,
     calibrationGuardRuleCount: calibrationGuardRules.length,
     baselineSanity: Object.keys(baselineSanity).length ? baselineSanity : null,
+    aggregateQuality,
     sourceCount: detail.sources.length,
     citationCount: detail.citations.length,
     attemptCount: detail.forecastAttempts.length,
@@ -929,6 +932,7 @@ function renderRunReportMarkdown(report: {
     ...markdownList("Wildcards", report.uncertainty.wildcards),
     ...markdownList("Warnings", report.quality.warnings),
     ...markdownList("Baseline sanity", readReportBaselineSanity(report.quality)),
+    ...markdownList("Aggregate quality", readReportAggregateQuality(report.quality)),
     ...markdownList("Calibration guard rules", readReportGuardRules(report.quality)),
     "",
     "## Links",
@@ -950,6 +954,28 @@ function readReportBaselineSanity(quality: Record<string, unknown>) {
   const note = readString(baselineSanity, "note");
   return [
     `${status}: baseline ${baselineProbability === null ? "n/a" : `${baselineProbability}%`}, delta ${baselineDelta === null ? "n/a" : `${baselineDelta >= 0 ? "+" : ""}${baselineDelta} pts`}${note ? `. ${note}` : ""}`,
+  ];
+}
+
+function readReportAggregateQuality(quality: Record<string, unknown>) {
+  const aggregateQuality = readRecord(quality, "aggregateQuality", "aggregate_quality");
+  if (Object.keys(aggregateQuality).length === 0) {
+    return [];
+  }
+  const convergenceStatus = readString(aggregateQuality, "convergenceStatus", "convergence_status") ?? "unknown";
+  const roundsUsed = readNumber(aggregateQuality, "roundsUsed", "rounds_used");
+  const qualityApproved = readBoolean(aggregateQuality, "qualityApproved", "quality_approved");
+  const maxIterationsReached = readBoolean(aggregateQuality, "maxIterationsReached", "max_iterations_reached");
+  const qualityIssueCount = readNumber(aggregateQuality, "qualityIssueCount", "quality_issue_count");
+  const finalReviewRationale = readString(aggregateQuality, "finalReviewRationale", "final_review_rationale");
+  return [
+    [
+      `${convergenceStatus.replace(/_/g, " ")}`,
+      roundsUsed === null ? "rounds n/a" : `${roundsUsed} round(s)`,
+      qualityApproved === null ? "approval n/a" : `approved ${qualityApproved ? "yes" : "no"}`,
+      maxIterationsReached === null ? "max iterations n/a" : `max iterations ${maxIterationsReached ? "yes" : "no"}`,
+      qualityIssueCount === null ? "issues n/a" : `${qualityIssueCount} issue(s)`,
+    ].join(", ") + (finalReviewRationale ? `. ${finalReviewRationale}` : ""),
   ];
 }
 
@@ -2027,6 +2053,16 @@ function readNumber(value: Record<string, unknown>, ...keys: string[]) {
   for (const key of keys) {
     const raw = value[key];
     if (typeof raw === "number" && Number.isFinite(raw)) {
+      return raw;
+    }
+  }
+  return null;
+}
+
+function readBoolean(value: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const raw = value[key];
+    if (typeof raw === "boolean") {
       return raw;
     }
   }
