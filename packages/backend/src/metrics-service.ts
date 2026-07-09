@@ -1174,6 +1174,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     const labels = {
       score_type: "all",
       context_completeness_band: "none",
+      resolution_horizon_band: "unknown",
       market_price_band: "unknown",
       question_length_band: "unknown",
       category_count_band: "unknown",
@@ -1197,6 +1198,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     return labelKey({
       score_type: row.scoreType,
       context_completeness_band: inputContext?.contextCompletenessBand ?? "unknown",
+      resolution_horizon_band: inputContext?.resolutionHorizonBand ?? "unknown",
       market_price_band: inputContext?.hasMarketPrice ? inputContext.marketPriceBand : "none",
       question_length_band: inputContext?.questionLengthBand ?? "unknown",
       category_count_band: inputContext?.categoryCountBand ?? "unknown",

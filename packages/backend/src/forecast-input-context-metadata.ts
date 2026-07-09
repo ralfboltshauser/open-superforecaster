@@ -5,6 +5,10 @@ export type ForecastInputContextSnapshot = {
   questionLengthBand: "short" | "standard" | "long" | "unknown";
   hasResolutionCriteria: boolean;
   hasResolutionDate: boolean;
+  resolutionDate: string | null;
+  evidenceAsOfDate: string | null;
+  resolutionHorizonDays: number | null;
+  resolutionHorizonBand: "elapsed" | "near" | "short" | "medium" | "long" | "unknown";
   hasBackground: boolean;
   hasMarketPrice: boolean;
   marketPriceBand: "low" | "balanced" | "high" | "unknown";
@@ -39,6 +43,9 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   const marketPlatform = normalized.market.marketPlatform?.trim() || null;
   const hasResolutionCriteria = Boolean(normalized.resolutionCriteria?.trim());
   const hasResolutionDate = Boolean(normalized.resolutionDate?.trim());
+  const resolutionDate = readIsoDate(raw, "resolutionDate", "resolution_date");
+  const evidenceAsOfDate = readIsoDate(raw, "presentDate", "present_date", "evidenceAsOfDate", "evidence_as_of_date", "asOfDate", "as_of_date", "cutoffDate", "cutoff_date", "cutoff");
+  const resolutionHorizonDays = horizonDays(evidenceAsOfDate, resolutionDate);
   const hasBackground = Boolean(normalized.background?.trim());
   const hasMarketPrice = typeof normalized.market.marketPrice === "number";
   const hasCondition = Boolean(normalized.condition?.trim());
@@ -58,6 +65,10 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     questionLengthBand: questionLengthBand(questionLength),
     hasResolutionCriteria,
     hasResolutionDate,
+    resolutionDate,
+    evidenceAsOfDate,
+    resolutionHorizonDays,
+    resolutionHorizonBand: resolutionHorizonBand(resolutionHorizonDays),
     hasBackground,
     hasMarketPrice,
     marketPriceBand: marketPriceBand(normalized.market.marketPrice ?? null),
@@ -81,13 +92,21 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   }
   const categoryCount = readNumber(value, "categoryCount");
   const thresholdCount = readNumber(value, "thresholdCount");
+  const resolutionHorizonDays = readNumber(value, "resolutionHorizonDays");
   const marketPriceBandValue = readString(value, "marketPriceBand");
   const contextCompletenessBandValue = readString(value, "contextCompletenessBand");
+  const resolutionHorizonBandValue = readString(value, "resolutionHorizonBand");
   return {
     questionLength,
     questionLengthBand: readQuestionLengthBand(value) ?? questionLengthBand(questionLength),
     hasResolutionCriteria: readBoolean(value, "hasResolutionCriteria") ?? false,
     hasResolutionDate: readBoolean(value, "hasResolutionDate") ?? false,
+    resolutionDate: readString(value, "resolutionDate"),
+    evidenceAsOfDate: readString(value, "evidenceAsOfDate"),
+    resolutionHorizonDays,
+    resolutionHorizonBand: isResolutionHorizonBand(resolutionHorizonBandValue)
+      ? resolutionHorizonBandValue
+      : resolutionHorizonBand(resolutionHorizonDays),
     hasBackground: readBoolean(value, "hasBackground") ?? false,
     hasMarketPrice: readBoolean(value, "hasMarketPrice") ?? false,
     marketPriceBand: isMarketPriceBand(marketPriceBandValue) ? marketPriceBandValue : "unknown",
@@ -167,8 +186,64 @@ export function contextCompletenessBand(count: number): ForecastInputContextSnap
   return "sparse";
 }
 
+export function resolutionHorizonBand(days: number | null): ForecastInputContextSnapshot["resolutionHorizonBand"] {
+  if (days === null || !Number.isFinite(days)) {
+    return "unknown";
+  }
+  if (days < 0) {
+    return "elapsed";
+  }
+  if (days <= 30) {
+    return "near";
+  }
+  if (days <= 180) {
+    return "short";
+  }
+  if (days <= 730) {
+    return "medium";
+  }
+  return "long";
+}
+
 function wordCount(value: string) {
   return value.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function horizonDays(evidenceAsOfDate: string | null, resolutionDate: string | null) {
+  const asOf = dateTime(evidenceAsOfDate);
+  const resolution = dateTime(resolutionDate);
+  if (asOf === null || resolution === null) {
+    return null;
+  }
+  return Math.round((resolution - asOf) / 86_400_000);
+}
+
+function readIsoDate(value: unknown, ...keys: string[]) {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+  for (const key of keys) {
+    const raw = record[key];
+    if (raw instanceof Date && Number.isFinite(raw.getTime())) {
+      return raw.toISOString().slice(0, 10);
+    }
+    if (typeof raw === "string") {
+      const timestamp = Date.parse(raw);
+      if (Number.isFinite(timestamp)) {
+        return new Date(timestamp).toISOString().slice(0, 10);
+      }
+    }
+  }
+  return null;
+}
+
+function dateTime(value: string | null) {
+  if (!value) {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 function readQuestionLengthBand(value: Record<string, unknown>) {
@@ -192,6 +267,10 @@ function isMarketPriceBand(value: string | null): value is ForecastInputContextS
 
 function isContextCompletenessBand(value: string | null): value is ForecastInputContextSnapshot["contextCompletenessBand"] {
   return value === "sparse" || value === "partial" || value === "rich";
+}
+
+function isResolutionHorizonBand(value: string | null): value is ForecastInputContextSnapshot["resolutionHorizonBand"] {
+  return value === "elapsed" || value === "near" || value === "short" || value === "medium" || value === "long" || value === "unknown";
 }
 
 function readString(value: Record<string, unknown>, key: string) {

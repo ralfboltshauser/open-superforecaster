@@ -664,6 +664,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byEvidenceUncertaintyCount = readArray(groups, "byEvidenceUncertaintyCount").filter(isRecord)
   const byEvidenceRationaleLength = readArray(groups, "byEvidenceRationaleLength").filter(isRecord)
   const byInputContextCompleteness = readArray(groups, "byInputContextCompleteness").filter(isRecord)
+  const byInputResolutionHorizon = readArray(groups, "byInputResolutionHorizon").filter(isRecord)
   const byInputMarketContext = readArray(groups, "byInputMarketContext").filter(isRecord)
   const byInputQuestionLength = readArray(groups, "byInputQuestionLength").filter(isRecord)
   const byInputCategoryCount = readArray(groups, "byInputCategoryCount").filter(isRecord)
@@ -764,6 +765,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byEvidenceUncertaintyCount.length ? <PerformancePlanShapeGroupList groups={byEvidenceUncertaintyCount} title="Evidence uncertainty outcomes" skipKey="evidence_uncertainties:unrecorded" fallback="evidence uncertainties" /> : null}
         {byEvidenceRationaleLength.length ? <PerformancePlanShapeGroupList groups={byEvidenceRationaleLength} title="Evidence rationale outcomes" skipKey="evidence_rationale:unrecorded" fallback="evidence rationale" /> : null}
         {byInputContextCompleteness.length ? <PerformancePlanShapeGroupList groups={byInputContextCompleteness} title="Input context outcomes" skipKey="input_context:unrecorded" fallback="input context" /> : null}
+        {byInputResolutionHorizon.length ? <PerformancePlanShapeGroupList groups={byInputResolutionHorizon} title="Input horizon outcomes" skipKey="input_resolution_horizon:unrecorded" fallback="input resolution horizon" /> : null}
         {byInputMarketContext.length ? <PerformancePlanShapeGroupList groups={byInputMarketContext} title="Input market outcomes" skipKey="input_market:unrecorded" fallback="input market" /> : null}
         {byInputQuestionLength.length ? <PerformancePlanShapeGroupList groups={byInputQuestionLength} title="Input question outcomes" skipKey="input_question:unrecorded" fallback="input question" /> : null}
         {byInputCategoryCount.length ? <PerformancePlanShapeGroupList groups={byInputCategoryCount} title="Input category outcomes" skipKey="input_categories:unrecorded" fallback="input categories" /> : null}

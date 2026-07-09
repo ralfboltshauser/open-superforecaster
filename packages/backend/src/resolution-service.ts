@@ -441,6 +441,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byEvidenceUncertaintyCount = groupScores(aggregateScores, evidenceUncertaintyCountGroupKey);
   const byEvidenceRationaleLength = groupScores(aggregateScores, evidenceRationaleLengthGroupKey);
   const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
+  const byInputResolutionHorizon = groupScores(aggregateScores, inputResolutionHorizonGroupKey);
   const byInputMarketContext = groupScores(aggregateScores, inputMarketContextGroupKey);
   const byInputQuestionLength = groupScores(aggregateScores, inputQuestionLengthGroupKey);
   const byInputCategoryCount = groupScores(aggregateScores, inputCategoryCountGroupKey);
@@ -532,6 +533,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
       byInputContextCompleteness,
+      byInputResolutionHorizon,
       byInputMarketContext,
       byInputQuestionLength,
       byInputCategoryCount,
@@ -613,6 +615,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
       byInputContextCompleteness,
+      byInputResolutionHorizon,
       byInputMarketContext,
       byInputQuestionLength,
       byInputCategoryCount,
@@ -1616,6 +1619,11 @@ function inputContextCompletenessGroupKey(score: typeof forecastScores.$inferSel
   return `input_context:${inputContext?.contextCompletenessBand ?? "unrecorded"}`;
 }
 
+function inputResolutionHorizonGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_resolution_horizon:${inputContext?.resolutionHorizonBand ?? "unrecorded"}`;
+}
+
 function inputMarketContextGroupKey(score: typeof forecastScores.$inferSelect) {
   const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
   if (!inputContext) {
@@ -2528,6 +2536,14 @@ function inputContextMissSignal(item: PerformanceCase): { reason: string; delta:
       severity: !context.hasResolutionCriteria ? "high" : "medium",
     };
   }
+  if (context.resolutionHorizonBand === "elapsed") {
+    const elapsedDays = context.resolutionHorizonDays === null ? null : Math.abs(context.resolutionHorizonDays);
+    return {
+      reason: `resolution date was before the evidence as-of date by ${formatNullableMetric(elapsedDays)} days`,
+      delta: context.resolutionHorizonDays,
+      severity: "high",
+    };
+  }
   if (context.questionLengthBand === "short" || context.questionLengthBand === "long") {
     return {
       reason: `${context.questionLengthBand} question text (${context.questionLength ?? 0} words)`,
@@ -2743,6 +2759,7 @@ function renderPerformanceMarkdown(input: {
   byEvidenceUncertaintyCount: PerformanceGroup[];
   byEvidenceRationaleLength: PerformanceGroup[];
   byInputContextCompleteness: PerformanceGroup[];
+  byInputResolutionHorizon: PerformanceGroup[];
   byInputMarketContext: PerformanceGroup[];
   byInputQuestionLength: PerformanceGroup[];
   byInputCategoryCount: PerformanceGroup[];
@@ -2919,6 +2936,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input context-completeness groups",
     ...renderGroupTable(input.byInputContextCompleteness),
+    "",
+    "## Input resolution-horizon groups",
+    ...renderGroupTable(input.byInputResolutionHorizon),
     "",
     "## Input market-context groups",
     ...renderGroupTable(input.byInputMarketContext),

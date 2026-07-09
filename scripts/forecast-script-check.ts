@@ -1009,6 +1009,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Evidence uncertainty-count groups"), "performance Markdown missing evidence uncertainty-count group section");
   assert(resolutionSource.includes("## Evidence rationale-length groups"), "performance Markdown missing evidence rationale-length group section");
   assert(resolutionSource.includes("## Input context-completeness groups"), "performance Markdown missing input context-completeness group section");
+  assert(resolutionSource.includes("## Input resolution-horizon groups"), "performance Markdown missing input resolution-horizon group section");
   assert(resolutionSource.includes("## Input market-context groups"), "performance Markdown missing input market-context group section");
   assert(resolutionSource.includes("## Input question-length groups"), "performance Markdown missing input question-length group section");
   assert(resolutionSource.includes("## Input category-count groups"), "performance Markdown missing input category-count group section");
@@ -1097,6 +1098,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Evidence rationale outcomes"), "lab dashboard does not render evidence rationale performance groups");
   assert(dashboardSource.includes("byInputContextCompleteness"), "lab dashboard does not read input context performance groups");
   assert(dashboardSource.includes("Input context outcomes"), "lab dashboard does not render input context performance groups");
+  assert(dashboardSource.includes("byInputResolutionHorizon"), "lab dashboard does not read input horizon performance groups");
+  assert(dashboardSource.includes("Input horizon outcomes"), "lab dashboard does not render input horizon performance groups");
   assert(dashboardSource.includes("byInputMarketContext"), "lab dashboard does not read input market performance groups");
   assert(dashboardSource.includes("Input market outcomes"), "lab dashboard does not render input market performance groups");
   assert(dashboardSource.includes("byInputQuestionLength"), "lab dashboard does not read input question performance groups");
@@ -1312,6 +1315,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("evidence_uncertainty_count_band"), "forecast score mart missing evidence uncertainty count band");
   assert(syncSource.includes("evidence_rationale_length_band"), "forecast score mart missing evidence rationale length band");
   assert(syncSource.includes("input_context_completeness_band"), "forecast score mart missing input context completeness band");
+  assert(syncSource.includes("input_resolution_horizon_band"), "forecast score mart missing input resolution horizon band");
   assert(syncSource.includes("input_market_price_band"), "forecast score mart missing input market price band");
   assert(syncSource.includes("input_question_length_band"), "forecast score mart missing input question length band");
   assert(syncSource.includes("run_workflow_version"), "forecast score mart missing run workflow version");
@@ -2192,6 +2196,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
       question: "Will ACME deliver at least 1000 units before January 1, 2028?",
       resolutionCriteria: "Resolve from audited delivery totals.",
       resolutionDate: "2028-01-01",
+      presentDate: "2026-07-09",
       background: "The company has guided to a production ramp.",
       marketPrice: 72,
       marketPlatform: "Kalshi",
@@ -2207,6 +2212,10 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(snapshot?.questionLengthBand === "short", "input context question length band mismatch");
   assert(snapshot?.hasResolutionCriteria === true, "input context resolution criteria flag mismatch");
   assert(snapshot?.hasResolutionDate === true, "input context resolution date flag mismatch");
+  assert(snapshot?.resolutionDate === "2028-01-01", "input context resolution date mismatch");
+  assert(snapshot?.evidenceAsOfDate === "2026-07-09", "input context evidence as-of date mismatch");
+  assert(snapshot?.resolutionHorizonDays === 541, "input context resolution horizon days mismatch");
+  assert(snapshot?.resolutionHorizonBand === "medium", "input context resolution horizon band mismatch");
   assert(snapshot?.hasBackground === true, "input context background flag mismatch");
   assert(snapshot?.hasMarketPrice === true, "input context market flag mismatch");
   assert(snapshot?.marketPriceBand === "high", "input context market price band mismatch");
@@ -2227,6 +2236,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   const persistedSnapshot = readForecastInputContextSnapshot({ inputContext: snapshot });
   assert(persistedSnapshot?.contextCompletenessBand === "rich", "persisted input context snapshot was not readable");
   assert(persistedSnapshot?.marketPriceBand === "high", "persisted input context market band mismatch");
+  assert(persistedSnapshot?.resolutionHorizonBand === "medium", "persisted input context horizon band mismatch");
 
   const runPlanSource = await readFile(resolve(root, "apps/web/src/app/api/runs/run-request.ts"), "utf8");
   const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
@@ -2236,17 +2246,23 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(runPlanSource.includes("forecastInput: smithersInput"), "run planner does not persist forecast input in task config");
   assert(resolutionSource.includes("readForecastInputContextSnapshot(task.configJson)"), "resolution scoring does not read input context from task config");
   assert(resolutionSource.includes("byInputContextCompleteness"), "performance report does not group by input context completeness");
+  assert(resolutionSource.includes("byInputResolutionHorizon"), "performance report does not group by input resolution horizon");
+  assert(resolutionSource.includes("context.resolutionHorizonBand"), "attention queue does not use input resolution horizon");
   assert(resolutionSource.includes("byInputMarketContext"), "performance report does not group by input market context");
   assert(resolutionSource.includes("byInputCategoryCount"), "performance report does not group by input category count");
   assert(resolutionSource.includes("byInputThresholdCount"), "performance report does not group by input threshold count");
   assert(metricsSource.includes("open_superforecaster_input_context_scores_total"), "metrics missing input context score counts");
+  assert(metricsSource.includes("resolution_horizon_band"), "metrics missing input resolution-horizon labels");
   assert(metricsSource.includes("category_count_band"), "metrics missing input category-count labels");
   assert(metricsSource.includes("threshold_count_band"), "metrics missing input threshold-count labels");
   assert(syncSource.includes("input_context_completeness_band"), "DuckDB forecast score mart missing input context completeness band");
+  assert(syncSource.includes("input_resolution_horizon_days"), "DuckDB forecast score mart missing input resolution horizon days");
+  assert(syncSource.includes("input_resolution_horizon_band"), "DuckDB forecast score mart missing input resolution horizon band");
   assert(syncSource.includes("input_category_count_band"), "DuckDB forecast score mart missing input category count band");
   assert(syncSource.includes("input_threshold_count_band"), "DuckDB forecast score mart missing input threshold count band");
   assert(syncSource.includes("input_has_resolution_criteria"), "DuckDB forecast score mart missing resolution criteria flag");
   assert(dashboardSource.includes("Input context outcomes"), "lab dashboard does not render input context outcomes");
+  assert(dashboardSource.includes("Input horizon outcomes"), "lab dashboard does not render input horizon outcomes");
   assert(dashboardSource.includes("Input market outcomes"), "lab dashboard does not render input market outcomes");
   assert(dashboardSource.includes("Input category outcomes"), "lab dashboard does not render input category outcomes");
   assert(dashboardSource.includes("Input threshold outcomes"), "lab dashboard does not render input threshold outcomes");
