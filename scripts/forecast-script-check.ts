@@ -522,6 +522,7 @@ await check("benchmark promotion gate requires paired improvement", async () => 
     forecastErrorFindings: { largeProbabilityMissCases: 1, worseThanBaselineCases: 1 },
     splitFindings: { holdoutCaseResults: 10 },
     sourceQualityFindings: { sourceLeakageCases: 1, informationAdvantageCases: 1 },
+    traceQualityFindings: { weakTraceCompletenessCases: 1, missingProbabilityCases: 1, missingScoreRowsCases: 1, missingAggregateRationaleCases: 1 },
   });
   assert(qualityBlocked.status === "needs_more_evidence", "analysis quality findings should block promotion review");
   assert(qualityBlocked.blockers.includes("missing_baseline_sanity"), "baseline sanity blocker missing");
@@ -530,6 +531,9 @@ await check("benchmark promotion gate requires paired improvement", async () => 
   assert(qualityBlocked.blockers.includes("worse_than_baseline_cases"), "worse-than-baseline blocker missing");
   assert(qualityBlocked.blockers.includes("source_cutoff_leakage"), "source cutoff leakage blocker missing");
   assert(qualityBlocked.blockers.includes("human_forecast_leakage"), "human forecast leakage blocker missing");
+  assert(qualityBlocked.blockers.includes("weak_trace_completeness"), "weak trace blocker missing");
+  assert(qualityBlocked.blockers.includes("schema_or_scoring_failures"), "schema or scoring blocker missing");
+  assert(qualityBlocked.blockers.includes("missing_aggregate_rationale"), "missing rationale blocker missing");
   assertBenchmarkPromotionDecisionAllowed("needs_more_cases", qualityBlocked);
   const blockedPromotion = catchError(() => assertBenchmarkPromotionDecisionAllowed("promoted_for_local_default", qualityBlocked));
   assert(blockedPromotion?.message.includes("missing_baseline_sanity"), "blocked promotion did not report blockers");
@@ -590,6 +594,19 @@ await check("benchmark promotion blocks source independence failures", async () 
   return "source leakage and human forecast leakage block benchmark promotion";
 });
 
+await check("benchmark promotion blocks trace and schema failures", async () => {
+  const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(backendSource.includes("traceQualityFindings"), "benchmark promotion gate does not read trace quality findings");
+  assert(backendSource.includes("missingScoreRowsCases"), "trace quality summary does not count missing score rows");
+  assert(backendSource.includes("missingAggregateRationaleCases"), "trace quality summary does not count missing rationale");
+  assert(backendSource.includes("schema_or_scoring_failures"), "schema/scoring blocker missing");
+  assert(metricsSource.includes("traceQualityFindings"), "metrics promotion gate does not read trace quality findings");
+  assert(dashboardSource.includes("trace quality"), "lab dashboard does not surface trace quality findings");
+  return "trace completeness, schema, scoring, and rationale failures block benchmark promotion";
+});
+
 await check("benchmark promotion requires held-out case evidence", async () => {
   const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
   const importerSource = await readFile(resolve(root, "packages/backend/src/btf2-importer.ts"), "utf8");
@@ -628,6 +645,10 @@ await check("benchmark promotion gate blockers are exported to DuckDB", async ()
   assert(syncSource.includes("source_leakage_cases"), "DuckDB benchmark run mart missing source leakage count");
   assert(syncSource.includes("information_advantage_cases"), "DuckDB benchmark run mart missing information advantage count");
   assert(syncSource.includes("human_forecast_source_cases"), "DuckDB benchmark run mart missing human forecast source count");
+  assert(syncSource.includes("weak_trace_completeness_cases"), "DuckDB benchmark run mart missing weak trace count");
+  assert(syncSource.includes("missing_probability_cases"), "DuckDB benchmark run mart missing missing probability count");
+  assert(syncSource.includes("missing_score_rows_cases"), "DuckDB benchmark run mart missing missing score rows count");
+  assert(syncSource.includes("missing_aggregate_rationale_cases"), "DuckDB benchmark run mart missing missing rationale count");
   for (const blockerId of benchmarkPromotionGateBlockerIds) {
     assert(syncSource.includes(blockerId), `DuckDB promotion gate export missing blocker ${blockerId}`);
   }

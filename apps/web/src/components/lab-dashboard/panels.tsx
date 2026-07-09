@@ -148,6 +148,7 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
   const forecastError = isRecord(run.forecastErrorFindings) ? run.forecastErrorFindings : null
   const splitFindings = isRecord(run.splitFindings) ? run.splitFindings : null
   const sourceQuality = isRecord(run.sourceQualityFindings) ? run.sourceQualityFindings : null
+  const traceQuality = isRecord(run.traceQualityFindings) ? run.traceQualityFindings : null
   const blockers = readArray(promotionGate, "blockers").filter((blocker): blocker is string => typeof blocker === "string")
   const recommendationStatus = typeof promotionGate?.recommendationStatus === "string" ? promotionGate.recommendationStatus : null
   const missingBaselineSanity = typeof baselineSanity?.missingBaselineSanityCases === "number" ? baselineSanity.missingBaselineSanityCases : null
@@ -161,6 +162,10 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
   const sourceLeakageCases = typeof sourceQuality?.sourceLeakageCases === "number" ? sourceQuality.sourceLeakageCases : null
   const informationAdvantageCases = typeof sourceQuality?.informationAdvantageCases === "number" ? sourceQuality.informationAdvantageCases : null
   const humanForecastSourceCases = typeof sourceQuality?.humanForecastSourceCases === "number" ? sourceQuality.humanForecastSourceCases : null
+  const weakTraceCompletenessCases = typeof traceQuality?.weakTraceCompletenessCases === "number" ? traceQuality.weakTraceCompletenessCases : null
+  const missingProbabilityCases = typeof traceQuality?.missingProbabilityCases === "number" ? traceQuality.missingProbabilityCases : null
+  const missingScoreRowsCases = typeof traceQuality?.missingScoreRowsCases === "number" ? traceQuality.missingScoreRowsCases : null
+  const missingAggregateRationaleCases = typeof traceQuality?.missingAggregateRationaleCases === "number" ? traceQuality.missingAggregateRationaleCases : null
   return (
     <div className="rounded-md border p-3 text-sm">
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -200,6 +205,11 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
       {sourceQuality ? (
         <p className="mt-2 truncate text-xs text-muted-foreground">
           source quality {String(sourceLeakageCases ?? 0)} cutoff leak · {String(informationAdvantageCases ?? 0)} info advantage · {String(humanForecastSourceCases ?? 0)} human forecast
+        </p>
+      ) : null}
+      {traceQuality ? (
+        <p className="mt-2 truncate text-xs text-muted-foreground">
+          trace quality {String(weakTraceCompletenessCases ?? 0)} weak · {String(missingProbabilityCases ?? 0)} missing probability · {String(missingScoreRowsCases ?? 0)} missing score · {String(missingAggregateRationaleCases ?? 0)} missing rationale
         </p>
       ) : null}
       {blockers.length ? (

@@ -88,6 +88,9 @@ export const benchmarkPromotionGateBlockerIds = [
   "insufficient_holdout_evidence",
   "source_cutoff_leakage",
   "human_forecast_leakage",
+  "weak_trace_completeness",
+  "schema_or_scoring_failures",
+  "missing_aggregate_rationale",
 ] as const;
 
 const [
@@ -103,6 +106,9 @@ const [
   blockerInsufficientHoldoutEvidence,
   blockerSourceCutoffLeakage,
   blockerHumanForecastLeakage,
+  blockerWeakTraceCompleteness,
+  blockerSchemaOrScoringFailures,
+  blockerMissingAggregateRationale,
 ] = benchmarkPromotionGateBlockerIds;
 
 export const benchmarkHoldoutSplitIds = ["holdout", "test", "validation", "eval", "evaluation"] as const;
@@ -119,6 +125,7 @@ export type BenchmarkPromotionGateEvidenceInput = {
   forecastErrorFindings?: Record<string, unknown> | null;
   splitFindings?: Record<string, unknown> | null;
   sourceQualityFindings?: Record<string, unknown> | null;
+  traceQualityFindings?: Record<string, unknown> | null;
 };
 
 export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotionGateEvidenceInput) {
@@ -166,6 +173,18 @@ export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotio
     readFindingCount(input.sourceQualityFindings, "humanForecastSourceCases", "human_forecast_source_cases") > 0
   ) {
     blockers.push(blockerHumanForecastLeakage);
+  }
+  if (readFindingCount(input.traceQualityFindings, "weakTraceCompletenessCases", "weak_trace_completeness_cases") > 0) {
+    blockers.push(blockerWeakTraceCompleteness);
+  }
+  if (
+    readFindingCount(input.traceQualityFindings, "missingProbabilityCases", "missing_probability_cases") > 0 ||
+    readFindingCount(input.traceQualityFindings, "missingScoreRowsCases", "missing_score_rows_cases") > 0
+  ) {
+    blockers.push(blockerSchemaOrScoringFailures);
+  }
+  if (readFindingCount(input.traceQualityFindings, "missingAggregateRationaleCases", "missing_aggregate_rationale_cases") > 0) {
+    blockers.push(blockerMissingAggregateRationale);
   }
   return {
     status: blockers.length === 0 ? "review_for_promotion" : "needs_more_evidence",
@@ -743,6 +762,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
     const componentDisagreementFindings = readRecord(analysisReportRow, "componentDisagreementFindings", "component_disagreement_findings") ?? null;
     const forecastErrorFindings = readRecord(analysisReportRow, "forecastErrorFindings", "forecast_error_findings") ?? null;
     const sourceQualityFindings = readRecord(analysisReportRow, "sourceQualityFindings", "source_quality_findings") ?? null;
+    const traceQualityFindings = readRecord(analysisReportRow, "traceQualityFindings", "trace_quality_findings") ?? null;
     enriched.push({
       ...row,
       workflowId: variant?.workflowId ?? null,
@@ -754,6 +774,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
       componentDisagreementFindings,
       forecastErrorFindings,
       sourceQualityFindings,
+      traceQualityFindings,
       splitFindings,
       promotionGate: summarizeBenchmarkPromotionGateEvidence({
         runStatus: row.status,
@@ -766,6 +787,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
         forecastErrorFindings,
         splitFindings,
         sourceQualityFindings,
+        traceQualityFindings,
       }),
       completedCases: results.filter((result) => result.status === "completed").length,
       failedCases: results.filter((result) => result.status === "failed").length,
@@ -2548,11 +2570,21 @@ function traceQualityFindingsForRun(
   results: Array<{ traceBundleUri: string | null }>,
   caseAnalyses: BenchmarkCaseAnalysis[],
 ) {
+  const missingScoreRowsCases = caseAnalyses
+    .filter((analysis) => analysis.qualityGates.scoring === "fail_missing_score_rows")
+    .map((analysis) => analysis.benchmarkCaseId);
+  const missingAggregateRationaleCases = caseAnalyses
+    .filter((analysis) => analysis.qualityGates.aggregateRationale === "warn_missing_rationale")
+    .map((analysis) => analysis.benchmarkCaseId);
   return {
     traceBundlesWritten: results.filter((result) => Boolean(result.traceBundleUri)).length,
     missingTraceBundles: results.filter((result) => !result.traceBundleUri).length,
     weakTraceCompletenessCases: caseAnalyses.filter((analysis) => analysis.primaryFailureMode === "trace_incomplete").length,
     missingProbabilityCases: caseAnalyses.filter((analysis) => analysis.primaryFailureMode === "schema_or_probability_missing").length,
+    missingScoreRowsCases: missingScoreRowsCases.length,
+    missingScoreRowsCaseIds: missingScoreRowsCases.slice(0, 10),
+    missingAggregateRationaleCases: missingAggregateRationaleCases.length,
+    missingAggregateRationaleCaseIds: missingAggregateRationaleCases.slice(0, 10),
     note: "Trace quality is evaluated from persisted task output, source-bank rows, benchmark score rows, and trace-bundle presence.",
   };
 }
@@ -3001,6 +3033,7 @@ function benchmarkPromotionGateSummary(input: {
     forecastErrorFindings: readRecord(input.analysisReport, "forecastErrorFindings", "forecast_error_findings"),
     splitFindings: input.splitFindings ?? readRecord(input.analysisReport, "splitFindings", "split_findings"),
     sourceQualityFindings: readRecord(input.analysisReport, "sourceQualityFindings", "source_quality_findings"),
+    traceQualityFindings: readRecord(input.analysisReport, "traceQualityFindings", "trace_quality_findings"),
   });
 }
 

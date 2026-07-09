@@ -93,6 +93,10 @@ try {
       gate.information_advantage_cases,
       gate.post_cutoff_source_cases,
       gate.human_forecast_source_cases,
+      gate.weak_trace_completeness_cases,
+      gate.missing_probability_cases,
+      gate.missing_score_rows_cases,
+      gate.missing_aggregate_rationale_cases,
       gate.promotion_gate_status,
       gate.promotion_gate_blockers,
       cr.row_json #>> '{baselines,0,baselineBenchmarkRunId}' as baseline_benchmark_run_id,
@@ -131,7 +135,11 @@ try {
           coalesce(nullif(ar.row_json #>> '{sourceQualityFindings,sourceLeakageCases}', '')::integer, 0) as source_leakage_cases,
           coalesce(nullif(ar.row_json #>> '{sourceQualityFindings,informationAdvantageCases}', '')::integer, 0) as information_advantage_cases,
           coalesce(nullif(ar.row_json #>> '{sourceQualityFindings,postCutoffSourceCases}', '')::integer, 0) as post_cutoff_source_cases,
-          coalesce(nullif(ar.row_json #>> '{sourceQualityFindings,humanForecastSourceCases}', '')::integer, 0) as human_forecast_source_cases
+          coalesce(nullif(ar.row_json #>> '{sourceQualityFindings,humanForecastSourceCases}', '')::integer, 0) as human_forecast_source_cases,
+          coalesce(nullif(ar.row_json #>> '{traceQualityFindings,weakTraceCompletenessCases}', '')::integer, 0) as weak_trace_completeness_cases,
+          coalesce(nullif(ar.row_json #>> '{traceQualityFindings,missingProbabilityCases}', '')::integer, 0) as missing_probability_cases,
+          coalesce(nullif(ar.row_json #>> '{traceQualityFindings,missingScoreRowsCases}', '')::integer, 0) as missing_score_rows_cases,
+          coalesce(nullif(ar.row_json #>> '{traceQualityFindings,missingAggregateRationaleCases}', '')::integer, 0) as missing_aggregate_rationale_cases
       ),
       blockers as (
         select
@@ -150,7 +158,10 @@ try {
             case when findings.worse_than_baseline_cases > 0 then 'worse_than_baseline_cases' end,
             case when findings.holdout_case_results < findings.required_holdout_case_results then 'insufficient_holdout_evidence' end,
             case when findings.source_leakage_cases > 0 or findings.post_cutoff_source_cases > 0 then 'source_cutoff_leakage' end,
-            case when findings.information_advantage_cases > 0 or findings.human_forecast_source_cases > 0 then 'human_forecast_leakage' end
+            case when findings.information_advantage_cases > 0 or findings.human_forecast_source_cases > 0 then 'human_forecast_leakage' end,
+            case when findings.weak_trace_completeness_cases > 0 then 'weak_trace_completeness' end,
+            case when findings.missing_probability_cases > 0 or findings.missing_score_rows_cases > 0 then 'schema_or_scoring_failures' end,
+            case when findings.missing_aggregate_rationale_cases > 0 then 'missing_aggregate_rationale' end
           ]::text[], null) as blocker_values
         from counts, findings
       )
@@ -169,6 +180,10 @@ try {
         information_advantage_cases,
         post_cutoff_source_cases,
         human_forecast_source_cases,
+        weak_trace_completeness_cases,
+        missing_probability_cases,
+        missing_score_rows_cases,
+        missing_aggregate_rationale_cases,
         case when cardinality(blocker_values) = 0 then 'review_for_promotion' else 'needs_more_evidence' end as promotion_gate_status,
         array_to_string(blocker_values, ',') as promotion_gate_blockers
       from blockers
@@ -340,6 +355,10 @@ const benchmarkRunColumns = [
   { name: "information_advantage_cases", type: "INTEGER" },
   { name: "post_cutoff_source_cases", type: "INTEGER" },
   { name: "human_forecast_source_cases", type: "INTEGER" },
+  { name: "weak_trace_completeness_cases", type: "INTEGER" },
+  { name: "missing_probability_cases", type: "INTEGER" },
+  { name: "missing_score_rows_cases", type: "INTEGER" },
+  { name: "missing_aggregate_rationale_cases", type: "INTEGER" },
   { name: "promotion_gate_status", type: "VARCHAR" },
   { name: "promotion_gate_blockers", type: "VARCHAR" },
   { name: "baseline_benchmark_run_id", type: "VARCHAR" },

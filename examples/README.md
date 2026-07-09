@@ -39,6 +39,9 @@ held-out split evidence.
 Agentic pastcasting runs also block promotion when source audits find cutoff
 leakage, prediction-market style information advantage, or human forecast
 sources. Those failures are audit failures, not forecast-skill wins.
+Runs also block promotion when trace/schema analysis finds weak replayability,
+missing probabilities or score rows, or missing aggregate rationale; promotion
+evidence has to be scoreable and explainable, not just numerically favorable.
 The promotion decision API enforces the same gate for promoted states; use
 `needs_more_cases`, `candidate`, or `rejected` when recording non-promoting
 review outcomes with blockers still present.
@@ -46,8 +49,8 @@ The metrics endpoint exports promotion-gate status and blocker series for
 recent benchmark runs, so blocked promotion reasons can be monitored outside the
 lab dashboard.
 `scripts/sync-duckdb.ts` also exports those gate statuses, blocker strings,
-holdout evidence counts, source-quality counts, and analysis-finding counts
-into `osf_benchmark_runs` for local analytics.
+holdout evidence counts, source-quality counts, trace/schema counts, and
+analysis-finding counts into `osf_benchmark_runs` for local analytics.
 
 ## Forecast And Research Prompts
 
