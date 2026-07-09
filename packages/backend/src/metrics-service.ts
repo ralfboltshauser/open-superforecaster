@@ -1173,6 +1173,8 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
   if (inputContextScoreRows.length === 0) {
     const labels = {
       score_type: "all",
+      requested_forecast_type: "none",
+      requested_forecast_type_band: "unknown",
       context_completeness_band: "none",
       resolution_horizon_band: "unknown",
       background_length_band: "unknown",
@@ -1206,6 +1208,8 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     const inputContext = readForecastInputContextSnapshot(row.scoreConfig);
     return labelKey({
       score_type: row.scoreType,
+      requested_forecast_type: inputContext?.requestedForecastType ?? "none",
+      requested_forecast_type_band: inputContext?.requestedForecastTypeBand ?? "unknown",
       context_completeness_band: inputContext?.contextCompletenessBand ?? "unknown",
       resolution_horizon_band: inputContext?.resolutionHorizonBand ?? "unknown",
       background_length_band: inputContext?.backgroundLengthBand ?? "unknown",

@@ -440,6 +440,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byEvidenceSourceTiming = groupScores(aggregateScores, evidenceSourceTimingGroupKey);
   const byEvidenceUncertaintyCount = groupScores(aggregateScores, evidenceUncertaintyCountGroupKey);
   const byEvidenceRationaleLength = groupScores(aggregateScores, evidenceRationaleLengthGroupKey);
+  const byInputRequestedForecastType = groupScores(aggregateScores, inputRequestedForecastTypeGroupKey);
   const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
   const byInputResolutionHorizon = groupScores(aggregateScores, inputResolutionHorizonGroupKey);
   const byInputBackgroundDepth = groupScores(aggregateScores, inputBackgroundDepthGroupKey);
@@ -541,6 +542,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceSourceTiming,
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
+      byInputRequestedForecastType,
       byInputContextCompleteness,
       byInputResolutionHorizon,
       byInputBackgroundDepth,
@@ -632,6 +634,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceSourceTiming,
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
+      byInputRequestedForecastType,
       byInputContextCompleteness,
       byInputResolutionHorizon,
       byInputBackgroundDepth,
@@ -1641,6 +1644,13 @@ function evidenceRationaleLengthGroupKey(score: typeof forecastScores.$inferSele
   return `evidence_rationale:${evidenceCoverage?.rationaleLengthBand ?? "unrecorded"}`;
 }
 
+function inputRequestedForecastTypeGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return inputContext?.requestedForecastType
+    ? `input_requested_type:${inputContext.requestedForecastType}`
+    : `input_requested_type:${inputContext?.requestedForecastTypeBand ?? "unrecorded"}`;
+}
+
 function inputContextCompletenessGroupKey(score: typeof forecastScores.$inferSelect) {
   const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
   return `input_context:${inputContext?.contextCompletenessBand ?? "unrecorded"}`;
@@ -2603,6 +2613,13 @@ function inputContextMissSignal(item: PerformanceCase): { reason: string; delta:
       severity: "high",
     };
   }
+  if (context.requestedForecastType && context.requestedForecastType !== item.forecastType) {
+    return {
+      reason: `input requested ${context.requestedForecastType} forecast but scored as ${item.forecastType}`,
+      delta: context.contextCompleteness,
+      severity: "high",
+    };
+  }
   if (!context.hasResolutionCriteria || !context.hasResolutionDate) {
     const missing = [
       !context.hasResolutionCriteria ? "resolution criteria" : null,
@@ -2903,6 +2920,7 @@ function renderPerformanceMarkdown(input: {
   byEvidenceSourceTiming: PerformanceGroup[];
   byEvidenceUncertaintyCount: PerformanceGroup[];
   byEvidenceRationaleLength: PerformanceGroup[];
+  byInputRequestedForecastType: PerformanceGroup[];
   byInputContextCompleteness: PerformanceGroup[];
   byInputResolutionHorizon: PerformanceGroup[];
   byInputBackgroundDepth: PerformanceGroup[];
@@ -3087,6 +3105,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Evidence rationale-length groups",
     ...renderGroupTable(input.byEvidenceRationaleLength),
+    "",
+    "## Input requested-forecast-type groups",
+    ...renderGroupTable(input.byInputRequestedForecastType),
     "",
     "## Input context-completeness groups",
     ...renderGroupTable(input.byInputContextCompleteness),

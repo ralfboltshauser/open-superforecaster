@@ -1,6 +1,8 @@
 import { normalizeForecastInputRow } from "@open-superforecaster/workflow-contracts";
 
 export type ForecastInputContextSnapshot = {
+  requestedForecastType: "binary" | "date" | "numeric" | "categorical" | "thresholded" | null;
+  requestedForecastTypeBand: "specified" | "unspecified" | "unknown";
   questionLength: number | null;
   questionLengthBand: "short" | "standard" | "long" | "unknown";
   hasResolutionCriteria: boolean;
@@ -58,6 +60,7 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   if (!normalized.question.trim()) {
     return null;
   }
+  const requestedForecastType = normalized.forecastType ?? null;
   const questionLength = wordCount(normalized.question);
   const categoryCount = normalized.categories.length;
   const categoriesExhaustive = categoryCount > 0 ? normalized.categoriesExhaustive : null;
@@ -98,6 +101,8 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     hasUnit,
   ].filter(Boolean).length;
   return {
+    requestedForecastType,
+    requestedForecastTypeBand: requestedForecastTypeBand(requestedForecastType),
     questionLength,
     questionLengthBand: questionLengthBand(questionLength),
     hasResolutionCriteria,
@@ -148,6 +153,8 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   if (contextCompleteness === null && questionLength === null) {
     return null;
   }
+  const requestedForecastType = readRequestedForecastType(value);
+  const requestedForecastTypeBandValue = readString(value, "requestedForecastTypeBand");
   const categoryCount = readNumber(value, "categoryCount");
   const categoriesExhaustive = readBoolean(value, "categoriesExhaustive");
   const thresholdCount = readNumber(value, "thresholdCount");
@@ -171,6 +178,10 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   const thresholdValueCoverageBandValue = readString(value, "thresholdValueCoverageBand");
   const thresholdDirectionBandValue = readString(value, "thresholdDirectionBand");
   return {
+    requestedForecastType,
+    requestedForecastTypeBand: isRequestedForecastTypeBand(requestedForecastTypeBandValue)
+      ? requestedForecastTypeBandValue
+      : requestedForecastTypeBand(requestedForecastType),
     questionLength,
     questionLengthBand: readQuestionLengthBand(value) ?? questionLengthBand(questionLength),
     hasResolutionCriteria: readBoolean(value, "hasResolutionCriteria") ?? false,
@@ -254,6 +265,12 @@ export function questionLengthBand(count: number | null): ForecastInputContextSn
     return "standard";
   }
   return "long";
+}
+
+export function requestedForecastTypeBand(
+  requestedForecastType: ForecastInputContextSnapshot["requestedForecastType"],
+): ForecastInputContextSnapshot["requestedForecastTypeBand"] {
+  return requestedForecastType ? "specified" : "unspecified";
 }
 
 export function marketPriceBand(price: number | null): ForecastInputContextSnapshot["marketPriceBand"] {
@@ -534,6 +551,15 @@ function dateTime(value: string | null) {
 function readQuestionLengthBand(value: Record<string, unknown>) {
   const raw = readString(value, "questionLengthBand");
   return raw === "short" || raw === "standard" || raw === "long" || raw === "unknown" ? raw : null;
+}
+
+function readRequestedForecastType(value: Record<string, unknown>): ForecastInputContextSnapshot["requestedForecastType"] {
+  const raw = readString(value, "requestedForecastType");
+  return raw === "binary" || raw === "date" || raw === "numeric" || raw === "categorical" || raw === "thresholded" ? raw : null;
+}
+
+function isRequestedForecastTypeBand(value: string | null): value is ForecastInputContextSnapshot["requestedForecastTypeBand"] {
+  return value === "specified" || value === "unspecified" || value === "unknown";
 }
 
 function readCategoryCountBand(value: Record<string, unknown>) {
