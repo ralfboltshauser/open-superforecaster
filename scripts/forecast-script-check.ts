@@ -1,5 +1,6 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
 import { readJson, readRecord, readString, timestampLabel, writeJson } from "./lib/forecast-script-utils";
 
 type CheckResult = {
@@ -370,6 +371,27 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   assert(missingPhases.includes("forecast_performance"), "missing performance phase was not reported");
   assert(issues.some((issue) => readString(issue, "kind") === "failed_forecasts"), "failed forecast issue missing");
   return "batch health summarizes latest indexed batch issues";
+});
+
+await check("forecast performance calibration buckets are stable", async () => {
+  const report = buildBinaryCalibrationReport([
+    { probability: 10, resolved: false, score: 0.01 },
+    { probability: 30, resolved: true, score: 0.49 },
+    { probability: 70, resolved: true, score: 0.09 },
+    { probability: 90, resolved: false, score: 0.81 },
+  ], 4);
+  const buckets = report.calibrationBuckets;
+  assert(buckets.length === 5, `expected 5 calibration buckets, got ${buckets.length}`);
+  assert(buckets[0].count === 1, "0-20 bucket count mismatch");
+  assert(buckets[0].observedRate === 0, "0-20 observed rate mismatch");
+  assert(buckets[1].count === 1, "20-40 bucket count mismatch");
+  assert(buckets[1].observedRate === 100, "20-40 observed rate mismatch");
+  assert(buckets[3].meanForecast === 70, "60-80 mean forecast mismatch");
+  assert(buckets[4].calibrationError === 90, "80-100 calibration error mismatch");
+  assert(report.calibrationSummary.sampleSize === 4, "calibration sample size mismatch");
+  assert(Math.round((report.calibrationSummary.expectedCalibrationError ?? 0) * 100) / 100 === 50, "expected calibration error mismatch");
+  assert(report.calibrationSummary.status === "collecting_resolved_forecasts", "calibration fitting status mismatch");
+  return "binary calibration buckets and ECE summary are deterministic";
 });
 
 const failed = checks.filter((result) => !result.ok);

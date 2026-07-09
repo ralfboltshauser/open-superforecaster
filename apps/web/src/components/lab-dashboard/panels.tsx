@@ -152,6 +152,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const worstForecasts = readArray(performance, "worstResolvedForecasts").filter(isRecord)
   const scoreTrends = readArray(performance, "scoreTrends").filter(isRecord)
   const needsAttention = readArray(performance, "needsAttention").filter(isRecord)
+  const calibrationBuckets = readArray(performance, "calibrationBuckets").filter(isRecord)
+  const calibrationSummary = isRecord(performance?.calibrationSummary) ? performance.calibrationSummary : null
   return (
     <Card id="performance">
       <CardHeader>
@@ -188,6 +190,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
           </div>
         ) : null}
         {scoreTrends.length ? <PerformanceTrendList trends={scoreTrends} /> : null}
+        {calibrationBuckets.length ? <PerformanceCalibrationList buckets={calibrationBuckets} summary={calibrationSummary} /> : null}
         {needsAttention.length ? <PerformanceAttentionList items={needsAttention} /> : null}
       </CardContent>
     </Card>
@@ -278,6 +281,36 @@ function PerformanceTrendList({ trends }: { trends: JsonRecord[] }) {
             <span className="block truncate font-medium">{String(trend.label ?? "window")} · {String(trend.metric ?? "metric")}</span>
             <span className="mt-1 block truncate text-xs text-muted-foreground">
               {String(trend.direction ?? "trend")} · delta {formatMetric(trend.delta)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function PerformanceCalibrationList({ buckets, summary }: { buckets: JsonRecord[]; summary: JsonRecord | null }) {
+  const populatedBuckets = buckets.filter((bucket) => typeof bucket.count === "number" && bucket.count > 0)
+  if (populatedBuckets.length === 0) {
+    return null
+  }
+  return (
+    <div className="border-t pt-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-medium uppercase text-muted-foreground">Calibration</p>
+        <Badge variant="secondary">
+          ECE {formatMetric(summary?.expectedCalibrationError)}
+        </Badge>
+      </div>
+      <div className="grid gap-2 md:grid-cols-2">
+        {populatedBuckets.slice(0, 6).map((bucket) => (
+          <div className="rounded-md border px-3 py-2 text-sm" key={String(bucket.label ?? bucket.minProbability)}>
+            <span className="block truncate font-medium">{String(bucket.label ?? "bucket")}</span>
+            <span className="mt-1 block truncate text-xs text-muted-foreground">
+              {String(bucket.count ?? 0)} cases · forecast {formatMetric(bucket.meanForecast)} · observed {formatMetric(bucket.observedRate)}
+            </span>
+            <span className="mt-1 block truncate text-xs text-muted-foreground">
+              error {formatMetric(bucket.calibrationError)} · Brier {formatMetric(bucket.meanBrier)}
             </span>
           </div>
         ))}

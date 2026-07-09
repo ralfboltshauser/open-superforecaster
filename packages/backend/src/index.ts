@@ -6,6 +6,7 @@ export * from "./maintenance-service";
 export * from "./metrics-service";
 export * from "./mode-classifier";
 export * from "./object-storage";
+export * from "./performance-calibration";
 export * from "./responses";
 export * from "./resolution-service";
 export * from "./run-service";

@@ -10,6 +10,7 @@ import {
   type createDb,
 } from "@open-superforecaster/db";
 import { scoreBinaryForecast } from "@open-superforecaster/evals";
+import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
 
 type Db = ReturnType<typeof createDb>["db"];
 
@@ -260,8 +261,7 @@ export async function getResolutionDashboard(db: Db) {
   const productResolutionIds = new Set(productScores.map((score) => score.resolutionId).filter(Boolean));
   const pendingForecasts = await listPendingBinaryForecasts(db, productScores);
   const taskLabels = await taskLabelsById(db, productScores);
-  const calibrationBuckets = buildCalibrationBuckets(aggregateBrier);
-  const calibrationSummary = summarizeCalibration(calibrationBuckets, productResolutionIds.size);
+  const calibrationReport = buildBinaryCalibrationReport(scoreRowsForCalibration(aggregateBrier), productResolutionIds.size);
 
   return {
     summary: {
@@ -275,14 +275,14 @@ export async function getResolutionDashboard(db: Db) {
       benchmarkScoreRows: benchmarkScores.length,
       calibrationModels: calibrationRows.length,
       activeCalibrationModels: calibrationRows.filter((model) => model.active).length,
-      calibrationStatus: calibrationSummary.status,
-      calibrationSampleSize: calibrationSummary.sampleSize,
-      expectedCalibrationError: calibrationSummary.expectedCalibrationError,
-      maxBucketCalibrationError: calibrationSummary.maxBucketCalibrationError,
-      calibrationMinimumForFitting: calibrationSummary.minimumForFitting,
+      calibrationStatus: calibrationReport.calibrationSummary.status,
+      calibrationSampleSize: calibrationReport.calibrationSummary.sampleSize,
+      expectedCalibrationError: calibrationReport.calibrationSummary.expectedCalibrationError,
+      maxBucketCalibrationError: calibrationReport.calibrationSummary.maxBucketCalibrationError,
+      calibrationMinimumForFitting: calibrationReport.calibrationSummary.minimumForFitting,
     },
-    calibrationBuckets,
-    calibrationSummary,
+    calibrationBuckets: calibrationReport.calibrationBuckets,
+    calibrationSummary: calibrationReport.calibrationSummary,
     pendingForecasts,
     recentResolutions: resolutionRows.slice(0, 8).map((resolution) => ({
       id: resolution.id,
@@ -323,6 +323,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const resolutionById = new Map(resolutionRows.map((resolution) => [resolution.id, resolution]));
   const productScores = scoreRows.filter(isProductScore);
   const aggregateScores = productScores.filter((score) => score.forecastAggregateId);
+  const aggregateBrierScores = aggregateScores.filter((score) => score.scoreType === "brier");
   const attemptScores = productScores.filter((score) => score.forecastAttemptId);
   const productResolutionIds = new Set(productScores.map((score) => score.resolutionId).filter(Boolean));
   const resolvedTaskIds = new Set(productScores.map((score) => readScoreTaskId(score.scoreConfig)).filter((id): id is string => Boolean(id)));
@@ -339,6 +340,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const worstResolvedForecasts = [...rankedAggregateCases].reverse().slice(0, 8);
   const scoreTrends = buildScoreTrends(aggregateScores);
   const needsAttention = buildNeedsAttentionQueue(worstResolvedForecasts, scoreTrends);
+  const calibrationReport = buildBinaryCalibrationReport(scoreRowsForCalibration(aggregateBrierScores), productResolutionIds.size);
 
   return {
     reportType: "forecast_performance_report",
@@ -352,7 +354,13 @@ export async function getForecastPerformanceReport(db: Db) {
       meanScores: meanScoresByType(productScores),
       aggregateMeanScores: meanScoresByType(aggregateScores),
       attemptMeanScores: meanScoresByType(attemptScores),
+      calibrationStatus: calibrationReport.calibrationSummary.status,
+      calibrationSampleSize: calibrationReport.calibrationSummary.sampleSize,
+      expectedCalibrationError: calibrationReport.calibrationSummary.expectedCalibrationError,
+      maxBucketCalibrationError: calibrationReport.calibrationSummary.maxBucketCalibrationError,
     },
+    calibrationBuckets: calibrationReport.calibrationBuckets,
+    calibrationSummary: calibrationReport.calibrationSummary,
     groups: {
       byForecastType,
       byTarget,
@@ -388,6 +396,8 @@ export async function getForecastPerformanceReport(db: Db) {
       worstResolvedForecasts,
       scoreTrends,
       needsAttention,
+      calibrationBuckets: calibrationReport.calibrationBuckets,
+      calibrationSummary: calibrationReport.calibrationSummary,
     }),
   };
 }
@@ -822,6 +832,14 @@ function isBenchmarkScore(score: typeof forecastScores.$inferSelect) {
   return Boolean(config?.benchmarkRunId);
 }
 
+function scoreRowsForCalibration(rows: Array<typeof forecastScores.$inferSelect>) {
+  return rows.map((row) => ({
+    probability: readProbability(row.scoreConfig),
+    resolved: readResolved(row.scoreConfig),
+    score: row.scoreValue,
+  }));
+}
+
 function readScoreTaskId(value: unknown) {
   const record = asRecord(value);
   return typeof record?.taskId === "string" ? record.taskId : null;
@@ -1225,6 +1243,8 @@ function renderPerformanceMarkdown(input: {
   worstResolvedForecasts: PerformanceCase[];
   scoreTrends: PerformanceTrend[];
   needsAttention: PerformanceAttentionItem[];
+  calibrationBuckets: BinaryCalibrationReport["calibrationBuckets"];
+  calibrationSummary: BinaryCalibrationReport["calibrationSummary"];
 }) {
   const lines = [
     "# Forecast performance report",
@@ -1250,11 +1270,37 @@ function renderPerformanceMarkdown(input: {
     "## Score trends",
     ...renderTrendTable(input.scoreTrends),
     "",
+    "## Calibration",
+    ...renderCalibrationTable(input.calibrationBuckets, input.calibrationSummary),
+    "",
     "## Needs attention",
     ...renderAttentionTable(input.needsAttention),
     "",
   ];
   return `${lines.join("\n")}\n`;
+}
+
+function renderCalibrationTable(
+  buckets: BinaryCalibrationReport["calibrationBuckets"],
+  summary: BinaryCalibrationReport["calibrationSummary"],
+) {
+  if (buckets.every((bucket) => bucket.count === 0)) {
+    return ["No binary aggregate calibration rows yet."];
+  }
+  return [
+    `Status: ${summary.status}`,
+    `Expected calibration error: ${summary.expectedCalibrationError === null ? "unknown" : roundMetric(summary.expectedCalibrationError)} percentage points`,
+    "",
+    "| Forecast bucket | Count | Mean forecast | Observed rate | Calibration error | Mean Brier |",
+    "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ...buckets.map((bucket) =>
+      `| ${bucket.label} | ${bucket.count} | ${bucket.meanForecast === null ? "" : roundMetric(bucket.meanForecast)} | ${
+        bucket.observedRate === null ? "" : roundMetric(bucket.observedRate)
+      } | ${bucket.calibrationError === null ? "" : roundMetric(bucket.calibrationError)} | ${
+        bucket.meanBrier === null ? "" : roundMetric(bucket.meanBrier)
+      } |`,
+    ),
+  ];
 }
 
 function renderGroupTable(groups: PerformanceGroup[]) {
@@ -1323,79 +1369,6 @@ function escapeMarkdownCell(value: string) {
 
 function roundMetric(value: number) {
   return Math.round(value * 10_000) / 10_000;
-}
-
-function buildCalibrationBuckets(rows: Array<typeof forecastScores.$inferSelect>) {
-  const bucketDefs = [
-    { min: 0, max: 20 },
-    { min: 20, max: 40 },
-    { min: 40, max: 60 },
-    { min: 60, max: 80 },
-    { min: 80, max: 100 },
-  ];
-  return bucketDefs.map((bucket) => {
-    const bucketRows = rows.filter((row) => {
-      const probability = readProbability(row.scoreConfig);
-      if (probability === null) {
-        return false;
-      }
-      return bucket.max === 100
-        ? probability >= bucket.min && probability <= bucket.max
-        : probability >= bucket.min && probability < bucket.max;
-    });
-    const probabilities = bucketRows
-      .map((row) => readProbability(row.scoreConfig))
-      .filter((value): value is number => value !== null);
-    const resolvedValues = bucketRows
-      .map((row) => readResolved(row.scoreConfig))
-      .filter((value): value is boolean => value !== null);
-    const observedRate = resolvedValues.length
-      ? (resolvedValues.filter(Boolean).length / resolvedValues.length) * 100
-      : null;
-    const meanForecast = probabilities.length ? meanNumber(probabilities) : null;
-    return {
-      label: `${bucket.min}-${bucket.max}%`,
-      minProbability: bucket.min,
-      maxProbability: bucket.max,
-      count: bucketRows.length,
-      meanForecast,
-      observedRate,
-      meanBrier: meanScore(bucketRows),
-      calibrationError:
-        meanForecast === null || observedRate === null
-          ? null
-          : Math.abs(meanForecast - observedRate),
-    };
-  });
-}
-
-function summarizeCalibration(
-  buckets: Array<{
-    count: number;
-    calibrationError: number | null;
-  }>,
-  resolvedForecastCount: number,
-) {
-  const sampleSize = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
-  const weightedErrors = buckets.filter((bucket) => bucket.count > 0 && bucket.calibrationError !== null);
-  const expectedCalibrationError = weightedErrors.length
-    ? weightedErrors.reduce((sum, bucket) => sum + bucket.count * (bucket.calibrationError ?? 0), 0) / sampleSize
-    : null;
-  const maxBucketCalibrationError = weightedErrors.length
-    ? Math.max(...weightedErrors.map((bucket) => bucket.calibrationError ?? 0))
-    : null;
-  const minimumForFitting = 25;
-  return {
-    sampleSize,
-    resolvedForecastCount,
-    expectedCalibrationError,
-    maxBucketCalibrationError,
-    minimumForFitting,
-    status:
-      resolvedForecastCount < minimumForFitting
-        ? "collecting_resolved_forecasts"
-        : "ready_for_candidate_fitting",
-  };
 }
 
 function meanNumber(values: number[]) {

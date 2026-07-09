@@ -257,6 +257,10 @@ Then snapshot the scored performance report:
 bun run forecast:performance -- --batch-id july-smoke
 ```
 
+The performance report includes grouped score means, best and worst resolved
+aggregate forecasts, score trends, attention items, and binary aggregate
+calibration buckets with expected calibration error.
+
 To consolidate those local artifacts into one audit file:
 
 ```bash
