@@ -658,6 +658,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byInputContextCompleteness = readArray(groups, "byInputContextCompleteness").filter(isRecord)
   const byInputMarketContext = readArray(groups, "byInputMarketContext").filter(isRecord)
   const byInputQuestionLength = readArray(groups, "byInputQuestionLength").filter(isRecord)
+  const byInputCategoryCount = readArray(groups, "byInputCategoryCount").filter(isRecord)
+  const byInputThresholdCount = readArray(groups, "byInputThresholdCount").filter(isRecord)
   const byRunDuration = readArray(groups, "byRunDuration").filter(isRecord)
   const byRunExperiment = readArray(groups, "byRunExperiment").filter(isRecord)
   const bestForecasts = readArray(performance, "bestResolvedForecasts").filter(isRecord)
@@ -748,6 +750,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byInputContextCompleteness.length ? <PerformancePlanShapeGroupList groups={byInputContextCompleteness} title="Input context outcomes" skipKey="input_context:unrecorded" fallback="input context" /> : null}
         {byInputMarketContext.length ? <PerformancePlanShapeGroupList groups={byInputMarketContext} title="Input market outcomes" skipKey="input_market:unrecorded" fallback="input market" /> : null}
         {byInputQuestionLength.length ? <PerformancePlanShapeGroupList groups={byInputQuestionLength} title="Input question outcomes" skipKey="input_question:unrecorded" fallback="input question" /> : null}
+        {byInputCategoryCount.length ? <PerformancePlanShapeGroupList groups={byInputCategoryCount} title="Input category outcomes" skipKey="input_categories:unrecorded" fallback="input categories" /> : null}
+        {byInputThresholdCount.length ? <PerformancePlanShapeGroupList groups={byInputThresholdCount} title="Input threshold outcomes" skipKey="input_thresholds:unrecorded" fallback="input thresholds" /> : null}
         {byRunDuration.length ? <PerformancePlanShapeGroupList groups={byRunDuration} title="Run duration outcomes" skipKey="run_duration:unrecorded" fallback="run duration" /> : null}
         {byRunExperiment.length ? <PerformancePlanShapeGroupList groups={byRunExperiment} title="Run experiment outcomes" skipKey="run_experiment:unrecorded" fallback="run experiment" /> : null}
         {calibrationBuckets.length ? <PerformanceCalibrationList buckets={calibrationBuckets} summary={calibrationSummary} /> : null}

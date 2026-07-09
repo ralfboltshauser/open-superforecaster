@@ -435,6 +435,8 @@ export async function getForecastPerformanceReport(db: Db) {
   const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
   const byInputMarketContext = groupScores(aggregateScores, inputMarketContextGroupKey);
   const byInputQuestionLength = groupScores(aggregateScores, inputQuestionLengthGroupKey);
+  const byInputCategoryCount = groupScores(aggregateScores, inputCategoryCountGroupKey);
+  const byInputThresholdCount = groupScores(aggregateScores, inputThresholdCountGroupKey);
   const byRunDuration = groupScores(aggregateScores, runDurationGroupKey);
   const byRunExperiment = groupScores(aggregateScores, runExperimentGroupKey);
   const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
@@ -516,6 +518,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputContextCompleteness,
       byInputMarketContext,
       byInputQuestionLength,
+      byInputCategoryCount,
+      byInputThresholdCount,
       byRunDuration,
       byRunExperiment,
     },
@@ -587,6 +591,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputContextCompleteness,
       byInputMarketContext,
       byInputQuestionLength,
+      byInputCategoryCount,
+      byInputThresholdCount,
       byRunDuration,
       byRunExperiment,
       bestResolvedForecasts,
@@ -1536,6 +1542,16 @@ function inputMarketContextGroupKey(score: typeof forecastScores.$inferSelect) {
 function inputQuestionLengthGroupKey(score: typeof forecastScores.$inferSelect) {
   const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
   return `input_question:${inputContext?.questionLengthBand ?? "unrecorded"}`;
+}
+
+function inputCategoryCountGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_categories:${inputContext?.categoryCountBand ?? "unrecorded"}`;
+}
+
+function inputThresholdCountGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_thresholds:${inputContext?.thresholdCountBand ?? "unrecorded"}`;
 }
 
 function runDurationGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2532,6 +2548,8 @@ function renderPerformanceMarkdown(input: {
   byInputContextCompleteness: PerformanceGroup[];
   byInputMarketContext: PerformanceGroup[];
   byInputQuestionLength: PerformanceGroup[];
+  byInputCategoryCount: PerformanceGroup[];
+  byInputThresholdCount: PerformanceGroup[];
   byRunDuration: PerformanceGroup[];
   byRunExperiment: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
@@ -2686,6 +2704,12 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input question-length groups",
     ...renderGroupTable(input.byInputQuestionLength),
+    "",
+    "## Input category-count groups",
+    ...renderGroupTable(input.byInputCategoryCount),
+    "",
+    "## Input threshold-count groups",
+    ...renderGroupTable(input.byInputThresholdCount),
     "",
     "## Run duration groups",
     ...renderGroupTable(input.byRunDuration),

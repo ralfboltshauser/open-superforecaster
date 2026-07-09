@@ -1003,6 +1003,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Input context-completeness groups"), "performance Markdown missing input context-completeness group section");
   assert(resolutionSource.includes("## Input market-context groups"), "performance Markdown missing input market-context group section");
   assert(resolutionSource.includes("## Input question-length groups"), "performance Markdown missing input question-length group section");
+  assert(resolutionSource.includes("## Input category-count groups"), "performance Markdown missing input category-count group section");
+  assert(resolutionSource.includes("## Input threshold-count groups"), "performance Markdown missing input threshold-count group section");
   assert(resolutionSource.includes("## Run duration groups"), "performance Markdown missing run duration group section");
   assert(resolutionSource.includes("## Run experiment groups"), "performance Markdown missing run experiment group section");
   assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");
@@ -2129,11 +2131,19 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(resolutionSource.includes("readForecastInputContextSnapshot(task.configJson)"), "resolution scoring does not read input context from task config");
   assert(resolutionSource.includes("byInputContextCompleteness"), "performance report does not group by input context completeness");
   assert(resolutionSource.includes("byInputMarketContext"), "performance report does not group by input market context");
+  assert(resolutionSource.includes("byInputCategoryCount"), "performance report does not group by input category count");
+  assert(resolutionSource.includes("byInputThresholdCount"), "performance report does not group by input threshold count");
   assert(metricsSource.includes("open_superforecaster_input_context_scores_total"), "metrics missing input context score counts");
+  assert(metricsSource.includes("category_count_band"), "metrics missing input category-count labels");
+  assert(metricsSource.includes("threshold_count_band"), "metrics missing input threshold-count labels");
   assert(syncSource.includes("input_context_completeness_band"), "DuckDB forecast score mart missing input context completeness band");
+  assert(syncSource.includes("input_category_count_band"), "DuckDB forecast score mart missing input category count band");
+  assert(syncSource.includes("input_threshold_count_band"), "DuckDB forecast score mart missing input threshold count band");
   assert(syncSource.includes("input_has_resolution_criteria"), "DuckDB forecast score mart missing resolution criteria flag");
   assert(dashboardSource.includes("Input context outcomes"), "lab dashboard does not render input context outcomes");
   assert(dashboardSource.includes("Input market outcomes"), "lab dashboard does not render input market outcomes");
+  assert(dashboardSource.includes("Input category outcomes"), "lab dashboard does not render input category outcomes");
+  assert(dashboardSource.includes("Input threshold outcomes"), "lab dashboard does not render input threshold outcomes");
   return "forecast input context is persisted and visible in resolved score analytics";
 });
 
