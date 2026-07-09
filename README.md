@@ -331,9 +331,10 @@ status, category count, top-category component agreement, and winner-probability
 spread so diffuse, model-generated, or internally split option sets can be
 reviewed separately. All forecast score rows also preserve evidence-coverage
 metadata, including source count, source-domain count, dated/undated source
-counts, newest/oldest published source dates, uncertainty count, rationale
-length, and method, so weakly sourced, undated, or thinly explained forecasts
-can be compared against resolved outcomes. New forecast runs also preserve
+counts, newest/oldest published source dates, evidence as-of date, newest-source
+age, freshness band, uncertainty count, rationale length, and method, so weakly
+sourced, stale, undated, or thinly explained forecasts can be compared against
+resolved outcomes. New forecast runs also preserve
 structured input context in score rows, including resolution criteria/date,
 market price, background, option/threshold counts, condition/unit flags, and
 question length, so market-anchored or richly specified questions can be

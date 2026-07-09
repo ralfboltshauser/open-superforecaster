@@ -7,6 +7,9 @@ export type EvidenceCoverageSnapshot = {
   sourceDateCoverageBand: "none" | "partial" | "complete" | "unknown";
   newestPublishedAt: string | null;
   oldestPublishedAt: string | null;
+  evidenceAsOfDate: string | null;
+  newestSourceAgeDays: number | null;
+  sourceFreshnessBand: "current" | "recent" | "stale" | "old" | "unknown";
   uncertaintyCount: number | null;
   uncertaintyCountBand: "none" | "limited" | "many" | "unknown";
   rationaleLength: number | null;
@@ -28,6 +31,9 @@ export function readEvidenceCoverageSnapshot(value: unknown): EvidenceCoverageSn
   const undatedSourceCount = readNumber(evidence, "undatedSourceCount", "undated_source_count") ?? Math.max(0, sourceCount - datedSourceCount);
   const newestPublishedAt = readString(evidence, "newestPublishedAt", "newest_published_at") ?? newestDate(publishedDates);
   const oldestPublishedAt = readString(evidence, "oldestPublishedAt", "oldest_published_at") ?? oldestDate(publishedDates);
+  const evidenceAsOfDate = readIsoDate(evidence, "evidenceAsOfDate", "evidence_as_of_date", "asOfDate", "as_of_date", "presentDate", "present_date");
+  const newestSourceAgeDays = readNumber(evidence, "newestSourceAgeDays", "newest_source_age_days")
+    ?? sourceAgeDays(newestPublishedAt, evidenceAsOfDate);
   const uncertaintyCount = readNumber(evidence, "uncertaintyCount", "uncertainty_count") ?? readUncertainties(evidence).length;
   const rationaleLength = readNumber(evidence, "rationaleLength", "rationale_length") ?? rationaleWordCount(evidence);
   const method = readString(evidence, "method");
@@ -43,6 +49,9 @@ export function readEvidenceCoverageSnapshot(value: unknown): EvidenceCoverageSn
     sourceDateCoverageBand: sourceDateCoverageBand({ sourceCount, datedSourceCount }),
     newestPublishedAt,
     oldestPublishedAt,
+    evidenceAsOfDate,
+    newestSourceAgeDays,
+    sourceFreshnessBand: sourceFreshnessBand(newestSourceAgeDays),
     uncertaintyCount,
     uncertaintyCountBand: uncertaintyCountBand(uncertaintyCount),
     rationaleLength,
@@ -89,6 +98,22 @@ export function sourceCountBand(count: number | null): EvidenceCoverageSnapshot[
     return "sourced";
   }
   return "deep";
+}
+
+export function sourceFreshnessBand(ageDays: number | null): EvidenceCoverageSnapshot["sourceFreshnessBand"] {
+  if (ageDays === null || !Number.isFinite(ageDays)) {
+    return "unknown";
+  }
+  if (ageDays <= 30) {
+    return "current";
+  }
+  if (ageDays <= 120) {
+    return "recent";
+  }
+  if (ageDays <= 365) {
+    return "stale";
+  }
+  return "old";
 }
 
 export function uncertaintyCountBand(count: number | null): EvidenceCoverageSnapshot["uncertaintyCountBand"] {
@@ -169,6 +194,18 @@ function sourcePublishedDates(sources: Record<string, unknown>[]) {
   });
 }
 
+function sourceAgeDays(newestPublishedAt: string | null, evidenceAsOfDate: string | null) {
+  if (!newestPublishedAt || !evidenceAsOfDate) {
+    return null;
+  }
+  const sourceTime = Date.parse(newestPublishedAt);
+  const asOfTime = Date.parse(evidenceAsOfDate);
+  if (!Number.isFinite(sourceTime) || !Number.isFinite(asOfTime)) {
+    return null;
+  }
+  return Math.max(0, Math.floor((asOfTime - sourceTime) / 86_400_000));
+}
+
 function newestDate(dates: string[]) {
   return dates.length ? [...dates].sort().at(-1) ?? null : null;
 }
@@ -215,6 +252,15 @@ function readString(value: unknown, ...keys: string[]) {
     }
   }
   return null;
+}
+
+function readIsoDate(value: unknown, ...keys: string[]) {
+  const raw = readString(value, ...keys);
+  if (!raw) {
+    return null;
+  }
+  const timestamp = Date.parse(raw);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString().slice(0, 10) : null;
 }
 
 function readNumber(value: unknown, ...keys: string[]) {

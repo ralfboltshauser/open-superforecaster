@@ -1071,6 +1071,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       score_type: row.scoreType,
       source_count_band: evidenceCoverage?.sourceCountBand ?? "unknown",
       source_date_coverage_band: evidenceCoverage?.sourceDateCoverageBand ?? "unknown",
+      source_freshness_band: evidenceCoverage?.sourceFreshnessBand ?? "unknown",
       uncertainty_count_band: evidenceCoverage?.uncertaintyCountBand ?? "unknown",
       rationale_length_band: evidenceCoverage?.rationaleLengthBand ?? "unknown",
     });

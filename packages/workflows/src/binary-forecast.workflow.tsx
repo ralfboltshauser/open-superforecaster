@@ -196,6 +196,7 @@ const aggregateCore = z.object({
   componentProbabilities: z.array(componentProbability),
   componentAudits: z.array(componentAudit).default([]),
   citedSources: z.array(citedSource).default([]),
+  evidenceAsOfDate: z.string().optional(),
 });
 
 const binaryCandidateAggregate = aggregateCore.extend({
@@ -754,6 +755,7 @@ Return round ${round}, approved, confidenceScore, disagreementExplained, issues,
               calibrationWarnings: finalCalibration.notes.length
                 ? [...latestCandidate.calibrationWarnings, ...finalCalibration.notes]
                 : latestCandidate.calibrationWarnings,
+              ...(presentDate ? { evidenceAsOfDate: presentDate } : {}),
               calibrationGuard: {
                 adjustment: finalCalibration.adjustment,
                 appliedRules: finalCalibration.appliedRules,

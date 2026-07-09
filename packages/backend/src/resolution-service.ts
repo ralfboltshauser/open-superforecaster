@@ -420,6 +420,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byCategoricalTopAgreement = groupScores(aggregateScores, categoricalTopAgreementGroupKey);
   const byEvidenceSourceCount = groupScores(aggregateScores, evidenceSourceCountGroupKey);
   const byEvidenceSourceDateCoverage = groupScores(aggregateScores, evidenceSourceDateCoverageGroupKey);
+  const byEvidenceSourceFreshness = groupScores(aggregateScores, evidenceSourceFreshnessGroupKey);
   const byEvidenceUncertaintyCount = groupScores(aggregateScores, evidenceUncertaintyCountGroupKey);
   const byEvidenceRationaleLength = groupScores(aggregateScores, evidenceRationaleLengthGroupKey);
   const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
@@ -494,6 +495,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byCategoricalTopAgreement,
       byEvidenceSourceCount,
       byEvidenceSourceDateCoverage,
+      byEvidenceSourceFreshness,
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
       byInputContextCompleteness,
@@ -558,6 +560,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byCategoricalTopAgreement,
       byEvidenceSourceCount,
       byEvidenceSourceDateCoverage,
+      byEvidenceSourceFreshness,
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
       byInputContextCompleteness,
@@ -1434,6 +1437,11 @@ function evidenceSourceDateCoverageGroupKey(score: typeof forecastScores.$inferS
   return `evidence_source_dates:${evidenceCoverage?.sourceDateCoverageBand ?? "unrecorded"}`;
 }
 
+function evidenceSourceFreshnessGroupKey(score: typeof forecastScores.$inferSelect) {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
+  return `evidence_source_freshness:${evidenceCoverage?.sourceFreshnessBand ?? "unrecorded"}`;
+}
+
 function evidenceUncertaintyCountGroupKey(score: typeof forecastScores.$inferSelect) {
   const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
   return `evidence_uncertainties:${evidenceCoverage?.uncertaintyCountBand ?? "unrecorded"}`;
@@ -2142,6 +2150,13 @@ function evidenceCoverageMissSignal(item: PerformanceCase): { reason: string; de
       severity: evidence.sourceDateCoverageBand === "none" ? "high" : "medium",
     };
   }
+  if (evidence.sourceFreshnessBand === "old" || evidence.sourceFreshnessBand === "stale") {
+    return {
+      reason: `${evidence.sourceFreshnessBand} newest cited source (${evidence.newestSourceAgeDays ?? 0} days old)`,
+      delta: evidence.newestSourceAgeDays,
+      severity: evidence.sourceFreshnessBand === "old" ? "high" : "medium",
+    };
+  }
   if (evidence.uncertaintyCountBand === "none") {
     return {
       reason: "no explicit uncertainty factors in the forecast rationale",
@@ -2376,6 +2391,7 @@ function renderPerformanceMarkdown(input: {
   byCategoricalTopAgreement: PerformanceGroup[];
   byEvidenceSourceCount: PerformanceGroup[];
   byEvidenceSourceDateCoverage: PerformanceGroup[];
+  byEvidenceSourceFreshness: PerformanceGroup[];
   byEvidenceUncertaintyCount: PerformanceGroup[];
   byEvidenceRationaleLength: PerformanceGroup[];
   byInputContextCompleteness: PerformanceGroup[];
@@ -2499,6 +2515,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Evidence source-date groups",
     ...renderGroupTable(input.byEvidenceSourceDateCoverage),
+    "",
+    "## Evidence source-freshness groups",
+    ...renderGroupTable(input.byEvidenceSourceFreshness),
     "",
     "## Evidence uncertainty-count groups",
     ...renderGroupTable(input.byEvidenceUncertaintyCount),

@@ -987,6 +987,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Categorical entropy groups"), "performance Markdown missing categorical entropy group section");
   assert(resolutionSource.includes("## Categorical source groups"), "performance Markdown missing categorical source group section");
   assert(resolutionSource.includes("## Evidence source-count groups"), "performance Markdown missing evidence source-count group section");
+  assert(resolutionSource.includes("## Evidence source-freshness groups"), "performance Markdown missing evidence source-freshness group section");
   assert(resolutionSource.includes("## Evidence uncertainty-count groups"), "performance Markdown missing evidence uncertainty-count group section");
   assert(resolutionSource.includes("## Evidence rationale-length groups"), "performance Markdown missing evidence rationale-length group section");
   assert(resolutionSource.includes("## Input context-completeness groups"), "performance Markdown missing input context-completeness group section");
@@ -1040,6 +1041,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Categorical source outcomes"), "lab dashboard does not render categorical source performance groups");
   assert(dashboardSource.includes("byEvidenceSourceCount"), "lab dashboard does not read evidence source performance groups");
   assert(dashboardSource.includes("Evidence source outcomes"), "lab dashboard does not render evidence source performance groups");
+  assert(dashboardSource.includes("byEvidenceSourceFreshness"), "lab dashboard does not read evidence freshness performance groups");
+  assert(dashboardSource.includes("Evidence freshness outcomes"), "lab dashboard does not render evidence freshness performance groups");
   assert(dashboardSource.includes("byEvidenceUncertaintyCount"), "lab dashboard does not read evidence uncertainty performance groups");
   assert(dashboardSource.includes("Evidence uncertainty outcomes"), "lab dashboard does not render evidence uncertainty performance groups");
   assert(dashboardSource.includes("byEvidenceRationaleLength"), "lab dashboard does not read evidence rationale performance groups");
@@ -1873,6 +1876,7 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
     keyUncertainties: ["base rate", "timing", "measurement"],
     rationale: "This forecast cites concrete evidence, names uncertainty, and gives enough explanation to be reviewed later against the resolution outcome.",
     method: "sample_method_v1",
+    evidenceAsOfDate: "2026-07-09",
   });
   assert(snapshot?.sourceCount === 3, "evidence source count mismatch");
   assert(snapshot?.sourceCountBand === "sourced", "evidence source count band mismatch");
@@ -1882,6 +1886,9 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
   assert(snapshot?.sourceDateCoverageBand === "partial", "evidence source date coverage band mismatch");
   assert(snapshot?.newestPublishedAt === "2026-01-02", "evidence newest source date mismatch");
   assert(snapshot?.oldestPublishedAt === "2025-12-15", "evidence oldest source date mismatch");
+  assert(snapshot?.evidenceAsOfDate === "2026-07-09", "evidence as-of date mismatch");
+  assert(snapshot?.newestSourceAgeDays === 188, "evidence newest source age mismatch");
+  assert(snapshot?.sourceFreshnessBand === "stale", "evidence source freshness band mismatch");
   assert(snapshot?.uncertaintyCount === 3, "evidence uncertainty count mismatch");
   assert(snapshot?.uncertaintyCountBand === "many", "evidence uncertainty count band mismatch");
   assert(snapshot?.rationaleLength === 19, "evidence rationale length mismatch");
@@ -1902,19 +1909,27 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
   const workflowSource = await readFile(resolve(root, "packages/workflows/src/binary-forecast.workflow.tsx"), "utf8");
   assert(workflowSource.includes("publishedAt: z.string().optional()"), "forecast cited-source schema does not accept publishedAt");
   assert(workflowSource.includes("publishedAt as an ISO date"), "forecast prompts do not request source publication dates");
+  assert(workflowSource.includes("evidenceAsOfDate: z.string().optional()"), "binary forecast aggregate schema does not persist evidence as-of date");
   assert(resolutionSource.includes("readEvidenceCoverageSnapshot(input.prediction)"), "resolution scoring does not persist evidence coverage metadata");
   assert(resolutionSource.includes("byEvidenceSourceCount"), "performance report does not group by evidence source count");
   assert(resolutionSource.includes("byEvidenceSourceDateCoverage"), "performance report does not group by evidence source date coverage");
+  assert(resolutionSource.includes("byEvidenceSourceFreshness"), "performance report does not group by evidence source freshness");
+  assert(resolutionSource.includes("sourceFreshnessBand"), "performance report does not inspect evidence source freshness");
   assert(resolutionSource.includes("byEvidenceUncertaintyCount"), "performance report does not group by evidence uncertainty count");
   assert(resolutionSource.includes("byEvidenceRationaleLength"), "performance report does not group by evidence rationale length");
   assert(metricsSource.includes("open_superforecaster_evidence_coverage_scores_total"), "metrics missing evidence coverage score counts");
   assert(metricsSource.includes("source_date_coverage_band"), "metrics missing evidence source date coverage labels");
+  assert(metricsSource.includes("source_freshness_band"), "metrics missing evidence source freshness labels");
   assert(syncSource.includes("evidence_source_count_band"), "DuckDB forecast score mart missing evidence source count band");
   assert(syncSource.includes("evidence_source_date_coverage_band"), "DuckDB forecast score mart missing evidence source date coverage band");
   assert(syncSource.includes("evidence_newest_published_at"), "DuckDB forecast score mart missing evidence newest source date");
+  assert(syncSource.includes("evidence_as_of_date"), "DuckDB forecast score mart missing evidence as-of date");
+  assert(syncSource.includes("evidence_newest_source_age_days"), "DuckDB forecast score mart missing evidence newest source age");
+  assert(syncSource.includes("evidence_source_freshness_band"), "DuckDB forecast score mart missing evidence source freshness band");
   assert(syncSource.includes("evidence_rationale_length_band"), "DuckDB forecast score mart missing evidence rationale length band");
   assert(dashboardSource.includes("Evidence source outcomes"), "lab dashboard does not render evidence source outcomes");
   assert(dashboardSource.includes("Evidence source-date outcomes"), "lab dashboard does not render evidence source date outcomes");
+  assert(dashboardSource.includes("Evidence freshness outcomes"), "lab dashboard does not render evidence freshness outcomes");
   assert(dashboardSource.includes("Evidence rationale outcomes"), "lab dashboard does not render evidence rationale outcomes");
   return "forecast evidence coverage is persisted and visible in resolved score analytics";
 });

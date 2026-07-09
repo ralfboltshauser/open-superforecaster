@@ -646,6 +646,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byCategoricalTopAgreement = readArray(groups, "byCategoricalTopAgreement").filter(isRecord)
   const byEvidenceSourceCount = readArray(groups, "byEvidenceSourceCount").filter(isRecord)
   const byEvidenceSourceDateCoverage = readArray(groups, "byEvidenceSourceDateCoverage").filter(isRecord)
+  const byEvidenceSourceFreshness = readArray(groups, "byEvidenceSourceFreshness").filter(isRecord)
   const byEvidenceUncertaintyCount = readArray(groups, "byEvidenceUncertaintyCount").filter(isRecord)
   const byEvidenceRationaleLength = readArray(groups, "byEvidenceRationaleLength").filter(isRecord)
   const byInputContextCompleteness = readArray(groups, "byInputContextCompleteness").filter(isRecord)
@@ -729,6 +730,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byCategoricalTopAgreement.length ? <PerformancePlanShapeGroupList groups={byCategoricalTopAgreement} title="Categorical top-agreement outcomes" skipKey="categorical_top_agreement:not_categorical" fallback="categorical top agreement" /> : null}
         {byEvidenceSourceCount.length ? <PerformancePlanShapeGroupList groups={byEvidenceSourceCount} title="Evidence source outcomes" skipKey="evidence_sources:unrecorded" fallback="evidence sources" /> : null}
         {byEvidenceSourceDateCoverage.length ? <PerformancePlanShapeGroupList groups={byEvidenceSourceDateCoverage} title="Evidence source-date outcomes" skipKey="evidence_source_dates:unrecorded" fallback="evidence source dates" /> : null}
+        {byEvidenceSourceFreshness.length ? <PerformancePlanShapeGroupList groups={byEvidenceSourceFreshness} title="Evidence freshness outcomes" skipKey="evidence_source_freshness:unrecorded" fallback="evidence freshness" /> : null}
         {byEvidenceUncertaintyCount.length ? <PerformancePlanShapeGroupList groups={byEvidenceUncertaintyCount} title="Evidence uncertainty outcomes" skipKey="evidence_uncertainties:unrecorded" fallback="evidence uncertainties" /> : null}
         {byEvidenceRationaleLength.length ? <PerformancePlanShapeGroupList groups={byEvidenceRationaleLength} title="Evidence rationale outcomes" skipKey="evidence_rationale:unrecorded" fallback="evidence rationale" /> : null}
         {byInputContextCompleteness.length ? <PerformancePlanShapeGroupList groups={byInputContextCompleteness} title="Input context outcomes" skipKey="input_context:unrecorded" fallback="input context" /> : null}
