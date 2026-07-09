@@ -15,6 +15,10 @@ bun run workflow:samples -- --execute --suite all
 The default is a plan-only run. `--execute` launches real Smithers/CodexAgent
 work, waits for terminal status, and verifies persisted artifacts, forecast
 ledgers, table row ledgers, benchmark scorecards, and replay links.
+Benchmark promotion gates treat indistinguishable candidate-vs-baseline scores
+as iteration evidence only. A run becomes ready for promotion review only after
+the paired comparison shows candidate improvement and the trace/review blockers
+are clear.
 
 ## Forecast And Research Prompts
 

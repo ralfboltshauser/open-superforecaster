@@ -58,6 +58,53 @@ const promotionStates = [
   "needs_more_cases",
 ] as const;
 type WorkflowPromotionState = (typeof promotionStates)[number];
+type BenchmarkPromotionComparisonStatus =
+  | "candidate_better"
+  | "candidate_worse"
+  | "indistinguishable"
+  | "needs_baseline"
+  | "needs_more_cases"
+  | "needs_paired_cases"
+  | "wait_for_completion"
+  | string;
+
+export type BenchmarkPromotionGateEvidenceInput = {
+  runStatus: string;
+  resultCount: number;
+  traceMissing: number;
+  reviewOrFailed: number;
+  comparisonStatus: BenchmarkPromotionComparisonStatus | null;
+};
+
+export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotionGateEvidenceInput) {
+  const blockers = [];
+  if (input.runStatus === "running" || input.runStatus === "queued") {
+    blockers.push("benchmark_still_running");
+  }
+  if (input.resultCount < 10) {
+    blockers.push("too_few_cases_for_promotion");
+  }
+  if (input.traceMissing > 0) {
+    blockers.push("missing_trace_bundles");
+  }
+  if (input.reviewOrFailed > 0) {
+    blockers.push("failed_or_review_cases_present");
+  }
+  if (!input.comparisonStatus) {
+    blockers.push("missing_comparison_report");
+  } else if (input.comparisonStatus !== "candidate_better") {
+    blockers.push(`comparison_${input.comparisonStatus}`);
+  }
+  return {
+    status: blockers.length === 0 ? "review_for_promotion" : "needs_more_evidence",
+    blockers: uniqueStrings(blockers),
+    recommendationStatus: input.comparisonStatus,
+    summary:
+      blockers.length === 0
+        ? "This run has paired evidence of candidate improvement and is ready for human promotion review."
+        : "Use this run for iteration, but do not promote until blockers are resolved.",
+  };
+}
 
 const benchmarkSuitesByMode: Record<BenchmarkEvalMode, {
   name: string;
@@ -2591,40 +2638,19 @@ function benchmarkPromotionGateSummary(input: {
   results: BenchmarkCaseResultRow[];
   comparison: Record<string, unknown> | null;
 }) {
-  const blockers = [];
   const traceMissing = input.results.filter((result) => !result.traceBundleUri).length;
   const reviewOrFailed = input.metrics.failedCases + input.metrics.reviewCases;
-  if (input.run.status === "running" || input.run.status === "queued") {
-    blockers.push("benchmark_still_running");
-  }
-  if (input.results.length < 10) {
-    blockers.push("too_few_cases_for_promotion");
-  }
-  if (traceMissing > 0) {
-    blockers.push("missing_trace_bundles");
-  }
-  if (reviewOrFailed > 0) {
-    blockers.push("failed_or_review_cases_present");
-  }
-  if (!input.comparison) {
-    blockers.push("missing_comparison_report");
-  }
   const recommendation = input.comparison && typeof input.comparison === "object" && !Array.isArray(input.comparison)
     ? (input.comparison.recommendation as Record<string, unknown> | undefined)
     : null;
   const comparisonStatus = recommendation && typeof recommendation.status === "string" ? recommendation.status : null;
-  if (comparisonStatus && !["candidate_better", "indistinguishable"].includes(comparisonStatus)) {
-    blockers.push(`comparison_${comparisonStatus}`);
-  }
-  return {
-    status: blockers.length === 0 ? "review_for_promotion" : "needs_more_evidence",
-    blockers: uniqueStrings(blockers),
-    recommendationStatus: comparisonStatus,
-    summary:
-      blockers.length === 0
-        ? "This run has enough basic evidence for a human promotion review."
-        : "Use this run for iteration, but do not promote until blockers are resolved.",
-  };
+  return summarizeBenchmarkPromotionGateEvidence({
+    runStatus: input.run.status,
+    resultCount: input.results.length,
+    traceMissing,
+    reviewOrFailed,
+    comparisonStatus,
+  });
 }
 
 function parseOptionalDateForAnalysis(raw: string | null) {

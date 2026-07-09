@@ -1,5 +1,6 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { summarizeBenchmarkPromotionGateEvidence } from "../packages/backend/src/benchmark-service";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
 import { applyBinaryCalibrationGuard } from "../packages/workflows/src/binary-calibration-guard";
@@ -461,6 +462,38 @@ await check("calibration guard metadata snapshots are stable", async () => {
   assert(snapshot.appliedRules[0].id === "production-ramp-threshold", "calibration guard applied rule id mismatch");
   assert(snapshot.appliedRules[0].adjustment === -5, "calibration guard applied rule adjustment mismatch");
   return "calibration guard metadata can be persisted into score config";
+});
+
+await check("benchmark promotion gate requires paired improvement", async () => {
+  const indistinguishable = summarizeBenchmarkPromotionGateEvidence({
+    runStatus: "completed",
+    resultCount: 24,
+    traceMissing: 0,
+    reviewOrFailed: 0,
+    comparisonStatus: "indistinguishable",
+  });
+  assert(indistinguishable.status === "needs_more_evidence", "indistinguishable comparison should block promotion review");
+  assert(indistinguishable.blockers.includes("comparison_indistinguishable"), "indistinguishable blocker missing");
+
+  const needsBaseline = summarizeBenchmarkPromotionGateEvidence({
+    runStatus: "completed",
+    resultCount: 24,
+    traceMissing: 0,
+    reviewOrFailed: 0,
+    comparisonStatus: null,
+  });
+  assert(needsBaseline.blockers.includes("missing_comparison_report"), "missing comparison blocker missing");
+
+  const candidateBetter = summarizeBenchmarkPromotionGateEvidence({
+    runStatus: "completed",
+    resultCount: 24,
+    traceMissing: 0,
+    reviewOrFailed: 0,
+    comparisonStatus: "candidate_better",
+  });
+  assert(candidateBetter.status === "review_for_promotion", "candidate improvement should be reviewable");
+  assert(candidateBetter.blockers.length === 0, "candidate improvement should not have blockers");
+  return "promotion review requires paired candidate improvement";
 });
 
 const failed = checks.filter((result) => !result.ok);
