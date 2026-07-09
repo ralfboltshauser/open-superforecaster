@@ -24,6 +24,8 @@ export type ForecastInputContextSnapshot = {
   categoryCoverageBand: "none" | "open_set" | "closed_set" | "unknown";
   thresholdCount: number | null;
   thresholdCountBand: "none" | "single" | "curve" | "unknown";
+  thresholdValueCount: number | null;
+  thresholdValueCoverageBand: "none" | "missing" | "partial" | "complete" | "unknown";
   thresholdDirection: "at_least" | "at_most" | "mixed" | null;
   thresholdDirectionBand: "none" | "missing" | "at_least" | "at_most" | "mixed" | "unknown";
   hasCondition: boolean;
@@ -54,6 +56,7 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   const categoryCount = normalized.categories.length;
   const categoriesExhaustive = categoryCount > 0 ? normalized.categoriesExhaustive : null;
   const thresholdCount = normalized.thresholds.length;
+  const thresholdValueCount = normalized.thresholds.filter((threshold) => typeof threshold.value === "number" && Number.isFinite(threshold.value)).length;
   const thresholdDirection = readInputThresholdDirection(normalized);
   const marketPlatform = normalized.market.marketPlatform?.trim() || null;
   const hasResolutionCriteria = Boolean(normalized.resolutionCriteria?.trim());
@@ -107,6 +110,8 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     categoryCoverageBand: inputCategoryCoverageBand({ categoryCount, categoriesExhaustive }),
     thresholdCount,
     thresholdCountBand: thresholdCountBand(thresholdCount),
+    thresholdValueCount,
+    thresholdValueCoverageBand: inputThresholdValueCoverageBand({ thresholdCount, thresholdValueCount }),
     thresholdDirection,
     thresholdDirectionBand: inputThresholdDirectionBand({ thresholdCount, thresholdDirection }),
     hasCondition,
@@ -129,6 +134,7 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   const categoryCount = readNumber(value, "categoryCount");
   const categoriesExhaustive = readBoolean(value, "categoriesExhaustive");
   const thresholdCount = readNumber(value, "thresholdCount");
+  const thresholdValueCount = readNumber(value, "thresholdValueCount");
   const thresholdDirection = readInputThresholdDirectionValue(value);
   const resolutionHorizonDays = readNumber(value, "resolutionHorizonDays");
   const marketPriceAgeDays = readNumber(value, "marketPriceAgeDays");
@@ -141,6 +147,7 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   const unit = readString(value, "unit");
   const unitSpecificityBandValue = readString(value, "unitSpecificityBand");
   const categoryCoverageBandValue = readString(value, "categoryCoverageBand");
+  const thresholdValueCoverageBandValue = readString(value, "thresholdValueCoverageBand");
   const thresholdDirectionBandValue = readString(value, "thresholdDirectionBand");
   return {
     questionLength,
@@ -174,6 +181,10 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
       : inputCategoryCoverageBand({ categoryCount, categoriesExhaustive }),
     thresholdCount,
     thresholdCountBand: readThresholdCountBand(value) ?? thresholdCountBand(thresholdCount),
+    thresholdValueCount,
+    thresholdValueCoverageBand: isInputThresholdValueCoverageBand(thresholdValueCoverageBandValue)
+      ? thresholdValueCoverageBandValue
+      : inputThresholdValueCoverageBand({ thresholdCount, thresholdValueCount }),
     thresholdDirection,
     thresholdDirectionBand: isInputThresholdDirectionBand(thresholdDirectionBandValue)
       ? thresholdDirectionBandValue
@@ -288,6 +299,30 @@ export function inputThresholdDirectionBand(input: {
     return "none";
   }
   return input.thresholdDirection ?? "missing";
+}
+
+export function inputThresholdValueCoverageBand(input: {
+  thresholdCount: number | null;
+  thresholdValueCount: number | null;
+}): ForecastInputContextSnapshot["thresholdValueCoverageBand"] {
+  if (
+    input.thresholdCount === null ||
+    input.thresholdValueCount === null ||
+    !Number.isFinite(input.thresholdCount) ||
+    !Number.isFinite(input.thresholdValueCount)
+  ) {
+    return "unknown";
+  }
+  if (input.thresholdCount <= 0) {
+    return "none";
+  }
+  if (input.thresholdValueCount <= 0) {
+    return "missing";
+  }
+  if (input.thresholdValueCount < input.thresholdCount) {
+    return "partial";
+  }
+  return "complete";
 }
 
 export function conditionCriteriaBand(input: {
@@ -448,6 +483,10 @@ function readInputThresholdDirectionValue(value: Record<string, unknown>): Forec
 
 function isInputThresholdDirectionBand(value: string | null): value is ForecastInputContextSnapshot["thresholdDirectionBand"] {
   return value === "none" || value === "missing" || value === "at_least" || value === "at_most" || value === "mixed" || value === "unknown";
+}
+
+function isInputThresholdValueCoverageBand(value: string | null): value is ForecastInputContextSnapshot["thresholdValueCoverageBand"] {
+  return value === "none" || value === "missing" || value === "partial" || value === "complete" || value === "unknown";
 }
 
 function readConditionCriteriaBand(value: Record<string, unknown>) {
