@@ -793,6 +793,8 @@ await check("forecast performance reports surface candidate calibration guards",
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
   assert(resolutionSource.includes("candidateCalibrationGuardRules: calibrationReport.candidateCalibrationGuardRules"), "performance report missing candidate calibration guard rules");
   assert(resolutionSource.includes("calibrationGuardImpact"), "performance report missing calibration guard impact summary");
+  assert(resolutionSource.includes("calibration_guard_regression"), "performance report does not turn worse guard impact into attention");
+  assert(resolutionSource.includes("guarded-vs-unguarded Brier delta recovers"), "calibration guard regression action missing");
   assert(resolutionSource.includes("calibrationReplayRows: calibrationReplayRows(aggregateBrierScores)"), "performance report missing calibration replay rows");
   assert(resolutionSource.includes("## Calibration guard impact"), "performance Markdown missing calibration guard impact section");
   assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");

@@ -185,6 +185,9 @@ defaults have one place to land. Final aggregates include structured
 changes are deliberate and auditable. Future binary score rows keep the same
 guard metadata for performance review, including guarded-vs-unguarded score
 groups and a dedicated calibration guard impact summary.
+If guarded aggregate forecasts start scoring worse than unguarded aggregates,
+the performance report adds a high-severity attention item before more default
+guard rules are promoted.
 
 To generate a local batch audit from those manifests:
 

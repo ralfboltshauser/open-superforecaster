@@ -85,7 +85,7 @@ type PerformanceTrend = {
 
 type PerformanceAttentionItem = {
   id: string;
-  kind: "poor_resolved_forecast" | "worsening_trend" | "calibration_mismatch";
+  kind: "poor_resolved_forecast" | "worsening_trend" | "calibration_mismatch" | "calibration_guard_regression";
   severity: "high" | "medium";
   reason: string;
   recommendedActions: string[];
@@ -346,7 +346,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const worstResolvedForecasts = [...rankedAggregateCases].reverse().slice(0, 8);
   const scoreTrends = buildScoreTrends(aggregateScores);
   const calibrationReport = buildBinaryCalibrationReport(scoreRowsForCalibration(aggregateBrierScores), productResolutionIds.size);
-  const needsAttention = buildNeedsAttentionQueue(worstResolvedForecasts, scoreTrends, calibrationReport);
+  const needsAttention = buildNeedsAttentionQueue(worstResolvedForecasts, scoreTrends, calibrationReport, calibrationGuardImpact);
 
   return {
     reportType: "forecast_performance_report",
@@ -1132,6 +1132,7 @@ function buildNeedsAttentionQueue(
   worstCases: PerformanceCase[],
   trends: PerformanceTrend[],
   calibrationReport: BinaryCalibrationReport,
+  calibrationGuardImpact: CalibrationGuardImpact,
 ): PerformanceAttentionItem[] {
   const caseItems = worstCases.slice(0, 5).map((item, index) => {
     const threshold = poorScoreThreshold(item.primaryMetric);
@@ -1197,7 +1198,30 @@ function buildNeedsAttentionQueue(
     rank: 200 - diagnostic.score,
   }));
 
-  return [...caseItems, ...trendItems, ...calibrationItems]
+  const guardImpactItems = calibrationGuardImpact.status === "worse" && calibrationGuardImpact.brierDelta !== null
+    ? [{
+        id: "calibration-guard-impact:worse-brier",
+        kind: "calibration_guard_regression" as const,
+        severity: "high" as const,
+        reason:
+          `Guarded aggregate forecasts have worse mean Brier than unguarded aggregates by ${formatSignedMetric(calibrationGuardImpact.brierDelta)}.`,
+        recommendedActions: recommendAttentionActions({
+          kind: "calibration_guard_regression",
+          metric: "brier",
+          severity: "high",
+          forecastType: "binary",
+        }),
+        metric: "brier",
+        score: calibrationGuardImpact.guardedMeanBrier,
+        delta: calibrationGuardImpact.brierDelta,
+        taskId: null,
+        taskLabel: "Calibration guard impact",
+        forecastType: "binary",
+        rank: 150,
+      }]
+    : [];
+
+  return [...caseItems, ...trendItems, ...guardImpactItems, ...calibrationItems]
     .sort((left, right) => {
       const severityDelta = severityRank(right.severity) - severityRank(left.severity);
       if (severityDelta !== 0) {
@@ -1222,9 +1246,13 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "worsening_trend") {
     actions.add("Review recent resolved runs in this metric before treating the trend as a workflow regression.");
     actions.add("Compare recent cases against older baseline cases for domain mix or resolution-source drift.");
-  } else {
+  } else if (input.kind === "calibration_mismatch") {
     actions.add("Review the affected calibration bucket before changing prompts or defaults.");
     actions.add("Compare mean forecast probability against observed outcome rate for resolved binary aggregates.");
+  } else {
+    actions.add("Review guarded aggregate forecasts before adding or promoting more default calibration guard rules.");
+    actions.add("Compare guarded cases against unguarded resolved cases for domain mix, sample size, and rule-specific failure patterns.");
+    actions.add("Defer default guard promotion until the guarded-vs-unguarded Brier delta recovers on later resolved forecasts.");
   }
 
   if (isProbabilityMetric(input.metric)) {
