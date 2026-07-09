@@ -2,6 +2,7 @@ export type EvidenceCoverageSnapshot = {
   sourceCount: number | null;
   sourceCountBand: "none" | "sparse" | "sourced" | "deep" | "unknown";
   sourceDomainCount: number | null;
+  sourceDiversityBand: "none" | "single_domain" | "mixed" | "diverse" | "unknown";
   datedSourceCount: number | null;
   undatedSourceCount: number | null;
   sourceDateCoverageBand: "none" | "partial" | "complete" | "unknown";
@@ -48,6 +49,7 @@ export function readEvidenceCoverageSnapshot(value: unknown): EvidenceCoverageSn
     sourceCount,
     sourceCountBand: sourceCountBand(sourceCount),
     sourceDomainCount,
+    sourceDiversityBand: sourceDiversityBand({ sourceCount, sourceDomainCount }),
     datedSourceCount,
     undatedSourceCount,
     sourceDateCoverageBand: sourceDateCoverageBand({ sourceCount, datedSourceCount }),
@@ -104,6 +106,30 @@ export function sourceCountBand(count: number | null): EvidenceCoverageSnapshot[
     return "sourced";
   }
   return "deep";
+}
+
+export function sourceDiversityBand(input: {
+  sourceCount: number | null;
+  sourceDomainCount: number | null;
+}): EvidenceCoverageSnapshot["sourceDiversityBand"] {
+  if (
+    input.sourceCount === null ||
+    input.sourceDomainCount === null ||
+    !Number.isFinite(input.sourceCount) ||
+    !Number.isFinite(input.sourceDomainCount)
+  ) {
+    return "unknown";
+  }
+  if (input.sourceCount <= 0 || input.sourceDomainCount <= 0) {
+    return "none";
+  }
+  if (input.sourceDomainCount <= 1) {
+    return "single_domain";
+  }
+  if (input.sourceDomainCount <= 2) {
+    return "mixed";
+  }
+  return "diverse";
 }
 
 export function sourceFreshnessBand(ageDays: number | null): EvidenceCoverageSnapshot["sourceFreshnessBand"] {

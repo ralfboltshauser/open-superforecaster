@@ -331,10 +331,11 @@ status, category count, top-category component agreement, and winner-probability
 spread so diffuse, model-generated, or internally split option sets can be
 reviewed separately. All forecast score rows also preserve evidence-coverage
 metadata, including source count, source-domain count, dated/undated source
-counts, newest/oldest published source dates, evidence as-of date, newest-source
-age, freshness band, post-as-of source count, timing band, uncertainty count,
-rationale length, and method, so weakly sourced, stale, future-dated, undated,
-or thinly explained forecasts can be compared against resolved outcomes.
+counts, source-diversity band, newest/oldest published source dates, evidence
+as-of date, newest-source age, freshness band, post-as-of source count, timing
+band, uncertainty count, rationale length, and method, so weakly sourced,
+single-domain, stale, future-dated, undated, or thinly explained forecasts can
+be compared against resolved outcomes.
 Forecast workflows share one timing reader so caller-provided
 present/cutoff dates are shown in prompts and persisted as the evidence as-of
 date across binary, date, numeric, categorical, thresholded, and conditional
