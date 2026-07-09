@@ -555,6 +555,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
           .where(and(eq(artifactRows.artifactId, row.comparisonReportArtifactId), eq(artifactRows.rowIndex, 0)))
           .limit(1)
       : [];
+    const analysisReportRow = await readArtifactReportRow(db, row.analysisReportArtifactId);
     enriched.push({
       ...row,
       workflowId: variant?.workflowId ?? null,
@@ -562,6 +563,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
       workflowPromotionState: variant?.promotionState ?? "candidate",
       latestPromotionDecision: latestPromotionDecision ?? null,
       comparison: comparisonReportRow?.rowJson ?? null,
+      baselineSanityFindings: readRecord(analysisReportRow, "baselineSanityFindings", "baseline_sanity_findings") ?? null,
       promotionGate: summarizeBenchmarkPromotionGateEvidence({
         runStatus: row.status,
         resultCount: results.length,
@@ -1683,6 +1685,7 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
       },
       traceQualityFindings: traceQualityFindingsForRun(results, caseAnalyses),
       sourceQualityFindings: sourceQualityFindingsForRun(results, caseAnalyses, isFixedEvidence),
+      baselineSanityFindings: baselineSanityFindingsForRun(caseAnalyses),
       costLatencyFindings: {
         note: "V1 records Smithers run IDs, trace bundles, agent-call counts, and token totals parsed from durable Smithers logs.",
         runnableLoopSignal: "Use task_id, smithers_run_id, benchmark_run_id, and workflow_variant_id labels to correlate benchmark quality with runtime cost proxies.",
@@ -2317,6 +2320,20 @@ function sourceQualityFindingsForRun(
   };
 }
 
+function baselineSanityFindingsForRun(caseAnalyses: BenchmarkCaseAnalysis[]) {
+  const baselineGateCounts = countBy(caseAnalyses.map((analysis) => analysis.qualityGates.baselineSanity ?? "unknown"));
+  const missingCases = caseAnalyses
+    .filter((analysis) => analysis.qualityGates.baselineSanity === "warn_missing_baseline_sanity")
+    .map((analysis) => analysis.benchmarkCaseId);
+  return {
+    casesWithBaseline: caseAnalyses.filter((analysis) => analysis.baselineProbability !== null).length,
+    missingBaselineSanityCases: missingCases.length,
+    missingBaselineSanityCaseIds: missingCases.slice(0, 10),
+    gateCounts: baselineGateCounts,
+    note: "Fixed-evidence benchmark outputs should explain the provided baseline anchor, final delta, and aggregation rule so worse-than-baseline cases can be debugged from artifacts.",
+  };
+}
+
 function buildWorkflowImprovementPlan(input: {
   evalMode: string;
   caseAnalyses: BenchmarkCaseAnalysis[];
@@ -2713,6 +2730,19 @@ function readAnyArray(value: Record<string, unknown>, ...keys: string[]) {
     }
   }
   return [];
+}
+
+function readRecord(value: Record<string, unknown> | null, ...keys: string[]) {
+  if (!value) {
+    return null;
+  }
+  for (const key of keys) {
+    const raw = value[key];
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      return raw as Record<string, unknown>;
+    }
+  }
+  return null;
 }
 
 function readString(value: Record<string, unknown>, ...keys: string[]) {

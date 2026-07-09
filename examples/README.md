@@ -22,7 +22,9 @@ are clear.
 Fixed-evidence benchmark aggregates also persist baseline-sanity fields: the
 provided baseline probability, final delta, base-rate anchor, inside-view
 movement, skeptical adjustment, and aggregation rule. Those fields make
-worse-than-baseline cases easier to debug from the saved artifact alone.
+worse-than-baseline cases easier to debug from the saved artifact alone. New
+analysis reports summarize missing baseline-sanity metadata, and the lab
+benchmark list shows that summary when it is available.
 
 ## Forecast And Research Prompts
 

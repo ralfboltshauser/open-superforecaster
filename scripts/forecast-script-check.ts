@@ -505,7 +505,16 @@ await check("fixed-evidence benchmark aggregate requires baseline sanity", async
   assert(workflowSource.includes("If a baseline probability is provided"), "rollout prompt does not require baseline comparison");
   assert(analysisSource.includes("baselineSanityGate"), "benchmark analysis does not gate baseline sanity metadata");
   assert(analysisSource.includes("warn_missing_baseline_sanity"), "baseline sanity warning missing");
+  assert(analysisSource.includes("baselineSanityFindingsForRun"), "benchmark analysis does not summarize baseline sanity findings");
   return "fixed-evidence aggregates persist baseline sanity metadata";
+});
+
+await check("benchmark lab surfaces baseline sanity findings", async () => {
+  const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(backendSource.includes("baselineSanityFindings"), "benchmark list rows do not expose baseline sanity findings");
+  assert(dashboardSource.includes("baseline sanity"), "lab dashboard does not surface baseline sanity findings");
+  return "benchmark list and lab dashboard expose baseline sanity findings";
 });
 
 const failed = checks.filter((result) => !result.ok);

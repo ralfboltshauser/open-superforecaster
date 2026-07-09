@@ -143,8 +143,11 @@ export function BenchmarksCard({ benchmarks }: { benchmarks: { benchmarkRuns: Js
 
 function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
   const promotionGate = isRecord(run.promotionGate) ? run.promotionGate : null
+  const baselineSanity = isRecord(run.baselineSanityFindings) ? run.baselineSanityFindings : null
   const blockers = readArray(promotionGate, "blockers").filter((blocker): blocker is string => typeof blocker === "string")
   const recommendationStatus = typeof promotionGate?.recommendationStatus === "string" ? promotionGate.recommendationStatus : null
+  const missingBaselineSanity = typeof baselineSanity?.missingBaselineSanityCases === "number" ? baselineSanity.missingBaselineSanityCases : null
+  const casesWithBaseline = typeof baselineSanity?.casesWithBaseline === "number" ? baselineSanity.casesWithBaseline : null
   return (
     <div className="rounded-md border p-3 text-sm">
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -160,6 +163,11 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
       </div>
       {recommendationStatus ? (
         <p className="mt-2 truncate text-xs text-muted-foreground">comparison {recommendationStatus}</p>
+      ) : null}
+      {baselineSanity ? (
+        <p className="mt-2 truncate text-xs text-muted-foreground">
+          baseline sanity {String(casesWithBaseline ?? 0)} cases · {String(missingBaselineSanity ?? 0)} missing
+        </p>
       ) : null}
       {blockers.length ? (
         <div className="mt-2 flex flex-wrap gap-1">
