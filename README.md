@@ -267,14 +267,14 @@ attention queue with review actions and structured candidate calibration guard
 rules for human review.
 
 Binary forecast generation also applies a deterministic final calibration guard
-for known threshold, timing, and production-ramp failure modes. The guard lives
-in `packages/workflows/src/binary-calibration-guard.ts` so measured calibration
-rules can be reviewed and tested outside the workflow orchestration. Final
-binary aggregates include a structured `calibrationGuard` block with applied
-rule ids and point adjustments, and run reports surface those guard rules for
-review. Future binary score rows persist the same guard metadata in score
-config so performance snapshots can compare guarded forecasts against outcomes
-and summarize guard-rule score groups.
+for known threshold, timing, and production-ramp failure modes. The guard is an
+explicit rule registry in `packages/workflows/src/binary-calibration-guard.ts`
+so measured calibration rules can be reviewed, tested, and added outside the
+workflow orchestration. Final binary aggregates include a structured
+`calibrationGuard` block with applied rule ids and point adjustments, and run
+reports surface those guard rules for review. Future binary score rows persist
+the same guard metadata in score config so performance snapshots can compare
+guarded forecasts against outcomes and summarize guard-rule score groups.
 
 To consolidate those local artifacts into one audit file:
 

@@ -8,7 +8,7 @@ import {
 } from "../packages/backend/src/benchmark-service";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
-import { applyBinaryCalibrationGuard } from "../packages/workflows/src/binary-calibration-guard";
+import { applyBinaryCalibrationGuard, BINARY_CALIBRATION_GUARD_RULES } from "../packages/workflows/src/binary-calibration-guard";
 import { readJson, readRecord, readString, timestampLabel, writeJson } from "./lib/forecast-script-utils";
 
 type CheckResult = {
@@ -851,6 +851,15 @@ await check("local export includes forecast review reports", async () => {
 });
 
 await check("binary forecast calibration guard preserves deterministic adjustments", async () => {
+  assert(BINARY_CALIBRATION_GUARD_RULES.length === 5, "calibration guard registry rule count mismatch");
+  assert(
+    BINARY_CALIBRATION_GUARD_RULES.some((rule) => rule.id === "production-ramp-threshold" && rule.adjustment === -5),
+    "production ramp rule missing from registry",
+  );
+  assert(
+    BINARY_CALIBRATION_GUARD_RULES.some((rule) => rule.id === "near-deadline-central-bank-easing" && rule.adjustment === -3.5),
+    "central bank easing rule missing from registry",
+  );
   const productionRamp = applyBinaryCalibrationGuard({
     probability: 25,
     question: "Will the company deliver at least 100000 units before the deadline?",
