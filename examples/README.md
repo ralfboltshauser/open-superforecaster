@@ -105,6 +105,25 @@ The batch index scans `data/forecast-ops`, `data/resolutions`, and
 `data/reports/forecast-performance`, then writes JSON and Markdown summaries
 under `data/reports/forecast-batches`.
 
+To mark attention items reviewed or deferred without changing the scoring
+ledger, add local review records to `data/reports/forecast-attention-reviews.json`:
+
+```json
+{
+  "reviews": [
+    {
+      "attentionItemId": "poor:task-id:brier",
+      "status": "reviewed",
+      "note": "Resolution criteria were ambiguous.",
+      "reviewer": "local-user",
+      "updatedAt": "2026-07-09T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+Pass `--reviews-file path/to/reviews.json` to use a different local review file.
+
 Run the script contract checks before changing these tools:
 
 ```bash

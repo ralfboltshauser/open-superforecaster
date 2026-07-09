@@ -100,6 +100,33 @@ await check("forecast batch index joins all batch phases", async () => {
       aggregateScoreRows: 2,
       attemptScoreRows: 2,
     },
+    needsAttention: [
+      {
+        id: "poor:task-1:brier",
+        kind: "poor_resolved_forecast",
+        severity: "high",
+        reason: "brier exceeded review threshold",
+        recommendedActions: ["Open the run report."],
+        metric: "brier",
+        score: 0.4,
+        delta: null,
+        taskId: "task-1",
+        taskLabel: "Hard forecast",
+        forecastType: "binary",
+      },
+    ],
+  });
+  const reviewsFile = resolve(fixtureRoot, "reviews.json");
+  await writeJson(reviewsFile, {
+    reviews: [
+      {
+        attentionItemId: "poor:task-1:brier",
+        status: "reviewed",
+        note: "Resolution criteria were ambiguous.",
+        reviewer: "contract-check",
+        updatedAt: "2026-07-09T00:03:00.000Z",
+      },
+    ],
   });
   await runScript("scripts/forecast-batch-index.ts", [
     "--batch-id",
@@ -110,6 +137,8 @@ await check("forecast batch index joins all batch phases", async () => {
     resolve(fixtureRoot, "resolutions"),
     "--performance-dir",
     resolve(fixtureRoot, "performance"),
+    "--reviews-file",
+    reviewsFile,
     "--out-dir",
     outputDir,
   ]);
@@ -122,6 +151,11 @@ await check("forecast batch index joins all batch phases", async () => {
   assert(readNumber(counts, "failedForecasts") === 1, "failed forecast count mismatch");
   assert(readNumber(counts, "resolvedCases") === 1, "resolved case count mismatch");
   assert(readNumber(counts, "performanceScoreRows") === 4, "performance score row count mismatch");
+  assert(readNumber(counts, "attentionItems") === 1, "attention item count mismatch");
+  assert(readNumber(counts, "reviewedAttentionItems") === 1, "reviewed attention count mismatch");
+  const attentionItems = readArray(audit, "attentionItems");
+  assert(attentionItems.length === 1, "attention item was not copied into audit");
+  assert(readString(attentionItems[0], "reviewStatus") === "reviewed", "review status was not merged");
   return "batch index joins ops, resolution, and performance phases";
 });
 

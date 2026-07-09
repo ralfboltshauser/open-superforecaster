@@ -20,6 +20,36 @@ type BatchEntry = {
   reportType?: string;
   createdAt?: string;
   summary: JsonRecord;
+  attentionItems: AttentionItem[];
+};
+
+type AttentionItem = {
+  id: string;
+  kind: string;
+  severity: string;
+  reason: string;
+  recommendedActions: string[];
+  metric: string;
+  score: number | null;
+  delta: number | null;
+  taskId: string | null;
+  taskLabel: string | null;
+  forecastType: string | null;
+};
+
+type AttentionReview = {
+  attentionItemId: string;
+  status: "open" | "reviewed" | "deferred";
+  note?: string;
+  reviewer?: string;
+  updatedAt?: string;
+};
+
+type ReviewedAttentionItem = AttentionItem & {
+  reviewStatus: AttentionReview["status"];
+  reviewNote?: string;
+  reviewer?: string;
+  reviewedAt?: string;
 };
 
 type BatchAudit = {
@@ -38,10 +68,16 @@ type BatchAudit = {
     resolvedCases: number;
     failedResolutions: number;
     performanceScoreRows: number | null;
+    attentionItems: number;
+    openAttentionItems: number;
+    reviewedAttentionItems: number;
+    deferredAttentionItems: number;
   };
+  attentionItems: ReviewedAttentionItem[];
   paths: {
     json: string;
     markdown: string;
+    reviews: string;
   };
 };
 
@@ -49,6 +85,7 @@ const root = resolve(import.meta.dir, "..");
 const args = Bun.argv.slice(2);
 const requestedBatchId = readArgValue(args, "--batch-id") ?? null;
 const outputRoot = resolve(root, readArgValue(args, "--out-dir") ?? "data/reports/forecast-batches");
+const reviewsPath = resolve(root, readArgValue(args, "--reviews-file") ?? "data/reports/forecast-attention-reviews.json");
 const scanRoots = [
   resolve(root, readArgValue(args, "--ops-dir") ?? "data/forecast-ops"),
   resolve(root, readArgValue(args, "--resolutions-dir") ?? "data/resolutions"),
@@ -56,6 +93,7 @@ const scanRoots = [
 ];
 
 const discoveredEntries = await discoverEntries(scanRoots);
+const reviewsByItemId = await loadReviews(reviewsPath);
 const entriesByBatch = groupEntries(discoveredEntries);
 const selectedBatchIds = requestedBatchId ? [requestedBatchId] : [...entriesByBatch.keys()].sort();
 
@@ -73,7 +111,7 @@ for (const batchId of selectedBatchIds) {
   await mkdir(batchDir, { recursive: true });
   const jsonPath = resolve(batchDir, "batch-index.json");
   const markdownPath = resolve(batchDir, "batch-index.md");
-  const audit = buildAudit(batchId, entries, jsonPath, markdownPath);
+  const audit = buildAudit(batchId, entries, jsonPath, markdownPath, reviewsPath, reviewsByItemId);
   await writeJson(jsonPath, audit);
   await writeFile(markdownPath, renderMarkdown(audit), "utf8");
   audits.push(audit);
@@ -141,6 +179,7 @@ async function readBatchEntry(path: string): Promise<BatchEntry | null> {
     reportType,
     createdAt: readString(payload, "createdAt") ?? readString(payload, "generatedAt") ?? undefined,
     summary: summarizePayload(phase, payload),
+    attentionItems: phase === "forecast_performance" ? readAttentionItems(payload) : [],
   };
 }
 
@@ -191,12 +230,22 @@ function summarizePayload(phase: BatchPhase, payload: JsonRecord): JsonRecord {
   return {};
 }
 
-function buildAudit(batchId: string, entries: BatchEntry[], jsonPath: string, markdownPath: string): BatchAudit {
+function buildAudit(
+  batchId: string,
+  entries: BatchEntry[],
+  jsonPath: string,
+  markdownPath: string,
+  reviewsFilePath: string,
+  reviewsByItemId: Map<string, AttentionReview>,
+): BatchAudit {
   const sortedEntries = [...entries].sort((left, right) => {
     const leftTime = left.createdAt ? new Date(left.createdAt).getTime() : 0;
     const rightTime = right.createdAt ? new Date(right.createdAt).getTime() : 0;
     return leftTime - rightTime || left.path.localeCompare(right.path);
   });
+  const attentionItems = sortedEntries
+    .flatMap((entry) => entry.attentionItems)
+    .map((item) => withReview(item, reviewsByItemId.get(item.id)));
   return {
     batchId,
     generatedAt: new Date().toISOString(),
@@ -213,10 +262,16 @@ function buildAudit(batchId: string, entries: BatchEntry[], jsonPath: string, ma
       resolvedCases: sumSummary(sortedEntries, "forecast_resolution", "resolved"),
       failedResolutions: sumSummary(sortedEntries, "forecast_resolution", "failed"),
       performanceScoreRows: latestNumberSummary(sortedEntries, "forecast_performance", "productScoreRows"),
+      attentionItems: attentionItems.length,
+      openAttentionItems: attentionItems.filter((item) => item.reviewStatus === "open").length,
+      reviewedAttentionItems: attentionItems.filter((item) => item.reviewStatus === "reviewed").length,
+      deferredAttentionItems: attentionItems.filter((item) => item.reviewStatus === "deferred").length,
     },
+    attentionItems,
     paths: {
       json: jsonPath,
       markdown: markdownPath,
+      reviews: reviewsFilePath,
     },
   };
 }
@@ -236,6 +291,10 @@ function renderMarkdown(audit: BatchAudit) {
     `- Completed forecasts: ${audit.counts.completedForecasts}`,
     `- Resolved cases: ${audit.counts.resolvedCases}`,
     `- Performance score rows: ${audit.counts.performanceScoreRows ?? "unknown"}`,
+    `- Attention items: ${audit.counts.attentionItems}`,
+    `- Open attention items: ${audit.counts.openAttentionItems}`,
+    `- Reviewed attention items: ${audit.counts.reviewedAttentionItems}`,
+    `- Deferred attention items: ${audit.counts.deferredAttentionItems}`,
     "",
     "## Entries",
     "",
@@ -245,8 +304,87 @@ function renderMarkdown(audit: BatchAudit) {
       `| ${entry.phase} | ${entry.createdAt ?? ""} | ${escapeMarkdownCell(formatSummary(entry.summary))} | ${escapeMarkdownCell(entry.path)} |`,
     ),
     "",
+    "## Attention Items",
+    "",
+    ...renderAttentionTable(audit.attentionItems),
+    "",
   ];
   return `${lines.join("\n")}\n`;
+}
+
+async function loadReviews(path: string) {
+  const reviewsByItemId = new Map<string, AttentionReview>();
+  let payload: unknown;
+  try {
+    payload = await readJson(path);
+  } catch {
+    return reviewsByItemId;
+  }
+  const reviewRows = Array.isArray(payload)
+    ? payload
+    : readRecordArray(payload, "reviews");
+  for (const row of reviewRows) {
+    const attentionItemId = readString(row, "attentionItemId") ?? readString(row, "id");
+    const status = readString(row, "status");
+    if (!attentionItemId || !isReviewStatus(status)) {
+      continue;
+    }
+    reviewsByItemId.set(attentionItemId, {
+      attentionItemId,
+      status,
+      note: readString(row, "note") ?? undefined,
+      reviewer: readString(row, "reviewer") ?? readString(row, "reviewedBy") ?? undefined,
+      updatedAt: readString(row, "updatedAt") ?? readString(row, "reviewedAt") ?? undefined,
+    });
+  }
+  return reviewsByItemId;
+}
+
+function readAttentionItems(payload: JsonRecord): AttentionItem[] {
+  return readRecordArray(payload, "needsAttention").flatMap((item) => {
+    const id = readString(item, "id");
+    if (!id) {
+      return [];
+    }
+    return [{
+      id,
+      kind: readString(item, "kind") ?? "attention_item",
+      severity: readString(item, "severity") ?? "medium",
+      reason: readString(item, "reason") ?? "",
+      recommendedActions: readStringArray(item, "recommendedActions"),
+      metric: readString(item, "metric") ?? "metric",
+      score: readNumber(item, "score"),
+      delta: readNumber(item, "delta"),
+      taskId: readString(item, "taskId"),
+      taskLabel: readString(item, "taskLabel"),
+      forecastType: readString(item, "forecastType"),
+    }];
+  });
+}
+
+function withReview(item: AttentionItem, review: AttentionReview | undefined): ReviewedAttentionItem {
+  return {
+    ...item,
+    reviewStatus: review?.status ?? "open",
+    reviewNote: review?.note,
+    reviewer: review?.reviewer,
+    reviewedAt: review?.updatedAt,
+  };
+}
+
+function renderAttentionTable(items: ReviewedAttentionItem[]) {
+  if (items.length === 0) {
+    return ["No attention items found."];
+  }
+  return [
+    "| Status | Severity | Kind | Metric | Score | Delta | Task | Recommended action | Note |",
+    "| --- | --- | --- | --- | ---: | ---: | --- | --- | --- |",
+    ...items.map((item) =>
+      `| ${item.reviewStatus} | ${item.severity} | ${item.kind} | ${item.metric} | ${formatNumber(item.score)} | ${formatNumber(item.delta)} | ${
+        escapeMarkdownCell(item.taskLabel ?? item.taskId ?? "")
+      } | ${escapeMarkdownCell(item.recommendedActions[0] ?? "")} | ${escapeMarkdownCell(item.reviewNote ?? "")} |`,
+    ),
+  ];
 }
 
 function groupEntries(entries: BatchEntry[]) {
@@ -279,6 +417,12 @@ function readRecordArray(value: unknown, key: string) {
   return Array.isArray(raw) ? raw.filter((item): item is JsonRecord => Boolean(readRecord(item))) : [];
 }
 
+function readStringArray(value: unknown, key: string) {
+  const record = readRecord(value);
+  const raw = record?.[key];
+  return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string") : [];
+}
+
 function countStatus(rows: JsonRecord[], status: string) {
   return rows.filter((row) => readString(row, "status") === status).length;
 }
@@ -293,6 +437,14 @@ function formatSummary(summary: JsonRecord) {
   return Object.entries(summary)
     .map(([key, value]) => `${key}=${String(value ?? "unknown")}`)
     .join(", ");
+}
+
+function formatNumber(value: number | null) {
+  return value === null ? "" : String(Math.round(value * 10_000) / 10_000);
+}
+
+function isReviewStatus(value: string | null): value is AttentionReview["status"] {
+  return value === "open" || value === "reviewed" || value === "deferred";
 }
 
 function escapeMarkdownCell(value: string) {
