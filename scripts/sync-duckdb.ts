@@ -272,6 +272,11 @@ try {
       nullif(fs.score_config #>> '{resolved}', '')::boolean as resolved,
       nullif(fs.score_config #>> '{calibrationGuard,adjustment}', '')::double precision as calibration_guard_adjustment,
       (fs.score_config #> '{calibrationGuard,appliedRules}')::text as calibration_guard_rules_json,
+      fs.score_config #>> '{baselineSanity,status}' as baseline_sanity_status,
+      nullif(fs.score_config #>> '{baselineSanity,baselineProbability}', '')::double precision as baseline_probability,
+      nullif(fs.score_config #>> '{baselineSanity,baselineDelta}', '')::double precision as baseline_delta,
+      nullif(fs.score_config #>> '{baselineSanity,componentBaseRateCount}', '')::integer as component_base_rate_count,
+      nullif(fs.score_config #>> '{baselineSanity,componentBaseRateDisagreement}', '')::double precision as component_base_rate_disagreement,
       fs.score_config::text as score_config_json,
       fs.created_at::text as created_at
     from forecast_scores fs
@@ -541,6 +546,11 @@ const forecastScoreColumns = [
   { name: "resolved", type: "BOOLEAN" },
   { name: "calibration_guard_adjustment", type: "DOUBLE" },
   { name: "calibration_guard_rules_json", type: "VARCHAR" },
+  { name: "baseline_sanity_status", type: "VARCHAR" },
+  { name: "baseline_probability", type: "DOUBLE" },
+  { name: "baseline_delta", type: "DOUBLE" },
+  { name: "component_base_rate_count", type: "INTEGER" },
+  { name: "component_base_rate_disagreement", type: "DOUBLE" },
   { name: "score_config_json", type: "VARCHAR" },
   { name: "created_at", type: "VARCHAR" },
 ] satisfies DuckColumn[];

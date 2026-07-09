@@ -67,7 +67,8 @@ status, blockers, summary, completed case count, and mean Brier delta.
 holdout evidence counts, source-quality counts, trace/schema counts, and
 analysis-finding counts into `osf_benchmark_runs` for local analytics.
 Product forecast score rows are exported to `osf_forecast_scores`, including
-probability, resolved outcome, score, and calibration-guard metadata. Binary
+probability, resolved outcome, score, calibration-guard metadata, and
+baseline-sanity deltas. Binary
 aggregate calibration buckets are exported to `osf_binary_calibration_buckets`
 with bucket error, diagnostic direction, and candidate guard adjustment fields.
 Those bucket rows are generated from the same shared calibration report builder
@@ -167,10 +168,11 @@ bun run forecast:performance -- --batch-id july-smoke
 bun run forecast:performance -- --batch-id july-smoke --out-dir data/reports/forecast-performance/manual
 ```
 
-The report groups existing score rows by forecast type, target, and forecaster
-label, includes best and worst resolved aggregate forecasts, tracks recent
-score deltas against older baselines, adds a needs-attention queue with
-recommended actions for poor scores or worsening trends, adds binary aggregate
+The report groups existing score rows by forecast type, target, forecaster
+label, calibration guard, and baseline-sanity status, includes best and worst
+resolved aggregate forecasts, tracks recent score deltas against older
+baselines, adds a needs-attention queue with recommended actions for poor
+scores or worsening trends, adds binary aggregate
 calibration buckets with expected calibration error, turns large calibration
 bucket gaps into attention items, emits candidate calibration guard rules for
 review, and writes JSON plus Markdown snapshots.

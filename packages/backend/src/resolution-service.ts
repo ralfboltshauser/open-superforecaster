@@ -10,6 +10,7 @@ import {
   type createDb,
 } from "@open-superforecaster/db";
 import { scoreBinaryForecast } from "@open-superforecaster/evals";
+import { readBaselineSanitySnapshot, type BaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { buildCalibrationGuardImpact, type CalibrationGuardImpact, type CalibrationGuardRuleImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot, type CalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
@@ -65,6 +66,7 @@ type PerformanceCase = {
   probability: number | null;
   resolved: boolean | null;
   calibrationGuard: CalibrationGuardSnapshot | null;
+  baselineSanity: BaselineSanitySnapshot | null;
   resolutionId: string | null;
   forecastAggregateId: string | null;
   createdAt: Date;
@@ -340,6 +342,7 @@ export async function getForecastPerformanceReport(db: Db) {
     return `${forecastType}:${target}`;
   });
   const byCalibrationGuard = groupScores(aggregateScores, calibrationGuardGroupKey);
+  const byBaselineSanity = groupScores(aggregateScores, baselineSanityGroupKey);
   const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
@@ -377,6 +380,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byForecaster,
       byForecastTypeAndTarget,
       byCalibrationGuard,
+      byBaselineSanity,
     },
     bestResolvedForecasts,
     worstResolvedForecasts,
@@ -404,6 +408,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byTarget,
       byForecaster,
       byCalibrationGuard,
+      byBaselineSanity,
       bestResolvedForecasts,
       worstResolvedForecasts,
       scoreTrends,
@@ -569,6 +574,7 @@ function scoreForecastPrediction(input: {
       return [];
     }
     const calibrationGuard = readCalibrationGuardSnapshot(input.prediction);
+    const baselineSanity = readBaselineSanitySnapshot(input.prediction);
     return Object.entries(scoreBinaryForecast({ probability, resolved })).map(([scoreType, scoreValue]) => ({
       scoreType,
       scoreValue,
@@ -576,6 +582,7 @@ function scoreForecastPrediction(input: {
         probability,
         resolved,
         ...(calibrationGuard ? { calibrationGuard } : {}),
+        ...(baselineSanity ? { baselineSanity } : {}),
       },
     }));
   }
@@ -1033,6 +1040,11 @@ function calibrationGuardGroupKey(score: typeof forecastScores.$inferSelect) {
   return `guard:${guard.appliedRules.map((rule) => rule.id).sort().join("+")}`;
 }
 
+function baselineSanityGroupKey(score: typeof forecastScores.$inferSelect) {
+  const baselineSanity = readBaselineSanitySnapshot(score.scoreConfig);
+  return baselineSanity ? `baseline:${baselineSanity.status}` : "baseline:unrecorded";
+}
+
 function rankAggregateCases(
   rows: Array<typeof forecastScores.$inferSelect>,
   taskMeta: Map<string, { id: string; label: string; operationSubmode: string | null }>,
@@ -1072,6 +1084,7 @@ function rankAggregateCases(
         probability: readProbability(latest.scoreConfig),
         resolved: readResolved(latest.scoreConfig),
         calibrationGuard: readCalibrationGuardSnapshot(latest.scoreConfig),
+        baselineSanity: readBaselineSanitySnapshot(latest.scoreConfig),
         resolutionId: latest.resolutionId,
         forecastAggregateId: latest.forecastAggregateId,
         createdAt: latest.createdAt,
@@ -1365,6 +1378,7 @@ function renderPerformanceMarkdown(input: {
   byTarget: PerformanceGroup[];
   byForecaster: PerformanceGroup[];
   byCalibrationGuard: PerformanceGroup[];
+  byBaselineSanity: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
   worstResolvedForecasts: PerformanceCase[];
   scoreTrends: PerformanceTrend[];
@@ -1391,6 +1405,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Calibration guard groups",
     ...renderGroupTable(input.byCalibrationGuard),
+    "",
+    "## Baseline sanity groups",
+    ...renderGroupTable(input.byBaselineSanity),
     "",
     "## Calibration guard impact",
     ...renderCalibrationGuardImpact(input.calibrationGuardImpact),

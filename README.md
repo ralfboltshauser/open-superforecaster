@@ -275,11 +275,12 @@ workflow orchestration. Final binary aggregates include a structured
 deterministic `baselineSanity` audit comparing the final probability with the
 mean component base-rate anchor. Run reports surface those guard rules and
 baseline deltas for review. Future binary score rows persist
-the same guard metadata in score config so performance snapshots can compare
-guarded forecasts against outcomes, summarize guard-rule score groups, and
-report guarded-vs-unguarded Brier impact overall and by applied rule id. Worse
-overall or rule-level guarded impact is also queued as a high-severity
-attention item before more default guard rules are promoted.
+the same guard and baseline-sanity metadata in score config so performance
+snapshots can compare guarded forecasts and large baseline movements against
+outcomes, summarize guard-rule and baseline-sanity score groups, and report
+guarded-vs-unguarded Brier impact overall and by applied rule id. Worse overall
+or rule-level guarded impact is also queued as a high-severity attention item
+before more default guard rules are promoted.
 
 To consolidate those local artifacts into one audit file:
 

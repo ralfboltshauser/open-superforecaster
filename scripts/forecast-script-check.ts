@@ -6,6 +6,7 @@ import {
   benchmarkPromotionGateBlockerIds,
   summarizeBenchmarkPromotionGateEvidence,
 } from "../packages/backend/src/benchmark-service";
+import { readBaselineSanitySnapshot } from "../packages/backend/src/baseline-sanity-metadata";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
@@ -916,6 +917,8 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("buildBinaryCalibrationBucketMartRows"), "DuckDB sync missing calibration bucket mart mapper");
   assert(syncSource.includes("calibration_guard_adjustment"), "forecast score mart missing calibration guard adjustment");
   assert(syncSource.includes("calibration_guard_rules_json"), "forecast score mart missing calibration guard rules");
+  assert(syncSource.includes("baseline_sanity_status"), "forecast score mart missing baseline sanity status");
+  assert(syncSource.includes("baseline_delta"), "forecast score mart missing baseline sanity delta");
   assert(syncSource.includes("candidate_guard_suggested_adjustment"), "binary calibration bucket mart missing candidate guard adjustment");
   assert(syncSource.includes("candidate_guard_activation_status"), "binary calibration bucket mart missing candidate guard activation status");
   assert(syncSource.includes("readCalibrationGuardValidationRows"), "DuckDB sync does not read calibration guard validation reports");
@@ -941,6 +944,7 @@ await check("binary forecast aggregates persist baseline sanity audit", async ()
   const workflowSource = await readFile(resolve(root, "packages/workflows/src/binary-forecast.workflow.tsx"), "utf8");
   const panelSource = await readFile(resolve(root, "apps/web/src/components/run-workspace/panels.tsx"), "utf8");
   const reportSource = await readFile(resolve(root, "packages/backend/src/run-service.ts"), "utf8");
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
   const largeDelta = buildBinaryBaselineSanityAudit({
     finalProbability: 75,
     components: [
@@ -958,11 +962,16 @@ await check("binary forecast aggregates persist baseline sanity audit", async ()
   const missing = buildBinaryBaselineSanityAudit({ finalProbability: 52, components: [] });
   assert(missing.status === "missing_component_base_rates", "missing baseline status mismatch");
   assert(missing.baselineProbability === null, "missing baseline probability should be null");
+  const snapshot = readBaselineSanitySnapshot({ baselineSanity: largeDelta });
+  assert(snapshot?.status === "large_delta", "baseline sanity snapshot status mismatch");
+  assert(snapshot?.baselineDelta === 40, "baseline sanity snapshot delta mismatch");
   assert(workflowSource.includes("baselineSanity"), "binary aggregate schema missing baseline sanity");
   assert(workflowSource.includes("buildBinaryBaselineSanityAudit"), "binary workflow does not use shared baseline sanity builder");
+  assert(resolutionSource.includes("readBaselineSanitySnapshot(input.prediction)"), "resolution scoring does not persist baseline sanity");
+  assert(resolutionSource.includes("byBaselineSanity"), "performance report does not group by baseline sanity");
   assert(panelSource.includes("baseline sanity"), "run workspace does not render baseline sanity");
   assert(reportSource.includes("readReportBaselineSanity"), "generated report does not include baseline sanity");
-  return "binary aggregate baseline sanity audit is deterministic and visible";
+  return "binary aggregate baseline sanity audit is deterministic, persisted, and visible";
 });
 
 await check("binary forecast calibration guard preserves deterministic adjustments", async () => {
