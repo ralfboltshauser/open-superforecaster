@@ -1566,6 +1566,35 @@ await check("categorical forecast distribution metadata reaches resolved score a
         { category: "Other", probability: 10 },
       ],
       attemptCount: 3,
+      componentCategories: [
+        {
+          forecasterLabel: "base-rate",
+          topCategory: "Alpha",
+          probabilities: [
+            { category: "Alpha", probability: 70 },
+            { category: "Beta", probability: 20 },
+            { category: "Other", probability: 10 },
+          ],
+        },
+        {
+          forecasterLabel: "inside-view",
+          topCategory: "Alpha",
+          probabilities: [
+            { category: "Alpha", probability: 60 },
+            { category: "Beta", probability: 30 },
+            { category: "Other", probability: 10 },
+          ],
+        },
+        {
+          forecasterLabel: "skeptic",
+          topCategory: "Beta",
+          probabilities: [
+            { category: "Alpha", probability: 35 },
+            { category: "Beta", probability: 50 },
+            { category: "Other", probability: 15 },
+          ],
+        },
+      ],
     },
   });
   assert(snapshot?.topCategory === "Alpha", "categorical metadata top category mismatch");
@@ -1577,6 +1606,11 @@ await check("categorical forecast distribution metadata reaches resolved score a
   assert(snapshot?.entropy === 0.78, "categorical metadata entropy mismatch");
   assert(snapshot?.entropyBand === "diffuse", "categorical metadata entropy band mismatch");
   assert(snapshot?.attemptCount === 3, "categorical metadata attempt count mismatch");
+  assert(snapshot?.componentCategoryCount === 3, "categorical metadata component category count mismatch");
+  assert(snapshot?.uniqueTopCategoryCount === 2, "categorical metadata unique top category count mismatch");
+  assert(snapshot?.topCategoryVoteShare === 66.67, "categorical metadata top category vote share mismatch");
+  assert(snapshot?.topCategoryAgreementBand === "split", "categorical metadata top category agreement band mismatch");
+  assert(snapshot?.topCategoryProbabilitySpread === 35, "categorical metadata top category probability spread mismatch");
 
   const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
@@ -1586,11 +1620,15 @@ await check("categorical forecast distribution metadata reaches resolved score a
   assert(resolutionSource.includes("byCategoricalConfidence"), "performance report does not group by categorical confidence");
   assert(resolutionSource.includes("byCategoricalEntropy"), "performance report does not group by categorical entropy");
   assert(resolutionSource.includes("byCategoricalSource"), "performance report does not group by categorical source");
+  assert(resolutionSource.includes("byCategoricalTopAgreement"), "performance report does not group by categorical top agreement");
   assert(metricsSource.includes("open_superforecaster_categorical_distribution_scores_total"), "metrics missing categorical distribution score counts");
+  assert(metricsSource.includes("top_category_agreement_band"), "metrics missing categorical top agreement labels");
   assert(syncSource.includes("categorical_top_probability"), "DuckDB forecast score mart missing categorical top probability");
   assert(syncSource.includes("categorical_entropy_band"), "DuckDB forecast score mart missing categorical entropy band");
+  assert(syncSource.includes("categorical_top_category_vote_share"), "DuckDB forecast score mart missing categorical top category vote share");
   assert(dashboardSource.includes("Categorical confidence outcomes"), "lab dashboard does not render categorical confidence outcomes");
   assert(dashboardSource.includes("Categorical entropy outcomes"), "lab dashboard does not render categorical entropy outcomes");
+  assert(dashboardSource.includes("Categorical top-agreement outcomes"), "lab dashboard does not render categorical top agreement outcomes");
   return "categorical forecast distributions are persisted and visible in resolved score analytics";
 });
 

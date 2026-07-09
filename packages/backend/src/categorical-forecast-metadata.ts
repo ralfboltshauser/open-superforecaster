@@ -8,6 +8,11 @@ export type CategoricalForecastSnapshot = {
   entropy: number | null;
   entropyBand: "concentrated" | "mixed" | "diffuse" | "unknown";
   attemptCount: number | null;
+  componentCategoryCount: number | null;
+  uniqueTopCategoryCount: number | null;
+  topCategoryVoteShare: number | null;
+  topCategoryAgreementBand: "strong" | "split" | "none" | "unknown";
+  topCategoryProbabilitySpread: number | null;
 };
 
 export function readCategoricalForecastSnapshot(value: unknown): CategoricalForecastSnapshot | null {
@@ -27,6 +32,7 @@ export function readCategoricalForecastSnapshot(value: unknown): CategoricalFore
   const categorySource = readString(categorical, "categorySource", "category_source");
   const categoriesExhaustive = readBoolean(categorical, "categoriesExhaustive", "categories_exhaustive");
   const attemptCount = readNumber(categorical, "attemptCount", "attempt_count");
+  const componentStats = readComponentCategoryStats(categorical, topCategory);
   if (
     topCategory === null &&
     topProbability === null &&
@@ -34,7 +40,8 @@ export function readCategoricalForecastSnapshot(value: unknown): CategoricalFore
     categorySource === null &&
     categoriesExhaustive === null &&
     entropy === null &&
-    attemptCount === null
+    attemptCount === null &&
+    componentStats.componentCategoryCount === null
   ) {
     return null;
   }
@@ -48,6 +55,7 @@ export function readCategoricalForecastSnapshot(value: unknown): CategoricalFore
     entropy,
     entropyBand: entropyBand(entropy),
     attemptCount,
+    ...componentStats,
   };
 }
 
@@ -91,6 +99,75 @@ function readProbabilityDistribution(value: Record<string, unknown>) {
   });
 }
 
+function readComponentCategoryStats(
+  value: Record<string, unknown>,
+  topCategory: string | null,
+): Pick<
+  CategoricalForecastSnapshot,
+  | "componentCategoryCount"
+  | "uniqueTopCategoryCount"
+  | "topCategoryVoteShare"
+  | "topCategoryAgreementBand"
+  | "topCategoryProbabilitySpread"
+> {
+  const explicitComponentCategoryCount = readNumber(value, "componentCategoryCount", "component_category_count");
+  const explicitUniqueTopCategoryCount = readNumber(value, "uniqueTopCategoryCount", "unique_top_category_count");
+  const explicitTopCategoryVoteShare = readNumber(value, "topCategoryVoteShare", "top_category_vote_share");
+  const explicitTopCategoryProbabilitySpread = readNumber(value, "topCategoryProbabilitySpread", "top_category_probability_spread");
+  const explicitAgreementBand = readTopCategoryAgreementBand(value);
+  const components = readRecordArray(value, "componentCategories", "component_categories");
+  if (components.length === 0) {
+    return {
+      componentCategoryCount: explicitComponentCategoryCount,
+      uniqueTopCategoryCount: explicitUniqueTopCategoryCount,
+      topCategoryVoteShare: explicitTopCategoryVoteShare,
+      topCategoryAgreementBand: explicitAgreementBand ?? topCategoryAgreementBand(explicitTopCategoryVoteShare),
+      topCategoryProbabilitySpread: explicitTopCategoryProbabilitySpread,
+    };
+  }
+  const topCategories = components.flatMap((component) => {
+    const category = readString(component, "topCategory", "top_category");
+    return category ? [category] : [];
+  });
+  const matchingTopCategories = topCategory === null ? 0 : topCategories.filter((category) => category === topCategory).length;
+  const voteShare = topCategories.length === 0 ? null : roundMetric((matchingTopCategories / topCategories.length) * 100);
+  const topProbabilityValues = topCategory === null
+    ? []
+    : components.map((component) => {
+        const probabilities = readRecordArray(component, "probabilities", "distribution");
+        const match = probabilities.find((item) => readString(item, "category") === topCategory);
+        const probability = match ? readNumber(match, "probability") : null;
+        return probability ?? 0;
+      });
+  return {
+    componentCategoryCount: components.length,
+    uniqueTopCategoryCount: new Set(topCategories).size || null,
+    topCategoryVoteShare: voteShare,
+    topCategoryAgreementBand: topCategoryAgreementBand(voteShare),
+    topCategoryProbabilitySpread: spread(topProbabilityValues),
+  };
+}
+
+export function topCategoryAgreementBand(voteShare: number | null): CategoricalForecastSnapshot["topCategoryAgreementBand"] {
+  if (voteShare === null || !Number.isFinite(voteShare)) {
+    return "unknown";
+  }
+  if (voteShare >= 67) {
+    return "strong";
+  }
+  if (voteShare > 0) {
+    return "split";
+  }
+  return "none";
+}
+
+function spread(values: number[]) {
+  if (values.length === 0) {
+    return null;
+  }
+  return roundMetric(Math.max(...values) - Math.min(...values));
+}
+
 function normalizedEntropy(probabilities: Array<{ probability: number }>) {
   if (probabilities.length <= 1) {
     return probabilities.length === 1 ? 0 : null;
@@ -112,9 +189,14 @@ function readStringArray(value: Record<string, unknown>, key: string) {
   return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
 }
 
-function readRecordArray(value: Record<string, unknown>, key: string) {
-  const raw = value[key];
-  return Array.isArray(raw) ? raw.filter((item): item is Record<string, unknown> => Boolean(asRecord(item))) : [];
+function readRecordArray(value: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const raw = value[key];
+    if (Array.isArray(raw)) {
+      return raw.filter((item): item is Record<string, unknown> => Boolean(asRecord(item)));
+    }
+  }
+  return [];
 }
 
 function readString(value: unknown, ...keys: string[]) {
@@ -157,6 +239,11 @@ function readBoolean(value: unknown, ...keys: string[]) {
     }
   }
   return null;
+}
+
+function readTopCategoryAgreementBand(value: unknown): CategoricalForecastSnapshot["topCategoryAgreementBand"] | null {
+  const raw = readString(value, "topCategoryAgreementBand", "top_category_agreement_band");
+  return raw === "strong" || raw === "split" || raw === "none" || raw === "unknown" ? raw : null;
 }
 
 function roundMetric(value: number) {

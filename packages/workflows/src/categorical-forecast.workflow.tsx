@@ -40,6 +40,7 @@ const categoricalAggregate = z.object({
   componentCategories: z.array(z.object({
     forecasterLabel: z.string(),
     topCategory: z.string(),
+    probabilities: z.array(categoryProbability).default([]),
   })),
   citedSources: z.array(citedSource).default([]),
   rationale: z.string(),
@@ -101,7 +102,8 @@ export default smithers((ctx) => {
   const topCategory = probabilities[0]?.category ?? attempts[0]?.topCategory ?? "unknown";
   const componentCategories = attempts.map((attempt) => ({
     forecasterLabel: attempt.forecasterLabel,
-    topCategory: attempt.topCategory,
+    topCategory: canonicalCategory(attempt.topCategory, categoryContract.categories),
+    probabilities: normalizeComponentProbabilities(attempt, categoryContract.categories),
   }));
   const citedSources = attempts.flatMap((attempt) => attempt.citedSources ?? []);
 
@@ -190,6 +192,28 @@ function canonicalCategory(category: string, categories: string[]) {
     return caseInsensitive;
   }
   return categories.find((candidate) => candidate.toLowerCase() === "other") ?? categories[categories.length - 1] ?? "Other";
+}
+
+function normalizeComponentProbabilities(attempt: z.infer<typeof categoricalAttempt>, categories: string[]) {
+  if (attempt.probabilities?.length) {
+    const canonicalProbabilities = attempt.probabilities.map((item) => ({
+      category: canonicalCategory(item.category, categories),
+      probability: item.probability,
+    }));
+    return normalizeProbabilityMass(combineCategoryProbabilities(canonicalProbabilities));
+  }
+  return [{
+    category: canonicalCategory(attempt.topCategory, categories),
+    probability: 100,
+  }];
+}
+
+function combineCategoryProbabilities(probabilities: Array<z.infer<typeof categoryProbability>>) {
+  const totals = new Map<string, number>();
+  for (const item of probabilities) {
+    totals.set(item.category, (totals.get(item.category) ?? 0) + item.probability);
+  }
+  return [...totals].map(([category, probability]) => ({ category, probability }));
 }
 
 function normalizeProbabilityMass(probabilities: Array<z.infer<typeof categoryProbability>>) {

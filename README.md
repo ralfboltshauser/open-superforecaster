@@ -321,7 +321,8 @@ curves. Numeric and date score rows preserve quantile interval width, unit,
 attempt count, and date never-probability bands so wide or unit-specific
 forecasts can be compared against resolved errors. Categorical score rows
 preserve top-choice confidence, normalized entropy, category source, closed-set
-status, and category count so diffuse or model-generated option sets can be
+status, category count, top-category component agreement, and winner-probability
+spread so diffuse, model-generated, or internally split option sets can be
 reviewed separately. All forecast score rows also preserve evidence-coverage
 metadata, including source count, source-domain count, dated/undated source
 counts, newest/oldest published source dates, uncertainty count, rationale

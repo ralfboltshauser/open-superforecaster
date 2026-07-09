@@ -403,6 +403,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byCategoricalConfidence = groupScores(aggregateScores, categoricalConfidenceGroupKey);
   const byCategoricalEntropy = groupScores(aggregateScores, categoricalEntropyGroupKey);
   const byCategoricalSource = groupScores(aggregateScores, categoricalSourceGroupKey);
+  const byCategoricalTopAgreement = groupScores(aggregateScores, categoricalTopAgreementGroupKey);
   const byEvidenceSourceCount = groupScores(aggregateScores, evidenceSourceCountGroupKey);
   const byEvidenceSourceDateCoverage = groupScores(aggregateScores, evidenceSourceDateCoverageGroupKey);
   const byEvidenceUncertaintyCount = groupScores(aggregateScores, evidenceUncertaintyCountGroupKey);
@@ -473,6 +474,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byCategoricalConfidence,
       byCategoricalEntropy,
       byCategoricalSource,
+      byCategoricalTopAgreement,
       byEvidenceSourceCount,
       byEvidenceSourceDateCoverage,
       byEvidenceUncertaintyCount,
@@ -533,6 +535,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byCategoricalConfidence,
       byCategoricalEntropy,
       byCategoricalSource,
+      byCategoricalTopAgreement,
       byEvidenceSourceCount,
       byEvidenceSourceDateCoverage,
       byEvidenceUncertaintyCount,
@@ -1369,6 +1372,14 @@ function categoricalSourceGroupKey(score: typeof forecastScores.$inferSelect) {
   return `categorical_source:${categoricalForecast?.categorySource ?? "unrecorded"}`;
 }
 
+function categoricalTopAgreementGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "categorical") {
+    return "categorical_top_agreement:not_categorical";
+  }
+  const categoricalForecast = readCategoricalForecastSnapshot(score.scoreConfig);
+  return `categorical_top_agreement:${categoricalForecast?.topCategoryAgreementBand ?? "unrecorded"}`;
+}
+
 function evidenceSourceCountGroupKey(score: typeof forecastScores.$inferSelect) {
   const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
   return `evidence_sources:${evidenceCoverage?.sourceCountBand ?? "unrecorded"}`;
@@ -2069,6 +2080,7 @@ function renderPerformanceMarkdown(input: {
   byCategoricalConfidence: PerformanceGroup[];
   byCategoricalEntropy: PerformanceGroup[];
   byCategoricalSource: PerformanceGroup[];
+  byCategoricalTopAgreement: PerformanceGroup[];
   byEvidenceSourceCount: PerformanceGroup[];
   byEvidenceSourceDateCoverage: PerformanceGroup[];
   byEvidenceUncertaintyCount: PerformanceGroup[];
@@ -2176,6 +2188,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Categorical source groups",
     ...renderGroupTable(input.byCategoricalSource),
+    "",
+    "## Categorical top-agreement groups",
+    ...renderGroupTable(input.byCategoricalTopAgreement),
     "",
     "## Evidence source-count groups",
     ...renderGroupTable(input.byEvidenceSourceCount),
