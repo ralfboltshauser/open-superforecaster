@@ -442,6 +442,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byEvidenceRationaleLength = groupScores(aggregateScores, evidenceRationaleLengthGroupKey);
   const byInputRequestedForecastType = groupScores(aggregateScores, inputRequestedForecastTypeGroupKey);
   const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
+  const byInputResolutionCriteriaDepth = groupScores(aggregateScores, inputResolutionCriteriaDepthGroupKey);
   const byInputResolutionHorizon = groupScores(aggregateScores, inputResolutionHorizonGroupKey);
   const byInputBackgroundDepth = groupScores(aggregateScores, inputBackgroundDepthGroupKey);
   const byInputMarketContext = groupScores(aggregateScores, inputMarketContextGroupKey);
@@ -544,6 +545,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceRationaleLength,
       byInputRequestedForecastType,
       byInputContextCompleteness,
+      byInputResolutionCriteriaDepth,
       byInputResolutionHorizon,
       byInputBackgroundDepth,
       byInputMarketContext,
@@ -636,6 +638,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceRationaleLength,
       byInputRequestedForecastType,
       byInputContextCompleteness,
+      byInputResolutionCriteriaDepth,
       byInputResolutionHorizon,
       byInputBackgroundDepth,
       byInputMarketContext,
@@ -1656,6 +1659,11 @@ function inputContextCompletenessGroupKey(score: typeof forecastScores.$inferSel
   return `input_context:${inputContext?.contextCompletenessBand ?? "unrecorded"}`;
 }
 
+function inputResolutionCriteriaDepthGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_resolution_criteria:${inputContext?.resolutionCriteriaLengthBand ?? "unrecorded"}`;
+}
+
 function inputResolutionHorizonGroupKey(score: typeof forecastScores.$inferSelect) {
   const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
   return `input_resolution_horizon:${inputContext?.resolutionHorizonBand ?? "unrecorded"}`;
@@ -2631,6 +2639,13 @@ function inputContextMissSignal(item: PerformanceCase): { reason: string; delta:
       severity: !context.hasResolutionCriteria ? "high" : "medium",
     };
   }
+  if (context.resolutionCriteriaLengthBand === "thin") {
+    return {
+      reason: `thin resolution criteria (${context.resolutionCriteriaLength ?? 0} words)`,
+      delta: context.resolutionCriteriaLength,
+      severity: "medium",
+    };
+  }
   if (context.resolutionHorizonBand === "elapsed") {
     const elapsedDays = context.resolutionHorizonDays === null ? null : Math.abs(context.resolutionHorizonDays);
     return {
@@ -2922,6 +2937,7 @@ function renderPerformanceMarkdown(input: {
   byEvidenceRationaleLength: PerformanceGroup[];
   byInputRequestedForecastType: PerformanceGroup[];
   byInputContextCompleteness: PerformanceGroup[];
+  byInputResolutionCriteriaDepth: PerformanceGroup[];
   byInputResolutionHorizon: PerformanceGroup[];
   byInputBackgroundDepth: PerformanceGroup[];
   byInputMarketContext: PerformanceGroup[];
@@ -3111,6 +3127,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input context-completeness groups",
     ...renderGroupTable(input.byInputContextCompleteness),
+    "",
+    "## Input resolution-criteria-depth groups",
+    ...renderGroupTable(input.byInputResolutionCriteriaDepth),
     "",
     "## Input resolution-horizon groups",
     ...renderGroupTable(input.byInputResolutionHorizon),

@@ -6,6 +6,8 @@ export type ForecastInputContextSnapshot = {
   questionLength: number | null;
   questionLengthBand: "short" | "standard" | "long" | "unknown";
   hasResolutionCriteria: boolean;
+  resolutionCriteriaLength: number | null;
+  resolutionCriteriaLengthBand: "absent" | "thin" | "adequate" | "detailed" | "unknown";
   hasResolutionDate: boolean;
   resolutionDate: string | null;
   evidenceAsOfDate: string | null;
@@ -69,6 +71,7 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   const thresholdDirection = readInputThresholdDirection(normalized);
   const marketPlatform = normalized.market.marketPlatform?.trim() || null;
   const hasResolutionCriteria = Boolean(normalized.resolutionCriteria?.trim());
+  const resolutionCriteriaLength = normalized.resolutionCriteria?.trim() ? wordCount(normalized.resolutionCriteria) : null;
   const hasResolutionDate = Boolean(normalized.resolutionDate?.trim());
   const resolutionDate = readIsoDate(raw, "resolutionDate", "resolution_date");
   const evidenceAsOfDate = readIsoDate(raw, "presentDate", "present_date", "evidenceAsOfDate", "evidence_as_of_date", "asOfDate", "as_of_date", "cutoffDate", "cutoff_date", "cutoff");
@@ -106,6 +109,8 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     questionLength,
     questionLengthBand: questionLengthBand(questionLength),
     hasResolutionCriteria,
+    resolutionCriteriaLength,
+    resolutionCriteriaLengthBand: resolutionCriteriaLengthBand(resolutionCriteriaLength),
     hasResolutionDate,
     resolutionDate,
     evidenceAsOfDate,
@@ -155,6 +160,8 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   }
   const requestedForecastType = readRequestedForecastType(value);
   const requestedForecastTypeBandValue = readString(value, "requestedForecastTypeBand");
+  const resolutionCriteriaLength = readNumber(value, "resolutionCriteriaLength");
+  const resolutionCriteriaLengthBandValue = readString(value, "resolutionCriteriaLengthBand");
   const categoryCount = readNumber(value, "categoryCount");
   const categoriesExhaustive = readBoolean(value, "categoriesExhaustive");
   const thresholdCount = readNumber(value, "thresholdCount");
@@ -185,6 +192,10 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
     questionLength,
     questionLengthBand: readQuestionLengthBand(value) ?? questionLengthBand(questionLength),
     hasResolutionCriteria: readBoolean(value, "hasResolutionCriteria") ?? false,
+    resolutionCriteriaLength,
+    resolutionCriteriaLengthBand: isResolutionCriteriaLengthBand(resolutionCriteriaLengthBandValue)
+      ? resolutionCriteriaLengthBandValue
+      : resolutionCriteriaLengthBand(resolutionCriteriaLength),
     hasResolutionDate: readBoolean(value, "hasResolutionDate") ?? false,
     resolutionDate: readString(value, "resolutionDate"),
     evidenceAsOfDate: readString(value, "evidenceAsOfDate"),
@@ -265,6 +276,22 @@ export function questionLengthBand(count: number | null): ForecastInputContextSn
     return "standard";
   }
   return "long";
+}
+
+export function resolutionCriteriaLengthBand(count: number | null): ForecastInputContextSnapshot["resolutionCriteriaLengthBand"] {
+  if (count === null) {
+    return "absent";
+  }
+  if (!Number.isFinite(count)) {
+    return "unknown";
+  }
+  if (count < 8) {
+    return "thin";
+  }
+  if (count <= 40) {
+    return "adequate";
+  }
+  return "detailed";
 }
 
 export function requestedForecastTypeBand(
@@ -556,6 +583,10 @@ function readQuestionLengthBand(value: Record<string, unknown>) {
 function readRequestedForecastType(value: Record<string, unknown>): ForecastInputContextSnapshot["requestedForecastType"] {
   const raw = readString(value, "requestedForecastType");
   return raw === "binary" || raw === "date" || raw === "numeric" || raw === "categorical" || raw === "thresholded" ? raw : null;
+}
+
+function isResolutionCriteriaLengthBand(value: string | null): value is ForecastInputContextSnapshot["resolutionCriteriaLengthBand"] {
+  return value === "absent" || value === "thin" || value === "adequate" || value === "detailed" || value === "unknown";
 }
 
 function isRequestedForecastTypeBand(value: string | null): value is ForecastInputContextSnapshot["requestedForecastTypeBand"] {

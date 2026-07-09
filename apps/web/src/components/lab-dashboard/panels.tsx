@@ -665,6 +665,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byEvidenceRationaleLength = readArray(groups, "byEvidenceRationaleLength").filter(isRecord)
   const byInputRequestedForecastType = readArray(groups, "byInputRequestedForecastType").filter(isRecord)
   const byInputContextCompleteness = readArray(groups, "byInputContextCompleteness").filter(isRecord)
+  const byInputResolutionCriteriaDepth = readArray(groups, "byInputResolutionCriteriaDepth").filter(isRecord)
   const byInputResolutionHorizon = readArray(groups, "byInputResolutionHorizon").filter(isRecord)
   const byInputBackgroundDepth = readArray(groups, "byInputBackgroundDepth").filter(isRecord)
   const byInputMarketContext = readArray(groups, "byInputMarketContext").filter(isRecord)
@@ -776,6 +777,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byEvidenceRationaleLength.length ? <PerformancePlanShapeGroupList groups={byEvidenceRationaleLength} title="Evidence rationale outcomes" skipKey="evidence_rationale:unrecorded" fallback="evidence rationale" /> : null}
         {byInputRequestedForecastType.length ? <PerformancePlanShapeGroupList groups={byInputRequestedForecastType} title="Input requested-type outcomes" skipKey="input_requested_type:unrecorded" fallback="input requested type" /> : null}
         {byInputContextCompleteness.length ? <PerformancePlanShapeGroupList groups={byInputContextCompleteness} title="Input context outcomes" skipKey="input_context:unrecorded" fallback="input context" /> : null}
+        {byInputResolutionCriteriaDepth.length ? <PerformancePlanShapeGroupList groups={byInputResolutionCriteriaDepth} title="Input resolution-criteria outcomes" skipKey="input_resolution_criteria:unrecorded" fallback="input resolution criteria" /> : null}
         {byInputResolutionHorizon.length ? <PerformancePlanShapeGroupList groups={byInputResolutionHorizon} title="Input horizon outcomes" skipKey="input_resolution_horizon:unrecorded" fallback="input resolution horizon" /> : null}
         {byInputBackgroundDepth.length ? <PerformancePlanShapeGroupList groups={byInputBackgroundDepth} title="Input background outcomes" skipKey="input_background:unrecorded" fallback="input background" /> : null}
         {byInputMarketContext.length ? <PerformancePlanShapeGroupList groups={byInputMarketContext} title="Input market outcomes" skipKey="input_market:unrecorded" fallback="input market" /> : null}

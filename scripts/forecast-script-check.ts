@@ -1010,6 +1010,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Evidence rationale-length groups"), "performance Markdown missing evidence rationale-length group section");
   assert(resolutionSource.includes("## Input requested-forecast-type groups"), "performance Markdown missing input requested-forecast-type group section");
   assert(resolutionSource.includes("## Input context-completeness groups"), "performance Markdown missing input context-completeness group section");
+  assert(resolutionSource.includes("## Input resolution-criteria-depth groups"), "performance Markdown missing input resolution-criteria-depth group section");
   assert(resolutionSource.includes("## Input resolution-horizon groups"), "performance Markdown missing input resolution-horizon group section");
   assert(resolutionSource.includes("## Input background-depth groups"), "performance Markdown missing input background-depth group section");
   assert(resolutionSource.includes("## Input market-context groups"), "performance Markdown missing input market-context group section");
@@ -1110,6 +1111,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Input requested-type outcomes"), "lab dashboard does not render input requested-type performance groups");
   assert(dashboardSource.includes("byInputContextCompleteness"), "lab dashboard does not read input context performance groups");
   assert(dashboardSource.includes("Input context outcomes"), "lab dashboard does not render input context performance groups");
+  assert(dashboardSource.includes("byInputResolutionCriteriaDepth"), "lab dashboard does not read input resolution-criteria performance groups");
+  assert(dashboardSource.includes("Input resolution-criteria outcomes"), "lab dashboard does not render input resolution-criteria performance groups");
   assert(dashboardSource.includes("byInputResolutionHorizon"), "lab dashboard does not read input horizon performance groups");
   assert(dashboardSource.includes("Input horizon outcomes"), "lab dashboard does not render input horizon performance groups");
   assert(dashboardSource.includes("byInputBackgroundDepth"), "lab dashboard does not read input background-depth performance groups");
@@ -1346,6 +1349,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("evidence_rationale_length_band"), "forecast score mart missing evidence rationale length band");
   assert(syncSource.includes("input_requested_forecast_type_band"), "forecast score mart missing input requested forecast type band");
   assert(syncSource.includes("input_context_completeness_band"), "forecast score mart missing input context completeness band");
+  assert(syncSource.includes("input_resolution_criteria_length_band"), "forecast score mart missing input resolution criteria length band");
   assert(syncSource.includes("input_resolution_horizon_band"), "forecast score mart missing input resolution horizon band");
   assert(syncSource.includes("input_background_length_band"), "forecast score mart missing input background length band");
   assert(syncSource.includes("input_market_price_band"), "forecast score mart missing input market price band");
@@ -2258,6 +2262,8 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(snapshot?.questionLength === 11, "input context question length mismatch");
   assert(snapshot?.questionLengthBand === "short", "input context question length band mismatch");
   assert(snapshot?.hasResolutionCriteria === true, "input context resolution criteria flag mismatch");
+  assert(snapshot?.resolutionCriteriaLength === 5, "input context resolution criteria length mismatch");
+  assert(snapshot?.resolutionCriteriaLengthBand === "thin", "input context resolution criteria length band mismatch");
   assert(snapshot?.hasResolutionDate === true, "input context resolution date flag mismatch");
   assert(snapshot?.resolutionDate === "2028-01-01", "input context resolution date mismatch");
   assert(snapshot?.evidenceAsOfDate === "2026-07-09", "input context evidence as-of date mismatch");
@@ -2310,6 +2316,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   const persistedSnapshot = readForecastInputContextSnapshot({ inputContext: snapshot });
   assert(persistedSnapshot?.contextCompletenessBand === "rich", "persisted input context snapshot was not readable");
   assert(persistedSnapshot?.requestedForecastTypeBand === "unspecified", "persisted input context requested forecast type band mismatch");
+  assert(persistedSnapshot?.resolutionCriteriaLengthBand === "thin", "persisted input context resolution criteria length band mismatch");
   assert(persistedSnapshot?.backgroundLengthBand === "thin", "persisted input context background band mismatch");
   assert(persistedSnapshot?.marketPriceBand === "high", "persisted input context market band mismatch");
   assert(persistedSnapshot?.marketPriceAgeBand === "old", "persisted input context market age band mismatch");
@@ -2332,6 +2339,8 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(resolutionSource.includes("byInputRequestedForecastType"), "performance report does not group by requested forecast type");
   assert(resolutionSource.includes("context.requestedForecastType"), "attention queue does not use requested forecast type");
   assert(resolutionSource.includes("byInputContextCompleteness"), "performance report does not group by input context completeness");
+  assert(resolutionSource.includes("byInputResolutionCriteriaDepth"), "performance report does not group by input resolution criteria depth");
+  assert(resolutionSource.includes("context.resolutionCriteriaLengthBand"), "attention queue does not use input resolution criteria depth");
   assert(resolutionSource.includes("byInputResolutionHorizon"), "performance report does not group by input resolution horizon");
   assert(resolutionSource.includes("context.resolutionHorizonBand"), "attention queue does not use input resolution horizon");
   assert(resolutionSource.includes("byInputBackgroundDepth"), "performance report does not group by input background depth");
@@ -2357,6 +2366,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(resolutionSource.includes("context.unitSpecificityBand"), "attention queue does not use input unit specificity");
   assert(metricsSource.includes("open_superforecaster_input_context_scores_total"), "metrics missing input context score counts");
   assert(metricsSource.includes("requested_forecast_type_band"), "metrics missing requested forecast type labels");
+  assert(metricsSource.includes("resolution_criteria_length_band"), "metrics missing input resolution-criteria labels");
   assert(metricsSource.includes("resolution_horizon_band"), "metrics missing input resolution-horizon labels");
   assert(metricsSource.includes("background_length_band"), "metrics missing input background-depth labels");
   assert(metricsSource.includes("market_price_age_band"), "metrics missing input market-recency labels");
@@ -2372,6 +2382,8 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(syncSource.includes("input_context_completeness_band"), "DuckDB forecast score mart missing input context completeness band");
   assert(syncSource.includes("input_requested_forecast_type"), "DuckDB forecast score mart missing requested forecast type");
   assert(syncSource.includes("input_requested_forecast_type_band"), "DuckDB forecast score mart missing requested forecast type band");
+  assert(syncSource.includes("input_resolution_criteria_length"), "DuckDB forecast score mart missing input resolution criteria length");
+  assert(syncSource.includes("input_resolution_criteria_length_band"), "DuckDB forecast score mart missing input resolution criteria length band");
   assert(syncSource.includes("input_resolution_horizon_days"), "DuckDB forecast score mart missing input resolution horizon days");
   assert(syncSource.includes("input_resolution_horizon_band"), "DuckDB forecast score mart missing input resolution horizon band");
   assert(syncSource.includes("input_background_length"), "DuckDB forecast score mart missing input background length");
@@ -2396,6 +2408,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(syncSource.includes("input_has_resolution_criteria"), "DuckDB forecast score mart missing resolution criteria flag");
   assert(dashboardSource.includes("Input requested-type outcomes"), "lab dashboard does not render input requested type outcomes");
   assert(dashboardSource.includes("Input context outcomes"), "lab dashboard does not render input context outcomes");
+  assert(dashboardSource.includes("Input resolution-criteria outcomes"), "lab dashboard does not render input resolution criteria outcomes");
   assert(dashboardSource.includes("Input horizon outcomes"), "lab dashboard does not render input horizon outcomes");
   assert(dashboardSource.includes("Input background outcomes"), "lab dashboard does not render input background outcomes");
   assert(dashboardSource.includes("Input market outcomes"), "lab dashboard does not render input market outcomes");
