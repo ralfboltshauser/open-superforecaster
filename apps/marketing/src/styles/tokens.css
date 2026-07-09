@@ -1,0 +1,66 @@
+@import "@fontsource/atkinson-hyperlegible/400.css";
+@import "@fontsource/atkinson-hyperlegible/700.css";
+
+:root {
+  --background: oklch(0.105 0.012 257);
+  --background-deep: oklch(0.055 0.014 257);
+  --foreground: oklch(0.94 0.012 252);
+  --card: oklch(0.15 0.014 257);
+  --primary: oklch(0.76 0.12 244);
+  --muted: oklch(0.18 0.014 257);
+  --muted-foreground: oklch(0.66 0.018 252);
+  --border: oklch(0.84 0.055 244 / 0.14);
+  --forecast: oklch(0.845 0.12 84);
+  --success: oklch(0.74 0.14 152);
+  --radius: 0.625rem;
+}
+
+.fs-eyebrow {
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+}
+
+.fs-wordmark {
+  color: var(--foreground);
+  letter-spacing: 0.36em;
+  text-shadow: 0 0 28px oklch(0.76 0.12 244 / 0.18);
+  text-transform: uppercase;
+}
+
+.fs-blueprint-line {
+  background: linear-gradient(to right, transparent, oklch(0.76 0.12 244 / 0.35), transparent);
+  height: 1px;
+}
+
+.fs-panel {
+  background: oklch(0.15 0.014 257 / 0.6);
+  border: 1px solid oklch(0.84 0.055 244 / 0.18);
+  border-radius: var(--radius);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.055),
+    inset 0 0 0 1px oklch(0.76 0.12 244 / 0.045),
+    0 24px 80px oklch(0 0 0 / 0.45),
+    0 0 46px oklch(0.76 0.12 244 / 0.055);
+}
+
+.fs-vignette {
+  background:
+    radial-gradient(
+      ellipse 65% 58% at 50% 42%,
+      oklch(0.135 0.018 257 / 0.92) 0%,
+      oklch(0.105 0.012 257 / 0.72) 45%,
+      transparent 72%
+    ),
+    linear-gradient(to bottom, oklch(0.03 0.012 257 / 0.62), transparent 25%, oklch(0.03 0.012 257 / 0.72));
+}
+
+.fs-graph-sheen {
+  background:
+    linear-gradient(to bottom, oklch(0.9 0.05 244 / 0.055), transparent 18%, transparent 78%, oklch(0 0 0 / 0.46)),
+    repeating-linear-gradient(to bottom, transparent 0, transparent 11px, oklch(0.88 0.04 244 / 0.018) 12px),
+    repeating-linear-gradient(to right, transparent 0, transparent 79px, oklch(0.88 0.04 244 / 0.018) 80px);
+  mix-blend-mode: screen;
+  opacity: 0.64;
+}

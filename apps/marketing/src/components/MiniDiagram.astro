@@ -1,0 +1,72 @@
+---
+const { kind = "probability", accent = "primary" } = Astro.props
+const stroke = accent === "success" ? "var(--success)" : accent === "forecast" ? "var(--forecast)" : "var(--primary)"
+---
+
+<svg class="mini-diagram" viewBox="0 0 220 72" aria-hidden="true">
+  <g fill="none" stroke="oklch(0.94 0.012 252 / 0.86)" stroke-width="1.2">
+    {
+      kind === "probability" && (
+        <>
+          <line x1="20" y1="50" x2="200" y2="50" stroke-opacity="0.45" />
+          <path d="M32 50C58 16 89 16 116 50C142 84 172 84 196 50" />
+          <circle class="glow-point" cx="116" cy="50" r="4" fill={stroke} stroke="none" />
+        </>
+      )
+    }
+    {
+      kind === "artifact" && (
+        <>
+          <rect x="42" y="16" width="92" height="40" rx="2" />
+          <path d="M58 28H118M58 38H104M58 48H114" stroke-opacity="0.52" />
+          <path d="M102 12H152V52" stroke={stroke} />
+          <circle class="glow-point" cx="152" cy="52" r="3.5" fill={stroke} stroke="none" />
+        </>
+      )
+    }
+    {
+      kind === "trace" && (
+        <>
+          <circle cx="46" cy="36" r="9" />
+          <circle cx="110" cy="20" r="9" />
+          <circle cx="110" cy="52" r="9" />
+          <circle cx="174" cy="36" r="9" />
+          <path d="M55 34L101 22M55 38L101 50M119 22L165 34M119 50L165 38" stroke-opacity="0.62" />
+          <circle class="glow-point" cx="110" cy="36" r="3.5" fill={stroke} stroke="none" />
+        </>
+      )
+    }
+    {
+      kind === "score" && (
+        <>
+          <path d="M38 55V22M74 55V34M110 55V16M146 55V28M182 55V39" stroke={stroke} />
+          <line x1="28" y1="55" x2="194" y2="55" stroke-opacity="0.45" />
+          <path d="M38 38L74 43L110 24L146 33L182 31" />
+          <circle class="glow-point" cx="110" cy="24" r="3.5" fill={stroke} stroke="none" />
+        </>
+      )
+    }
+    {
+      kind === "table" && (
+        <>
+          <rect x="34" y="16" width="152" height="40" rx="2" />
+          <path d="M34 29H186M34 42H186M72 16V56M122 16V56" stroke-opacity="0.52" />
+          <circle class="glow-point" cx="122" cy="42" r="3.5" fill={stroke} stroke="none" />
+        </>
+      )
+    }
+    {
+      kind === "fanout" && (
+        <>
+          <circle cx="42" cy="36" r="5" fill={stroke} stroke="none" />
+          <path d="M47 36H78L114 18M78 36L114 36M78 36L114 54" />
+          <circle cx="124" cy="18" r="9" />
+          <circle cx="124" cy="36" r="9" />
+          <circle cx="124" cy="54" r="9" />
+          <path d="M133 18L180 36M133 36H180M133 54L180 36" stroke-opacity="0.52" />
+          <circle class="glow-point" cx="180" cy="36" r="4" fill={stroke} stroke="none" />
+        </>
+      )
+    }
+  </g>
+</svg>

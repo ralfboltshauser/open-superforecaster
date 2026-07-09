@@ -10,9 +10,12 @@
   ],
   "scripts": {
     "dev": "bun --cwd apps/web dev",
+    "dev:marketing": "bun --cwd apps/marketing dev",
     "dev:worker": "bun --cwd apps/worker dev",
     "build": "bun --cwd apps/web build",
+    "build:marketing": "bun --cwd apps/marketing build",
     "start": "bun --cwd apps/web start",
+    "start:marketing": "bun --cwd apps/marketing preview",
     "check": "bun run typecheck && bun run build",
     "typecheck": "tsc --noEmit -p tsconfig.check.json",
     "db:generate": "drizzle-kit generate",

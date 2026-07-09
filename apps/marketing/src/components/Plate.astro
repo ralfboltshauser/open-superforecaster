@@ -1,0 +1,15 @@
+---
+const { number, label, description } = Astro.props
+---
+
+<section class="plate" id={label.toLowerCase().replaceAll(" ", "-")}>
+  <div class="plate-label">
+    <span class="plate-number">{number}</span>
+    <h2>{label}</h2>
+    <div class="plate-rule"></div>
+    {description && <p>{description}</p>}
+  </div>
+  <div class="plate-body">
+    <slot />
+  </div>
+</section>

@@ -1,0 +1,24 @@
+---
+const command = "cp .env.example .env\ndocker compose up --build"
+---
+
+<div class="code-panel fs-panel" id="run-it-locally">
+  <div class="copy-row">
+    <span class="fs-eyebrow">local start</span>
+    <button class="copy-button" type="button" data-copy={command}>Copy</button>
+  </div>
+  <pre><code>{command}</code></pre>
+</div>
+
+<script>
+  document.querySelectorAll("[data-copy]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const value = button.getAttribute("data-copy") ?? ""
+      await navigator.clipboard.writeText(value)
+      button.textContent = "Copied"
+      window.setTimeout(() => {
+        button.textContent = "Copy"
+      }, 1400)
+    })
+  })
+</script>

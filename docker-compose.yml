@@ -67,6 +67,26 @@ services:
       timeout: 10s
       retries: 5
 
+  marketing:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    command: /bin/sh -lc "bun --cwd apps/marketing build && bun --cwd apps/marketing preview"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3002
+    ports:
+      - "${OSF_MARKETING_BIND_ADDRESS:-127.0.0.1}:3002:3002"
+    volumes:
+      - .:/app
+      - bun-cache:/root/.bun
+      - app-node-modules:/app/node_modules
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3002').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
   smithers:
     build:
       context: .

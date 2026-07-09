@@ -1,0 +1,37 @@
+---
+import "../styles/global.css"
+
+const title = "Open Superforecaster"
+const description =
+  "An open-source, self-runnable forecasting appliance for parallel agent research, source-backed probabilities, artifacts, traces, and local benchmark evidence."
+const canonical = new URL(Astro.url.pathname, Astro.site ?? "https://superforecaster.openexp.dev").toString()
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#05080f" />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href="/logo.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content="/logo.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <title>{title}</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="site-shell">
+      <div class="ambient-grid fs-graph-sheen" aria-hidden="true"></div>
+      <slot />
+    </div>
+  </body>
+</html>
