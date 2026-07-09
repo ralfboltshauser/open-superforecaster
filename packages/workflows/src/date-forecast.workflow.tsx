@@ -11,6 +11,7 @@ import { codexResearchAgent } from "./agents";
 const citedSource = z.object({
   title: z.string().optional(),
   url: z.string().optional(),
+  publishedAt: z.string().optional(),
   claim: z.string(),
 });
 
@@ -117,7 +118,7 @@ ${background || "No extra background provided."}
 Focus:
 ${brief.focus}
 
-Return a date forecast as a calibrated date distribution. Provide dateDistribution with p10, p25, p50, p75, and p90 using ISO date strings like YYYY-MM-DD. Earlier quantiles should not come after later quantiles. Include neverProbability from 0 to 100, rationale, key uncertainties, and cited sources when available. Set forecasterLabel to "${brief.label}".`}
+Return a date forecast as a calibrated date distribution. Provide dateDistribution with p10, p25, p50, p75, and p90 using ISO date strings like YYYY-MM-DD. Earlier quantiles should not come after later quantiles. Include neverProbability from 0 to 100, rationale, key uncertainties, and cited sources when available. For cited sources, include publishedAt as an ISO date when the source date is known; omit it when unknown. Set forecasterLabel to "${brief.label}".`}
             </Task>
           ))}
         </Parallel>

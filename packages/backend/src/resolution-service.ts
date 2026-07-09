@@ -391,6 +391,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byCategoricalEntropy = groupScores(aggregateScores, categoricalEntropyGroupKey);
   const byCategoricalSource = groupScores(aggregateScores, categoricalSourceGroupKey);
   const byEvidenceSourceCount = groupScores(aggregateScores, evidenceSourceCountGroupKey);
+  const byEvidenceSourceDateCoverage = groupScores(aggregateScores, evidenceSourceDateCoverageGroupKey);
   const byEvidenceUncertaintyCount = groupScores(aggregateScores, evidenceUncertaintyCountGroupKey);
   const byEvidenceRationaleLength = groupScores(aggregateScores, evidenceRationaleLengthGroupKey);
   const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
@@ -456,6 +457,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byCategoricalEntropy,
       byCategoricalSource,
       byEvidenceSourceCount,
+      byEvidenceSourceDateCoverage,
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
       byInputContextCompleteness,
@@ -511,6 +513,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byCategoricalEntropy,
       byCategoricalSource,
       byEvidenceSourceCount,
+      byEvidenceSourceDateCoverage,
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
       byInputContextCompleteness,
@@ -1319,6 +1322,11 @@ function evidenceSourceCountGroupKey(score: typeof forecastScores.$inferSelect) 
   return `evidence_sources:${evidenceCoverage?.sourceCountBand ?? "unrecorded"}`;
 }
 
+function evidenceSourceDateCoverageGroupKey(score: typeof forecastScores.$inferSelect) {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
+  return `evidence_source_dates:${evidenceCoverage?.sourceDateCoverageBand ?? "unrecorded"}`;
+}
+
 function evidenceUncertaintyCountGroupKey(score: typeof forecastScores.$inferSelect) {
   const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
   return `evidence_uncertainties:${evidenceCoverage?.uncertaintyCountBand ?? "unrecorded"}`;
@@ -1883,6 +1891,7 @@ function renderPerformanceMarkdown(input: {
   byCategoricalEntropy: PerformanceGroup[];
   byCategoricalSource: PerformanceGroup[];
   byEvidenceSourceCount: PerformanceGroup[];
+  byEvidenceSourceDateCoverage: PerformanceGroup[];
   byEvidenceUncertaintyCount: PerformanceGroup[];
   byEvidenceRationaleLength: PerformanceGroup[];
   byInputContextCompleteness: PerformanceGroup[];
@@ -1979,6 +1988,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Evidence source-count groups",
     ...renderGroupTable(input.byEvidenceSourceCount),
+    "",
+    "## Evidence source-date groups",
+    ...renderGroupTable(input.byEvidenceSourceDateCoverage),
     "",
     "## Evidence uncertainty-count groups",
     ...renderGroupTable(input.byEvidenceUncertaintyCount),

@@ -2,6 +2,11 @@ export type EvidenceCoverageSnapshot = {
   sourceCount: number | null;
   sourceCountBand: "none" | "sparse" | "sourced" | "deep" | "unknown";
   sourceDomainCount: number | null;
+  datedSourceCount: number | null;
+  undatedSourceCount: number | null;
+  sourceDateCoverageBand: "none" | "partial" | "complete" | "unknown";
+  newestPublishedAt: string | null;
+  oldestPublishedAt: string | null;
   uncertaintyCount: number | null;
   uncertaintyCountBand: "none" | "limited" | "many" | "unknown";
   rationaleLength: number | null;
@@ -16,7 +21,13 @@ export function readEvidenceCoverageSnapshot(value: unknown): EvidenceCoverageSn
     return null;
   }
   const sourceCount = readNumber(evidence, "sourceCount", "source_count") ?? readSources(evidence).length;
-  const sourceDomainCount = readNumber(evidence, "sourceDomainCount", "source_domain_count") ?? sourceDomains(readSources(evidence)).length;
+  const sources = readSources(evidence);
+  const sourceDomainCount = readNumber(evidence, "sourceDomainCount", "source_domain_count") ?? sourceDomains(sources).length;
+  const publishedDates = sourcePublishedDates(sources);
+  const datedSourceCount = readNumber(evidence, "datedSourceCount", "dated_source_count") ?? publishedDates.length;
+  const undatedSourceCount = readNumber(evidence, "undatedSourceCount", "undated_source_count") ?? Math.max(0, sourceCount - datedSourceCount);
+  const newestPublishedAt = readString(evidence, "newestPublishedAt", "newest_published_at") ?? newestDate(publishedDates);
+  const oldestPublishedAt = readString(evidence, "oldestPublishedAt", "oldest_published_at") ?? oldestDate(publishedDates);
   const uncertaintyCount = readNumber(evidence, "uncertaintyCount", "uncertainty_count") ?? readUncertainties(evidence).length;
   const rationaleLength = readNumber(evidence, "rationaleLength", "rationale_length") ?? rationaleWordCount(evidence);
   const method = readString(evidence, "method");
@@ -27,12 +38,41 @@ export function readEvidenceCoverageSnapshot(value: unknown): EvidenceCoverageSn
     sourceCount,
     sourceCountBand: sourceCountBand(sourceCount),
     sourceDomainCount,
+    datedSourceCount,
+    undatedSourceCount,
+    sourceDateCoverageBand: sourceDateCoverageBand({ sourceCount, datedSourceCount }),
+    newestPublishedAt,
+    oldestPublishedAt,
     uncertaintyCount,
     uncertaintyCountBand: uncertaintyCountBand(uncertaintyCount),
     rationaleLength,
     rationaleLengthBand: rationaleLengthBand(rationaleLength),
     method,
   };
+}
+
+export function sourceDateCoverageBand(input: {
+  sourceCount: number | null;
+  datedSourceCount: number | null;
+}): EvidenceCoverageSnapshot["sourceDateCoverageBand"] {
+  if (
+    input.sourceCount === null ||
+    input.datedSourceCount === null ||
+    !Number.isFinite(input.sourceCount) ||
+    !Number.isFinite(input.datedSourceCount)
+  ) {
+    return "unknown";
+  }
+  if (input.sourceCount <= 0) {
+    return "none";
+  }
+  if (input.datedSourceCount <= 0) {
+    return "none";
+  }
+  if (input.datedSourceCount >= input.sourceCount) {
+    return "complete";
+  }
+  return "partial";
 }
 
 export function sourceCountBand(count: number | null): EvidenceCoverageSnapshot["sourceCountBand"] {
@@ -113,6 +153,28 @@ function sourceDomains(sources: Record<string, unknown>[]) {
       return [];
     }
   }))];
+}
+
+function sourcePublishedDates(sources: Record<string, unknown>[]) {
+  return sources.flatMap((source) => {
+    const publishedAt = readString(source, "publishedAt", "published_at");
+    if (!publishedAt) {
+      return [];
+    }
+    const timestamp = Date.parse(publishedAt);
+    if (!Number.isFinite(timestamp)) {
+      return [];
+    }
+    return [new Date(timestamp).toISOString().slice(0, 10)];
+  });
+}
+
+function newestDate(dates: string[]) {
+  return dates.length ? [...dates].sort().at(-1) ?? null : null;
+}
+
+function oldestDate(dates: string[]) {
+  return dates.length ? [...dates].sort()[0] ?? null : null;
 }
 
 function readRecordArray(value: Record<string, unknown>, ...keys: string[]) {

@@ -309,8 +309,9 @@ forecasts can be compared against resolved errors. Categorical score rows
 preserve top-choice confidence, normalized entropy, category source, closed-set
 status, and category count so diffuse or model-generated option sets can be
 reviewed separately. All forecast score rows also preserve evidence-coverage
-metadata, including source count, source-domain count, uncertainty count,
-rationale length, and method, so weakly sourced or thinly explained forecasts
+metadata, including source count, source-domain count, dated/undated source
+counts, newest/oldest published source dates, uncertainty count, rationale
+length, and method, so weakly sourced, undated, or thinly explained forecasts
 can be compared against resolved outcomes. New forecast runs also preserve
 structured input context in score rows, including resolution criteria/date,
 market price, background, option/threshold counts, condition/unit flags, and

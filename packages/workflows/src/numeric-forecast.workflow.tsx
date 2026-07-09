@@ -11,6 +11,7 @@ import { codexResearchAgent } from "./agents";
 const citedSource = z.object({
   title: z.string().optional(),
   url: z.string().optional(),
+  publishedAt: z.string().optional(),
   claim: z.string(),
 });
 
@@ -122,7 +123,7 @@ ${requestedUnit ? `Requested unit: ${requestedUnit}` : "No requested unit was pr
 Focus:
 ${brief.focus}
 
-Return a numeric forecast as a calibrated distribution, not only a point estimate. Provide quantiles p10, p25, p50, p75, and p90 as numbers in one consistent unit. The quantiles must be monotonic: p10 <= p25 <= p50 <= p75 <= p90. Include unit, rationale, key uncertainties, and cited sources when available. Set forecasterLabel to "${brief.label}".`}
+Return a numeric forecast as a calibrated distribution, not only a point estimate. Provide quantiles p10, p25, p50, p75, and p90 as numbers in one consistent unit. The quantiles must be monotonic: p10 <= p25 <= p50 <= p75 <= p90. Include unit, rationale, key uncertainties, and cited sources when available. For cited sources, include publishedAt as an ISO date when the source date is known; omit it when unknown. Set forecasterLabel to "${brief.label}".`}
             </Task>
           ))}
         </Parallel>

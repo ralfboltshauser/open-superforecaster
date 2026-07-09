@@ -6,6 +6,7 @@ import { codexStructuredAgent } from "./agents";
 const citedSource = z.object({
   title: z.string().optional(),
   url: z.string().optional(),
+  publishedAt: z.string().optional(),
   claim: z.string(),
 });
 
@@ -120,7 +121,7 @@ ${baselineProbability === null ? "No numeric baseline was provided." : `${baseli
 Fixed evidence packet:
 ${fixedEvidence || "No fixed evidence provided. State this as a major limitation."}
 
-Return a binary probability from 0 to 100. Explain how the fixed evidence moves you from a base rate to the final probability. If a baseline probability is provided, explicitly explain whether and why your final answer should move above, below, or stay near that baseline. Set forecasterLabel to "${rolloutId}".`}
+Return a binary probability from 0 to 100. Explain how the fixed evidence moves you from a base rate to the final probability. If a baseline probability is provided, explicitly explain whether and why your final answer should move above, below, or stay near that baseline. Include cited sources when available. For cited sources, include publishedAt as an ISO date when the source date is known; omit it when unknown. Set forecasterLabel to "${rolloutId}".`}
             </Task>
           ))}
         </Parallel>

@@ -6,6 +6,7 @@ import { codexResearchAgent } from "./agents";
 const citedSource = z.object({
   title: z.string().optional(),
   url: z.string().optional(),
+  publishedAt: z.string().optional(),
   claim: z.string(),
 });
 
@@ -142,7 +143,7 @@ Return a joint binary conditional forecast. Keep these quantities separate:
 - P(outcome | condition): assume the condition is true; do not reforecast whether it occurs.
 - P(outcome | not condition): assume the condition is false; do not reforecast whether it occurs.
 
-Explain why the condition changes, or does not change, the outcome. Include branch rationales, dependence notes, uncertainties, premortem, wildcards, and cited sources when available. Set forecasterLabel to "${brief.label}".`}
+Explain why the condition changes, or does not change, the outcome. Include branch rationales, dependence notes, uncertainties, premortem, wildcards, and cited sources when available. For cited sources, include publishedAt as an ISO date when the source date is known; omit it when unknown. Set forecasterLabel to "${brief.label}".`}
             </Task>
           ))}
         </Parallel>

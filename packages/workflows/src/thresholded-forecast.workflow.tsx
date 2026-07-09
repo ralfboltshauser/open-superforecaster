@@ -10,6 +10,7 @@ import { codexResearchAgent } from "./agents";
 const citedSource = z.object({
   title: z.string().optional(),
   url: z.string().optional(),
+  publishedAt: z.string().optional(),
   claim: z.string(),
 });
 
@@ -142,7 +143,7 @@ ${thresholds.length ? thresholds.map((threshold, index) => `${index + 1}. ${thre
 Focus:
 ${brief.focus}
 
-Return one probability for every threshold label. If no valid thresholds are listed, return an empty probabilities array and explain the invalid input in rationale. For at_least, probabilities must be non-increasing as thresholds become stricter. For at_most, probabilities must be non-decreasing. Include a short rationale for each threshold plus overall rationale, monotonicity notes, uncertainties, premortem, wildcards, and cited sources when available. Set forecasterLabel to "${brief.label}".`}
+Return one probability for every threshold label. If no valid thresholds are listed, return an empty probabilities array and explain the invalid input in rationale. For at_least, probabilities must be non-increasing as thresholds become stricter. For at_most, probabilities must be non-decreasing. Include a short rationale for each threshold plus overall rationale, monotonicity notes, uncertainties, premortem, wildcards, and cited sources when available. For cited sources, include publishedAt as an ISO date when the source date is known; omit it when unknown. Set forecasterLabel to "${brief.label}".`}
             </Task>
           ))}
         </Parallel>

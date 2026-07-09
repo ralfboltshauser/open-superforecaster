@@ -1446,8 +1446,8 @@ await check("categorical forecast distribution metadata reaches resolved score a
 await check("forecast evidence coverage metadata reaches resolved score analytics", async () => {
   const snapshot = readEvidenceCoverageSnapshot({
     citedSources: [
-      { title: "A", url: "https://example.com/a", claim: "first source" },
-      { title: "B", url: "https://example.com/b", claim: "second source" },
+      { title: "A", url: "https://example.com/a", publishedAt: "2026-01-02", claim: "first source" },
+      { title: "B", url: "https://example.com/b", publishedAt: "2025-12-15", claim: "second source" },
       { title: "C", url: "https://other.example/c", claim: "third source" },
     ],
     keyUncertainties: ["base rate", "timing", "measurement"],
@@ -1457,6 +1457,11 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
   assert(snapshot?.sourceCount === 3, "evidence source count mismatch");
   assert(snapshot?.sourceCountBand === "sourced", "evidence source count band mismatch");
   assert(snapshot?.sourceDomainCount === 2, "evidence source domain count mismatch");
+  assert(snapshot?.datedSourceCount === 2, "evidence dated source count mismatch");
+  assert(snapshot?.undatedSourceCount === 1, "evidence undated source count mismatch");
+  assert(snapshot?.sourceDateCoverageBand === "partial", "evidence source date coverage band mismatch");
+  assert(snapshot?.newestPublishedAt === "2026-01-02", "evidence newest source date mismatch");
+  assert(snapshot?.oldestPublishedAt === "2025-12-15", "evidence oldest source date mismatch");
   assert(snapshot?.uncertaintyCount === 3, "evidence uncertainty count mismatch");
   assert(snapshot?.uncertaintyCountBand === "many", "evidence uncertainty count band mismatch");
   assert(snapshot?.rationaleLength === 19, "evidence rationale length mismatch");
@@ -1474,14 +1479,22 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  const workflowSource = await readFile(resolve(root, "packages/workflows/src/binary-forecast.workflow.tsx"), "utf8");
+  assert(workflowSource.includes("publishedAt: z.string().optional()"), "forecast cited-source schema does not accept publishedAt");
+  assert(workflowSource.includes("publishedAt as an ISO date"), "forecast prompts do not request source publication dates");
   assert(resolutionSource.includes("readEvidenceCoverageSnapshot(input.prediction)"), "resolution scoring does not persist evidence coverage metadata");
   assert(resolutionSource.includes("byEvidenceSourceCount"), "performance report does not group by evidence source count");
+  assert(resolutionSource.includes("byEvidenceSourceDateCoverage"), "performance report does not group by evidence source date coverage");
   assert(resolutionSource.includes("byEvidenceUncertaintyCount"), "performance report does not group by evidence uncertainty count");
   assert(resolutionSource.includes("byEvidenceRationaleLength"), "performance report does not group by evidence rationale length");
   assert(metricsSource.includes("open_superforecaster_evidence_coverage_scores_total"), "metrics missing evidence coverage score counts");
+  assert(metricsSource.includes("source_date_coverage_band"), "metrics missing evidence source date coverage labels");
   assert(syncSource.includes("evidence_source_count_band"), "DuckDB forecast score mart missing evidence source count band");
+  assert(syncSource.includes("evidence_source_date_coverage_band"), "DuckDB forecast score mart missing evidence source date coverage band");
+  assert(syncSource.includes("evidence_newest_published_at"), "DuckDB forecast score mart missing evidence newest source date");
   assert(syncSource.includes("evidence_rationale_length_band"), "DuckDB forecast score mart missing evidence rationale length band");
   assert(dashboardSource.includes("Evidence source outcomes"), "lab dashboard does not render evidence source outcomes");
+  assert(dashboardSource.includes("Evidence source-date outcomes"), "lab dashboard does not render evidence source date outcomes");
   assert(dashboardSource.includes("Evidence rationale outcomes"), "lab dashboard does not render evidence rationale outcomes");
   return "forecast evidence coverage is persisted and visible in resolved score analytics";
 });

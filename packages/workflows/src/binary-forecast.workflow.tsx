@@ -99,6 +99,7 @@ const roleAggregationWeights: Record<RoleId, number> = {
 const citedSource = z.object({
   title: z.string().optional(),
   url: z.string().optional(),
+  publishedAt: z.string().optional(),
   claim: z.string(),
 });
 
@@ -579,7 +580,7 @@ Use only the fixed evidence packet, background, question, resolution criteria, p
 Role focus:
 ${role.focus}
 
-Return a binary forecast. Set roleId to "${role.id}", round to ${round}, and forecasterLabel to "${role.label}". Provide probability, baseRateProbability, insideViewProbability, probabilityRange, referenceClass, resolutionBoundary, evidenceFor, evidenceAgainst, strongest yes/no arguments, key uncertainties, premortem, wildcards, feedbackAddressed, calibrationWarnings, usedDisallowedEvidence, and cited sources when available.`}
+Return a binary forecast. Set roleId to "${role.id}", round to ${round}, and forecasterLabel to "${role.label}". Provide probability, baseRateProbability, insideViewProbability, probabilityRange, referenceClass, resolutionBoundary, evidenceFor, evidenceAgainst, strongest yes/no arguments, key uncertainties, premortem, wildcards, feedbackAddressed, calibrationWarnings, usedDisallowedEvidence, and cited sources when available. For cited sources, include publishedAt as an ISO date when the source date is known; omit it when unknown.`}
                   </Task>
                 ))}
               </Parallel>

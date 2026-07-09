@@ -10,6 +10,7 @@ import { codexResearchAgent } from "./agents";
 const citedSource = z.object({
   title: z.string().optional(),
   url: z.string().optional(),
+  publishedAt: z.string().optional(),
   claim: z.string(),
 });
 
@@ -136,7 +137,7 @@ ${categoryContract.categories.length
 Focus:
 ${brief.focus}
 
-Return a categorical forecast. Include topCategory and a probability distribution using percentages from 0 to 100. Probabilities should sum to 100 over the frozen category set when one is provided. Include rationale, key uncertainties, and cited sources when available. Set forecasterLabel to "${brief.label}".`}
+Return a categorical forecast. Include topCategory and a probability distribution using percentages from 0 to 100. Probabilities should sum to 100 over the frozen category set when one is provided. Include rationale, key uncertainties, and cited sources when available. For cited sources, include publishedAt as an ISO date when the source date is known; omit it when unknown. Set forecasterLabel to "${brief.label}".`}
             </Task>
           ))}
         </Parallel>
