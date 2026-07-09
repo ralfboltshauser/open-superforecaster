@@ -55,6 +55,10 @@ export function useLabDashboard() {
   usePolling(load, 8000)
 
   const diagnosticCounts = useMemo(() => summarizeDiagnostics(diagnostics), [diagnostics])
+  const forecastBatchHealth = useMemo(
+    () => (isRecord(diagnostics?.forecastBatchHealth) ? diagnostics.forecastBatchHealth : null),
+    [diagnostics],
+  )
   const resolutionSummary = isRecord(resolutions?.summary) ? resolutions.summary : {}
   const actions = readArray(maintenance, "actions").filter((value): value is string => typeof value === "string")
 
@@ -123,6 +127,7 @@ export function useLabDashboard() {
     benchmarks,
     busy,
     diagnosticCounts,
+    forecastBatchHealth,
     health,
     importBtf2,
     launchWorkflowProposalValidation,

@@ -834,7 +834,9 @@ await check("diagnostics surface latest forecast batch health", async () => {
   const health = readLatestForecastBatchHealth(fixtureRoot);
   const diagnosticsSource = await readFile(resolve(root, "packages/backend/src/diagnostics-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
-  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/use-lab-dashboard.ts"), "utf8");
+  const dashboardHookSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/use-lab-dashboard.ts"), "utf8");
+  const dashboardShellSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard.tsx"), "utf8");
+  const dashboardPanelSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
   assert(health.exists, "shared batch health reader did not find the report");
   assert(health.batchId === "diagnostics-batch", "shared batch health reader did not preserve batch id");
   assert(health.summary.unresolvedAttentionItems === 3, "shared batch health reader did not expose unresolved attention count");
@@ -851,7 +853,11 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(metricsSource.includes("open_superforecaster_forecast_batch_health_unresolved_attention_items"), "metrics do not expose unresolved attention count");
   assert(metricsSource.includes("open_superforecaster_forecast_batch_health_unresolved_candidate_guard_rules"), "metrics do not expose unresolved candidate guard count");
   assert(diagnosticsSource.includes("items,"), "diagnostics snapshot does not expose structured diagnostic items");
-  assert(dashboardSource.includes("...readArray(diagnostics, \"items\")"), "lab dashboard does not read diagnostics items");
+  assert(dashboardHookSource.includes("...readArray(diagnostics, \"items\")"), "lab dashboard does not read diagnostics items");
+  assert(dashboardHookSource.includes("forecastBatchHealth"), "lab dashboard does not expose forecast batch health from diagnostics");
+  assert(dashboardShellSource.includes("ForecastBatchHealthCard"), "lab dashboard does not mount forecast batch health");
+  assert(dashboardPanelSource.includes("unresolvedCandidateCalibrationGuardRules"), "lab dashboard does not render candidate guard review count");
+  assert(dashboardPanelSource.includes("calibrationGuardRegressionItems"), "lab dashboard does not render guard regression count");
   return "latest forecast batch health is shared by diagnostics and metrics";
 });
 

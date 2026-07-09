@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import type { LucideIcon } from "lucide-react"
-import { Activity, BarChart3, Database, FlaskConical, Play, Server, ShieldCheck, TrendingUp, Wrench } from "lucide-react"
+import { Activity, AlertTriangle, BarChart3, Database, FlaskConical, Play, Server, ShieldCheck, TrendingUp, Wrench } from "lucide-react"
 
 import type {
   BenchmarkMode,
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
-import { formatModeLabel, isRecord, readArray, runTitle, statusTone, type JsonRecord } from "@/lib/records"
+import { formatModeLabel, isRecord, readArray, readNumber, readString, runTitle, statusTone, type JsonRecord } from "@/lib/records"
 
 type DiagnosticCounts = {
   rows: Array<{ name: string; ok: boolean }>
@@ -127,6 +127,82 @@ export function DiagnosticsCard({ diagnosticCounts }: { diagnosticCounts: Diagno
       </CardContent>
     </Card>
   )
+}
+
+export function ForecastBatchHealthCard({ forecastBatchHealth }: { forecastBatchHealth: JsonRecord | null }) {
+  const summary = isRecord(forecastBatchHealth?.summary) ? forecastBatchHealth.summary : {}
+  const issues = readArray(forecastBatchHealth, "issues").filter(isRecord)
+  const missingPhases = readArray(forecastBatchHealth, "missingPhases").filter((phase): phase is string => typeof phase === "string")
+  const batchId = readString(forecastBatchHealth, "batchId") ?? "latest batch"
+  const status = readString(forecastBatchHealth, "status") ?? "missing"
+  const exists = forecastBatchHealth?.exists === true
+  const unresolvedAttention = readNumber(summary, "unresolvedAttentionItems") ?? 0
+  const openAttention = readNumber(summary, "openAttentionItems") ?? 0
+  const deferredAttention = readNumber(summary, "deferredAttentionItems") ?? 0
+  const unresolvedCandidateRules = readNumber(summary, "unresolvedCandidateCalibrationGuardRules") ?? 0
+  const scoreRegressions = readNumber(summary, "scoreRegressionItems") ?? 0
+  const guardRegressions = readNumber(summary, "calibrationGuardRegressionItems") ?? 0
+  return (
+    <Card id="forecast-batch-health">
+      <CardHeader>
+        <CardTitle>Forecast batch health</CardTitle>
+        <CardDescription>{exists ? batchId : "No local batch health report found"}</CardDescription>
+        <CardAction>
+          <AlertTriangle className={status === "healthy" ? "text-muted-foreground" : "text-destructive"} />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={status === "healthy" ? "outline" : "destructive"}>{status}</Badge>
+          <Badge variant="secondary">{unresolvedAttention} unresolved attention</Badge>
+          <Badge variant="secondary">{unresolvedCandidateRules} candidate guards</Badge>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <BatchHealthMetric label="open" value={formatCount(openAttention)} />
+          <BatchHealthMetric label="deferred" value={formatCount(deferredAttention)} />
+          <BatchHealthMetric label="score regressions" value={formatCount(scoreRegressions)} />
+          <BatchHealthMetric label="guard regressions" value={formatCount(guardRegressions)} />
+        </div>
+        {missingPhases.length ? (
+          <div className="flex flex-wrap gap-1">
+            {missingPhases.map((phase) => (
+              <Badge variant="secondary" className="max-w-full truncate" key={phase}>
+                missing {phase}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
+        {issues.length ? (
+          <div className="flex flex-col gap-2">
+            {issues.slice(0, 3).map((issue) => (
+              <div className="rounded-md border px-3 py-2 text-xs" key={`${String(issue.kind)}:${String(issue.message)}`}>
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="truncate font-medium">{String(issue.kind ?? "issue")}</span>
+                  <Badge variant={issue.severity === "high" ? "destructive" : "secondary"}>{String(issue.severity ?? "unknown")}</Badge>
+                </div>
+                <p className="mt-1 line-clamp-2 text-muted-foreground">{String(issue.message ?? "")}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No batch health issues reported.</p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function BatchHealthMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border px-3 py-2">
+      <span className="block text-xs text-muted-foreground">{label}</span>
+      <span className="mt-1 block truncate font-medium">{value}</span>
+    </div>
+  )
+}
+
+function formatCount(value: number) {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value)
 }
 
 export function BenchmarksCard({

@@ -4,6 +4,7 @@ import { ForecastComposer } from "@/components/forecast-composer"
 import {
   BenchmarksCard,
   DiagnosticsCard,
+  ForecastBatchHealthCard,
   LabMetricGrid,
   MaintenanceCard,
   PerformanceCard,
@@ -18,6 +19,7 @@ export function LabDashboard() {
     benchmarks,
     busy,
     diagnosticCounts,
+    forecastBatchHealth,
     health,
     importBtf2,
     launchWorkflowProposalValidation,
@@ -58,6 +60,7 @@ export function LabDashboard() {
 
         <div className="grid gap-6">
           <DiagnosticsCard diagnosticCounts={diagnosticCounts} />
+          <ForecastBatchHealthCard forecastBatchHealth={forecastBatchHealth} />
           <BenchmarksCard
             benchmarks={benchmarks}
             busy={busy}
