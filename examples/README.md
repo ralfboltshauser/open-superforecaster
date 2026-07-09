@@ -22,6 +22,7 @@ the trace/review blockers are clear.
 When several baseline runs are available, the comparison recommendation selects
 the primary baseline by strongest held-out overlap, then paired overlap, then
 baseline promotion state, so promotion does not depend on incidental run order.
+Local DuckDB exports the same selection as `primary_baseline_benchmark_run_id`.
 Fixed-evidence benchmark aggregates also persist baseline-sanity fields: the
 provided baseline probability, final delta, base-rate anchor, inside-view
 movement, skeptical adjustment, and aggregation rule. Those fields make
