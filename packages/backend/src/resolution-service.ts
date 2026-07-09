@@ -13,6 +13,7 @@ import { scoreBinaryForecast } from "@open-superforecaster/evals";
 import { readAggregateQualitySnapshot, type AggregateQualitySnapshot } from "./aggregate-quality-metadata";
 import { readAggregateStatsSnapshot, type AggregateStatsSnapshot } from "./aggregate-stats-metadata";
 import { readBaselineSanitySnapshot, type BaselineSanitySnapshot } from "./baseline-sanity-metadata";
+import { buildBinaryConfidenceSnapshot, readBinaryConfidenceSnapshot, type BinaryConfidenceSnapshot } from "./binary-confidence-metadata";
 import { buildCalibrationGuardImpact, type CalibrationGuardImpact, type CalibrationGuardRuleImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot, type CalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { readCategoricalForecastSnapshot, type CategoricalForecastSnapshot } from "./categorical-forecast-metadata";
@@ -79,6 +80,7 @@ type PerformanceCase = {
   resolvedValue: Record<string, unknown> | null;
   probability: number | null;
   resolved: boolean | null;
+  binaryConfidence: BinaryConfidenceSnapshot | null;
   calibrationGuard: CalibrationGuardSnapshot | null;
   baselineSanity: BaselineSanitySnapshot | null;
   marketAnchor: MarketAnchorSnapshot | null;
@@ -121,6 +123,7 @@ type PerformanceAttentionItem = {
     | "calibration_mismatch"
     | "calibration_guard_regression"
     | "baseline_sanity_miss"
+    | "binary_confidence_miss"
     | "market_anchor_miss"
     | "resolution_boundary_miss"
     | "uncertainty_range_miss"
@@ -390,6 +393,8 @@ export async function getForecastPerformanceReport(db: Db) {
     return `${forecastType}:${target}`;
   });
   const byCalibrationGuard = groupScores(aggregateScores, calibrationGuardGroupKey);
+  const byBinaryConfidence = groupScores(aggregateScores, binaryConfidenceGroupKey);
+  const byBinaryForecastSide = groupScores(aggregateScores, binaryForecastSideGroupKey);
   const byBaselineSanity = groupScores(aggregateScores, baselineSanityGroupKey);
   const byMarketAnchor = groupScores(aggregateScores, marketAnchorGroupKey);
   const byResolutionBoundary = groupScores(aggregateScores, resolutionBoundaryGroupKey);
@@ -467,6 +472,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byForecaster,
       byForecastTypeAndTarget,
       byCalibrationGuard,
+      byBinaryConfidence,
+      byBinaryForecastSide,
       byBaselineSanity,
       byMarketAnchor,
       byResolutionBoundary,
@@ -534,6 +541,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byTarget,
       byForecaster,
       byCalibrationGuard,
+      byBinaryConfidence,
+      byBinaryForecastSide,
       byBaselineSanity,
       byMarketAnchor,
       byResolutionBoundary,
@@ -748,12 +757,14 @@ function scoreForecastPrediction(input: {
     const componentWeighting = readComponentWeightingSnapshot(input.prediction);
     const aggregateQuality = readAggregateQualitySnapshot(input.prediction);
     const aggregateStats = readAggregateStatsSnapshot(input.prediction);
+    const binaryConfidence = buildBinaryConfidenceSnapshot(probability);
     return Object.entries(scoreBinaryForecast({ probability, resolved })).map(([scoreType, scoreValue]) => ({
       scoreType,
       scoreValue,
       scoreConfig: {
         probability,
         resolved,
+        ...(binaryConfidence ? { binaryConfidence } : {}),
         ...(calibrationGuard ? { calibrationGuard } : {}),
         ...(baselineSanity ? { baselineSanity } : {}),
         ...(marketAnchor ? { marketAnchor } : {}),
@@ -1231,6 +1242,22 @@ function calibrationGuardGroupKey(score: typeof forecastScores.$inferSelect) {
   return `guard:${guard.appliedRules.map((rule) => rule.id).sort().join("+")}`;
 }
 
+function binaryConfidenceGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "binary") {
+    return "binary_confidence:not_binary";
+  }
+  const confidence = readBinaryConfidenceSnapshot(score.scoreConfig);
+  return `binary_confidence:${confidence?.confidenceBand ?? "unrecorded"}`;
+}
+
+function binaryForecastSideGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "binary") {
+    return "binary_side:not_binary";
+  }
+  const confidence = readBinaryConfidenceSnapshot(score.scoreConfig);
+  return `binary_side:${confidence?.forecastSide ?? "unrecorded"}`;
+}
+
 function baselineSanityGroupKey(score: typeof forecastScores.$inferSelect) {
   const baselineSanity = readBaselineSanitySnapshot(score.scoreConfig);
   return baselineSanity ? `baseline:${baselineSanity.status}` : "baseline:unrecorded";
@@ -1537,6 +1564,7 @@ function rankAggregateCases(
         resolvedValue: asRecord(resolution?.resolvedValue ?? null),
         probability: readProbability(latest.scoreConfig),
         resolved: readResolved(latest.scoreConfig),
+        binaryConfidence: readBinaryConfidenceSnapshot(latest.scoreConfig),
         calibrationGuard: readCalibrationGuardSnapshot(latest.scoreConfig),
         baselineSanity: readBaselineSanitySnapshot(latest.scoreConfig),
         marketAnchor: readMarketAnchorSnapshot(latest.scoreConfig),
@@ -1880,6 +1908,36 @@ function buildNeedsAttentionQueue(
       rank: 60 + index,
     }));
 
+  const binaryConfidenceCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const signal = binaryConfidenceMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
+      return [];
+    }
+    return [{ item, signal }];
+  });
+  const binaryConfidenceItems = binaryConfidenceCandidates
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `binary-confidence:${item.taskId}:${item.primaryMetric}`,
+      kind: "binary_confidence_miss" as const,
+      severity: signal.severity,
+      reason: signal.reason,
+      recommendedActions: recommendAttentionActions({
+        kind: "binary_confidence_miss",
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 59 + index,
+    }));
+
   const componentDisagreementCandidates = worstCases.flatMap((item) => {
     const threshold = poorScoreThreshold(item.primaryMetric);
     const signal = componentDisagreementMissSignal(item);
@@ -2001,6 +2059,7 @@ function buildNeedsAttentionQueue(
     ...uncertaintyRangeItems,
     ...componentWeightingItems,
     ...aggregateQualityItems,
+    ...binaryConfidenceItems,
     ...componentDisagreementItems,
     ...evidenceCoverageItems,
     ...inputContextItems,
@@ -2204,6 +2263,21 @@ function evidenceCoverageMissSignal(item: PerformanceCase): { reason: string; de
   return null;
 }
 
+function binaryConfidenceMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const confidence = item.binaryConfidence;
+  if (item.forecastType !== "binary" || !confidence) {
+    return null;
+  }
+  if (confidence.confidenceBand === "extreme" || confidence.confidenceBand === "very_likely") {
+    return {
+      reason: `${confidence.confidenceBand.replace(/_/g, " ")} binary forecast on the ${confidence.forecastSide} side (${confidence.probability ?? "unknown"}%)`,
+      delta: confidence.distanceFromEven,
+      severity: confidence.confidenceBand === "extreme" ? "high" : "medium",
+    };
+  }
+  return null;
+}
+
 function inputContextMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
   const context = item.inputContext;
   if (!context) {
@@ -2280,6 +2354,9 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "aggregate_quality_miss") {
     actions.add("Review the final quality issues and review rationale before changing prompts or defaults.");
     actions.add("Compare max-iteration cases against approved cases to decide whether the review loop needs another round or sharper rejection criteria.");
+  } else if (input.kind === "binary_confidence_miss") {
+    actions.add("Check whether the evidence justified the final probability distance from 50%.");
+    actions.add("Compare the final side against base-rate, inside-view, and skeptical component probabilities.");
   } else if (input.kind === "component_disagreement_miss") {
     actions.add("Inspect component forecasts before changing aggregation defaults; identify whether one role captured the resolved signal or all roles missed different parts.");
     actions.add("Compare mean, median, aggregation anchor, and final rationale to see whether disagreement was explained or over-smoothed.");
@@ -2391,6 +2468,8 @@ function renderPerformanceMarkdown(input: {
   byTarget: PerformanceGroup[];
   byForecaster: PerformanceGroup[];
   byCalibrationGuard: PerformanceGroup[];
+  byBinaryConfidence: PerformanceGroup[];
+  byBinaryForecastSide: PerformanceGroup[];
   byBaselineSanity: PerformanceGroup[];
   byMarketAnchor: PerformanceGroup[];
   byResolutionBoundary: PerformanceGroup[];
@@ -2457,6 +2536,12 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Calibration guard groups",
     ...renderGroupTable(input.byCalibrationGuard),
+    "",
+    "## Binary confidence groups",
+    ...renderGroupTable(input.byBinaryConfidence),
+    "",
+    "## Binary side groups",
+    ...renderGroupTable(input.byBinaryForecastSide),
     "",
     "## Baseline sanity groups",
     ...renderGroupTable(input.byBaselineSanity),

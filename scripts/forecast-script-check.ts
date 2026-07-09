@@ -9,6 +9,7 @@ import {
 import { readAggregateQualitySnapshot } from "../packages/backend/src/aggregate-quality-metadata";
 import { readAggregateStatsSnapshot } from "../packages/backend/src/aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "../packages/backend/src/baseline-sanity-metadata";
+import { buildBinaryConfidenceSnapshot, readBinaryConfidenceSnapshot } from "../packages/backend/src/binary-confidence-metadata";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { readCategoricalForecastSnapshot } from "../packages/backend/src/categorical-forecast-metadata";
@@ -970,6 +971,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("runMetadata: readForecastRunSnapshot(latest.scoreConfig)"), "performance cases do not retain run metadata snapshots");
   assert(resolutionSource.includes("## Calibration guard impact"), "performance Markdown missing calibration guard impact section");
   assert(resolutionSource.includes("renderCalibrationGuardRuleImpactTable"), "performance Markdown missing rule-level calibration guard impact table");
+  assert(resolutionSource.includes("## Binary confidence groups"), "performance Markdown missing binary confidence group section");
+  assert(resolutionSource.includes("## Binary side groups"), "performance Markdown missing binary side group section");
   assert(resolutionSource.includes("## Baseline sanity groups"), "performance Markdown missing baseline sanity group section");
   assert(resolutionSource.includes("## Aggregate quality groups"), "performance Markdown missing aggregate quality group section");
   assert(resolutionSource.includes("## Component disagreement groups"), "performance Markdown missing component disagreement group section");
@@ -1044,6 +1047,10 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Categorical entropy outcomes"), "lab dashboard does not render categorical entropy performance groups");
   assert(dashboardSource.includes("byCategoricalSource"), "lab dashboard does not read categorical source performance groups");
   assert(dashboardSource.includes("Categorical source outcomes"), "lab dashboard does not render categorical source performance groups");
+  assert(dashboardSource.includes("byBinaryConfidence"), "lab dashboard does not read binary confidence performance groups");
+  assert(dashboardSource.includes("Binary confidence outcomes"), "lab dashboard does not render binary confidence performance groups");
+  assert(dashboardSource.includes("byBinaryForecastSide"), "lab dashboard does not read binary side performance groups");
+  assert(dashboardSource.includes("Binary side outcomes"), "lab dashboard does not render binary side performance groups");
   assert(dashboardSource.includes("byEvidenceSourceCount"), "lab dashboard does not read evidence source performance groups");
   assert(dashboardSource.includes("Evidence source outcomes"), "lab dashboard does not render evidence source performance groups");
   assert(dashboardSource.includes("byEvidenceSourceDiversity"), "lab dashboard does not read evidence source diversity performance groups");
@@ -1114,6 +1121,37 @@ await check("calibration guard impact summary compares guarded and unguarded Bri
   assert(impact.byRule[1].status === "improved", "improved rule impact status mismatch");
   assert(impact.byRule[1].brierDelta === -0.3, "improved rule impact Brier delta mismatch");
   return "calibration guard impact summary is shared and deterministic";
+});
+
+await check("binary confidence metadata reaches resolved score analytics", async () => {
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  const snapshot = buildBinaryConfidenceSnapshot(92);
+  assert(snapshot?.forecastSide === "yes", "binary confidence side mismatch");
+  assert(snapshot?.distanceFromEven === 42, "binary confidence distance mismatch");
+  assert(snapshot?.confidenceBand === "very_likely", "binary confidence band mismatch");
+  const normalized = readBinaryConfidenceSnapshot({ binaryConfidence: { probability: 0.04 } });
+  assert(normalized?.probability === 4, "binary confidence did not normalize fractional probability");
+  assert(normalized?.forecastSide === "no", "binary confidence normalized side mismatch");
+  assert(normalized?.confidenceBand === "extreme", "binary confidence normalized band mismatch");
+  const historical = readBinaryConfidenceSnapshot({ probability: 72, binaryConfidence: { confidenceBand: "likely" } });
+  assert(historical?.forecastSide === "yes", "binary confidence did not fall back to top-level probability");
+  assert(resolutionSource.includes("buildBinaryConfidenceSnapshot(probability)"), "resolution scoring does not build binary confidence metadata");
+  assert(resolutionSource.includes("binaryConfidence: readBinaryConfidenceSnapshot(latest.scoreConfig)"), "performance cases do not retain binary confidence snapshots");
+  assert(resolutionSource.includes("byBinaryConfidence"), "performance report does not group by binary confidence");
+  assert(resolutionSource.includes("byBinaryForecastSide"), "performance report does not group by binary side");
+  assert(resolutionSource.includes("binary_confidence_miss"), "performance report does not turn high-confidence misses into attention");
+  assert(metricsSource.includes("open_superforecaster_binary_confidence_scores_total"), "metrics missing binary confidence score counts");
+  assert(metricsSource.includes("confidence_band"), "metrics missing binary confidence labels");
+  assert(metricsSource.includes("forecast_side"), "metrics missing binary forecast-side labels");
+  assert(syncSource.includes("binary_confidence_band"), "DuckDB forecast score mart missing binary confidence band");
+  assert(syncSource.includes("binary_forecast_side"), "DuckDB forecast score mart missing binary forecast side");
+  assert(syncSource.includes("binary_distance_from_even"), "DuckDB forecast score mart missing binary distance from even");
+  assert(dashboardSource.includes("Binary confidence outcomes"), "lab dashboard does not render binary confidence outcomes");
+  assert(dashboardSource.includes("Binary side outcomes"), "lab dashboard does not render binary side outcomes");
+  return "binary confidence metadata is persisted and visible in resolved score analytics";
 });
 
 await check("forecast calibration health is exported as metrics", async () => {

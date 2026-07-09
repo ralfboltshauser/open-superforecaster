@@ -18,6 +18,7 @@ import { summarizeBenchmarkPromotionGateEvidence } from "./benchmark-service";
 import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
 import { readAggregateStatsSnapshot } from "./aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "./baseline-sanity-metadata";
+import { readBinaryConfidenceSnapshot } from "./binary-confidence-metadata";
 import { buildCalibrationGuardImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { readCategoricalForecastSnapshot } from "./categorical-forecast-metadata";
@@ -694,6 +695,53 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge(
       "open_superforecaster_aggregate_quality_score_mean",
       "Mean product aggregate forecast score by aggregate quality status.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
+    );
+  }
+  const binaryConfidenceScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readString(asRecord(row.scoreConfig), "forecastType") === "binary" &&
+    readBinaryConfidenceSnapshot(row.scoreConfig) !== null
+  );
+  if (binaryConfidenceScoreRows.length === 0) {
+    const labels = {
+      score_type: "all",
+      confidence_band: "none",
+      forecast_side: "unknown",
+    };
+    metrics.gauge(
+      "open_superforecaster_binary_confidence_scores_total",
+      "Product binary aggregate forecast score rows by final probability confidence band.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_binary_confidence_score_mean",
+      "Mean product binary aggregate forecast score by final probability confidence band.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(binaryConfidenceScoreRows, (row) => {
+    const confidence = readBinaryConfidenceSnapshot(row.scoreConfig);
+    return labelKey({
+      score_type: row.scoreType,
+      confidence_band: confidence?.confidenceBand ?? "unknown",
+      forecast_side: confidence?.forecastSide ?? "unknown",
+    });
+  })) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_binary_confidence_scores_total",
+      "Product binary aggregate forecast score rows by final probability confidence band.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_binary_confidence_score_mean",
+      "Mean product binary aggregate forecast score by final probability confidence band.",
       mean(rows.map((row) => row.scoreValue)),
       labels,
     );

@@ -616,6 +616,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const groups = isRecord(performance?.groups) ? performance.groups : {}
   const byForecastType = readArray(groups, "byForecastType").filter(isRecord)
   const byCalibrationGuard = readArray(groups, "byCalibrationGuard").filter(isRecord)
+  const byBinaryConfidence = readArray(groups, "byBinaryConfidence").filter(isRecord)
+  const byBinaryForecastSide = readArray(groups, "byBinaryForecastSide").filter(isRecord)
   const byBaselineSanity = readArray(groups, "byBaselineSanity").filter(isRecord)
   const byMarketAnchor = readArray(groups, "byMarketAnchor").filter(isRecord)
   const byResolutionBoundary = readArray(groups, "byResolutionBoundary").filter(isRecord)
@@ -702,6 +704,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {scoreTrends.length ? <PerformanceTrendList trends={scoreTrends} /> : null}
         {calibrationGuardImpact ? <PerformanceGuardImpact impact={calibrationGuardImpact} /> : null}
         {byCalibrationGuard.length ? <PerformanceGuardGroupList groups={byCalibrationGuard} /> : null}
+        {byBinaryConfidence.length ? <PerformancePlanShapeGroupList groups={byBinaryConfidence} title="Binary confidence outcomes" skipKey="binary_confidence:not_binary" fallback="binary confidence" /> : null}
+        {byBinaryForecastSide.length ? <PerformancePlanShapeGroupList groups={byBinaryForecastSide} title="Binary side outcomes" skipKey="binary_side:not_binary" fallback="binary side" /> : null}
         {byBaselineSanity.length ? <PerformanceBaselineSanityGroupList groups={byBaselineSanity} /> : null}
         {byMarketAnchor.length ? <PerformancePlanShapeGroupList groups={byMarketAnchor} title="Market-anchor outcomes" skipKey="market_anchor:unrecorded" fallback="market anchor" /> : null}
         {byResolutionBoundary.length ? <PerformancePlanShapeGroupList groups={byResolutionBoundary} title="Resolution-boundary outcomes" skipKey="resolution_boundary:unrecorded" fallback="resolution boundary" /> : null}
