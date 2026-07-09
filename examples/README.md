@@ -230,6 +230,18 @@ The health report is generated from batch indexes, so it should be run after
 steps, unresolved attention items, open candidate calibration guard reviews, and
 score-regression attention signals.
 
+To turn reviewed, ready candidate calibration guard rules into implementation
+proposal drafts:
+
+```bash
+bun run forecast:calibration-proposals
+bun run forecast:calibration-proposals -- --batch-id july-smoke
+```
+
+This reads the latest `batch-index.json`, skips deferred rules and rules that
+still need more resolved forecasts, then writes JSON and Markdown proposal
+drafts under `data/reports/forecast-calibration-guard-proposals`.
+
 Run the script contract checks before changing these tools:
 
 ```bash

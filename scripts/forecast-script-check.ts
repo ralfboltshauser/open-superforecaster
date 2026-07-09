@@ -233,6 +233,78 @@ await check("forecast review helper upserts local attention reviews", async () =
   return "forecast review helper safely upserts local review records";
 });
 
+await check("forecast calibration guard proposals require reviewed ready candidates", async () => {
+  const batchIndexRoot = resolve(tempRoot, "calibration-guard-proposals", "batches", "contract-batch");
+  const outputDir = resolve(tempRoot, "calibration-guard-proposals", "out");
+  await mkdir(batchIndexRoot, { recursive: true });
+  await writeJson(resolve(batchIndexRoot, "batch-index.json"), {
+    reportType: "forecast_batch_index",
+    batchId: "contract-batch",
+    generatedAt: "2026-07-09T00:06:00.000Z",
+    candidateCalibrationGuardRules: [
+      {
+        id: "candidate-guard:80-100%",
+        reviewStatus: "reviewed",
+        reviewNote: "Evidence is stable enough to draft a guard.",
+        reviewer: "contract-check",
+        reviewedAt: "2026-07-09T00:05:00.000Z",
+        bucketLabel: "80-100%",
+        direction: "overforecast",
+        suggestedAdjustment: -15,
+        sampleSize: 5,
+        meanForecast: 90,
+        observedRate: 0,
+        calibrationError: 90,
+        activationStatus: "ready_for_review",
+        rationale: "80-100% binary aggregates are overforecasting.",
+      },
+      {
+        id: "candidate-guard:60-80%",
+        reviewStatus: "open",
+        bucketLabel: "60-80%",
+        direction: "underforecast",
+        suggestedAdjustment: 8,
+        sampleSize: 2,
+        meanForecast: 65,
+        observedRate: 80,
+        calibrationError: 15,
+        activationStatus: "needs_more_resolved_forecasts",
+        rationale: "Too few resolved forecasts.",
+      },
+      {
+        id: "candidate-guard:20-40%",
+        reviewStatus: "deferred",
+        bucketLabel: "20-40%",
+        direction: "underforecast",
+        suggestedAdjustment: 5,
+        sampleSize: 5,
+        meanForecast: 30,
+        observedRate: 45,
+        calibrationError: 15,
+        activationStatus: "ready_for_review",
+        rationale: "Deferred by reviewer.",
+      },
+    ],
+  });
+  await runScript("scripts/forecast-calibration-guard-proposals.ts", [
+    "--batch-index-dir",
+    resolve(tempRoot, "calibration-guard-proposals", "batches"),
+    "--out-dir",
+    outputDir,
+  ]);
+  const report = readRecord(await readJson(resolve(outputDir, "calibration-guard-proposals.json")));
+  const summary = readRecord(report, "summary");
+  const proposals = readArray(report, "proposalDrafts");
+  assert(report, "proposal report missing");
+  assert(summary, "proposal summary missing");
+  assert(readNumber(summary, "candidateCalibrationGuardRules") === 3, "candidate guard input count mismatch");
+  assert(readNumber(summary, "eligibleCandidateCalibrationGuardRules") === 1, "eligible candidate count mismatch");
+  assert(readNumber(summary, "proposalDrafts") === 1, "proposal draft count mismatch");
+  assert(readString(proposals[0], "sourceCandidateGuardId") === "candidate-guard:80-100%", "wrong candidate guard became a proposal");
+  assert(readString(proposals[0], "targetWorkflowId") === "binary-calibration-guard", "proposal target workflow mismatch");
+  return "reviewed ready calibration guard candidates become proposal drafts";
+});
+
 await check("forecast attention backlog filters batch review status", async () => {
   const batchIndexRoot = resolve(tempRoot, "attention-backlog", "batches");
   const outputDir = resolve(tempRoot, "attention-backlog", "out");

@@ -31,6 +31,7 @@
     "forecast:attention": "bun scripts/forecast-attention-backlog.ts",
     "forecast:health": "bun scripts/forecast-batch-health.ts",
     "forecast:review": "bun scripts/forecast-review.ts",
+    "forecast:calibration-proposals": "bun scripts/forecast-calibration-guard-proposals.ts",
     "forecast:scripts:check": "bun scripts/forecast-script-check.ts",
     "onboarding:check": "bun scripts/onboarding-check.ts",
     "object-storage:smoke": "bun scripts/object-storage-smoke.ts",
