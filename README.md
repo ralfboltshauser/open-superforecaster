@@ -322,9 +322,10 @@ component branch disagreement, and effect-direction agreement so performance
 reports can separate condition-probability errors from outcome-under-condition
 errors and high-disagreement conditional aggregates.
 Thresholded score rows preserve threshold direction, source, count,
-monotonicity repair status, curve spread, component curve disagreement, and
-attempt count so repaired, extracted, or internally split threshold curves can
-be reviewed separately from clean caller-provided curves. Numeric and date score rows preserve quantile interval width, unit,
+monotonicity repair status, curve spread and spread band, component curve
+disagreement, and attempt count so flat, steep, repaired, extracted, or
+internally split threshold curves can be reviewed separately from clean
+caller-provided curves. Numeric and date score rows preserve quantile interval width, unit,
 attempt count, numeric component-value disagreement, date never-probability
 bands, and component median-date disagreement so wide, split-component,
 split-timing, or unit-specific forecasts can be compared against resolved

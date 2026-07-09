@@ -412,6 +412,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byThresholdedDirection = groupScores(aggregateScores, thresholdedDirectionGroupKey);
   const byThresholdedSource = groupScores(aggregateScores, thresholdedSourceGroupKey);
   const byThresholdedRepair = groupScores(aggregateScores, thresholdedRepairGroupKey);
+  const byThresholdedCurveSpread = groupScores(aggregateScores, thresholdedCurveSpreadGroupKey);
   const byThresholdedComponentDisagreement = groupScores(aggregateScores, thresholdedComponentDisagreementGroupKey);
   const byNumericInterval = groupScores(aggregateScores, numericIntervalGroupKey);
   const byNumericUnit = groupScores(aggregateScores, numericUnitGroupKey);
@@ -491,6 +492,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byThresholdedDirection,
       byThresholdedSource,
       byThresholdedRepair,
+      byThresholdedCurveSpread,
       byThresholdedComponentDisagreement,
       byNumericInterval,
       byNumericUnit,
@@ -560,6 +562,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byThresholdedDirection,
       byThresholdedSource,
       byThresholdedRepair,
+      byThresholdedCurveSpread,
       byThresholdedComponentDisagreement,
       byNumericInterval,
       byNumericUnit,
@@ -1370,6 +1373,14 @@ function thresholdedRepairGroupKey(score: typeof forecastScores.$inferSelect) {
   return thresholdedForecast?.monotonicityRepaired === null || thresholdedForecast?.monotonicityRepaired === undefined
     ? "thresholded_repair:unrecorded"
     : `thresholded_repair:${thresholdedForecast.monotonicityRepaired ? "repaired" : "clean"}`;
+}
+
+function thresholdedCurveSpreadGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "thresholded") {
+    return "thresholded_curve_spread:not_thresholded";
+  }
+  const thresholdedForecast = readThresholdedForecastSnapshot(score.scoreConfig);
+  return `thresholded_curve_spread:${thresholdedForecast?.probabilitySpreadBand ?? "unrecorded"}`;
 }
 
 function thresholdedComponentDisagreementGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2487,6 +2498,7 @@ function renderPerformanceMarkdown(input: {
   byThresholdedDirection: PerformanceGroup[];
   byThresholdedSource: PerformanceGroup[];
   byThresholdedRepair: PerformanceGroup[];
+  byThresholdedCurveSpread: PerformanceGroup[];
   byThresholdedComponentDisagreement: PerformanceGroup[];
   byNumericInterval: PerformanceGroup[];
   byNumericUnit: PerformanceGroup[];
@@ -2593,6 +2605,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Thresholded monotonicity groups",
     ...renderGroupTable(input.byThresholdedRepair),
+    "",
+    "## Thresholded curve-spread groups",
+    ...renderGroupTable(input.byThresholdedCurveSpread),
     "",
     "## Thresholded component-disagreement groups",
     ...renderGroupTable(input.byThresholdedComponentDisagreement),

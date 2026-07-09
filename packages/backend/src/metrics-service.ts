@@ -902,6 +902,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       threshold_direction: "none",
       threshold_source: "unknown",
       monotonicity_repaired: "unknown",
+      probability_spread_band: "unknown",
       component_disagreement_band: "unknown",
     };
     metrics.gauge(
@@ -924,6 +925,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       threshold_direction: thresholdedForecast?.thresholdDirection ?? "unknown",
       threshold_source: thresholdedForecast?.thresholdSource ?? "unknown",
       monotonicity_repaired: String(thresholdedForecast?.monotonicityRepaired ?? "unknown"),
+      probability_spread_band: thresholdedForecast?.probabilitySpreadBand ?? "unknown",
       component_disagreement_band: thresholdedForecast?.componentDisagreementBand ?? "unknown",
     });
   })) {

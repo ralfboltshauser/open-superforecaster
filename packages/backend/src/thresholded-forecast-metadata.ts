@@ -4,6 +4,7 @@ export type ThresholdedForecastSnapshot = {
   thresholdCount: number;
   monotonicityRepaired: boolean | null;
   probabilitySpread: number | null;
+  probabilitySpreadBand: "flat" | "moderate" | "steep" | "extreme" | "unknown";
   attemptCount: number | null;
   componentCurveCount: number | null;
   componentProbabilityDisagreement: number | null;
@@ -27,6 +28,7 @@ export function readThresholdedForecastSnapshot(value: unknown): ThresholdedFore
   const attemptCount = readNumber(thresholded, "attemptCount", "attempt_count");
   const thresholdCount = thresholds.length || probabilities.length;
   const componentStats = readComponentCurveStats(thresholded, thresholds);
+  const spread = probabilitySpread(probabilityValues);
   if (
     thresholdDirection === "unknown" &&
     thresholdSource === "unknown" &&
@@ -42,7 +44,8 @@ export function readThresholdedForecastSnapshot(value: unknown): ThresholdedFore
     thresholdSource,
     thresholdCount,
     monotonicityRepaired,
-    probabilitySpread: probabilitySpread(probabilityValues),
+    probabilitySpread: spread,
+    probabilitySpreadBand: probabilitySpreadBand(spread),
     attemptCount,
     ...componentStats,
   };
@@ -63,6 +66,22 @@ function probabilitySpread(values: number[]) {
     return null;
   }
   return Math.round((Math.max(...values) - Math.min(...values)) * 10) / 10;
+}
+
+export function probabilitySpreadBand(spread: number | null): ThresholdedForecastSnapshot["probabilitySpreadBand"] {
+  if (spread === null || !Number.isFinite(spread)) {
+    return "unknown";
+  }
+  if (spread >= 70) {
+    return "extreme";
+  }
+  if (spread >= 35) {
+    return "steep";
+  }
+  if (spread >= 10) {
+    return "moderate";
+  }
+  return "flat";
 }
 
 function readComponentCurveStats(
