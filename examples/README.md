@@ -40,6 +40,8 @@ review outcomes with blockers still present.
 The metrics endpoint exports promotion-gate status and blocker series for
 recent benchmark runs, so blocked promotion reasons can be monitored outside the
 lab dashboard.
+`scripts/sync-duckdb.ts` also exports those gate statuses, blocker strings, and
+analysis-finding counts into `osf_benchmark_runs` for local analytics.
 
 ## Forecast And Research Prompts
 

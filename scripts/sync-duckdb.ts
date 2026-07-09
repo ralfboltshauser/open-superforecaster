@@ -71,6 +71,7 @@ try {
       br.status::text as status,
       br.case_count,
       br.comparison_report_artifact_id::text as comparison_report_artifact_id,
+      br.analysis_report_artifact_id::text as analysis_report_artifact_id,
       br.promotion_decision_id::text as promotion_decision_id,
       wpd.state::text as promotion_decision_state,
       wpd.decision_note as promotion_decision_note,
@@ -78,6 +79,15 @@ try {
       wpd.decided_at::text as promotion_decided_at,
       cr.row_json #>> '{recommendation,status}' as recommendation_status,
       cr.row_json #>> '{recommendation,summary}' as recommendation_summary,
+      gate.result_count,
+      gate.trace_missing_count,
+      gate.review_or_failed_count,
+      gate.missing_baseline_sanity_cases,
+      gate.unexplained_component_disagreement_cases,
+      gate.large_probability_miss_cases,
+      gate.worse_than_baseline_cases,
+      gate.promotion_gate_status,
+      gate.promotion_gate_blockers,
       cr.row_json #>> '{baselines,0,baselineBenchmarkRunId}' as baseline_benchmark_run_id,
       nullif(cr.row_json #>> '{baselines,0,pairedCaseCount}', '')::integer as paired_case_count,
       nullif(cr.row_json #>> '{baselines,0,pairedMeanBrierDelta}', '')::double precision as paired_mean_brier_delta,
@@ -92,6 +102,53 @@ try {
     left join workflow_variants wv on wv.id = br.workflow_variant_id
     left join workflow_promotion_decisions wpd on wpd.id = br.promotion_decision_id
     left join artifact_rows cr on cr.artifact_id = br.comparison_report_artifact_id and cr.row_index = 0
+    left join artifact_rows ar on ar.artifact_id = br.analysis_report_artifact_id and ar.row_index = 0
+    left join lateral (
+      with counts as (
+        select
+          count(*)::integer as result_count,
+          count(*) filter (where bcr.trace_bundle_uri is null)::integer as trace_missing_count,
+          count(*) filter (where bcr.status::text in ('failed', 'needs_review'))::integer as review_or_failed_count
+        from benchmark_case_results bcr
+        where bcr.benchmark_run_id = br.id
+      ),
+      findings as (
+        select
+          coalesce(nullif(ar.row_json #>> '{baselineSanityFindings,missingBaselineSanityCases}', '')::integer, 0) as missing_baseline_sanity_cases,
+          coalesce(nullif(ar.row_json #>> '{componentDisagreementFindings,unexplainedHighDisagreementCases}', '')::integer, 0) as unexplained_component_disagreement_cases,
+          coalesce(nullif(ar.row_json #>> '{forecastErrorFindings,largeProbabilityMissCases}', '')::integer, 0) as large_probability_miss_cases,
+          coalesce(nullif(ar.row_json #>> '{forecastErrorFindings,worseThanBaselineCases}', '')::integer, 0) as worse_than_baseline_cases
+      ),
+      blockers as (
+        select
+          counts.*,
+          findings.*,
+          array_remove(array[
+            case when br.status::text in ('running', 'queued') then 'benchmark_still_running' end,
+            case when counts.result_count < 10 then 'too_few_cases_for_promotion' end,
+            case when counts.trace_missing_count > 0 then 'missing_trace_bundles' end,
+            case when counts.review_or_failed_count > 0 then 'failed_or_review_cases_present' end,
+            case when cr.row_json #>> '{recommendation,status}' is null then 'missing_comparison_report' end,
+            case when cr.row_json #>> '{recommendation,status}' is not null and cr.row_json #>> '{recommendation,status}' <> 'candidate_better' then 'comparison_' || (cr.row_json #>> '{recommendation,status}') end,
+            case when findings.missing_baseline_sanity_cases > 0 then 'missing_baseline_sanity' end,
+            case when findings.unexplained_component_disagreement_cases > 0 then 'unexplained_component_disagreement' end,
+            case when findings.large_probability_miss_cases > 0 then 'large_probability_misses' end,
+            case when findings.worse_than_baseline_cases > 0 then 'worse_than_baseline_cases' end
+          ]::text[], null) as blocker_values
+        from counts, findings
+      )
+      select
+        result_count,
+        trace_missing_count,
+        review_or_failed_count,
+        missing_baseline_sanity_cases,
+        unexplained_component_disagreement_cases,
+        large_probability_miss_cases,
+        worse_than_baseline_cases,
+        case when cardinality(blocker_values) = 0 then 'review_for_promotion' else 'needs_more_evidence' end as promotion_gate_status,
+        array_to_string(blocker_values, ',') as promotion_gate_blockers
+      from blockers
+    ) gate on true
     order by br.created_at
   `;
   await replaceTable(duck, "osf_benchmark_runs", benchmarkRunColumns, benchmarkRuns);
@@ -177,6 +234,7 @@ try {
     exampleQueries: [
       "select * from osf_benchmark_runs order by created_at desc limit 5;",
       "select benchmark_run_id, paired_mean_brier_delta, paired_brier_ci_lower, paired_brier_ci_upper, recommendation_status from osf_benchmark_runs where comparison_report_artifact_id is not null;",
+      "select benchmark_run_id, promotion_gate_status, promotion_gate_blockers from osf_benchmark_runs order by created_at desc limit 5;",
       "select operation_mode, operation_submode, status, count(*) from osf_tasks group by 1,2,3 order by 4 desc;",
     ],
   }, null, 2));
@@ -236,6 +294,7 @@ const benchmarkRunColumns = [
   { name: "status", type: "VARCHAR" },
   { name: "case_count", type: "INTEGER" },
   { name: "comparison_report_artifact_id", type: "VARCHAR" },
+  { name: "analysis_report_artifact_id", type: "VARCHAR" },
   { name: "promotion_decision_id", type: "VARCHAR" },
   { name: "promotion_decision_state", type: "VARCHAR" },
   { name: "promotion_decision_note", type: "VARCHAR" },
@@ -243,6 +302,15 @@ const benchmarkRunColumns = [
   { name: "promotion_decided_at", type: "VARCHAR" },
   { name: "recommendation_status", type: "VARCHAR" },
   { name: "recommendation_summary", type: "VARCHAR" },
+  { name: "result_count", type: "INTEGER" },
+  { name: "trace_missing_count", type: "INTEGER" },
+  { name: "review_or_failed_count", type: "INTEGER" },
+  { name: "missing_baseline_sanity_cases", type: "INTEGER" },
+  { name: "unexplained_component_disagreement_cases", type: "INTEGER" },
+  { name: "large_probability_miss_cases", type: "INTEGER" },
+  { name: "worse_than_baseline_cases", type: "INTEGER" },
+  { name: "promotion_gate_status", type: "VARCHAR" },
+  { name: "promotion_gate_blockers", type: "VARCHAR" },
   { name: "baseline_benchmark_run_id", type: "VARCHAR" },
   { name: "paired_case_count", type: "INTEGER" },
   { name: "paired_mean_brier_delta", type: "DOUBLE" },

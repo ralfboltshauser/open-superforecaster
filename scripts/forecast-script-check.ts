@@ -569,6 +569,17 @@ await check("benchmark promotion gate blockers are exported as metrics", async (
   return "promotion gate blockers are visible in Prometheus metrics";
 });
 
+await check("benchmark promotion gate blockers are exported to DuckDB", async () => {
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  assert(syncSource.includes("promotion_gate_status"), "DuckDB benchmark run mart missing promotion gate status");
+  assert(syncSource.includes("promotion_gate_blockers"), "DuckDB benchmark run mart missing promotion gate blockers");
+  assert(syncSource.includes("missing_baseline_sanity_cases"), "DuckDB benchmark run mart missing baseline sanity count");
+  assert(syncSource.includes("unexplained_component_disagreement_cases"), "DuckDB benchmark run mart missing component disagreement count");
+  assert(syncSource.includes("large_probability_miss_cases"), "DuckDB benchmark run mart missing large miss count");
+  assert(syncSource.includes("worse_than_baseline_cases"), "DuckDB benchmark run mart missing worse-than-baseline count");
+  return "promotion gate blockers are visible in local DuckDB analytics";
+});
+
 const failed = checks.filter((result) => !result.ok);
 for (const result of checks) {
   console.log(`${result.ok ? "PASS" : "FAIL"} ${result.name}: ${result.detail}`);
