@@ -42,6 +42,7 @@ type HealthReport = {
     reviewedAttentionItems: number;
     unresolvedAttentionItems: number;
     scoreRegressionItems: number;
+    calibrationGuardRegressionItems: number;
     candidateCalibrationGuardRules: number;
     openCandidateCalibrationGuardRules: number;
     deferredCandidateCalibrationGuardRules: number;
@@ -171,6 +172,7 @@ function buildHealthReport(
     reviewedAttentionItems: readNumber(counts, "reviewedAttentionItems") ?? countStatus(attentionItems, "reviewed"),
     unresolvedAttentionItems: 0,
     scoreRegressionItems: countScoreRegressions(attentionItems),
+    calibrationGuardRegressionItems: countCalibrationGuardRegressions(attentionItems),
     candidateCalibrationGuardRules: readNumber(counts, "candidateCalibrationGuardRules") ?? candidateCalibrationGuardRules.length,
     openCandidateCalibrationGuardRules: readNumber(counts, "openCandidateCalibrationGuardRules") ?? countCandidateRuleStatus(candidateCalibrationGuardRules, "open"),
     deferredCandidateCalibrationGuardRules: readNumber(counts, "deferredCandidateCalibrationGuardRules") ?? countCandidateRuleStatus(candidateCalibrationGuardRules, "deferred"),
@@ -230,6 +232,7 @@ function buildEmptyReport(
       reviewedAttentionItems: 0,
       unresolvedAttentionItems: 0,
       scoreRegressionItems: 0,
+      calibrationGuardRegressionItems: 0,
       candidateCalibrationGuardRules: 0,
       openCandidateCalibrationGuardRules: 0,
       deferredCandidateCalibrationGuardRules: 0,
@@ -272,6 +275,13 @@ function buildIssues(summary: HealthReport["summary"], missingPhases: BatchPhase
       severity: "medium",
       kind: "score_regression",
       message: `${summary.scoreRegressionItems} attention item(s) indicate worsening score trends.`,
+    });
+  }
+  if (summary.calibrationGuardRegressionItems > 0) {
+    issues.push({
+      severity: "high",
+      kind: "calibration_guard_regression",
+      message: `${summary.calibrationGuardRegressionItems} attention item(s) indicate guarded forecasts are scoring worse than unguarded forecasts.`,
     });
   }
   if (summary.unresolvedCandidateCalibrationGuardRules > 0) {
@@ -351,6 +361,7 @@ function renderMarkdown(report: HealthReport) {
     `- Performance score rows: ${report.summary.performanceScoreRows ?? "unknown"}`,
     `- Unresolved attention items: ${report.summary.unresolvedAttentionItems}`,
     `- Score regression items: ${report.summary.scoreRegressionItems}`,
+    `- Calibration guard regression items: ${report.summary.calibrationGuardRegressionItems}`,
     `- Candidate calibration guard rules: ${report.summary.candidateCalibrationGuardRules}`,
     `- Unresolved candidate calibration guard rules: ${report.summary.unresolvedCandidateCalibrationGuardRules}`,
     "",
@@ -448,7 +459,14 @@ function countCandidateRuleStatus(items: HealthCandidateCalibrationGuardRule[], 
 }
 
 function countScoreRegressions(items: HealthAttentionItem[]) {
-  return items.filter((item) => item.kind.includes("regression") || (item.delta ?? 0) > 0).length;
+  return items.filter((item) =>
+    item.reviewStatus !== "reviewed" &&
+    (item.kind === "forecast_score_regression" || item.kind === "worsening_trend")
+  ).length;
+}
+
+function countCalibrationGuardRegressions(items: HealthAttentionItem[]) {
+  return items.filter((item) => item.reviewStatus !== "reviewed" && item.kind === "calibration_guard_regression").length;
 }
 
 function readRecordArray(value: unknown, key: string) {

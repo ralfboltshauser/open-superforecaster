@@ -663,8 +663,8 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
       resolvedCases: 1,
       failedResolutions: 0,
       performanceScoreRows: null,
-      attentionItems: 2,
-      openAttentionItems: 1,
+      attentionItems: 3,
+      openAttentionItems: 2,
       reviewedAttentionItems: 0,
       deferredAttentionItems: 1,
       candidateCalibrationGuardRules: 1,
@@ -701,6 +701,20 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
         forecastType: "numeric",
         reviewStatus: "deferred",
       },
+      {
+        id: "calibration-guard-impact:worse-brier",
+        kind: "calibration_guard_regression",
+        severity: "high",
+        reason: "Guarded aggregates are scoring worse.",
+        recommendedActions: ["Review guarded aggregate forecasts."],
+        metric: "brier",
+        score: 0.35,
+        delta: 0.1,
+        taskId: null,
+        taskLabel: "Calibration guard impact",
+        forecastType: "binary",
+        reviewStatus: "open",
+      },
     ],
     candidateCalibrationGuardRules: [
       {
@@ -734,11 +748,13 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   assert(readString(report, "status") === "needs_attention", "health status mismatch");
   assert(summary, "health summary missing");
   assert(readNumber(summary, "failedForecasts") === 1, "failed forecast summary mismatch");
-  assert(readNumber(summary, "unresolvedAttentionItems") === 2, "unresolved attention summary mismatch");
+  assert(readNumber(summary, "unresolvedAttentionItems") === 3, "unresolved attention summary mismatch");
   assert(readNumber(summary, "scoreRegressionItems") === 1, "score regression summary mismatch");
+  assert(readNumber(summary, "calibrationGuardRegressionItems") === 1, "calibration guard regression summary mismatch");
   assert(readNumber(summary, "unresolvedCandidateCalibrationGuardRules") === 1, "unresolved candidate calibration guard summary mismatch");
   assert(missingPhases.includes("forecast_performance"), "missing performance phase was not reported");
   assert(issues.some((issue) => readString(issue, "kind") === "failed_forecasts"), "failed forecast issue missing");
+  assert(issues.some((issue) => readString(issue, "kind") === "calibration_guard_regression"), "calibration guard regression issue missing");
   assert(issues.some((issue) => readString(issue, "kind") === "candidate_calibration_guard_review"), "candidate calibration guard issue missing");
   return "batch health summarizes latest indexed batch issues";
 });

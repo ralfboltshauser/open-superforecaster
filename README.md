@@ -307,7 +307,8 @@ bun run forecast:health -- --batch-id july-smoke
 
 The health report flags missing artifact phases, failed forecast or resolution
 steps, unresolved attention items, open candidate calibration guard reviews, and
-score-regression attention signals.
+score-regression attention signals. Calibration guard regressions are called out
+separately when guarded aggregates are scoring worse than unguarded aggregates.
 
 Reviewed candidate calibration guard rules can be promoted through a local
 evidence ladder:

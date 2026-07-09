@@ -252,7 +252,8 @@ bun run forecast:health -- --batch-id july-smoke
 The health report is generated from batch indexes, so it should be run after
 `forecast:batches`. It highlights missing phases, failed run or resolution
 steps, unresolved attention items, open candidate calibration guard reviews, and
-score-regression attention signals.
+score-regression attention signals. It also flags calibration guard regressions
+separately when guarded aggregates are scoring worse than unguarded aggregates.
 
 To turn reviewed, ready candidate calibration guard rules into implementation
 proposal drafts:
