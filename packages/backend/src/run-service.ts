@@ -833,12 +833,21 @@ function summarizeUncertainty(output: Record<string, unknown>, attempts: Array<t
 
 function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited<ReturnType<typeof getTaskDetail>>) {
   const warnings = readStringArray(output, "calibrationWarnings", "calibration_warnings", "qualityIssues", "quality_issues");
+  const calibrationGuard = readRecord(output, "calibrationGuard", "calibration_guard");
+  const calibrationGuardRules = readArray(calibrationGuard, "appliedRules", "applied_rules").map((rule) => ({
+    id: readString(rule, "id") ?? "unknown",
+    adjustment: readNumber(rule, "adjustment"),
+    note: readString(rule, "note") ?? "",
+  }));
   return {
     status: detail.task.status,
     outputPresent: Object.keys(output).length > 0,
     rationalePresent: Boolean(readString(output, "rationale", "summary", "answer")),
     warningCount: warnings.length,
     warnings: warnings.slice(0, 20),
+    calibrationGuardAdjustment: readNumber(calibrationGuard, "adjustment"),
+    calibrationGuardRules,
+    calibrationGuardRuleCount: calibrationGuardRules.length,
     sourceCount: detail.sources.length,
     citationCount: detail.citations.length,
     attemptCount: detail.forecastAttempts.length,
@@ -920,6 +929,7 @@ function renderRunReportMarkdown(report: {
     ...markdownList("Key uncertainties", report.uncertainty.keyUncertainties),
     ...markdownList("Wildcards", report.uncertainty.wildcards),
     ...markdownList("Warnings", report.quality.warnings),
+    ...markdownList("Calibration guard rules", readReportGuardRules(report.quality)),
     "",
     "## Links",
     `- Result: ${report.links.result}`,
@@ -927,6 +937,18 @@ function renderRunReportMarkdown(report: {
     `- Report page: ${report.links.reportPage}`,
   ];
   return `${lines.filter((line) => line !== "").join("\n")}\n`;
+}
+
+function readReportGuardRules(quality: Record<string, unknown>) {
+  const rules = Array.isArray(quality.calibrationGuardRules)
+    ? quality.calibrationGuardRules.filter(isRecord)
+    : [];
+  return rules.map((rule) => {
+    const id = readString(rule, "id") ?? "unknown";
+    const adjustment = readNumber(rule, "adjustment");
+    const note = readString(rule, "note") ?? "";
+    return `${id}${adjustment === null ? "" : ` (${adjustment >= 0 ? "+" : ""}${adjustment} pts)`}${note ? `: ${note}` : ""}`;
+  });
 }
 
 function formatReportAnswer(answer: Record<string, unknown>) {

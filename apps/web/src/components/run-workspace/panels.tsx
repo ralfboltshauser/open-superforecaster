@@ -214,6 +214,9 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
   const disagreement = readNumber(output, "disagreement")
   const calibrationNotes = readStringAny(output, "calibrationNotes", "calibration_notes")
   const calibrationWarnings = readStringArray(output, "calibrationWarnings", "calibration_warnings")
+  const calibrationGuard = readRecordAny(output, "calibrationGuard", "calibration_guard")
+  const calibrationGuardAdjustment = readNumber(calibrationGuard, "adjustment")
+  const calibrationGuardRules = recordArray(calibrationGuard, "appliedRules", "applied_rules")
   const rationale = readRationale(output)
   const components = recordArray(output, "componentProbabilities", "component_probabilities").flatMap((component, index) => {
     const componentProbability = readNumber(component, "probability")
@@ -259,6 +262,38 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
                 {warning}
               </span>
             ))}
+          </div>
+        </ReportSection>
+      ) : null}
+      {calibrationGuardRules.length || calibrationGuardAdjustment !== null ? (
+        <ReportSection label="calibration guard">
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-md border bg-muted px-2 py-1 text-xs text-muted-foreground">
+                adjustment {calibrationGuardAdjustment === null ? "0" : `${calibrationGuardAdjustment >= 0 ? "+" : ""}${formatNumber(calibrationGuardAdjustment)} pts`}
+              </span>
+              <span className="rounded-md border bg-muted px-2 py-1 text-xs text-muted-foreground">
+                {calibrationGuardRules.length} rule{calibrationGuardRules.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            {calibrationGuardRules.length ? (
+              <div className="grid gap-2">
+                {calibrationGuardRules.map((rule) => {
+                  const id = readString(rule, "id") ?? "calibration-rule"
+                  const adjustment = readNumber(rule, "adjustment")
+                  const note = readString(rule, "note")
+                  return (
+                    <div className="rounded-md border px-3 py-2 text-sm" key={id}>
+                      <span className="block truncate font-medium">{id}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        {adjustment === null ? "adjustment n/a" : `${adjustment >= 0 ? "+" : ""}${formatNumber(adjustment)} pts`}
+                        {note ? ` · ${note}` : ""}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : null}
           </div>
         </ReportSection>
       ) : null}
@@ -588,6 +623,20 @@ function readStringAny(record: unknown, ...keys: string[]) {
     }
   }
   return null
+}
+
+function readRecordAny(record: unknown, ...keys: string[]) {
+  if (!isJsonRecord(record)) {
+    return {}
+  }
+  for (const key of keys) {
+    const raw = record[key]
+    const parsed = typeof raw === "string" ? parseJsonValue(raw) : raw
+    if (isJsonRecord(parsed)) {
+      return parsed
+    }
+  }
+  return {}
 }
 
 function parseJsonValue(value: string) {
