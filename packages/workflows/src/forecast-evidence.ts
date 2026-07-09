@@ -1,3 +1,5 @@
+import { canonicalCitedSourceKey } from "@open-superforecaster/workflow-contracts";
+
 export type ForecastCitedSource = {
   title?: string;
   url?: string;
@@ -23,7 +25,7 @@ export function collectCitedSources<T extends { citedSources?: ForecastCitedSour
       ...(source.publishedAt?.trim() ? { publishedAt: source.publishedAt.trim() } : {}),
       claim,
     };
-    const key = citationKey(normalized);
+    const key = canonicalCitedSourceKey(normalized);
     if (seen.has(key)) {
       continue;
     }
@@ -35,12 +37,4 @@ export function collectCitedSources<T extends { citedSources?: ForecastCitedSour
 
 function uniqueStrings(values: string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
-}
-
-function citationKey(source: ForecastCitedSource) {
-  const url = source.url?.toLowerCase();
-  if (url) {
-    return `url:${url}`;
-  }
-  return `claim:${source.title?.toLowerCase() ?? ""}:${source.claim.toLowerCase()}`;
 }

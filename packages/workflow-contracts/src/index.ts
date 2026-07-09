@@ -172,6 +172,27 @@ export type DateQuantileDistribution = z.infer<typeof dateQuantileDistributionSc
 export type BinaryForecastAttempt = z.infer<typeof binaryForecastAttemptSchema>;
 export type HealthSnapshot = z.infer<typeof healthSnapshotSchema>;
 
+export type CanonicalCitedSource = {
+  title?: string | null;
+  url?: string | null;
+  claim: string;
+};
+
+export function canonicalCitedSourceKey(source: CanonicalCitedSource) {
+  const rawUrl = source.url?.trim();
+  if (rawUrl) {
+    try {
+      const url = new URL(rawUrl);
+      url.hash = "";
+      url.searchParams.sort();
+      return `url:${url.toString().replace(/\/$/, "")}`;
+    } catch {
+      return `url:${rawUrl.replace(/\/$/, "").toLowerCase()}`;
+    }
+  }
+  return `fallback:${(source.title ?? "").trim().toLowerCase()}::${source.claim.trim().toLowerCase()}`;
+}
+
 export function normalizeForecastInputRow(raw: Record<string, unknown>): ForecastInputRow {
   const question = readString(raw.question) ?? readString(raw.prompt) ?? "";
   const market = normalizeMarketMetadata(raw);

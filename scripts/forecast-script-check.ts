@@ -25,6 +25,7 @@ import { buildBinaryCalibrationReport } from "../packages/backend/src/performanc
 import { readResolutionBoundarySnapshot } from "../packages/backend/src/resolution-boundary-metadata";
 import { readThresholdedForecastSnapshot } from "../packages/backend/src/thresholded-forecast-metadata";
 import { readUncertaintyRangeSnapshot } from "../packages/backend/src/uncertainty-range-metadata";
+import { canonicalCitedSourceKey } from "../packages/workflow-contracts/src/index";
 import { buildBinaryBaselineSanityAudit } from "../packages/workflows/src/binary-baseline-sanity";
 import { applyBinaryCalibrationGuard, BINARY_CALIBRATION_GUARD_RULES } from "../packages/workflows/src/binary-calibration-guard";
 import { buildBinaryMarketAnchorAudit } from "../packages/workflows/src/binary-market-anchor";
@@ -1907,6 +1908,14 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
   assert(timing.evidenceAsOfDate === "2026-07-09", "forecast timing did not normalize present date");
   assert(timing.cutoffDate === "2026-07-01", "forecast timing did not normalize cutoff date");
   assert(timing.promptBlock.includes("Timing context:"), "forecast timing prompt block missing heading");
+  assert(
+    canonicalCitedSourceKey({ url: "https://example.com/a?b=2&a=1#frag", claim: "first" }) === "url:https://example.com/a?a=1&b=2",
+    "canonical cited-source key did not normalize URL query and hash",
+  );
+  assert(
+    canonicalCitedSourceKey({ title: " A ", claim: " First " }) === "fallback:a::first",
+    "canonical cited-source key did not normalize fallback title and claim",
+  );
   const aggregatedUncertainties = collectKeyUncertainties([
     { keyUncertainties: ["base rate", " timing "] },
     { keyUncertainties: ["timing", "measurement"] },
@@ -1925,6 +1934,7 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
   assert(aggregatedSources[0]?.publishedAt === "2026-01-02", "forecast cited-source aggregation did not preserve first source detail");
 
   const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const runServiceSource = await readFile(resolve(root, "packages/backend/src/run-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
@@ -1952,6 +1962,8 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
     assert(source.includes("timing.promptBlock"), `${file} prompt does not include timing context`);
   }
   assert(resolutionSource.includes("readEvidenceCoverageSnapshot(input.prediction)"), "resolution scoring does not persist evidence coverage metadata");
+  assert(runServiceSource.includes("canonicalCitedSourceKey"), "run source-bank persistence does not use shared cited-source canonicalization");
+  assert(!runServiceSource.includes("function canonicalSourceKey"), "run source-bank persistence still has a duplicate cited-source key function");
   assert(resolutionSource.includes("byEvidenceSourceCount"), "performance report does not group by evidence source count");
   assert(resolutionSource.includes("byEvidenceSourceDateCoverage"), "performance report does not group by evidence source date coverage");
   assert(resolutionSource.includes("byEvidenceSourceFreshness"), "performance report does not group by evidence source freshness");

@@ -19,7 +19,7 @@ import {
   traceEvents,
   type createDb,
 } from "@open-superforecaster/db";
-import type { OperationMode } from "@open-superforecaster/workflow-contracts";
+import { canonicalCitedSourceKey, type OperationMode } from "@open-superforecaster/workflow-contracts";
 import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
 import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { readComponentWeightingSnapshot } from "./component-weighting-metadata";
@@ -1930,7 +1930,7 @@ function dedupeSources(sources: Array<{ title: string | null; url: string | null
   const seen = new Set<string>();
   const deduped = [];
   for (const source of sources) {
-    const key = canonicalSourceKey(source);
+    const key = canonicalCitedSourceKey(source);
     if (seen.has(key)) {
       continue;
     }
@@ -1938,20 +1938,6 @@ function dedupeSources(sources: Array<{ title: string | null; url: string | null
     deduped.push(source);
   }
   return deduped;
-}
-
-function canonicalSourceKey(source: { title: string | null; url: string | null; claim: string }) {
-  if (source.url) {
-    try {
-      const url = new URL(source.url);
-      url.hash = "";
-      url.searchParams.sort();
-      return `url:${url.toString().replace(/\/$/, "")}`;
-    } catch {
-      return `url:${source.url.trim().replace(/\/$/, "").toLowerCase()}`;
-    }
-  }
-  return `fallback:${(source.title ?? "").trim().toLowerCase()}::${source.claim.trim().toLowerCase()}`;
 }
 
 function uniqueDomains(sources: Array<{ url: string | null }>) {

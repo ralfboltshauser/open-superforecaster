@@ -337,9 +337,9 @@ sourced, stale, undated, or thinly explained forecasts can be compared against
 resolved outcomes. Forecast workflows share one timing reader so caller-provided
 present/cutoff dates are shown in prompts and persisted as the evidence as-of
 date across binary, date, numeric, categorical, thresholded, and conditional
-aggregates. They also share evidence aggregation so repeated citations are
-deduped before source-count analytics and attempt-level key uncertainties are
-preserved on aggregate forecasts. New forecast runs also preserve
+aggregates. They also share canonical evidence aggregation with source-bank
+persistence, so repeated citations are deduped before source-count analytics and
+attempt-level key uncertainties are preserved on aggregate forecasts. New forecast runs also preserve
 structured input context in score rows, including resolution criteria/date,
 market price, background, option/threshold counts, condition/unit flags, and
 question length, so market-anchored or richly specified questions can be
