@@ -318,8 +318,9 @@ Thresholded score rows preserve threshold direction, source, count,
 monotonicity repair status, curve spread, and attempt count so repaired or
 extracted threshold curves can be reviewed separately from clean caller-provided
 curves. Numeric and date score rows preserve quantile interval width, unit,
-attempt count, and date never-probability bands so wide or unit-specific
-forecasts can be compared against resolved errors. Categorical score rows
+attempt count, date never-probability bands, and component median-date
+disagreement so wide, split-timing, or unit-specific forecasts can be compared
+against resolved errors. Categorical score rows
 preserve top-choice confidence, normalized entropy, category source, closed-set
 status, category count, top-category component agreement, and winner-probability
 spread so diffuse, model-generated, or internally split option sets can be

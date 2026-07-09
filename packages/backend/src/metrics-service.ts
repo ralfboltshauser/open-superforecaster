@@ -931,6 +931,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       score_type: "all",
       date_interval_band: "none",
       never_probability_band: "unknown",
+      p50_disagreement_band: "unknown",
     };
     metrics.gauge(
       "open_superforecaster_date_distribution_scores_total",
@@ -951,6 +952,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       score_type: row.scoreType,
       date_interval_band: dateForecast?.intervalBand ?? "unknown",
       never_probability_band: dateForecast?.neverProbabilityBand ?? "unknown",
+      p50_disagreement_band: dateForecast?.p50DisagreementBand ?? "unknown",
     });
   })) {
     const labels = parseLabelKey(key);

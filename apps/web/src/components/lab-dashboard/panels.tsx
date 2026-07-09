@@ -492,6 +492,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byNumericUnit = readArray(groups, "byNumericUnit").filter(isRecord)
   const byDateInterval = readArray(groups, "byDateInterval").filter(isRecord)
   const byDateNeverProbability = readArray(groups, "byDateNeverProbability").filter(isRecord)
+  const byDateP50Disagreement = readArray(groups, "byDateP50Disagreement").filter(isRecord)
   const byCategoricalConfidence = readArray(groups, "byCategoricalConfidence").filter(isRecord)
   const byCategoricalEntropy = readArray(groups, "byCategoricalEntropy").filter(isRecord)
   const byCategoricalSource = readArray(groups, "byCategoricalSource").filter(isRecord)
@@ -572,6 +573,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byNumericUnit.length ? <PerformancePlanShapeGroupList groups={byNumericUnit} title="Numeric unit outcomes" skipKey="numeric_unit:not_numeric" fallback="numeric unit" /> : null}
         {byDateInterval.length ? <PerformancePlanShapeGroupList groups={byDateInterval} title="Date interval outcomes" skipKey="date_interval:not_date" fallback="date interval" /> : null}
         {byDateNeverProbability.length ? <PerformancePlanShapeGroupList groups={byDateNeverProbability} title="Date never-probability outcomes" skipKey="date_never_probability:not_date" fallback="date never probability" /> : null}
+        {byDateP50Disagreement.length ? <PerformancePlanShapeGroupList groups={byDateP50Disagreement} title="Date component-timing outcomes" skipKey="date_p50_disagreement:not_date" fallback="date component timing" /> : null}
         {byCategoricalConfidence.length ? <PerformancePlanShapeGroupList groups={byCategoricalConfidence} title="Categorical confidence outcomes" skipKey="categorical_confidence:not_categorical" fallback="categorical confidence" /> : null}
         {byCategoricalEntropy.length ? <PerformancePlanShapeGroupList groups={byCategoricalEntropy} title="Categorical entropy outcomes" skipKey="categorical_entropy:not_categorical" fallback="categorical entropy" /> : null}
         {byCategoricalSource.length ? <PerformancePlanShapeGroupList groups={byCategoricalSource} title="Categorical source outcomes" skipKey="categorical_source:not_categorical" fallback="categorical source" /> : null}

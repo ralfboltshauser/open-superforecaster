@@ -7,6 +7,10 @@ export type DateForecastSnapshot = {
   neverProbability: number | null;
   neverProbabilityBand: "low" | "moderate" | "high" | "unknown";
   attemptCount: number | null;
+  componentDateCount: number | null;
+  p50DisagreementDays: number | null;
+  p50DisagreementBand: "tight" | "moderate" | "wide" | "unknown";
+  neverProbabilityDisagreement: number | null;
 };
 
 export function readDateForecastSnapshot(value: unknown): DateForecastSnapshot | null {
@@ -21,7 +25,15 @@ export function readDateForecastSnapshot(value: unknown): DateForecastSnapshot |
   const p90 = readString(distribution, "p90") ?? readString(dateForecast, "p90");
   const neverProbability = readNumber(dateForecast, "neverProbability", "never_probability");
   const attemptCount = readNumber(dateForecast, "attemptCount", "attempt_count");
-  if (p10 === null && p50 === null && p90 === null && neverProbability === null && attemptCount === null) {
+  const componentStats = readComponentDateStats(dateForecast);
+  if (
+    p10 === null &&
+    p50 === null &&
+    p90 === null &&
+    neverProbability === null &&
+    attemptCount === null &&
+    componentStats.componentDateCount === null
+  ) {
     return null;
   }
   const intervalDays = dateIntervalDays(p10, p90);
@@ -34,6 +46,7 @@ export function readDateForecastSnapshot(value: unknown): DateForecastSnapshot |
     neverProbability,
     neverProbabilityBand: neverBand(neverProbability),
     attemptCount,
+    ...componentStats,
   };
 }
 
@@ -63,6 +76,68 @@ function neverBand(probability: number | null): DateForecastSnapshot["neverProba
   return "low";
 }
 
+function readComponentDateStats(value: Record<string, unknown>): Pick<
+  DateForecastSnapshot,
+  "componentDateCount" | "p50DisagreementDays" | "p50DisagreementBand" | "neverProbabilityDisagreement"
+> {
+  const explicitComponentDateCount = readNumber(value, "componentDateCount", "component_date_count");
+  const explicitP50DisagreementDays = readNumber(value, "p50DisagreementDays", "p50_disagreement_days");
+  const explicitNeverProbabilityDisagreement = readNumber(value, "neverProbabilityDisagreement", "never_probability_disagreement");
+  const explicitBand = readP50DisagreementBand(value);
+  const components = readRecordArray(value, "componentDates", "component_dates");
+  if (components.length === 0) {
+    return {
+      componentDateCount: explicitComponentDateCount,
+      p50DisagreementDays: explicitP50DisagreementDays,
+      p50DisagreementBand: explicitBand ?? p50DisagreementBand(explicitP50DisagreementDays),
+      neverProbabilityDisagreement: explicitNeverProbabilityDisagreement,
+    };
+  }
+  const p50Dates = components.flatMap((component) => {
+    const distribution = asRecord(component.dateDistribution) ?? asRecord(component.distribution);
+    const date = readString(distribution, "p50", "median") ?? readString(component, "targetDate", "target_date", "p50");
+    return date ? [date] : [];
+  });
+  const neverProbabilities = components
+    .map((component) => readNumber(component, "neverProbability", "never_probability"))
+    .filter((probability): probability is number => probability !== null);
+  const p50DisagreementDays = dateSpreadDays(p50Dates);
+  return {
+    componentDateCount: components.length,
+    p50DisagreementDays,
+    p50DisagreementBand: p50DisagreementBand(p50DisagreementDays),
+    neverProbabilityDisagreement: numericSpread(neverProbabilities),
+  };
+}
+
+export function p50DisagreementBand(days: number | null): DateForecastSnapshot["p50DisagreementBand"] {
+  if (days === null || !Number.isFinite(days)) {
+    return "unknown";
+  }
+  if (days >= 120) {
+    return "wide";
+  }
+  if (days >= 30) {
+    return "moderate";
+  }
+  return "tight";
+}
+
+function dateSpreadDays(values: string[]) {
+  const timestamps = values.map((value) => Date.parse(value)).filter(Number.isFinite);
+  if (timestamps.length === 0) {
+    return null;
+  }
+  return Math.round((Math.max(...timestamps) - Math.min(...timestamps)) / 86_400_000);
+}
+
+function numericSpread(values: number[]) {
+  if (values.length === 0) {
+    return null;
+  }
+  return Math.round((Math.max(...values) - Math.min(...values)) * 10) / 10;
+}
+
 function dateIntervalDays(p10: string | null, p90: string | null) {
   if (!p10 || !p90) {
     return null;
@@ -73,6 +148,16 @@ function dateIntervalDays(p10: string | null, p90: string | null) {
     return null;
   }
   return Math.round(Math.abs(end - start) / 86_400_000);
+}
+
+function readRecordArray(value: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const raw = value[key];
+    if (Array.isArray(raw)) {
+      return raw.filter((item): item is Record<string, unknown> => Boolean(asRecord(item)));
+    }
+  }
+  return [];
 }
 
 function readString(value: unknown, ...keys: string[]) {
@@ -101,6 +186,11 @@ function readNumber(value: unknown, ...keys: string[]) {
     }
   }
   return null;
+}
+
+function readP50DisagreementBand(value: unknown): DateForecastSnapshot["p50DisagreementBand"] | null {
+  const raw = readString(value, "p50DisagreementBand", "p50_disagreement_band");
+  return raw === "tight" || raw === "moderate" || raw === "wide" || raw === "unknown" ? raw : null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

@@ -400,6 +400,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byNumericUnit = groupScores(aggregateScores, numericUnitGroupKey);
   const byDateInterval = groupScores(aggregateScores, dateIntervalGroupKey);
   const byDateNeverProbability = groupScores(aggregateScores, dateNeverProbabilityGroupKey);
+  const byDateP50Disagreement = groupScores(aggregateScores, dateP50DisagreementGroupKey);
   const byCategoricalConfidence = groupScores(aggregateScores, categoricalConfidenceGroupKey);
   const byCategoricalEntropy = groupScores(aggregateScores, categoricalEntropyGroupKey);
   const byCategoricalSource = groupScores(aggregateScores, categoricalSourceGroupKey);
@@ -471,6 +472,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byNumericUnit,
       byDateInterval,
       byDateNeverProbability,
+      byDateP50Disagreement,
       byCategoricalConfidence,
       byCategoricalEntropy,
       byCategoricalSource,
@@ -532,6 +534,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byNumericUnit,
       byDateInterval,
       byDateNeverProbability,
+      byDateP50Disagreement,
       byCategoricalConfidence,
       byCategoricalEntropy,
       byCategoricalSource,
@@ -1348,6 +1351,14 @@ function dateNeverProbabilityGroupKey(score: typeof forecastScores.$inferSelect)
   return `date_never_probability:${dateForecast?.neverProbabilityBand ?? "unrecorded"}`;
 }
 
+function dateP50DisagreementGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "date") {
+    return "date_p50_disagreement:not_date";
+  }
+  const dateForecast = readDateForecastSnapshot(score.scoreConfig);
+  return `date_p50_disagreement:${dateForecast?.p50DisagreementBand ?? "unrecorded"}`;
+}
+
 function categoricalConfidenceGroupKey(score: typeof forecastScores.$inferSelect) {
   if (readString(score.scoreConfig, "forecastType") !== "categorical") {
     return "categorical_confidence:not_categorical";
@@ -2077,6 +2088,7 @@ function renderPerformanceMarkdown(input: {
   byNumericUnit: PerformanceGroup[];
   byDateInterval: PerformanceGroup[];
   byDateNeverProbability: PerformanceGroup[];
+  byDateP50Disagreement: PerformanceGroup[];
   byCategoricalConfidence: PerformanceGroup[];
   byCategoricalEntropy: PerformanceGroup[];
   byCategoricalSource: PerformanceGroup[];
@@ -2179,6 +2191,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Date never-probability groups",
     ...renderGroupTable(input.byDateNeverProbability),
+    "",
+    "## Date component timing groups",
+    ...renderGroupTable(input.byDateP50Disagreement),
     "",
     "## Categorical confidence groups",
     ...renderGroupTable(input.byCategoricalConfidence),

@@ -1523,6 +1523,26 @@ await check("numeric and date forecast distribution metadata reaches resolved sc
       },
       neverProbability: 12,
       attemptCount: 3,
+      componentDates: [
+        {
+          forecasterLabel: "base-rate",
+          targetDate: "2026-02-01",
+          dateDistribution: { p10: "2026-01-01", p25: "2026-01-15", p50: "2026-02-01", p75: "2026-03-01", p90: "2026-04-01" },
+          neverProbability: 5,
+        },
+        {
+          forecasterLabel: "inside-view",
+          targetDate: "2026-03-15",
+          dateDistribution: { p10: "2026-02-01", p25: "2026-02-20", p50: "2026-03-15", p75: "2026-05-01", p90: "2026-06-01" },
+          neverProbability: 12,
+        },
+        {
+          forecasterLabel: "skeptic",
+          targetDate: "2026-07-01",
+          dateDistribution: { p10: "2026-03-01", p25: "2026-05-01", p50: "2026-07-01", p75: "2026-08-01", p90: "2026-09-01" },
+          neverProbability: 22,
+        },
+      ],
     },
   });
   assert(dateSnapshot?.p10 === "2026-01-01", "date metadata p10 mismatch");
@@ -1533,6 +1553,10 @@ await check("numeric and date forecast distribution metadata reaches resolved sc
   assert(dateSnapshot?.neverProbability === 12, "date metadata never probability mismatch");
   assert(dateSnapshot?.neverProbabilityBand === "moderate", "date metadata never probability band mismatch");
   assert(dateSnapshot?.attemptCount === 3, "date metadata attempt count mismatch");
+  assert(dateSnapshot?.componentDateCount === 3, "date metadata component date count mismatch");
+  assert(dateSnapshot?.p50DisagreementDays === 150, "date metadata p50 disagreement days mismatch");
+  assert(dateSnapshot?.p50DisagreementBand === "wide", "date metadata p50 disagreement band mismatch");
+  assert(dateSnapshot?.neverProbabilityDisagreement === 17, "date metadata never probability disagreement mismatch");
 
   const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
@@ -1542,14 +1566,18 @@ await check("numeric and date forecast distribution metadata reaches resolved sc
   assert(resolutionSource.includes("readDateForecastSnapshot(input.prediction)"), "resolution scoring does not persist date distribution metadata");
   assert(resolutionSource.includes("byNumericInterval"), "performance report does not group by numeric interval width");
   assert(resolutionSource.includes("byDateNeverProbability"), "performance report does not group by date never probability");
+  assert(resolutionSource.includes("byDateP50Disagreement"), "performance report does not group by date component timing disagreement");
   assert(metricsSource.includes("open_superforecaster_numeric_distribution_scores_total"), "metrics missing numeric distribution score counts");
   assert(metricsSource.includes("open_superforecaster_date_distribution_scores_total"), "metrics missing date distribution score counts");
+  assert(metricsSource.includes("p50_disagreement_band"), "metrics missing date component timing disagreement labels");
   assert(syncSource.includes("numeric_interval_width"), "DuckDB forecast score mart missing numeric interval width");
   assert(syncSource.includes("numeric_interval_width_band"), "DuckDB forecast score mart missing numeric interval band");
   assert(syncSource.includes("date_interval_days"), "DuckDB forecast score mart missing date interval days");
   assert(syncSource.includes("date_never_probability_band"), "DuckDB forecast score mart missing date never-probability band");
+  assert(syncSource.includes("date_p50_disagreement_days"), "DuckDB forecast score mart missing date component timing disagreement");
   assert(dashboardSource.includes("Numeric interval outcomes"), "lab dashboard does not render numeric interval outcomes");
   assert(dashboardSource.includes("Date never-probability outcomes"), "lab dashboard does not render date never-probability outcomes");
+  assert(dashboardSource.includes("Date component-timing outcomes"), "lab dashboard does not render date component timing outcomes");
   return "numeric and date forecast distributions are persisted and visible in resolved score analytics";
 });
 
