@@ -289,6 +289,10 @@ against outcomes, summarize score groups, and report guarded-vs-unguarded
 Brier impact overall and by applied rule id. Worse overall or rule-level
 guarded impact is also queued as a high-severity attention item
 before more default guard rules are promoted.
+Conditional score rows likewise preserve the resolved branch, condition
+probability, branch probabilities, probability delta, and condition-effect band
+so performance reports can separate condition-probability errors from
+outcome-under-condition errors.
 
 To consolidate those local artifacts into one audit file:
 

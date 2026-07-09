@@ -15,6 +15,7 @@ import { readAggregateStatsSnapshot, type AggregateStatsSnapshot } from "./aggre
 import { readBaselineSanitySnapshot, type BaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { buildCalibrationGuardImpact, type CalibrationGuardImpact, type CalibrationGuardRuleImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot, type CalibrationGuardSnapshot } from "./calibration-guard-metadata";
+import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
 
 type Db = ReturnType<typeof createDb>["db"];
@@ -360,6 +361,8 @@ export async function getForecastPerformanceReport(db: Db) {
   const byResearchDepth = groupScores(aggregateScores, researchDepthGroupKey);
   const byForecasterPanelSize = groupScores(aggregateScores, forecasterPanelSizeGroupKey);
   const byComplexityScore = groupScores(aggregateScores, complexityScoreGroupKey);
+  const byConditionalBranch = groupScores(aggregateScores, conditionalBranchGroupKey);
+  const byConditionalEffect = groupScores(aggregateScores, conditionalEffectGroupKey);
   const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
@@ -404,6 +407,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byResearchDepth,
       byForecasterPanelSize,
       byComplexityScore,
+      byConditionalBranch,
+      byConditionalEffect,
     },
     bestResolvedForecasts,
     worstResolvedForecasts,
@@ -438,6 +443,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byResearchDepth,
       byForecasterPanelSize,
       byComplexityScore,
+      byConditionalBranch,
+      byConditionalEffect,
       bestResolvedForecasts,
       worstResolvedForecasts,
       scoreTrends,
@@ -757,6 +764,7 @@ function scoreForecastPrediction(input: {
   if (conditionResolved === null || outcomeResolved === null) {
     return [];
   }
+  const conditionalForecast = readConditionalForecastSnapshot(input.prediction);
   const branch = conditionResolved ? "condition" : "not_condition";
   const probability = conditionResolved
     ? readNumber(input.prediction, "probabilityGivenCondition", "probability_given_condition")
@@ -773,6 +781,7 @@ function scoreForecastPrediction(input: {
       probability,
       conditionResolved,
       outcomeResolved,
+      ...(conditionalForecast ? { conditionalForecast } : {}),
     },
   }));
   const conditionProbability = readNumber(input.prediction, "conditionProbability", "condition_probability");
@@ -782,12 +791,12 @@ function scoreForecastPrediction(input: {
       {
         scoreType: "condition_brier",
         scoreValue: conditionScores.brier,
-        scoreConfig: { probability: conditionProbability, conditionResolved },
+        scoreConfig: { probability: conditionProbability, conditionResolved, ...(conditionalForecast ? { conditionalForecast } : {}) },
       },
       {
         scoreType: "condition_log",
         scoreValue: conditionScores.log,
-        scoreConfig: { probability: conditionProbability, conditionResolved },
+        scoreConfig: { probability: conditionProbability, conditionResolved, ...(conditionalForecast ? { conditionalForecast } : {}) },
       },
     );
   }
@@ -1113,6 +1122,22 @@ function complexityScoreGroupKey(score: typeof forecastScores.$inferSelect) {
   return aggregateQuality?.complexityScore === null || aggregateQuality?.complexityScore === undefined
     ? "complexity:unrecorded"
     : `complexity:${aggregateQuality.complexityScore}`;
+}
+
+function conditionalBranchGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "conditional") {
+    return "conditional_branch:not_conditional";
+  }
+  const branch = readString(score.scoreConfig, "branch");
+  return branch ? `conditional_branch:${branch}` : "conditional_branch:condition_probability";
+}
+
+function conditionalEffectGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "conditional") {
+    return "conditional_effect:not_conditional";
+  }
+  const conditionalForecast = readConditionalForecastSnapshot(score.scoreConfig);
+  return conditionalForecast ? `conditional_effect:${conditionalForecast.effectBand}` : "conditional_effect:unrecorded";
 }
 
 function rankAggregateCases(
@@ -1583,6 +1608,8 @@ function renderPerformanceMarkdown(input: {
   byResearchDepth: PerformanceGroup[];
   byForecasterPanelSize: PerformanceGroup[];
   byComplexityScore: PerformanceGroup[];
+  byConditionalBranch: PerformanceGroup[];
+  byConditionalEffect: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
   worstResolvedForecasts: PerformanceCase[];
   scoreTrends: PerformanceTrend[];
@@ -1630,6 +1657,12 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Complexity score groups",
     ...renderGroupTable(input.byComplexityScore),
+    "",
+    "## Conditional branch groups",
+    ...renderGroupTable(input.byConditionalBranch),
+    "",
+    "## Conditional effect groups",
+    ...renderGroupTable(input.byConditionalEffect),
     "",
     "## Calibration guard impact",
     ...renderCalibrationGuardImpact(input.calibrationGuardImpact),

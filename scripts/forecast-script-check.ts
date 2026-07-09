@@ -11,6 +11,7 @@ import { readAggregateStatsSnapshot } from "../packages/backend/src/aggregate-st
 import { readBaselineSanitySnapshot } from "../packages/backend/src/baseline-sanity-metadata";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
+import { readConditionalForecastSnapshot } from "../packages/backend/src/conditional-forecast-metadata";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
 import { buildBinaryBaselineSanityAudit } from "../packages/workflows/src/binary-baseline-sanity";
 import { applyBinaryCalibrationGuard, BINARY_CALIBRATION_GUARD_RULES } from "../packages/workflows/src/binary-calibration-guard";
@@ -826,6 +827,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Research depth groups"), "performance Markdown missing research depth group section");
   assert(resolutionSource.includes("## Forecaster panel size groups"), "performance Markdown missing forecaster panel size group section");
   assert(resolutionSource.includes("## Complexity score groups"), "performance Markdown missing complexity score group section");
+  assert(resolutionSource.includes("## Conditional branch groups"), "performance Markdown missing conditional branch group section");
+  assert(resolutionSource.includes("## Conditional effect groups"), "performance Markdown missing conditional effect group section");
   assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");
   assert(dashboardSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not read candidate calibration guard rules");
   assert(dashboardSource.includes("Candidate calibration guards"), "lab dashboard does not render candidate calibration guard rules");
@@ -845,6 +848,10 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Panel size outcomes"), "lab dashboard does not render panel size performance groups");
   assert(dashboardSource.includes("byComplexityScore"), "lab dashboard does not read complexity score performance groups");
   assert(dashboardSource.includes("Complexity score outcomes"), "lab dashboard does not render complexity score performance groups");
+  assert(dashboardSource.includes("byConditionalBranch"), "lab dashboard does not read conditional branch performance groups");
+  assert(dashboardSource.includes("Conditional branch outcomes"), "lab dashboard does not render conditional branch performance groups");
+  assert(dashboardSource.includes("byConditionalEffect"), "lab dashboard does not read conditional effect performance groups");
+  assert(dashboardSource.includes("Conditional effect outcomes"), "lab dashboard does not render conditional effect performance groups");
   return "candidate calibration guard rules are visible in report artifacts and the lab dashboard";
 });
 
@@ -913,6 +920,8 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_aggregate_stats_score_mean"), "aggregate stats score mean metric missing");
   assert(metricsSource.includes("open_superforecaster_aggregate_plan_scores_total"), "aggregate plan score count metric missing");
   assert(metricsSource.includes("open_superforecaster_aggregate_plan_score_mean"), "aggregate plan score mean metric missing");
+  assert(metricsSource.includes("open_superforecaster_conditional_scores_total"), "conditional score count metric missing");
+  assert(metricsSource.includes("open_superforecaster_conditional_score_mean"), "conditional score mean metric missing");
   assert(metricsSource.includes("buildCalibrationGuardImpact"), "metrics exporter does not use shared calibration guard impact builder");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_status"), "calibration guard impact status metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_brier_delta"), "calibration guard impact Brier delta metric missing");
@@ -930,6 +939,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(smokeSource.includes("open_superforecaster_aggregate_quality_scores_total"), "smoke check does not require aggregate quality metric");
   assert(smokeSource.includes("open_superforecaster_aggregate_stats_scores_total"), "smoke check does not require aggregate stats metric");
   assert(smokeSource.includes("open_superforecaster_aggregate_plan_scores_total"), "smoke check does not require aggregate plan metric");
+  assert(smokeSource.includes("open_superforecaster_conditional_scores_total"), "smoke check does not require conditional metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
   assert(metricsRouteSource.includes("renderPrometheusMetrics"), "metrics route does not render Prometheus metrics");
   assert(metricsRouteSource.includes("text/plain; version=0.0.4"), "metrics route missing Prometheus content type");
@@ -960,6 +970,8 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("aggregate_forecaster_count"), "forecast score mart missing forecaster count");
   assert(syncSource.includes("aggregate_complexity_score"), "forecast score mart missing complexity score");
   assert(syncSource.includes("aggregate_research_depth"), "forecast score mart missing research depth");
+  assert(syncSource.includes("conditional_branch"), "forecast score mart missing conditional branch");
+  assert(syncSource.includes("conditional_effect_band"), "forecast score mart missing conditional effect band");
   assert(syncSource.includes("candidate_guard_suggested_adjustment"), "binary calibration bucket mart missing candidate guard adjustment");
   assert(syncSource.includes("candidate_guard_activation_status"), "binary calibration bucket mart missing candidate guard activation status");
   assert(syncSource.includes("readCalibrationGuardValidationRows"), "DuckDB sync does not read calibration guard validation reports");
@@ -1118,6 +1130,37 @@ await check("binary aggregate planning metadata reaches resolved score analytics
   assert(syncSource.includes("aggregate_role_ids_json"), "DuckDB forecast score mart missing role id export");
   assert(dashboardSource.includes("PerformancePlanShapeGroupList"), "lab dashboard does not share plan shape group rendering");
   return "binary aggregate planning metadata is visible in resolved score analytics";
+});
+
+await check("conditional forecast metadata reaches resolved score analytics", async () => {
+  const snapshot = readConditionalForecastSnapshot({
+    conditionalForecast: {
+      conditionProbability: 40,
+      probabilityGivenCondition: 72,
+      probabilityGivenNotCondition: 38,
+      probabilityDelta: 34,
+      condition: "the stated catalyst happens",
+      attemptCount: 3,
+    },
+  });
+  assert(snapshot?.conditionProbability === 40, "conditional metadata condition probability mismatch");
+  assert(snapshot?.probabilityGivenCondition === 72, "conditional metadata true-branch probability mismatch");
+  assert(snapshot?.probabilityGivenNotCondition === 38, "conditional metadata false-branch probability mismatch");
+  assert(snapshot?.probabilityDelta === 34, "conditional metadata probability delta mismatch");
+  assert(snapshot?.effectBand === "large", "conditional metadata effect band mismatch");
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(resolutionSource.includes("readConditionalForecastSnapshot(input.prediction)"), "resolution scoring does not persist conditional metadata");
+  assert(resolutionSource.includes("byConditionalBranch"), "performance report does not group by conditional branch");
+  assert(resolutionSource.includes("byConditionalEffect"), "performance report does not group by conditional effect size");
+  assert(metricsSource.includes("open_superforecaster_conditional_scores_total"), "metrics missing conditional score counts");
+  assert(syncSource.includes("probability_given_condition"), "DuckDB forecast score mart missing conditional true branch probability");
+  assert(syncSource.includes("conditional_probability_delta"), "DuckDB forecast score mart missing conditional probability delta");
+  assert(dashboardSource.includes("Conditional branch outcomes"), "lab dashboard does not render conditional branch outcomes");
+  assert(dashboardSource.includes("Conditional effect outcomes"), "lab dashboard does not render conditional effect outcomes");
+  return "conditional forecast metadata is persisted and visible in resolved score analytics";
 });
 
 await check("binary aggregate quality metadata is visible before resolution", async () => {

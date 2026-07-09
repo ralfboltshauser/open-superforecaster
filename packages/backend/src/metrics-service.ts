@@ -20,6 +20,7 @@ import { readAggregateStatsSnapshot } from "./aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { buildCalibrationGuardImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
+import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { buildBinaryCalibrationReport } from "./performance-calibration";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
 
@@ -595,6 +596,53 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge(
       "open_superforecaster_aggregate_plan_score_mean",
       "Mean product aggregate forecast score by selected binary forecast plan shape.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
+    );
+  }
+  const conditionalScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readString(asRecord(row.scoreConfig), "forecastType") === "conditional"
+  );
+  if (conditionalScoreRows.length === 0) {
+    const labels = {
+      score_type: "all",
+      conditional_branch: "none",
+      conditional_effect_band: "unknown",
+    };
+    metrics.gauge(
+      "open_superforecaster_conditional_scores_total",
+      "Product conditional aggregate forecast score rows by branch and condition-effect band.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_conditional_score_mean",
+      "Mean product conditional aggregate forecast score by branch and condition-effect band.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(conditionalScoreRows, (row) => {
+    const config = asRecord(row.scoreConfig);
+    const conditionalForecast = readConditionalForecastSnapshot(row.scoreConfig);
+    return labelKey({
+      score_type: row.scoreType,
+      conditional_branch: readString(config, "branch") ?? (row.scoreType.startsWith("condition_") ? "condition_probability" : "unknown"),
+      conditional_effect_band: conditionalForecast?.effectBand ?? "unknown",
+    });
+  })) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_conditional_scores_total",
+      "Product conditional aggregate forecast score rows by branch and condition-effect band.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_conditional_score_mean",
+      "Mean product conditional aggregate forecast score by branch and condition-effect band.",
       mean(rows.map((row) => row.scoreValue)),
       labels,
     );

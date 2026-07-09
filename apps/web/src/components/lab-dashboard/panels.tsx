@@ -478,6 +478,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byResearchDepth = readArray(groups, "byResearchDepth").filter(isRecord)
   const byForecasterPanelSize = readArray(groups, "byForecasterPanelSize").filter(isRecord)
   const byComplexityScore = readArray(groups, "byComplexityScore").filter(isRecord)
+  const byConditionalBranch = readArray(groups, "byConditionalBranch").filter(isRecord)
+  const byConditionalEffect = readArray(groups, "byConditionalEffect").filter(isRecord)
   const bestForecasts = readArray(performance, "bestResolvedForecasts").filter(isRecord)
   const worstForecasts = readArray(performance, "worstResolvedForecasts").filter(isRecord)
   const scoreTrends = readArray(performance, "scoreTrends").filter(isRecord)
@@ -531,6 +533,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byResearchDepth.length ? <PerformancePlanShapeGroupList groups={byResearchDepth} title="Research depth outcomes" skipKey="research_depth:unrecorded" fallback="research depth" /> : null}
         {byForecasterPanelSize.length ? <PerformancePlanShapeGroupList groups={byForecasterPanelSize} title="Panel size outcomes" skipKey="forecaster_panel:unrecorded" fallback="panel size" /> : null}
         {byComplexityScore.length ? <PerformancePlanShapeGroupList groups={byComplexityScore} title="Complexity score outcomes" skipKey="complexity:unrecorded" fallback="complexity" /> : null}
+        {byConditionalBranch.length ? <PerformancePlanShapeGroupList groups={byConditionalBranch} title="Conditional branch outcomes" skipKey="conditional_branch:not_conditional" fallback="conditional branch" /> : null}
+        {byConditionalEffect.length ? <PerformancePlanShapeGroupList groups={byConditionalEffect} title="Conditional effect outcomes" skipKey="conditional_effect:not_conditional" fallback="conditional effect" /> : null}
         {calibrationBuckets.length ? <PerformanceCalibrationList buckets={calibrationBuckets} summary={calibrationSummary} /> : null}
         {candidateCalibrationGuardRules.length ? <PerformanceCandidateGuardList rules={candidateCalibrationGuardRules} /> : null}
         {needsAttention.length ? <PerformanceAttentionList items={needsAttention} /> : null}
