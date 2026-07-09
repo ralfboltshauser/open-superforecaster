@@ -1074,19 +1074,87 @@ button {
     padding: 2.6rem 0;
   }
 
+  .plate-label {
+    margin-bottom: 1.15rem;
+  }
+
+  .plate-label h2 {
+    margin: 0.75rem 0 0.65rem;
+  }
+
+  .plate-rule {
+    margin-bottom: 0.9rem;
+  }
+
+  .plate-label p {
+    font-size: 0.86rem;
+    line-height: 1.55;
+  }
+
   .chain-layout,
   .mode-grid,
   .audit-grid {
     grid-template-columns: 1fr;
   }
 
+  .chain-layout {
+    border-bottom: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+  }
+
   .chain-card {
-    border-right: 1px solid var(--border);
+    align-items: start;
+    border-left: 0;
+    border-right: 0;
+    border-top: 1px solid var(--border);
+    display: grid;
+    gap: 0.45rem 0.85rem;
+    grid-template-columns: 2.6rem 1fr;
     min-height: 0;
+    padding: 1.05rem 0;
+  }
+
+  .chain-card:first-child {
+    border-top: 0;
+  }
+
+  .chain-card:last-child {
+    border-right: 0;
+  }
+
+  .chain-card::before {
+    background: linear-gradient(to right, oklch(0.76 0.12 244 / 0.35), transparent);
+    height: 1px;
+    left: 0;
+    top: -1px;
+    width: 7rem;
+  }
+
+  .chain-card .module-index {
+    font-size: 0.82rem;
+    grid-column: 2;
+    letter-spacing: 0.12em;
+  }
+
+  .chain-card h3 {
+    font-size: 1.08rem;
+    grid-column: 2;
+  }
+
+  .chain-card p {
+    font-size: 0.88rem;
+    grid-column: 2;
+    line-height: 1.55;
+    margin-top: 0.1rem;
   }
 
   .chain-node {
-    margin: 1.4rem 0 1rem;
+    align-self: center;
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    height: 2rem;
+    margin: 0.15rem 0 0;
+    width: 2rem;
   }
 
   .audit-row:nth-child(2n) {
