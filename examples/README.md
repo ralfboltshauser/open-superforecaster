@@ -76,7 +76,9 @@ median, component-disagreement band, aggregation anchor, median adjustment, and
 attempt count, plus selected plan shape fields like forecaster count, complexity
 score, research depth, and role ids. Conditional forecast score rows include
 the resolved branch, condition/outcome resolution flags, branch probabilities,
-probability delta, and condition-effect band. Binary
+probability delta, and condition-effect band. Thresholded forecast score rows
+include direction, threshold source, threshold count, monotonicity repair status,
+curve probability spread, and attempt count. Binary
 aggregate calibration buckets are exported to `osf_binary_calibration_buckets`
 with bucket error, diagnostic direction, and candidate guard adjustment fields.
 Those bucket rows are generated from the same shared calibration report builder
@@ -205,7 +207,9 @@ groups, aggregation-anchor groups, research-depth groups, panel-size groups,
 complexity-score groups, and a dedicated calibration guard impact summary with
 per-rule rows. Conditional forecasts also get branch and condition-effect
 groups so resolved performance can distinguish condition-probability errors
-from outcome-under-condition errors.
+from outcome-under-condition errors. Thresholded forecasts get direction,
+threshold-source, and monotonicity-repair groups so invalid or repaired curves
+can be reviewed separately from clean caller-provided thresholds.
 If guarded aggregate forecasts start scoring worse than unguarded aggregates
 overall or for a specific applied rule, the performance report adds a
 high-severity attention item before more default guard rules are promoted.

@@ -293,6 +293,10 @@ Conditional score rows likewise preserve the resolved branch, condition
 probability, branch probabilities, probability delta, and condition-effect band
 so performance reports can separate condition-probability errors from
 outcome-under-condition errors.
+Thresholded score rows preserve threshold direction, source, count,
+monotonicity repair status, curve spread, and attempt count so repaired or
+extracted threshold curves can be reviewed separately from clean caller-provided
+curves.
 
 To consolidate those local artifacts into one audit file:
 

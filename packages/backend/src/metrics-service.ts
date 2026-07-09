@@ -23,6 +23,7 @@ import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { buildBinaryCalibrationReport } from "./performance-calibration";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
+import { readThresholdedForecastSnapshot } from "./thresholded-forecast-metadata";
 
 type Db = ReturnType<typeof createDb>["db"];
 
@@ -643,6 +644,54 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge(
       "open_superforecaster_conditional_score_mean",
       "Mean product conditional aggregate forecast score by branch and condition-effect band.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
+    );
+  }
+  const thresholdedScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readString(asRecord(row.scoreConfig), "forecastType") === "thresholded"
+  );
+  if (thresholdedScoreRows.length === 0) {
+    const labels = {
+      score_type: "all",
+      threshold_direction: "none",
+      threshold_source: "unknown",
+      monotonicity_repaired: "unknown",
+    };
+    metrics.gauge(
+      "open_superforecaster_thresholded_scores_total",
+      "Product thresholded aggregate forecast score rows by direction, source, and monotonicity repair.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_thresholded_score_mean",
+      "Mean product thresholded aggregate forecast score by direction, source, and monotonicity repair.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(thresholdedScoreRows, (row) => {
+    const thresholdedForecast = readThresholdedForecastSnapshot(row.scoreConfig);
+    return labelKey({
+      score_type: row.scoreType,
+      threshold_direction: thresholdedForecast?.thresholdDirection ?? "unknown",
+      threshold_source: thresholdedForecast?.thresholdSource ?? "unknown",
+      monotonicity_repaired: String(thresholdedForecast?.monotonicityRepaired ?? "unknown"),
+    });
+  })) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_thresholded_scores_total",
+      "Product thresholded aggregate forecast score rows by direction, source, and monotonicity repair.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_thresholded_score_mean",
+      "Mean product thresholded aggregate forecast score by direction, source, and monotonicity repair.",
       mean(rows.map((row) => row.scoreValue)),
       labels,
     );

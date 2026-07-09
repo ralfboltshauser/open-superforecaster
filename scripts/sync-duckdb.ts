@@ -302,6 +302,12 @@ try {
       nullif(fs.score_config #>> '{conditionalForecast,probabilityDelta}', '')::double precision as conditional_probability_delta,
       fs.score_config #>> '{conditionalForecast,effectBand}' as conditional_effect_band,
       nullif(fs.score_config #>> '{conditionalForecast,attemptCount}', '')::integer as conditional_attempt_count,
+      fs.score_config #>> '{thresholdedForecast,thresholdDirection}' as threshold_direction,
+      fs.score_config #>> '{thresholdedForecast,thresholdSource}' as threshold_source,
+      nullif(fs.score_config #>> '{thresholdedForecast,thresholdCount}', '')::integer as threshold_count,
+      nullif(fs.score_config #>> '{thresholdedForecast,monotonicityRepaired}', '')::boolean as monotonicity_repaired,
+      nullif(fs.score_config #>> '{thresholdedForecast,probabilitySpread}', '')::double precision as threshold_probability_spread,
+      nullif(fs.score_config #>> '{thresholdedForecast,attemptCount}', '')::integer as thresholded_attempt_count,
       fs.score_config::text as score_config_json,
       fs.created_at::text as created_at
     from forecast_scores fs
@@ -601,6 +607,12 @@ const forecastScoreColumns = [
   { name: "conditional_probability_delta", type: "DOUBLE" },
   { name: "conditional_effect_band", type: "VARCHAR" },
   { name: "conditional_attempt_count", type: "INTEGER" },
+  { name: "threshold_direction", type: "VARCHAR" },
+  { name: "threshold_source", type: "VARCHAR" },
+  { name: "threshold_count", type: "INTEGER" },
+  { name: "monotonicity_repaired", type: "BOOLEAN" },
+  { name: "threshold_probability_spread", type: "DOUBLE" },
+  { name: "thresholded_attempt_count", type: "INTEGER" },
   { name: "score_config_json", type: "VARCHAR" },
   { name: "created_at", type: "VARCHAR" },
 ] satisfies DuckColumn[];

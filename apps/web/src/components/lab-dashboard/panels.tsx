@@ -480,6 +480,9 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byComplexityScore = readArray(groups, "byComplexityScore").filter(isRecord)
   const byConditionalBranch = readArray(groups, "byConditionalBranch").filter(isRecord)
   const byConditionalEffect = readArray(groups, "byConditionalEffect").filter(isRecord)
+  const byThresholdedDirection = readArray(groups, "byThresholdedDirection").filter(isRecord)
+  const byThresholdedSource = readArray(groups, "byThresholdedSource").filter(isRecord)
+  const byThresholdedRepair = readArray(groups, "byThresholdedRepair").filter(isRecord)
   const bestForecasts = readArray(performance, "bestResolvedForecasts").filter(isRecord)
   const worstForecasts = readArray(performance, "worstResolvedForecasts").filter(isRecord)
   const scoreTrends = readArray(performance, "scoreTrends").filter(isRecord)
@@ -535,6 +538,9 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byComplexityScore.length ? <PerformancePlanShapeGroupList groups={byComplexityScore} title="Complexity score outcomes" skipKey="complexity:unrecorded" fallback="complexity" /> : null}
         {byConditionalBranch.length ? <PerformancePlanShapeGroupList groups={byConditionalBranch} title="Conditional branch outcomes" skipKey="conditional_branch:not_conditional" fallback="conditional branch" /> : null}
         {byConditionalEffect.length ? <PerformancePlanShapeGroupList groups={byConditionalEffect} title="Conditional effect outcomes" skipKey="conditional_effect:not_conditional" fallback="conditional effect" /> : null}
+        {byThresholdedDirection.length ? <PerformancePlanShapeGroupList groups={byThresholdedDirection} title="Threshold direction outcomes" skipKey="thresholded_direction:not_thresholded" fallback="threshold direction" /> : null}
+        {byThresholdedSource.length ? <PerformancePlanShapeGroupList groups={byThresholdedSource} title="Threshold source outcomes" skipKey="thresholded_source:not_thresholded" fallback="threshold source" /> : null}
+        {byThresholdedRepair.length ? <PerformancePlanShapeGroupList groups={byThresholdedRepair} title="Threshold monotonicity outcomes" skipKey="thresholded_repair:not_thresholded" fallback="threshold repair" /> : null}
         {calibrationBuckets.length ? <PerformanceCalibrationList buckets={calibrationBuckets} summary={calibrationSummary} /> : null}
         {candidateCalibrationGuardRules.length ? <PerformanceCandidateGuardList rules={candidateCalibrationGuardRules} /> : null}
         {needsAttention.length ? <PerformanceAttentionList items={needsAttention} /> : null}

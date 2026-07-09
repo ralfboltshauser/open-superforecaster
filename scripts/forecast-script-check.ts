@@ -13,6 +13,7 @@ import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { readConditionalForecastSnapshot } from "../packages/backend/src/conditional-forecast-metadata";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
+import { readThresholdedForecastSnapshot } from "../packages/backend/src/thresholded-forecast-metadata";
 import { buildBinaryBaselineSanityAudit } from "../packages/workflows/src/binary-baseline-sanity";
 import { applyBinaryCalibrationGuard, BINARY_CALIBRATION_GUARD_RULES } from "../packages/workflows/src/binary-calibration-guard";
 import { readJson, readRecord, readString, timestampLabel, writeJson } from "./lib/forecast-script-utils";
@@ -829,6 +830,9 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Complexity score groups"), "performance Markdown missing complexity score group section");
   assert(resolutionSource.includes("## Conditional branch groups"), "performance Markdown missing conditional branch group section");
   assert(resolutionSource.includes("## Conditional effect groups"), "performance Markdown missing conditional effect group section");
+  assert(resolutionSource.includes("## Thresholded direction groups"), "performance Markdown missing thresholded direction group section");
+  assert(resolutionSource.includes("## Thresholded source groups"), "performance Markdown missing thresholded source group section");
+  assert(resolutionSource.includes("## Thresholded monotonicity groups"), "performance Markdown missing thresholded monotonicity group section");
   assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");
   assert(dashboardSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not read candidate calibration guard rules");
   assert(dashboardSource.includes("Candidate calibration guards"), "lab dashboard does not render candidate calibration guard rules");
@@ -852,6 +856,12 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Conditional branch outcomes"), "lab dashboard does not render conditional branch performance groups");
   assert(dashboardSource.includes("byConditionalEffect"), "lab dashboard does not read conditional effect performance groups");
   assert(dashboardSource.includes("Conditional effect outcomes"), "lab dashboard does not render conditional effect performance groups");
+  assert(dashboardSource.includes("byThresholdedDirection"), "lab dashboard does not read thresholded direction performance groups");
+  assert(dashboardSource.includes("Threshold direction outcomes"), "lab dashboard does not render thresholded direction performance groups");
+  assert(dashboardSource.includes("byThresholdedSource"), "lab dashboard does not read thresholded source performance groups");
+  assert(dashboardSource.includes("Threshold source outcomes"), "lab dashboard does not render thresholded source performance groups");
+  assert(dashboardSource.includes("byThresholdedRepair"), "lab dashboard does not read thresholded repair performance groups");
+  assert(dashboardSource.includes("Threshold monotonicity outcomes"), "lab dashboard does not render thresholded repair performance groups");
   return "candidate calibration guard rules are visible in report artifacts and the lab dashboard";
 });
 
@@ -922,6 +932,8 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_aggregate_plan_score_mean"), "aggregate plan score mean metric missing");
   assert(metricsSource.includes("open_superforecaster_conditional_scores_total"), "conditional score count metric missing");
   assert(metricsSource.includes("open_superforecaster_conditional_score_mean"), "conditional score mean metric missing");
+  assert(metricsSource.includes("open_superforecaster_thresholded_scores_total"), "thresholded score count metric missing");
+  assert(metricsSource.includes("open_superforecaster_thresholded_score_mean"), "thresholded score mean metric missing");
   assert(metricsSource.includes("buildCalibrationGuardImpact"), "metrics exporter does not use shared calibration guard impact builder");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_status"), "calibration guard impact status metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_brier_delta"), "calibration guard impact Brier delta metric missing");
@@ -940,6 +952,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(smokeSource.includes("open_superforecaster_aggregate_stats_scores_total"), "smoke check does not require aggregate stats metric");
   assert(smokeSource.includes("open_superforecaster_aggregate_plan_scores_total"), "smoke check does not require aggregate plan metric");
   assert(smokeSource.includes("open_superforecaster_conditional_scores_total"), "smoke check does not require conditional metric");
+  assert(smokeSource.includes("open_superforecaster_thresholded_scores_total"), "smoke check does not require thresholded metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
   assert(metricsRouteSource.includes("renderPrometheusMetrics"), "metrics route does not render Prometheus metrics");
   assert(metricsRouteSource.includes("text/plain; version=0.0.4"), "metrics route missing Prometheus content type");
@@ -972,6 +985,8 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("aggregate_research_depth"), "forecast score mart missing research depth");
   assert(syncSource.includes("conditional_branch"), "forecast score mart missing conditional branch");
   assert(syncSource.includes("conditional_effect_band"), "forecast score mart missing conditional effect band");
+  assert(syncSource.includes("threshold_source"), "forecast score mart missing threshold source");
+  assert(syncSource.includes("monotonicity_repaired"), "forecast score mart missing monotonicity repair flag");
   assert(syncSource.includes("candidate_guard_suggested_adjustment"), "binary calibration bucket mart missing candidate guard adjustment");
   assert(syncSource.includes("candidate_guard_activation_status"), "binary calibration bucket mart missing candidate guard activation status");
   assert(syncSource.includes("readCalibrationGuardValidationRows"), "DuckDB sync does not read calibration guard validation reports");
@@ -1161,6 +1176,39 @@ await check("conditional forecast metadata reaches resolved score analytics", as
   assert(dashboardSource.includes("Conditional branch outcomes"), "lab dashboard does not render conditional branch outcomes");
   assert(dashboardSource.includes("Conditional effect outcomes"), "lab dashboard does not render conditional effect outcomes");
   return "conditional forecast metadata is persisted and visible in resolved score analytics";
+});
+
+await check("thresholded forecast metadata reaches resolved score analytics", async () => {
+  const snapshot = readThresholdedForecastSnapshot({
+    thresholdedForecast: {
+      thresholdDirection: "at_least",
+      thresholdSource: "caller",
+      thresholds: ["10", "20", "30"],
+      probabilities: [
+        { threshold: "10", probability: 80 },
+        { threshold: "20", probability: 50 },
+        { threshold: "30", probability: 20 },
+      ],
+      monotonicityRepaired: false,
+      attemptCount: 3,
+    },
+  });
+  assert(snapshot?.thresholdDirection === "at_least", "thresholded metadata direction mismatch");
+  assert(snapshot?.thresholdSource === "caller", "thresholded metadata source mismatch");
+  assert(snapshot?.thresholdCount === 3, "thresholded metadata threshold count mismatch");
+  assert(snapshot?.probabilitySpread === 60, "thresholded metadata probability spread mismatch");
+  assert(snapshot?.monotonicityRepaired === false, "thresholded metadata monotonicity flag mismatch");
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(resolutionSource.includes("readThresholdedForecastSnapshot(input.prediction)"), "resolution scoring does not persist thresholded metadata");
+  assert(resolutionSource.includes("byThresholdedDirection"), "performance report does not group by threshold direction");
+  assert(resolutionSource.includes("byThresholdedRepair"), "performance report does not group by threshold repair status");
+  assert(metricsSource.includes("open_superforecaster_thresholded_scores_total"), "metrics missing thresholded score counts");
+  assert(syncSource.includes("threshold_probability_spread"), "DuckDB forecast score mart missing threshold probability spread");
+  assert(dashboardSource.includes("Threshold monotonicity outcomes"), "lab dashboard does not render threshold monotonicity outcomes");
+  return "thresholded forecast metadata is persisted and visible in resolved score analytics";
 });
 
 await check("binary aggregate quality metadata is visible before resolution", async () => {

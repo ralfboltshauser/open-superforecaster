@@ -17,6 +17,7 @@ import { buildCalibrationGuardImpact, type CalibrationGuardImpact, type Calibrat
 import { readCalibrationGuardSnapshot, type CalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
+import { readThresholdedForecastSnapshot } from "./thresholded-forecast-metadata";
 
 type Db = ReturnType<typeof createDb>["db"];
 
@@ -363,6 +364,9 @@ export async function getForecastPerformanceReport(db: Db) {
   const byComplexityScore = groupScores(aggregateScores, complexityScoreGroupKey);
   const byConditionalBranch = groupScores(aggregateScores, conditionalBranchGroupKey);
   const byConditionalEffect = groupScores(aggregateScores, conditionalEffectGroupKey);
+  const byThresholdedDirection = groupScores(aggregateScores, thresholdedDirectionGroupKey);
+  const byThresholdedSource = groupScores(aggregateScores, thresholdedSourceGroupKey);
+  const byThresholdedRepair = groupScores(aggregateScores, thresholdedRepairGroupKey);
   const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
@@ -409,6 +413,9 @@ export async function getForecastPerformanceReport(db: Db) {
       byComplexityScore,
       byConditionalBranch,
       byConditionalEffect,
+      byThresholdedDirection,
+      byThresholdedSource,
+      byThresholdedRepair,
     },
     bestResolvedForecasts,
     worstResolvedForecasts,
@@ -445,6 +452,9 @@ export async function getForecastPerformanceReport(db: Db) {
       byComplexityScore,
       byConditionalBranch,
       byConditionalEffect,
+      byThresholdedDirection,
+      byThresholdedSource,
+      byThresholdedRepair,
       bestResolvedForecasts,
       worstResolvedForecasts,
       scoreTrends,
@@ -723,6 +733,7 @@ function scoreForecastPrediction(input: {
     if (actual === null) {
       return [];
     }
+    const thresholdedForecast = readThresholdedForecastSnapshot(input.prediction);
     const direction = readString(input.prediction, "thresholdDirection", "threshold_direction") === "at_most"
       ? "at_most"
       : "at_least";
@@ -749,12 +760,12 @@ function scoreForecastPrediction(input: {
       {
         scoreType: "thresholded_brier",
         scoreValue: meanNumber(points.map((point) => point.scores.brier)),
-        scoreConfig: { actual, direction, points },
+        scoreConfig: { actual, direction, points, ...(thresholdedForecast ? { thresholdedForecast } : {}) },
       },
       {
         scoreType: "thresholded_log",
         scoreValue: meanNumber(points.map((point) => point.scores.log)),
-        scoreConfig: { actual, direction, points },
+        scoreConfig: { actual, direction, points, ...(thresholdedForecast ? { thresholdedForecast } : {}) },
       },
     ];
   }
@@ -1138,6 +1149,32 @@ function conditionalEffectGroupKey(score: typeof forecastScores.$inferSelect) {
   }
   const conditionalForecast = readConditionalForecastSnapshot(score.scoreConfig);
   return conditionalForecast ? `conditional_effect:${conditionalForecast.effectBand}` : "conditional_effect:unrecorded";
+}
+
+function thresholdedDirectionGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "thresholded") {
+    return "thresholded_direction:not_thresholded";
+  }
+  const thresholdedForecast = readThresholdedForecastSnapshot(score.scoreConfig);
+  return `thresholded_direction:${thresholdedForecast?.thresholdDirection ?? "unrecorded"}`;
+}
+
+function thresholdedSourceGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "thresholded") {
+    return "thresholded_source:not_thresholded";
+  }
+  const thresholdedForecast = readThresholdedForecastSnapshot(score.scoreConfig);
+  return `thresholded_source:${thresholdedForecast?.thresholdSource ?? "unrecorded"}`;
+}
+
+function thresholdedRepairGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "thresholded") {
+    return "thresholded_repair:not_thresholded";
+  }
+  const thresholdedForecast = readThresholdedForecastSnapshot(score.scoreConfig);
+  return thresholdedForecast?.monotonicityRepaired === null || thresholdedForecast?.monotonicityRepaired === undefined
+    ? "thresholded_repair:unrecorded"
+    : `thresholded_repair:${thresholdedForecast.monotonicityRepaired ? "repaired" : "clean"}`;
 }
 
 function rankAggregateCases(
@@ -1610,6 +1647,9 @@ function renderPerformanceMarkdown(input: {
   byComplexityScore: PerformanceGroup[];
   byConditionalBranch: PerformanceGroup[];
   byConditionalEffect: PerformanceGroup[];
+  byThresholdedDirection: PerformanceGroup[];
+  byThresholdedSource: PerformanceGroup[];
+  byThresholdedRepair: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
   worstResolvedForecasts: PerformanceCase[];
   scoreTrends: PerformanceTrend[];
@@ -1663,6 +1703,15 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Conditional effect groups",
     ...renderGroupTable(input.byConditionalEffect),
+    "",
+    "## Thresholded direction groups",
+    ...renderGroupTable(input.byThresholdedDirection),
+    "",
+    "## Thresholded source groups",
+    ...renderGroupTable(input.byThresholdedSource),
+    "",
+    "## Thresholded monotonicity groups",
+    ...renderGroupTable(input.byThresholdedRepair),
     "",
     "## Calibration guard impact",
     ...renderCalibrationGuardImpact(input.calibrationGuardImpact),
