@@ -8,6 +8,8 @@ export type EvidenceCoverageSnapshot = {
   newestPublishedAt: string | null;
   oldestPublishedAt: string | null;
   evidenceAsOfDate: string | null;
+  postAsOfSourceCount: number | null;
+  sourceTimingBand: "clean" | "post_as_of" | "unknown";
   newestSourceAgeDays: number | null;
   sourceFreshnessBand: "current" | "recent" | "stale" | "old" | "unknown";
   uncertaintyCount: number | null;
@@ -32,6 +34,8 @@ export function readEvidenceCoverageSnapshot(value: unknown): EvidenceCoverageSn
   const newestPublishedAt = readString(evidence, "newestPublishedAt", "newest_published_at") ?? newestDate(publishedDates);
   const oldestPublishedAt = readString(evidence, "oldestPublishedAt", "oldest_published_at") ?? oldestDate(publishedDates);
   const evidenceAsOfDate = readIsoDate(evidence, "evidenceAsOfDate", "evidence_as_of_date", "asOfDate", "as_of_date", "presentDate", "present_date");
+  const postAsOfSourceCount = readNumber(evidence, "postAsOfSourceCount", "post_as_of_source_count")
+    ?? countPostAsOfSources(publishedDates, evidenceAsOfDate);
   const newestSourceAgeDays = readNumber(evidence, "newestSourceAgeDays", "newest_source_age_days")
     ?? sourceAgeDays(newestPublishedAt, evidenceAsOfDate);
   const uncertaintyCount = readNumber(evidence, "uncertaintyCount", "uncertainty_count") ?? readUncertainties(evidence).length;
@@ -50,6 +54,8 @@ export function readEvidenceCoverageSnapshot(value: unknown): EvidenceCoverageSn
     newestPublishedAt,
     oldestPublishedAt,
     evidenceAsOfDate,
+    postAsOfSourceCount,
+    sourceTimingBand: sourceTimingBand(postAsOfSourceCount),
     newestSourceAgeDays,
     sourceFreshnessBand: sourceFreshnessBand(newestSourceAgeDays),
     uncertaintyCount,
@@ -114,6 +120,13 @@ export function sourceFreshnessBand(ageDays: number | null): EvidenceCoverageSna
     return "stale";
   }
   return "old";
+}
+
+export function sourceTimingBand(postAsOfSourceCount: number | null): EvidenceCoverageSnapshot["sourceTimingBand"] {
+  if (postAsOfSourceCount === null || !Number.isFinite(postAsOfSourceCount)) {
+    return "unknown";
+  }
+  return postAsOfSourceCount > 0 ? "post_as_of" : "clean";
 }
 
 export function uncertaintyCountBand(count: number | null): EvidenceCoverageSnapshot["uncertaintyCountBand"] {
@@ -204,6 +217,13 @@ function sourceAgeDays(newestPublishedAt: string | null, evidenceAsOfDate: strin
     return null;
   }
   return Math.max(0, Math.floor((asOfTime - sourceTime) / 86_400_000));
+}
+
+function countPostAsOfSources(publishedDates: string[], evidenceAsOfDate: string | null) {
+  if (!evidenceAsOfDate) {
+    return null;
+  }
+  return publishedDates.filter((date) => date > evidenceAsOfDate).length;
 }
 
 function newestDate(dates: string[]) {

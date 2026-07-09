@@ -421,6 +421,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byEvidenceSourceCount = groupScores(aggregateScores, evidenceSourceCountGroupKey);
   const byEvidenceSourceDateCoverage = groupScores(aggregateScores, evidenceSourceDateCoverageGroupKey);
   const byEvidenceSourceFreshness = groupScores(aggregateScores, evidenceSourceFreshnessGroupKey);
+  const byEvidenceSourceTiming = groupScores(aggregateScores, evidenceSourceTimingGroupKey);
   const byEvidenceUncertaintyCount = groupScores(aggregateScores, evidenceUncertaintyCountGroupKey);
   const byEvidenceRationaleLength = groupScores(aggregateScores, evidenceRationaleLengthGroupKey);
   const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
@@ -496,6 +497,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceSourceCount,
       byEvidenceSourceDateCoverage,
       byEvidenceSourceFreshness,
+      byEvidenceSourceTiming,
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
       byInputContextCompleteness,
@@ -561,6 +563,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceSourceCount,
       byEvidenceSourceDateCoverage,
       byEvidenceSourceFreshness,
+      byEvidenceSourceTiming,
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
       byInputContextCompleteness,
@@ -1442,6 +1445,11 @@ function evidenceSourceFreshnessGroupKey(score: typeof forecastScores.$inferSele
   return `evidence_source_freshness:${evidenceCoverage?.sourceFreshnessBand ?? "unrecorded"}`;
 }
 
+function evidenceSourceTimingGroupKey(score: typeof forecastScores.$inferSelect) {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
+  return `evidence_source_timing:${evidenceCoverage?.sourceTimingBand ?? "unrecorded"}`;
+}
+
 function evidenceUncertaintyCountGroupKey(score: typeof forecastScores.$inferSelect) {
   const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
   return `evidence_uncertainties:${evidenceCoverage?.uncertaintyCountBand ?? "unrecorded"}`;
@@ -2136,6 +2144,13 @@ function evidenceCoverageMissSignal(item: PerformanceCase): { reason: string; de
   if (!evidence) {
     return null;
   }
+  if (evidence.sourceTimingBand === "post_as_of") {
+    return {
+      reason: `${evidence.postAsOfSourceCount ?? 0} cited source(s) published after the evidence as-of date`,
+      delta: evidence.postAsOfSourceCount,
+      severity: "high",
+    };
+  }
   if (evidence.sourceCountBand === "none" || evidence.sourceCountBand === "sparse") {
     return {
       reason: `${evidence.sourceCountBand} evidence coverage with ${evidence.sourceCount ?? 0} cited source(s)`,
@@ -2392,6 +2407,7 @@ function renderPerformanceMarkdown(input: {
   byEvidenceSourceCount: PerformanceGroup[];
   byEvidenceSourceDateCoverage: PerformanceGroup[];
   byEvidenceSourceFreshness: PerformanceGroup[];
+  byEvidenceSourceTiming: PerformanceGroup[];
   byEvidenceUncertaintyCount: PerformanceGroup[];
   byEvidenceRationaleLength: PerformanceGroup[];
   byInputContextCompleteness: PerformanceGroup[];
@@ -2518,6 +2534,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Evidence source-freshness groups",
     ...renderGroupTable(input.byEvidenceSourceFreshness),
+    "",
+    "## Evidence source-timing groups",
+    ...renderGroupTable(input.byEvidenceSourceTiming),
     "",
     "## Evidence uncertainty-count groups",
     ...renderGroupTable(input.byEvidenceUncertaintyCount),
