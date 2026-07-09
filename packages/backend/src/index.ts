@@ -1,5 +1,6 @@
 export * from "./benchmark-service";
 export * from "./btf2-importer";
+export * from "./calibration-guard-impact";
 export * from "./calibration-guard-metadata";
 export * from "./diagnostics-service";
 export * from "./health";

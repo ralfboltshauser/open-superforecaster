@@ -79,6 +79,8 @@ error deltas, and recommendation status.
 Held-out default calibration guard plans are exported to
 `osf_calibration_guard_default_plan_candidates`, and `bun run export-local`
 includes `data/reports` so local review artifacts survive archive handoff.
+The guarded-vs-unguarded impact summary is exported to Prometheus and to
+`osf_calibration_guard_impact`.
 Benchmark-derived workflow change proposals are exported to
 `osf_workflow_change_proposals`, including source benchmark run, evidence case
 ids, proposed change, expected metric and cost/latency effects, overfit risk,

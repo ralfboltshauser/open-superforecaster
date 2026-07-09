@@ -10,6 +10,7 @@ import {
   type createDb,
 } from "@open-superforecaster/db";
 import { scoreBinaryForecast } from "@open-superforecaster/evals";
+import { buildCalibrationGuardImpact, type CalibrationGuardImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot, type CalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
 
@@ -80,17 +81,6 @@ type PerformanceTrend = {
   baselineMean: number | null;
   delta: number | null;
   direction: "improved" | "worse" | "flat" | "insufficient_data";
-};
-
-type CalibrationGuardImpact = {
-  guardedRows: number;
-  unguardedRows: number;
-  guardedResolvedTasks: number;
-  unguardedResolvedTasks: number;
-  guardedMeanBrier: number | null;
-  unguardedMeanBrier: number | null;
-  brierDelta: number | null;
-  status: "no_guarded_rows" | "needs_unguarded_baseline" | "improved" | "worse" | "flat";
 };
 
 type PerformanceAttentionItem = {
@@ -350,7 +340,7 @@ export async function getForecastPerformanceReport(db: Db) {
     return `${forecastType}:${target}`;
   });
   const byCalibrationGuard = groupScores(aggregateScores, calibrationGuardGroupKey);
-  const calibrationGuardImpact = buildCalibrationGuardImpact(aggregateBrierScores);
+  const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
   const worstResolvedForecasts = [...rankedAggregateCases].reverse().slice(0, 8);
@@ -866,6 +856,14 @@ function scoreRowsForCalibration(rows: Array<typeof forecastScores.$inferSelect>
   }));
 }
 
+function scoreRowsForCalibrationGuardImpact(rows: Array<typeof forecastScores.$inferSelect>) {
+  return rows.map((row) => ({
+    score: row.scoreValue,
+    taskId: readScoreTaskId(row.scoreConfig),
+    calibrationGuard: readCalibrationGuardSnapshot(row.scoreConfig),
+  }));
+}
+
 function calibrationReplayRows(rows: Array<typeof forecastScores.$inferSelect>) {
   return rows.flatMap((row) => {
     const probability = readProbability(row.scoreConfig);
@@ -1033,56 +1031,6 @@ function calibrationGuardGroupKey(score: typeof forecastScores.$inferSelect) {
     return "unguarded";
   }
   return `guard:${guard.appliedRules.map((rule) => rule.id).sort().join("+")}`;
-}
-
-function buildCalibrationGuardImpact(rows: Array<typeof forecastScores.$inferSelect>): CalibrationGuardImpact {
-  const guardedRows = rows.filter((row) => {
-    const guard = readCalibrationGuardSnapshot(row.scoreConfig);
-    return Boolean(guard && guard.appliedRules.length > 0);
-  });
-  const unguardedRows = rows.filter((row) => {
-    const guard = readCalibrationGuardSnapshot(row.scoreConfig);
-    return !guard || guard.appliedRules.length === 0;
-  });
-  const guardedMeanBrier = meanScore(guardedRows);
-  const unguardedMeanBrier = meanScore(unguardedRows);
-  const brierDelta = guardedMeanBrier === null || unguardedMeanBrier === null
-    ? null
-    : roundMetric(guardedMeanBrier - unguardedMeanBrier);
-  return {
-    guardedRows: guardedRows.length,
-    unguardedRows: unguardedRows.length,
-    guardedResolvedTasks: uniqueResolvedTaskCount(guardedRows),
-    unguardedResolvedTasks: uniqueResolvedTaskCount(unguardedRows),
-    guardedMeanBrier,
-    unguardedMeanBrier,
-    brierDelta,
-    status: calibrationGuardImpactStatus(guardedRows.length, unguardedRows.length, brierDelta),
-  };
-}
-
-function calibrationGuardImpactStatus(
-  guardedRows: number,
-  unguardedRows: number,
-  brierDelta: number | null,
-): CalibrationGuardImpact["status"] {
-  if (guardedRows === 0) {
-    return "no_guarded_rows";
-  }
-  if (unguardedRows === 0 || brierDelta === null) {
-    return "needs_unguarded_baseline";
-  }
-  if (brierDelta < 0) {
-    return "improved";
-  }
-  if (brierDelta > 0) {
-    return "worse";
-  }
-  return "flat";
-}
-
-function uniqueResolvedTaskCount(rows: Array<typeof forecastScores.$inferSelect>) {
-  return new Set(rows.map((row) => readScoreTaskId(row.scoreConfig)).filter(Boolean)).size;
 }
 
 function rankAggregateCases(

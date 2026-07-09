@@ -15,6 +15,8 @@ import {
   type createDb,
 } from "@open-superforecaster/db";
 import { summarizeBenchmarkPromotionGateEvidence } from "./benchmark-service";
+import { buildCalibrationGuardImpact } from "./calibration-guard-impact";
+import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { buildBinaryCalibrationReport } from "./performance-calibration";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
 
@@ -431,9 +433,30 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     })),
     productResolutionIds.length,
   );
+  const calibrationGuardImpact = buildCalibrationGuardImpact(productAggregateBrierRows.map((row) => ({
+    score: row.scoreValue,
+    taskId: readString(asRecord(row.scoreConfig), "taskId"),
+    calibrationGuard: readCalibrationGuardSnapshot(row.scoreConfig),
+  })));
   metrics.gauge("open_superforecaster_binary_calibration_status", "Binary aggregate calibration fitting status.", 1, {
     status: calibrationReport.calibrationSummary.status,
   });
+  metrics.gauge("open_superforecaster_calibration_guard_impact_status", "Calibration guard impact status from resolved aggregate Brier rows.", 1, {
+    status: calibrationGuardImpact.status,
+  });
+  metrics.gauge("open_superforecaster_calibration_guard_impact_guarded_rows", "Guarded aggregate Brier rows in calibration guard impact summary.", calibrationGuardImpact.guardedRows);
+  metrics.gauge("open_superforecaster_calibration_guard_impact_unguarded_rows", "Unguarded aggregate Brier rows in calibration guard impact summary.", calibrationGuardImpact.unguardedRows);
+  metrics.gauge("open_superforecaster_calibration_guard_impact_guarded_resolved_tasks", "Guarded resolved tasks in calibration guard impact summary.", calibrationGuardImpact.guardedResolvedTasks);
+  metrics.gauge("open_superforecaster_calibration_guard_impact_unguarded_resolved_tasks", "Unguarded resolved tasks in calibration guard impact summary.", calibrationGuardImpact.unguardedResolvedTasks);
+  if (calibrationGuardImpact.guardedMeanBrier !== null) {
+    metrics.gauge("open_superforecaster_calibration_guard_impact_guarded_mean_brier", "Mean Brier for guarded aggregate forecasts.", calibrationGuardImpact.guardedMeanBrier);
+  }
+  if (calibrationGuardImpact.unguardedMeanBrier !== null) {
+    metrics.gauge("open_superforecaster_calibration_guard_impact_unguarded_mean_brier", "Mean Brier for unguarded aggregate forecasts.", calibrationGuardImpact.unguardedMeanBrier);
+  }
+  if (calibrationGuardImpact.brierDelta !== null) {
+    metrics.gauge("open_superforecaster_calibration_guard_impact_brier_delta", "Guarded minus unguarded mean Brier.", calibrationGuardImpact.brierDelta);
+  }
   metrics.gauge(
     "open_superforecaster_binary_calibration_sample_size",
     "Binary aggregate calibration sample size.",

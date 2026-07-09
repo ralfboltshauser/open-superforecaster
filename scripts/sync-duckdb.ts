@@ -2,6 +2,8 @@ import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { DuckDBInstance, type DuckDBAppender, type DuckDBConnection } from "@duckdb/node-api";
 import postgres from "postgres";
+import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
+import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationInput } from "../packages/backend/src/performance-calibration";
 import { loadAppConfig } from "../packages/config/src/index";
 import { listFilesNamed, readJson, readRecord, readString, type JsonRecord } from "./lib/forecast-script-utils";
@@ -284,6 +286,8 @@ try {
 
   const binaryCalibrationBuckets = buildBinaryCalibrationBucketMartRows(forecastScores);
   await replaceTable(duck, "osf_binary_calibration_buckets", binaryCalibrationBucketColumns, binaryCalibrationBuckets);
+  const calibrationGuardImpact = [buildCalibrationGuardImpactMartRow(forecastScores, new Date().toISOString())];
+  await replaceTable(duck, "osf_calibration_guard_impact", calibrationGuardImpactColumns, calibrationGuardImpact);
 
   const workflowChangeProposals = await pg<WorkflowChangeProposalMartRow[]>`
     select
@@ -377,6 +381,7 @@ try {
     osf_benchmark_case_results: benchmarkCases.length,
     osf_forecast_scores: forecastScores.length,
     osf_binary_calibration_buckets: binaryCalibrationBuckets.length,
+    osf_calibration_guard_impact: calibrationGuardImpact.length,
     osf_workflow_change_proposals: workflowChangeProposals.length,
     osf_calibration_guard_validations: calibrationGuardValidations.length,
     osf_calibration_guard_default_plan_candidates: calibrationGuardDefaultPlanCandidates.length,
@@ -392,6 +397,7 @@ try {
       "select benchmark_run_id, paired_mean_brier_delta, paired_brier_ci_lower, paired_brier_ci_upper, recommendation_status from osf_benchmark_runs where comparison_report_artifact_id is not null;",
       "select benchmark_run_id, promotion_gate_status, promotion_gate_blockers from osf_benchmark_runs order by created_at desc limit 5;",
       "select bucket_label, sample_size, calibration_error, candidate_guard_suggested_adjustment from osf_binary_calibration_buckets;",
+      "select status, guarded_rows, unguarded_rows, brier_delta from osf_calibration_guard_impact;",
       "select proposal_id, recommendation, brier_delta, calibration_error_delta from osf_calibration_guard_validations order by generated_at desc limit 5;",
       "select proposal_id, bucket_label, suggested_adjustment, brier_delta, calibration_error_delta, implementation_status from osf_calibration_guard_default_plan_candidates order by generated_at desc limit 5;",
       "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label, validation_benchmark_run_id, validation_result_status, validation_recommendation_status, validation_paired_mean_brier_delta, validation_gate_status from osf_workflow_change_proposals order by created_at desc limit 5;",
@@ -553,6 +559,18 @@ const binaryCalibrationBucketColumns = [
   { name: "minimum_for_fitting", type: "INTEGER" },
 ] satisfies DuckColumn[];
 
+const calibrationGuardImpactColumns = [
+  { name: "generated_at", type: "VARCHAR" },
+  { name: "status", type: "VARCHAR" },
+  { name: "guarded_rows", type: "INTEGER" },
+  { name: "unguarded_rows", type: "INTEGER" },
+  { name: "guarded_resolved_tasks", type: "INTEGER" },
+  { name: "unguarded_resolved_tasks", type: "INTEGER" },
+  { name: "guarded_mean_brier", type: "DOUBLE" },
+  { name: "unguarded_mean_brier", type: "DOUBLE" },
+  { name: "brier_delta", type: "DOUBLE" },
+] satisfies DuckColumn[];
+
 const workflowChangeProposalColumns = [
   { name: "workflow_change_proposal_id", type: "VARCHAR" },
   { name: "source_benchmark_run_id", type: "VARCHAR" },
@@ -656,6 +674,7 @@ type BenchmarkRunMartRow = RowFor<typeof benchmarkRunColumns>;
 type BenchmarkCaseMartRow = RowFor<typeof benchmarkCaseColumns>;
 type ForecastScoreMartRow = RowFor<typeof forecastScoreColumns>;
 type BinaryCalibrationBucketMartRow = RowFor<typeof binaryCalibrationBucketColumns>;
+type CalibrationGuardImpactMartRow = RowFor<typeof calibrationGuardImpactColumns>;
 type WorkflowChangeProposalMartRow = RowFor<typeof workflowChangeProposalColumns>;
 type SourceMartRow = RowFor<typeof sourceColumns>;
 type CalibrationGuardValidationMartRow = RowFor<typeof calibrationGuardValidationColumns>;
@@ -758,6 +777,39 @@ function buildBinaryCalibrationBucketMartRows(forecastScores: ForecastScoreMartR
       minimum_for_fitting: report.calibrationSummary.minimumForFitting,
     };
   });
+}
+
+function buildCalibrationGuardImpactMartRow(
+  forecastScores: ForecastScoreMartRow[],
+  generatedAt: string,
+): CalibrationGuardImpactMartRow {
+  const productAggregateBrierScores = forecastScores.filter((score) =>
+    score.score_type === "brier" &&
+    Boolean(score.forecast_aggregate_id) &&
+    score.source === "manual_resolution" &&
+    Boolean(score.task_id)
+  );
+  const impact = buildCalibrationGuardImpact(productAggregateBrierScores.flatMap((score) => {
+    if (typeof score.score_value !== "number" || !Number.isFinite(score.score_value)) {
+      return [];
+    }
+    return [{
+      score: score.score_value,
+      taskId: typeof score.task_id === "string" ? score.task_id : null,
+      calibrationGuard: readCalibrationGuardSnapshot(parseJsonRecord(score.score_config_json)),
+    }];
+  }));
+  return {
+    generated_at: generatedAt,
+    status: impact.status,
+    guarded_rows: impact.guardedRows,
+    unguarded_rows: impact.unguardedRows,
+    guarded_resolved_tasks: impact.guardedResolvedTasks,
+    unguarded_resolved_tasks: impact.unguardedResolvedTasks,
+    guarded_mean_brier: impact.guardedMeanBrier,
+    unguarded_mean_brier: impact.unguardedMeanBrier,
+    brier_delta: impact.brierDelta,
+  };
 }
 
 function scoreToCalibrationInput(score: ForecastScoreMartRow): BinaryCalibrationInput {

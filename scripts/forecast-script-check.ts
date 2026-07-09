@@ -6,6 +6,7 @@ import {
   benchmarkPromotionGateBlockerIds,
   summarizeBenchmarkPromotionGateEvidence,
 } from "../packages/backend/src/benchmark-service";
+import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
 import { applyBinaryCalibrationGuard, BINARY_CALIBRATION_GUARD_RULES } from "../packages/workflows/src/binary-calibration-guard";
@@ -801,6 +802,38 @@ await check("forecast performance reports surface candidate calibration guards",
   return "candidate calibration guard rules are visible in report artifacts and the lab dashboard";
 });
 
+await check("calibration guard impact summary compares guarded and unguarded Brier", async () => {
+  const impact = buildCalibrationGuardImpact([
+    {
+      score: 0.2,
+      taskId: "guarded-1",
+      calibrationGuard: {
+        adjustment: -5,
+        appliedRules: [{ id: "production-ramp-threshold", adjustment: -5, note: "Subtracted 5 points." }],
+      },
+    },
+    {
+      score: 0.4,
+      taskId: "unguarded-1",
+      calibrationGuard: null,
+    },
+    {
+      score: 0.6,
+      taskId: "unguarded-2",
+      calibrationGuard: { adjustment: 0, appliedRules: [] },
+    },
+  ]);
+  assert(impact.status === "improved", "guard impact status mismatch");
+  assert(impact.guardedRows === 1, "guarded row count mismatch");
+  assert(impact.unguardedRows === 2, "unguarded row count mismatch");
+  assert(impact.guardedResolvedTasks === 1, "guarded task count mismatch");
+  assert(impact.unguardedResolvedTasks === 2, "unguarded task count mismatch");
+  assert(impact.guardedMeanBrier === 0.2, "guarded mean Brier mismatch");
+  assert(impact.unguardedMeanBrier === 0.5, "unguarded mean Brier mismatch");
+  assert(impact.brierDelta === -0.3, "guard impact Brier delta mismatch");
+  return "calibration guard impact summary is shared and deterministic";
+});
+
 await check("forecast calibration health is exported as metrics", async () => {
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const smokeSource = await readFile(resolve(root, "scripts/smoke-check.ts"), "utf8");
@@ -811,6 +844,9 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_binary_calibration_bucket_error"), "calibration bucket error metric missing");
   assert(metricsSource.includes("open_superforecaster_binary_calibration_diagnostic"), "calibration diagnostic metric missing");
   assert(metricsSource.includes("open_superforecaster_binary_calibration_candidate_guard_rules_total"), "candidate calibration guard metric missing");
+  assert(metricsSource.includes("buildCalibrationGuardImpact"), "metrics exporter does not use shared calibration guard impact builder");
+  assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_status"), "calibration guard impact status metric missing");
+  assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_brier_delta"), "calibration guard impact Brier delta metric missing");
   assert(metricsSource.includes("readCalibrationGuardValidationMetricRows"), "metrics exporter does not read calibration guard validation reports");
   assert(metricsSource.includes("readCalibrationGuardDefaultPlanMetricRows"), "metrics exporter does not read calibration guard default plan reports");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "calibration validation report metric missing");
@@ -819,6 +855,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_candidates_total"), "calibration default plan candidate metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_candidate_brier_delta"), "calibration default plan Brier delta metric missing");
   assert(smokeSource.includes("open_superforecaster_binary_calibration_status"), "smoke check does not require calibration status metric");
+  assert(smokeSource.includes("open_superforecaster_calibration_guard_impact_status"), "smoke check does not require calibration guard impact metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
   assert(metricsRouteSource.includes("renderPrometheusMetrics"), "metrics route does not render Prometheus metrics");
   assert(metricsRouteSource.includes("text/plain; version=0.0.4"), "metrics route missing Prometheus content type");
@@ -830,9 +867,11 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   const validationSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-validation.ts"), "utf8");
   assert(syncSource.includes("osf_forecast_scores"), "DuckDB sync missing forecast score mart");
   assert(syncSource.includes("osf_binary_calibration_buckets"), "DuckDB sync missing binary calibration bucket mart");
+  assert(syncSource.includes("osf_calibration_guard_impact"), "DuckDB sync missing calibration guard impact mart");
   assert(syncSource.includes("osf_calibration_guard_validations"), "DuckDB sync missing calibration guard validation mart");
   assert(syncSource.includes("osf_calibration_guard_default_plan_candidates"), "DuckDB sync missing calibration guard default plan mart");
   assert(syncSource.includes("buildBinaryCalibrationReport"), "DuckDB sync does not use shared binary calibration report builder");
+  assert(syncSource.includes("buildCalibrationGuardImpact"), "DuckDB sync does not use shared calibration guard impact builder");
   assert(syncSource.includes("buildBinaryCalibrationBucketMartRows"), "DuckDB sync missing calibration bucket mart mapper");
   assert(syncSource.includes("calibration_guard_adjustment"), "forecast score mart missing calibration guard adjustment");
   assert(syncSource.includes("calibration_guard_rules_json"), "forecast score mart missing calibration guard rules");
