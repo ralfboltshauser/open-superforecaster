@@ -125,12 +125,62 @@ button {
   text-align: center;
 }
 
+.hero-logo-wrap {
+  display: block;
+  isolation: isolate;
+  margin: 0 auto;
+  position: relative;
+  width: fit-content;
+}
+
+/* Soft premium halo behind the Möbius mark. */
+.hero-logo-wrap::before {
+  animation: halo-breathe 7.5s ease-in-out infinite;
+  background:
+    radial-gradient(closest-side, oklch(0.76 0.12 244 / 0.24), oklch(0.76 0.12 244 / 0.08) 52%, transparent 76%),
+    radial-gradient(closest-side, oklch(0.94 0.012 252 / 0.14), transparent 60%);
+  content: "";
+  inset: -46% -30%;
+  pointer-events: none;
+  position: absolute;
+  z-index: -1;
+}
+
+/* Minimal blueprint sparkles scattered around the mark. */
+.hero-logo-sparkles {
+  animation: sparkle-twinkle 6s ease-in-out infinite;
+  background-image:
+    radial-gradient(1.6px 1.6px at 8% 24%, oklch(0.95 0.02 252 / 0.95), transparent 60%),
+    radial-gradient(1.2px 1.2px at 91% 30%, oklch(0.76 0.12 244 / 0.9), transparent 60%),
+    radial-gradient(1.5px 1.5px at 82% 80%, oklch(0.95 0.02 252 / 0.85), transparent 60%),
+    radial-gradient(1.1px 1.1px at 16% 84%, oklch(0.76 0.12 244 / 0.85), transparent 60%);
+  content: "";
+  inset: -28% -18%;
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+}
+
+.hero-logo-sparkles::after {
+  animation: sparkle-twinkle 4.7s ease-in-out infinite 1.3s;
+  background-image:
+    radial-gradient(1.3px 1.3px at 50% 6%, oklch(0.95 0.02 252 / 0.9), transparent 60%),
+    radial-gradient(1px 1px at 30% 12%, oklch(0.76 0.12 244 / 0.85), transparent 60%),
+    radial-gradient(1.2px 1.2px at 70% 92%, oklch(0.95 0.02 252 / 0.8), transparent 60%),
+    radial-gradient(1px 1px at 4% 58%, oklch(0.76 0.12 244 / 0.8), transparent 60%);
+  content: "";
+  inset: 0;
+  position: absolute;
+}
+
 .hero-logo {
   filter: drop-shadow(0 0 34px oklch(0.76 0.12 244 / 0.22));
   height: 8rem;
   margin: 0 auto;
   object-fit: contain;
+  position: relative;
   width: 20rem;
+  z-index: 0;
 }
 
 .hero h1 {
@@ -533,6 +583,26 @@ button {
   filter: drop-shadow(0 0 7px oklch(0.76 0.12 244 / 0.8));
 }
 
+@keyframes halo-breathe {
+  0%, 100% {
+    opacity: 0.68;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes sparkle-twinkle {
+  0%, 100% {
+    opacity: 0.32;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+
 @media (max-width: 1023px) {
   .plate {
     display: block;
@@ -637,7 +707,10 @@ button {
     scroll-behavior: auto;
   }
 
-  .glow-point {
+  .glow-point,
+  .hero-logo-wrap::before,
+  .hero-logo-sparkles,
+  .hero-logo-sparkles::after {
     animation: none;
   }
 }
