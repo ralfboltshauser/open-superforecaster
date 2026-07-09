@@ -242,6 +242,17 @@ This reads the latest `batch-index.json`, skips deferred rules and rules that
 still need more resolved forecasts, then writes JSON and Markdown proposal
 drafts under `data/reports/forecast-calibration-guard-proposals`.
 
+To replay those proposal drafts against resolved aggregate binary score rows:
+
+```bash
+bun run forecast:calibration-validate
+bun run forecast:calibration-validate -- --performance-report data/reports/forecast-performance/july-smoke/forecast-performance.json
+```
+
+The validation report compares before/after Brier score and bucket calibration
+error, then marks each proposal as `promote_for_holdout`, `needs_more_evidence`,
+or `reject`.
+
 Run the script contract checks before changing these tools:
 
 ```bash

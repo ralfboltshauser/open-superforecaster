@@ -367,6 +367,7 @@ export async function getForecastPerformanceReport(db: Db) {
     calibrationSummary: calibrationReport.calibrationSummary,
     calibrationDiagnostics: calibrationReport.calibrationDiagnostics,
     candidateCalibrationGuardRules: calibrationReport.candidateCalibrationGuardRules,
+    calibrationReplayRows: calibrationReplayRows(aggregateBrierScores),
     groups: {
       byForecastType,
       byTarget,
@@ -849,6 +850,24 @@ function scoreRowsForCalibration(rows: Array<typeof forecastScores.$inferSelect>
     resolved: readResolved(row.scoreConfig),
     score: row.scoreValue,
   }));
+}
+
+function calibrationReplayRows(rows: Array<typeof forecastScores.$inferSelect>) {
+  return rows.flatMap((row) => {
+    const probability = readProbability(row.scoreConfig);
+    const resolved = readResolved(row.scoreConfig);
+    if (probability === null || resolved === null) {
+      return [];
+    }
+    return [{
+      id: row.id,
+      taskId: readScoreTaskId(row.scoreConfig),
+      probability,
+      resolved,
+      score: row.scoreValue,
+      createdAt: row.createdAt,
+    }];
+  });
 }
 
 function readScoreTaskId(value: unknown) {

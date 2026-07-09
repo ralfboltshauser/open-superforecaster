@@ -305,6 +305,58 @@ await check("forecast calibration guard proposals require reviewed ready candida
   return "reviewed ready calibration guard candidates become proposal drafts";
 });
 
+await check("forecast calibration guard validation replays proposal impact", async () => {
+  const fixtureRoot = resolve(tempRoot, "calibration-guard-validation");
+  const proposalsDir = resolve(fixtureRoot, "proposals");
+  const performanceDir = resolve(fixtureRoot, "performance", "contract-batch");
+  const outputDir = resolve(fixtureRoot, "out");
+  await mkdir(proposalsDir, { recursive: true });
+  await mkdir(performanceDir, { recursive: true });
+  await writeJson(resolve(proposalsDir, "calibration-guard-proposals.json"), {
+    reportType: "forecast_calibration_guard_proposals",
+    proposalDrafts: [
+      {
+        id: "calibration-guard-proposal:contract-batch:candidate-guard:80-100%",
+        sourceCandidateGuardId: "candidate-guard:80-100%",
+        targetWorkflowId: "binary-calibration-guard",
+        calibrationEvidence: {
+          bucketLabel: "80-100%",
+          suggestedAdjustment: -15,
+        },
+      },
+    ],
+  });
+  await writeJson(resolve(performanceDir, "forecast-performance.json"), {
+    reportType: "forecast_performance_report",
+    generatedAt: "2026-07-09T00:07:00.000Z",
+    calibrationReplayRows: [
+      { id: "score-1", taskId: "task-1", probability: 90, resolved: false, score: 0.81 },
+      { id: "score-2", taskId: "task-2", probability: 85, resolved: true, score: 0.0225 },
+      { id: "score-3", taskId: "task-3", probability: 90, resolved: false, score: 0.81 },
+    ],
+  });
+  await runScript("scripts/forecast-calibration-guard-validation.ts", [
+    "--proposals",
+    resolve(proposalsDir, "calibration-guard-proposals.json"),
+    "--performance-report",
+    resolve(performanceDir, "forecast-performance.json"),
+    "--out-dir",
+    outputDir,
+  ]);
+  const report = readRecord(await readJson(resolve(outputDir, "calibration-guard-validation.json")));
+  const summary = readRecord(report, "summary");
+  const validations = readArray(report, "validations");
+  assert(report, "validation report missing");
+  assert(summary, "validation summary missing");
+  assert(readNumber(summary, "proposalDrafts") === 1, "proposal draft count mismatch");
+  assert(readNumber(summary, "replayRows") === 3, "replay row count mismatch");
+  assert(readNumber(summary, "promoteForHoldout") === 1, "validation should promote for holdout");
+  assert(readString(validations[0], "recommendation") === "promote_for_holdout", "wrong validation recommendation");
+  assert(readNumber(validations[0], "matchedRows") === 3, "matched replay rows mismatch");
+  assert((readNumber(validations[0], "brierDelta") ?? 0) < 0, "candidate guard did not improve Brier");
+  return "calibration guard proposals are replayed before promotion";
+});
+
 await check("forecast attention backlog filters batch review status", async () => {
   const batchIndexRoot = resolve(tempRoot, "attention-backlog", "batches");
   const outputDir = resolve(tempRoot, "attention-backlog", "out");
@@ -573,6 +625,7 @@ await check("forecast performance reports surface candidate calibration guards",
   const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
   assert(resolutionSource.includes("candidateCalibrationGuardRules: calibrationReport.candidateCalibrationGuardRules"), "performance report missing candidate calibration guard rules");
+  assert(resolutionSource.includes("calibrationReplayRows: calibrationReplayRows(aggregateBrierScores)"), "performance report missing calibration replay rows");
   assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");
   assert(dashboardSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not read candidate calibration guard rules");
   assert(dashboardSource.includes("Candidate calibration guards"), "lab dashboard does not render candidate calibration guard rules");
