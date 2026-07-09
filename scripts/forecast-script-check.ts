@@ -11,6 +11,7 @@ import { readAggregateStatsSnapshot } from "../packages/backend/src/aggregate-st
 import { readBaselineSanitySnapshot } from "../packages/backend/src/baseline-sanity-metadata";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
+import { readCategoricalForecastSnapshot } from "../packages/backend/src/categorical-forecast-metadata";
 import { readConditionalForecastSnapshot } from "../packages/backend/src/conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "../packages/backend/src/date-forecast-metadata";
 import { readNumericForecastSnapshot } from "../packages/backend/src/numeric-forecast-metadata";
@@ -839,6 +840,9 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Numeric unit groups"), "performance Markdown missing numeric unit group section");
   assert(resolutionSource.includes("## Date interval groups"), "performance Markdown missing date interval group section");
   assert(resolutionSource.includes("## Date never-probability groups"), "performance Markdown missing date never-probability group section");
+  assert(resolutionSource.includes("## Categorical confidence groups"), "performance Markdown missing categorical confidence group section");
+  assert(resolutionSource.includes("## Categorical entropy groups"), "performance Markdown missing categorical entropy group section");
+  assert(resolutionSource.includes("## Categorical source groups"), "performance Markdown missing categorical source group section");
   assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");
   assert(dashboardSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not read candidate calibration guard rules");
   assert(dashboardSource.includes("Candidate calibration guards"), "lab dashboard does not render candidate calibration guard rules");
@@ -876,6 +880,12 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Date interval outcomes"), "lab dashboard does not render date interval performance groups");
   assert(dashboardSource.includes("byDateNeverProbability"), "lab dashboard does not read date never-probability performance groups");
   assert(dashboardSource.includes("Date never-probability outcomes"), "lab dashboard does not render date never-probability performance groups");
+  assert(dashboardSource.includes("byCategoricalConfidence"), "lab dashboard does not read categorical confidence performance groups");
+  assert(dashboardSource.includes("Categorical confidence outcomes"), "lab dashboard does not render categorical confidence performance groups");
+  assert(dashboardSource.includes("byCategoricalEntropy"), "lab dashboard does not read categorical entropy performance groups");
+  assert(dashboardSource.includes("Categorical entropy outcomes"), "lab dashboard does not render categorical entropy performance groups");
+  assert(dashboardSource.includes("byCategoricalSource"), "lab dashboard does not read categorical source performance groups");
+  assert(dashboardSource.includes("Categorical source outcomes"), "lab dashboard does not render categorical source performance groups");
   return "candidate calibration guard rules are visible in report artifacts and the lab dashboard";
 });
 
@@ -952,6 +962,8 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_numeric_distribution_score_mean"), "numeric distribution score mean metric missing");
   assert(metricsSource.includes("open_superforecaster_date_distribution_scores_total"), "date distribution score count metric missing");
   assert(metricsSource.includes("open_superforecaster_date_distribution_score_mean"), "date distribution score mean metric missing");
+  assert(metricsSource.includes("open_superforecaster_categorical_distribution_scores_total"), "categorical distribution score count metric missing");
+  assert(metricsSource.includes("open_superforecaster_categorical_distribution_score_mean"), "categorical distribution score mean metric missing");
   assert(metricsSource.includes("buildCalibrationGuardImpact"), "metrics exporter does not use shared calibration guard impact builder");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_status"), "calibration guard impact status metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_brier_delta"), "calibration guard impact Brier delta metric missing");
@@ -973,6 +985,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(smokeSource.includes("open_superforecaster_thresholded_scores_total"), "smoke check does not require thresholded metric");
   assert(smokeSource.includes("open_superforecaster_numeric_distribution_scores_total"), "smoke check does not require numeric distribution metric");
   assert(smokeSource.includes("open_superforecaster_date_distribution_scores_total"), "smoke check does not require date distribution metric");
+  assert(smokeSource.includes("open_superforecaster_categorical_distribution_scores_total"), "smoke check does not require categorical distribution metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
   assert(metricsRouteSource.includes("renderPrometheusMetrics"), "metrics route does not render Prometheus metrics");
   assert(metricsRouteSource.includes("text/plain; version=0.0.4"), "metrics route missing Prometheus content type");
@@ -1011,6 +1024,9 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("numeric_attempt_count"), "forecast score mart missing numeric attempt count");
   assert(syncSource.includes("date_interval_days"), "forecast score mart missing date interval days");
   assert(syncSource.includes("date_never_probability_band"), "forecast score mart missing date never-probability band");
+  assert(syncSource.includes("categorical_top_probability_band"), "forecast score mart missing categorical top probability band");
+  assert(syncSource.includes("categorical_entropy_band"), "forecast score mart missing categorical entropy band");
+  assert(syncSource.includes("categorical_category_source"), "forecast score mart missing categorical category source");
   assert(syncSource.includes("candidate_guard_suggested_adjustment"), "binary calibration bucket mart missing candidate guard adjustment");
   assert(syncSource.includes("candidate_guard_activation_status"), "binary calibration bucket mart missing candidate guard activation status");
   assert(syncSource.includes("readCalibrationGuardValidationRows"), "DuckDB sync does not read calibration guard validation reports");
@@ -1292,6 +1308,47 @@ await check("numeric and date forecast distribution metadata reaches resolved sc
   assert(dashboardSource.includes("Numeric interval outcomes"), "lab dashboard does not render numeric interval outcomes");
   assert(dashboardSource.includes("Date never-probability outcomes"), "lab dashboard does not render date never-probability outcomes");
   return "numeric and date forecast distributions are persisted and visible in resolved score analytics";
+});
+
+await check("categorical forecast distribution metadata reaches resolved score analytics", async () => {
+  const snapshot = readCategoricalForecastSnapshot({
+    categoricalForecast: {
+      topCategory: "Alpha",
+      categories: ["Alpha", "Beta", "Other"],
+      categoriesExhaustive: false,
+      categorySource: "caller_with_other",
+      probabilities: [
+        { category: "Alpha", probability: 65 },
+        { category: "Beta", probability: 25 },
+        { category: "Other", probability: 10 },
+      ],
+      attemptCount: 3,
+    },
+  });
+  assert(snapshot?.topCategory === "Alpha", "categorical metadata top category mismatch");
+  assert(snapshot?.topProbability === 65, "categorical metadata top probability mismatch");
+  assert(snapshot?.topProbabilityBand === "moderate", "categorical metadata confidence band mismatch");
+  assert(snapshot?.categoryCount === 3, "categorical metadata category count mismatch");
+  assert(snapshot?.categorySource === "caller_with_other", "categorical metadata category source mismatch");
+  assert(snapshot?.categoriesExhaustive === false, "categorical metadata exhaustive flag mismatch");
+  assert(snapshot?.entropy === 0.78, "categorical metadata entropy mismatch");
+  assert(snapshot?.entropyBand === "diffuse", "categorical metadata entropy band mismatch");
+  assert(snapshot?.attemptCount === 3, "categorical metadata attempt count mismatch");
+
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(resolutionSource.includes("readCategoricalForecastSnapshot(input.prediction)"), "resolution scoring does not persist categorical distribution metadata");
+  assert(resolutionSource.includes("byCategoricalConfidence"), "performance report does not group by categorical confidence");
+  assert(resolutionSource.includes("byCategoricalEntropy"), "performance report does not group by categorical entropy");
+  assert(resolutionSource.includes("byCategoricalSource"), "performance report does not group by categorical source");
+  assert(metricsSource.includes("open_superforecaster_categorical_distribution_scores_total"), "metrics missing categorical distribution score counts");
+  assert(syncSource.includes("categorical_top_probability"), "DuckDB forecast score mart missing categorical top probability");
+  assert(syncSource.includes("categorical_entropy_band"), "DuckDB forecast score mart missing categorical entropy band");
+  assert(dashboardSource.includes("Categorical confidence outcomes"), "lab dashboard does not render categorical confidence outcomes");
+  assert(dashboardSource.includes("Categorical entropy outcomes"), "lab dashboard does not render categorical entropy outcomes");
+  return "categorical forecast distributions are persisted and visible in resolved score analytics";
 });
 
 await check("binary aggregate quality metadata is visible before resolution", async () => {

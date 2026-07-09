@@ -298,7 +298,10 @@ monotonicity repair status, curve spread, and attempt count so repaired or
 extracted threshold curves can be reviewed separately from clean caller-provided
 curves. Numeric and date score rows preserve quantile interval width, unit,
 attempt count, and date never-probability bands so wide or unit-specific
-forecasts can be compared against resolved errors.
+forecasts can be compared against resolved errors. Categorical score rows
+preserve top-choice confidence, normalized entropy, category source, closed-set
+status, and category count so diffuse or model-generated option sets can be
+reviewed separately.
 
 To consolidate those local artifacts into one audit file:
 

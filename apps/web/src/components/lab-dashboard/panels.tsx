@@ -487,6 +487,9 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byNumericUnit = readArray(groups, "byNumericUnit").filter(isRecord)
   const byDateInterval = readArray(groups, "byDateInterval").filter(isRecord)
   const byDateNeverProbability = readArray(groups, "byDateNeverProbability").filter(isRecord)
+  const byCategoricalConfidence = readArray(groups, "byCategoricalConfidence").filter(isRecord)
+  const byCategoricalEntropy = readArray(groups, "byCategoricalEntropy").filter(isRecord)
+  const byCategoricalSource = readArray(groups, "byCategoricalSource").filter(isRecord)
   const bestForecasts = readArray(performance, "bestResolvedForecasts").filter(isRecord)
   const worstForecasts = readArray(performance, "worstResolvedForecasts").filter(isRecord)
   const scoreTrends = readArray(performance, "scoreTrends").filter(isRecord)
@@ -549,6 +552,9 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byNumericUnit.length ? <PerformancePlanShapeGroupList groups={byNumericUnit} title="Numeric unit outcomes" skipKey="numeric_unit:not_numeric" fallback="numeric unit" /> : null}
         {byDateInterval.length ? <PerformancePlanShapeGroupList groups={byDateInterval} title="Date interval outcomes" skipKey="date_interval:not_date" fallback="date interval" /> : null}
         {byDateNeverProbability.length ? <PerformancePlanShapeGroupList groups={byDateNeverProbability} title="Date never-probability outcomes" skipKey="date_never_probability:not_date" fallback="date never probability" /> : null}
+        {byCategoricalConfidence.length ? <PerformancePlanShapeGroupList groups={byCategoricalConfidence} title="Categorical confidence outcomes" skipKey="categorical_confidence:not_categorical" fallback="categorical confidence" /> : null}
+        {byCategoricalEntropy.length ? <PerformancePlanShapeGroupList groups={byCategoricalEntropy} title="Categorical entropy outcomes" skipKey="categorical_entropy:not_categorical" fallback="categorical entropy" /> : null}
+        {byCategoricalSource.length ? <PerformancePlanShapeGroupList groups={byCategoricalSource} title="Categorical source outcomes" skipKey="categorical_source:not_categorical" fallback="categorical source" /> : null}
         {calibrationBuckets.length ? <PerformanceCalibrationList buckets={calibrationBuckets} summary={calibrationSummary} /> : null}
         {candidateCalibrationGuardRules.length ? <PerformanceCandidateGuardList rules={candidateCalibrationGuardRules} /> : null}
         {needsAttention.length ? <PerformanceAttentionList items={needsAttention} /> : null}

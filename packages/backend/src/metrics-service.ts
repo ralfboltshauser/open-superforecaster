@@ -20,6 +20,7 @@ import { readAggregateStatsSnapshot } from "./aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { buildCalibrationGuardImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
+import { readCategoricalForecastSnapshot } from "./categorical-forecast-metadata";
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
@@ -786,6 +787,54 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge(
       "open_superforecaster_date_distribution_score_mean",
       "Mean product date aggregate forecast score by interval width and never-probability band.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
+    );
+  }
+  const categoricalScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readString(asRecord(row.scoreConfig), "forecastType") === "categorical"
+  );
+  if (categoricalScoreRows.length === 0) {
+    const labels = {
+      score_type: "all",
+      top_probability_band: "none",
+      entropy_band: "unknown",
+      category_source: "unknown",
+    };
+    metrics.gauge(
+      "open_superforecaster_categorical_distribution_scores_total",
+      "Product categorical aggregate forecast score rows by confidence, entropy, and category source.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_categorical_distribution_score_mean",
+      "Mean product categorical aggregate forecast score by confidence, entropy, and category source.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(categoricalScoreRows, (row) => {
+    const categoricalForecast = readCategoricalForecastSnapshot(row.scoreConfig);
+    return labelKey({
+      score_type: row.scoreType,
+      top_probability_band: categoricalForecast?.topProbabilityBand ?? "unknown",
+      entropy_band: categoricalForecast?.entropyBand ?? "unknown",
+      category_source: categoricalForecast?.categorySource ?? "unknown",
+    });
+  })) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_categorical_distribution_scores_total",
+      "Product categorical aggregate forecast score rows by confidence, entropy, and category source.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_categorical_distribution_score_mean",
+      "Mean product categorical aggregate forecast score by confidence, entropy, and category source.",
       mean(rows.map((row) => row.scoreValue)),
       labels,
     );

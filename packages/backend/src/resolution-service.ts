@@ -15,6 +15,7 @@ import { readAggregateStatsSnapshot, type AggregateStatsSnapshot } from "./aggre
 import { readBaselineSanitySnapshot, type BaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { buildCalibrationGuardImpact, type CalibrationGuardImpact, type CalibrationGuardRuleImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot, type CalibrationGuardSnapshot } from "./calibration-guard-metadata";
+import { readCategoricalForecastSnapshot } from "./categorical-forecast-metadata";
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
@@ -373,6 +374,9 @@ export async function getForecastPerformanceReport(db: Db) {
   const byNumericUnit = groupScores(aggregateScores, numericUnitGroupKey);
   const byDateInterval = groupScores(aggregateScores, dateIntervalGroupKey);
   const byDateNeverProbability = groupScores(aggregateScores, dateNeverProbabilityGroupKey);
+  const byCategoricalConfidence = groupScores(aggregateScores, categoricalConfidenceGroupKey);
+  const byCategoricalEntropy = groupScores(aggregateScores, categoricalEntropyGroupKey);
+  const byCategoricalSource = groupScores(aggregateScores, categoricalSourceGroupKey);
   const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
@@ -426,6 +430,9 @@ export async function getForecastPerformanceReport(db: Db) {
       byNumericUnit,
       byDateInterval,
       byDateNeverProbability,
+      byCategoricalConfidence,
+      byCategoricalEntropy,
+      byCategoricalSource,
     },
     bestResolvedForecasts,
     worstResolvedForecasts,
@@ -469,6 +476,9 @@ export async function getForecastPerformanceReport(db: Db) {
       byNumericUnit,
       byDateInterval,
       byDateNeverProbability,
+      byCategoricalConfidence,
+      byCategoricalEntropy,
+      byCategoricalSource,
       bestResolvedForecasts,
       worstResolvedForecasts,
       scoreTrends,
@@ -724,6 +734,7 @@ function scoreForecastPrediction(input: {
     if (distribution.length === 0) {
       return [];
     }
+    const categoricalForecast = readCategoricalForecastSnapshot(input.prediction);
     const categories = uniqueStrings([...distribution.map((item) => item.category), actualCategory]);
     const probabilityByCategory = new Map(distribution.map((item) => [item.category, item.probability]));
     const brier = categories.reduce((sum, category) => {
@@ -736,12 +747,12 @@ function scoreForecastPrediction(input: {
       {
         scoreType: "categorical_brier",
         scoreValue: brier,
-        scoreConfig: { actualCategory, distribution },
+        scoreConfig: { actualCategory, distribution, ...(categoricalForecast ? { categoricalForecast } : {}) },
       },
       {
         scoreType: "categorical_log",
         scoreValue: -Math.log(Math.max(1e-6, actualProbability)),
-        scoreConfig: { actualCategory, actualProbability, distribution },
+        scoreConfig: { actualCategory, actualProbability, distribution, ...(categoricalForecast ? { categoricalForecast } : {}) },
       },
     ];
   }
@@ -1227,6 +1238,30 @@ function dateNeverProbabilityGroupKey(score: typeof forecastScores.$inferSelect)
   return `date_never_probability:${dateForecast?.neverProbabilityBand ?? "unrecorded"}`;
 }
 
+function categoricalConfidenceGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "categorical") {
+    return "categorical_confidence:not_categorical";
+  }
+  const categoricalForecast = readCategoricalForecastSnapshot(score.scoreConfig);
+  return `categorical_confidence:${categoricalForecast?.topProbabilityBand ?? "unrecorded"}`;
+}
+
+function categoricalEntropyGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "categorical") {
+    return "categorical_entropy:not_categorical";
+  }
+  const categoricalForecast = readCategoricalForecastSnapshot(score.scoreConfig);
+  return `categorical_entropy:${categoricalForecast?.entropyBand ?? "unrecorded"}`;
+}
+
+function categoricalSourceGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "categorical") {
+    return "categorical_source:not_categorical";
+  }
+  const categoricalForecast = readCategoricalForecastSnapshot(score.scoreConfig);
+  return `categorical_source:${categoricalForecast?.categorySource ?? "unrecorded"}`;
+}
+
 function rankAggregateCases(
   rows: Array<typeof forecastScores.$inferSelect>,
   taskMeta: Map<string, { id: string; label: string; operationSubmode: string | null }>,
@@ -1704,6 +1739,9 @@ function renderPerformanceMarkdown(input: {
   byNumericUnit: PerformanceGroup[];
   byDateInterval: PerformanceGroup[];
   byDateNeverProbability: PerformanceGroup[];
+  byCategoricalConfidence: PerformanceGroup[];
+  byCategoricalEntropy: PerformanceGroup[];
+  byCategoricalSource: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
   worstResolvedForecasts: PerformanceCase[];
   scoreTrends: PerformanceTrend[];
@@ -1778,6 +1816,15 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Date never-probability groups",
     ...renderGroupTable(input.byDateNeverProbability),
+    "",
+    "## Categorical confidence groups",
+    ...renderGroupTable(input.byCategoricalConfidence),
+    "",
+    "## Categorical entropy groups",
+    ...renderGroupTable(input.byCategoricalEntropy),
+    "",
+    "## Categorical source groups",
+    ...renderGroupTable(input.byCategoricalSource),
     "",
     "## Calibration guard impact",
     ...renderCalibrationGuardImpact(input.calibrationGuardImpact),

@@ -80,7 +80,9 @@ probability delta, and condition-effect band. Thresholded forecast score rows
 include direction, threshold source, threshold count, monotonicity repair status,
 curve probability spread, and attempt count. Numeric and date forecast score
 rows include quantile interval fields, unit, attempt count, and date
-never-probability bands. Binary
+never-probability bands. Categorical forecast score rows include top-choice
+confidence, normalized entropy, category source, category count, and closed-set
+status. Binary
 aggregate calibration buckets are exported to `osf_binary_calibration_buckets`
 with bucket error, diagnostic direction, and candidate guard adjustment fields.
 Those bucket rows are generated from the same shared calibration report builder
@@ -188,9 +190,10 @@ scores, worsening trends, or poor large moves away from component base-rate
 anchors, adds binary aggregate calibration buckets with expected calibration
 error, turns large calibration bucket gaps into attention items, emits
 candidate calibration guard rules for review, and writes JSON plus Markdown
-snapshots. Numeric/date interval groups and date never-probability groups are
-included alongside the binary, conditional, and thresholded groups. The lab
-dashboard renders the same outcome groups for quick scan review.
+snapshots. Numeric/date interval groups, date never-probability groups, and
+categorical confidence/entropy/source groups are included alongside the binary,
+conditional, and thresholded groups. The lab dashboard renders the same outcome
+groups for quick scan review.
 
 Use the same `--batch-id` across forecast ops, resolution, and performance
 commands to keep their manifests tied to the same operational batch.
