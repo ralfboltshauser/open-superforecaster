@@ -445,6 +445,8 @@ export async function getForecastPerformanceReport(db: Db) {
   const byInputBackgroundDepth = groupScores(aggregateScores, inputBackgroundDepthGroupKey);
   const byInputMarketContext = groupScores(aggregateScores, inputMarketContextGroupKey);
   const byInputMarketRecency = groupScores(aggregateScores, inputMarketRecencyGroupKey);
+  const byInputMarketMetadata = groupScores(aggregateScores, inputMarketMetadataGroupKey);
+  const byInputMarketCreationAge = groupScores(aggregateScores, inputMarketCreationAgeGroupKey);
   const byInputQuestionLength = groupScores(aggregateScores, inputQuestionLengthGroupKey);
   const byInputCategoryCount = groupScores(aggregateScores, inputCategoryCountGroupKey);
   const byInputCategoryCoverage = groupScores(aggregateScores, inputCategoryCoverageGroupKey);
@@ -544,6 +546,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputBackgroundDepth,
       byInputMarketContext,
       byInputMarketRecency,
+      byInputMarketMetadata,
+      byInputMarketCreationAge,
       byInputQuestionLength,
       byInputCategoryCount,
       byInputCategoryCoverage,
@@ -633,6 +637,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputBackgroundDepth,
       byInputMarketContext,
       byInputMarketRecency,
+      byInputMarketMetadata,
+      byInputMarketCreationAge,
       byInputQuestionLength,
       byInputCategoryCount,
       byInputCategoryCoverage,
@@ -1672,6 +1678,16 @@ function inputMarketRecencyGroupKey(score: typeof forecastScores.$inferSelect) {
   return `input_market_recency:${inputContext.marketPriceAgeBand}`;
 }
 
+function inputMarketMetadataGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_market_metadata:${inputContext?.marketMetadataBand ?? "unrecorded"}`;
+}
+
+function inputMarketCreationAgeGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_market_creation_age:${inputContext?.marketCreationAgeBand ?? "unrecorded"}`;
+}
+
 function inputQuestionLengthGroupKey(score: typeof forecastScores.$inferSelect) {
   const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
   return `input_question:${inputContext?.questionLengthBand ?? "unrecorded"}`;
@@ -2613,6 +2629,20 @@ function inputContextMissSignal(item: PerformanceCase): { reason: string; delta:
       severity: "medium",
     };
   }
+  if (context.marketCreationAgeBand === "future") {
+    return {
+      reason: `market creation date was after the evidence as-of date by ${formatNullableMetric(context.marketCreationAgeDays === null ? null : Math.abs(context.marketCreationAgeDays))} days`,
+      delta: context.marketCreationAgeDays,
+      severity: "high",
+    };
+  }
+  if (context.hasMarketPrice && context.marketMetadataBand === "price_only") {
+    return {
+      reason: "market price input had no platform, URL, or creation date metadata",
+      delta: context.contextCompleteness,
+      severity: "medium",
+    };
+  }
   if (context.conditionCriteriaBand === "condition_only") {
     return {
       reason: "conditional input included a condition but no separate condition resolution criteria",
@@ -2878,6 +2908,8 @@ function renderPerformanceMarkdown(input: {
   byInputBackgroundDepth: PerformanceGroup[];
   byInputMarketContext: PerformanceGroup[];
   byInputMarketRecency: PerformanceGroup[];
+  byInputMarketMetadata: PerformanceGroup[];
+  byInputMarketCreationAge: PerformanceGroup[];
   byInputQuestionLength: PerformanceGroup[];
   byInputCategoryCount: PerformanceGroup[];
   byInputCategoryCoverage: PerformanceGroup[];
@@ -3070,6 +3102,12 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input market-recency groups",
     ...renderGroupTable(input.byInputMarketRecency),
+    "",
+    "## Input market-metadata groups",
+    ...renderGroupTable(input.byInputMarketMetadata),
+    "",
+    "## Input market-creation-age groups",
+    ...renderGroupTable(input.byInputMarketCreationAge),
     "",
     "## Input question-length groups",
     ...renderGroupTable(input.byInputQuestionLength),

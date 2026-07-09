@@ -18,6 +18,12 @@ export type ForecastInputContextSnapshot = {
   marketPriceAgeDays: number | null;
   marketPriceAgeBand: "current" | "stale" | "old" | "unknown";
   marketPlatform: string | null;
+  marketUrl: string | null;
+  hasMarketUrl: boolean;
+  marketCreationDate: string | null;
+  marketCreationAgeDays: number | null;
+  marketCreationAgeBand: "future" | "new" | "established" | "old" | "unknown";
+  marketMetadataBand: "none" | "price_only" | "metadata_only" | "price_with_metadata" | "linked" | "unknown";
   categoryCount: number | null;
   categoryCountBand: "none" | "few" | "many" | "unknown";
   categoriesExhaustive: boolean | null;
@@ -71,6 +77,11 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   const marketPriceAsOfDate = readIsoDate(raw, "marketPriceAsOf", "market_price_as_of")
     ?? readIsoDate(rawMarket, "marketPriceAsOf", "market_price_as_of", "priceAsOf", "price_as_of", "asOf", "as_of");
   const marketPriceAgeDays = hasMarketPrice ? horizonDays(marketPriceAsOfDate, evidenceAsOfDate) : null;
+  const marketCreationDate = readIsoDate(raw, "marketCreationDate", "market_creation_date")
+    ?? readIsoDate(rawMarket, "marketCreationDate", "market_creation_date", "creationDate", "creation_date");
+  const marketCreationAgeDays = horizonDays(marketCreationDate, evidenceAsOfDate);
+  const marketUrl = normalized.market.marketUrl?.trim() || null;
+  const hasMarketUrl = marketUrl !== null;
   const hasCondition = Boolean(normalized.condition?.trim());
   const hasConditionResolutionCriteria = Boolean(normalized.conditionResolutionCriteria?.trim());
   const unit = normalized.unit?.trim() || null;
@@ -104,6 +115,12 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     marketPriceAgeDays,
     marketPriceAgeBand: marketPriceAgeBand(marketPriceAgeDays),
     marketPlatform,
+    marketUrl,
+    hasMarketUrl,
+    marketCreationDate,
+    marketCreationAgeDays,
+    marketCreationAgeBand: marketCreationAgeBand(marketCreationAgeDays),
+    marketMetadataBand: marketMetadataBand({ hasMarketPrice, marketPlatform, marketUrl, marketCreationDate }),
     categoryCount,
     categoryCountBand: categoryCountBand(categoryCount),
     categoriesExhaustive,
@@ -138,14 +155,18 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   const thresholdDirection = readInputThresholdDirectionValue(value);
   const resolutionHorizonDays = readNumber(value, "resolutionHorizonDays");
   const marketPriceAgeDays = readNumber(value, "marketPriceAgeDays");
+  const marketCreationAgeDays = readNumber(value, "marketCreationAgeDays");
   const backgroundLength = readNumber(value, "backgroundLength");
   const marketPriceBandValue = readString(value, "marketPriceBand");
   const marketPriceAgeBandValue = readString(value, "marketPriceAgeBand");
+  const marketCreationAgeBandValue = readString(value, "marketCreationAgeBand");
+  const marketMetadataBandValue = readString(value, "marketMetadataBand");
   const contextCompletenessBandValue = readString(value, "contextCompletenessBand");
   const resolutionHorizonBandValue = readString(value, "resolutionHorizonBand");
   const backgroundLengthBandValue = readString(value, "backgroundLengthBand");
   const unit = readString(value, "unit");
   const unitSpecificityBandValue = readString(value, "unitSpecificityBand");
+  const marketUrl = readString(value, "marketUrl");
   const categoryCoverageBandValue = readString(value, "categoryCoverageBand");
   const thresholdValueCoverageBandValue = readString(value, "thresholdValueCoverageBand");
   const thresholdDirectionBandValue = readString(value, "thresholdDirectionBand");
@@ -173,6 +194,21 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
       ? marketPriceAgeBandValue
       : marketPriceAgeBand(marketPriceAgeDays),
     marketPlatform: readString(value, "marketPlatform"),
+    marketUrl,
+    hasMarketUrl: readBoolean(value, "hasMarketUrl") ?? Boolean(marketUrl),
+    marketCreationDate: readString(value, "marketCreationDate"),
+    marketCreationAgeDays,
+    marketCreationAgeBand: isMarketCreationAgeBand(marketCreationAgeBandValue)
+      ? marketCreationAgeBandValue
+      : marketCreationAgeBand(marketCreationAgeDays),
+    marketMetadataBand: isMarketMetadataBand(marketMetadataBandValue)
+      ? marketMetadataBandValue
+      : marketMetadataBand({
+        hasMarketPrice: readBoolean(value, "hasMarketPrice") ?? false,
+        marketPlatform: readString(value, "marketPlatform"),
+        marketUrl: readString(value, "marketUrl"),
+        marketCreationDate: readString(value, "marketCreationDate"),
+      }),
     categoryCount,
     categoryCountBand: readCategoryCountBand(value) ?? categoryCountBand(categoryCount),
     categoriesExhaustive,
@@ -244,6 +280,44 @@ export function marketPriceAgeBand(days: number | null): ForecastInputContextSna
     return "stale";
   }
   return "old";
+}
+
+export function marketCreationAgeBand(days: number | null): ForecastInputContextSnapshot["marketCreationAgeBand"] {
+  if (days === null || !Number.isFinite(days)) {
+    return "unknown";
+  }
+  if (days < 0) {
+    return "future";
+  }
+  if (days <= 30) {
+    return "new";
+  }
+  if (days <= 365) {
+    return "established";
+  }
+  return "old";
+}
+
+export function marketMetadataBand(input: {
+  hasMarketPrice: boolean;
+  marketPlatform: string | null;
+  marketUrl: string | null;
+  marketCreationDate: string | null;
+}): ForecastInputContextSnapshot["marketMetadataBand"] {
+  const hasMetadata = Boolean(input.marketPlatform || input.marketCreationDate);
+  if (input.marketUrl) {
+    return "linked";
+  }
+  if (input.hasMarketPrice && hasMetadata) {
+    return "price_with_metadata";
+  }
+  if (input.hasMarketPrice) {
+    return "price_only";
+  }
+  if (hasMetadata) {
+    return "metadata_only";
+  }
+  return "none";
 }
 
 export function categoryCountBand(count: number | null): ForecastInputContextSnapshot["categoryCountBand"] {
@@ -500,6 +574,14 @@ function isMarketPriceBand(value: string | null): value is ForecastInputContextS
 
 function isMarketPriceAgeBand(value: string | null): value is ForecastInputContextSnapshot["marketPriceAgeBand"] {
   return value === "current" || value === "stale" || value === "old" || value === "unknown";
+}
+
+function isMarketCreationAgeBand(value: string | null): value is ForecastInputContextSnapshot["marketCreationAgeBand"] {
+  return value === "future" || value === "new" || value === "established" || value === "old" || value === "unknown";
+}
+
+function isMarketMetadataBand(value: string | null): value is ForecastInputContextSnapshot["marketMetadataBand"] {
+  return value === "none" || value === "price_only" || value === "metadata_only" || value === "price_with_metadata" || value === "linked" || value === "unknown";
 }
 
 function isContextCompletenessBand(value: string | null): value is ForecastInputContextSnapshot["contextCompletenessBand"] {

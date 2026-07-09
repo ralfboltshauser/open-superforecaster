@@ -668,6 +668,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byInputBackgroundDepth = readArray(groups, "byInputBackgroundDepth").filter(isRecord)
   const byInputMarketContext = readArray(groups, "byInputMarketContext").filter(isRecord)
   const byInputMarketRecency = readArray(groups, "byInputMarketRecency").filter(isRecord)
+  const byInputMarketMetadata = readArray(groups, "byInputMarketMetadata").filter(isRecord)
+  const byInputMarketCreationAge = readArray(groups, "byInputMarketCreationAge").filter(isRecord)
   const byInputQuestionLength = readArray(groups, "byInputQuestionLength").filter(isRecord)
   const byInputCategoryCount = readArray(groups, "byInputCategoryCount").filter(isRecord)
   const byInputCategoryCoverage = readArray(groups, "byInputCategoryCoverage").filter(isRecord)
@@ -776,6 +778,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byInputBackgroundDepth.length ? <PerformancePlanShapeGroupList groups={byInputBackgroundDepth} title="Input background outcomes" skipKey="input_background:unrecorded" fallback="input background" /> : null}
         {byInputMarketContext.length ? <PerformancePlanShapeGroupList groups={byInputMarketContext} title="Input market outcomes" skipKey="input_market:unrecorded" fallback="input market" /> : null}
         {byInputMarketRecency.length ? <PerformancePlanShapeGroupList groups={byInputMarketRecency} title="Input market-recency outcomes" skipKey="input_market_recency:unrecorded" fallback="input market recency" /> : null}
+        {byInputMarketMetadata.length ? <PerformancePlanShapeGroupList groups={byInputMarketMetadata} title="Input market-metadata outcomes" skipKey="input_market_metadata:unrecorded" fallback="input market metadata" /> : null}
+        {byInputMarketCreationAge.length ? <PerformancePlanShapeGroupList groups={byInputMarketCreationAge} title="Input market-creation outcomes" skipKey="input_market_creation_age:unrecorded" fallback="input market creation" /> : null}
         {byInputQuestionLength.length ? <PerformancePlanShapeGroupList groups={byInputQuestionLength} title="Input question outcomes" skipKey="input_question:unrecorded" fallback="input question" /> : null}
         {byInputCategoryCount.length ? <PerformancePlanShapeGroupList groups={byInputCategoryCount} title="Input category outcomes" skipKey="input_categories:unrecorded" fallback="input categories" /> : null}
         {byInputCategoryCoverage.length ? <PerformancePlanShapeGroupList groups={byInputCategoryCoverage} title="Input category-coverage outcomes" skipKey="input_category_coverage:unrecorded" fallback="input category coverage" /> : null}
