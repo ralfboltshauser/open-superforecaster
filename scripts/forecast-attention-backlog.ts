@@ -111,6 +111,12 @@ async function readBacklogItems(batchRoot: string, statuses: ReviewStatus[], bat
         items.push(backlogItem);
       }
     }
+    for (const rule of readRecordArray(payload, "candidateCalibrationGuardRules")) {
+      const backlogItem = readCandidateCalibrationGuardBacklogItem(rule, batchId, path);
+      if (backlogItem && statuses.includes(backlogItem.reviewStatus)) {
+        items.push(backlogItem);
+      }
+    }
   }
   return sortBacklog(items);
 }
@@ -135,6 +141,39 @@ function readBacklogItem(item: JsonRecord, batchId: string, sourcePath: string):
     taskId: readString(item, "taskId"),
     taskLabel: readString(item, "taskLabel"),
     forecastType: readString(item, "forecastType"),
+    reviewNote: readString(item, "reviewNote") ?? undefined,
+    reviewer: readString(item, "reviewer") ?? undefined,
+    reviewedAt: readString(item, "reviewedAt") ?? undefined,
+    sourcePath,
+  };
+}
+
+function readCandidateCalibrationGuardBacklogItem(item: JsonRecord, batchId: string, sourcePath: string): BacklogItem | null {
+  const id = readString(item, "id");
+  const reviewStatus = readString(item, "reviewStatus");
+  if (!id || !isReviewStatus(reviewStatus)) {
+    return null;
+  }
+  const bucketLabel = readString(item, "bucketLabel") ?? "calibration bucket";
+  const direction = readString(item, "direction") ?? "calibration_drift";
+  const activationStatus = readString(item, "activationStatus") ?? "needs_review";
+  const suggestedAdjustment = readNumber(item, "suggestedAdjustment");
+  return {
+    batchId,
+    id,
+    reviewStatus,
+    severity: activationStatus === "ready_for_review" ? "high" : "medium",
+    kind: "candidate_calibration_guard",
+    reason: readString(item, "rationale") ?? `${bucketLabel} has ${direction} and needs calibration guard review.`,
+    recommendedActions: [
+      `Review candidate ${bucketLabel} guard${suggestedAdjustment === null ? "" : ` (${formatSignedNumber(suggestedAdjustment)} pts)`} before changing live calibration.`,
+    ],
+    metric: "calibration_error",
+    score: readNumber(item, "calibrationError"),
+    delta: suggestedAdjustment,
+    taskId: null,
+    taskLabel: `${bucketLabel} candidate calibration guard`,
+    forecastType: "binary",
     reviewNote: readString(item, "reviewNote") ?? undefined,
     reviewer: readString(item, "reviewer") ?? undefined,
     reviewedAt: readString(item, "reviewedAt") ?? undefined,
@@ -278,6 +317,11 @@ function severityRank(severity: string) {
 
 function formatNumber(value: number | null) {
   return value === null ? "" : String(Math.round(value * 10_000) / 10_000);
+}
+
+function formatSignedNumber(value: number) {
+  const formatted = formatNumber(value);
+  return value >= 0 ? `+${formatted}` : formatted;
 }
 
 function isReviewStatus(value: string | undefined | null): value is ReviewStatus {

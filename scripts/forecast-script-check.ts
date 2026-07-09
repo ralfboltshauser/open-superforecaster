@@ -285,6 +285,22 @@ await check("forecast attention backlog filters batch review status", async () =
         reviewStatus: "reviewed",
       },
     ],
+    candidateCalibrationGuardRules: [
+      {
+        id: "candidate-guard:80-100%",
+        reviewStatus: "deferred",
+        reviewNote: "Waiting for a second batch.",
+        bucketLabel: "80-100%",
+        direction: "overforecast",
+        suggestedAdjustment: -15,
+        sampleSize: 5,
+        meanForecast: 90,
+        observedRate: 0,
+        calibrationError: 90,
+        activationStatus: "ready_for_review",
+        rationale: "80-100% binary aggregates are overforecasting.",
+      },
+    ],
   });
   await runScript("scripts/forecast-attention-backlog.ts", [
     "--batch-index-dir",
@@ -300,11 +316,14 @@ await check("forecast attention backlog filters batch review status", async () =
   assert(report, "backlog report is not an object");
   assert(readString(report, "reportType") === "forecast_attention_backlog", "report type mismatch");
   assert(counts, "backlog counts missing");
-  assert(readNumber(counts, "items") === 1, "filtered item count mismatch");
-  assert(readNumber(counts, "deferred") === 1, "deferred item count mismatch");
-  assert(items.length === 1, `expected 1 backlog item, got ${items.length}`);
-  assert(readString(items[0], "id") === "drift:task-2:log", "wrong backlog item selected");
-  assert(readString(items[0], "reviewStatus") === "deferred", "wrong backlog status selected");
+  assert(readNumber(counts, "items") === 2, "filtered item count mismatch");
+  assert(readNumber(counts, "deferred") === 2, "deferred item count mismatch");
+  assert(items.length === 2, `expected 2 backlog items, got ${items.length}`);
+  assert(items.some((item) => readString(item, "id") === "drift:task-2:log"), "deferred attention item missing");
+  const guardItem = items.find((item) => readString(item, "id") === "candidate-guard:80-100%");
+  assert(guardItem, "candidate calibration guard backlog item missing");
+  assert(readString(guardItem, "kind") === "candidate_calibration_guard", "candidate calibration guard kind mismatch");
+  assert(readString(guardItem, "reviewStatus") === "deferred", "wrong candidate calibration guard status selected");
   return "attention backlog reads batch indexes and filters review status";
 });
 

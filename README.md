@@ -285,7 +285,8 @@ bun run forecast:batches -- --batch-id july-smoke
 Batch reports can merge local attention and candidate calibration guard review records from
 `data/reports/forecast-attention-reviews.json` or a custom `--reviews-file`.
 Use `bun run forecast:review` to update those local review records.
-To pull open and deferred review items across generated batch indexes:
+To pull open and deferred attention items plus candidate calibration guard
+reviews across generated batch indexes:
 
 ```bash
 bun run forecast:attention
