@@ -4,6 +4,7 @@ import { DuckDBInstance, type DuckDBAppender, type DuckDBConnection } from "@duc
 import postgres from "postgres";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
+import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "../packages/backend/src/forecast-batch-health";
 import { buildBinaryCalibrationReport, type BinaryCalibrationInput } from "../packages/backend/src/performance-calibration";
 import { loadAppConfig } from "../packages/config/src/index";
 import { listFilesNamed, readJson, readRecord, readString, type JsonRecord } from "./lib/forecast-script-utils";
@@ -516,6 +517,11 @@ try {
   await replaceTable(duck, "osf_calibration_guard_default_plan_candidates", calibrationGuardDefaultPlanColumns, calibrationGuardDefaultPlanCandidates);
   const forecastAttentionItems = await readForecastAttentionItemRows(resolve(root, "data/reports/forecast-batches"));
   await replaceTable(duck, "osf_forecast_attention_items", forecastAttentionItemColumns, forecastAttentionItems);
+  const forecastBatchHealthSnapshot = readLatestForecastBatchHealth(root);
+  const forecastBatchHealth = buildForecastBatchHealthMartRows(forecastBatchHealthSnapshot);
+  await replaceTable(duck, "osf_forecast_batch_health", forecastBatchHealthColumns, forecastBatchHealth);
+  const forecastBatchHealthIssues = buildForecastBatchHealthIssueMartRows(forecastBatchHealthSnapshot);
+  await replaceTable(duck, "osf_forecast_batch_health_issues", forecastBatchHealthIssueColumns, forecastBatchHealthIssues);
 
   const counts = {
     osf_tasks: tasks.length,
@@ -530,6 +536,8 @@ try {
     osf_calibration_guard_validations: calibrationGuardValidations.length,
     osf_calibration_guard_default_plan_candidates: calibrationGuardDefaultPlanCandidates.length,
     osf_forecast_attention_items: forecastAttentionItems.length,
+    osf_forecast_batch_health: forecastBatchHealth.length,
+    osf_forecast_batch_health_issues: forecastBatchHealthIssues.length,
     osf_source_bank_entries: sources.length,
   };
   console.log(JSON.stringify({
@@ -547,6 +555,8 @@ try {
       "select proposal_id, recommendation, brier_delta, calibration_error_delta from osf_calibration_guard_validations order by generated_at desc limit 5;",
       "select proposal_id, bucket_label, suggested_adjustment, brier_delta, calibration_error_delta, implementation_status from osf_calibration_guard_default_plan_candidates order by generated_at desc limit 5;",
       "select batch_id, review_status, severity, kind, metric, score, task_label from osf_forecast_attention_items order by generated_at desc, severity limit 10;",
+      "select batch_id, status, unresolved_attention_items, unresolved_candidate_calibration_guard_rules, issue_count from osf_forecast_batch_health;",
+      "select batch_id, severity, kind, message from osf_forecast_batch_health_issues order by severity, kind;",
       "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label, validation_benchmark_run_id, validation_result_status, validation_recommendation_status, validation_paired_mean_brier_delta, validation_gate_status from osf_workflow_change_proposals order by created_at desc limit 5;",
       "select operation_mode, operation_submode, status, count(*) from osf_tasks group by 1,2,3 order by 4 desc;",
     ],
@@ -989,6 +999,48 @@ const forecastAttentionItemColumns = [
   { name: "source_path", type: "VARCHAR" },
 ] satisfies DuckColumn[];
 
+const forecastBatchHealthColumns = [
+  { name: "report_path", type: "VARCHAR" },
+  { name: "report_exists", type: "BOOLEAN" },
+  { name: "batch_id", type: "VARCHAR" },
+  { name: "status", type: "VARCHAR" },
+  { name: "generated_at", type: "VARCHAR" },
+  { name: "entries", type: "INTEGER" },
+  { name: "forecast_ops", type: "INTEGER" },
+  { name: "resolutions", type: "INTEGER" },
+  { name: "performance_reports", type: "INTEGER" },
+  { name: "completed_forecasts", type: "INTEGER" },
+  { name: "failed_forecasts", type: "INTEGER" },
+  { name: "resolved_cases", type: "INTEGER" },
+  { name: "failed_resolutions", type: "INTEGER" },
+  { name: "performance_score_rows", type: "INTEGER" },
+  { name: "attention_items", type: "INTEGER" },
+  { name: "open_attention_items", type: "INTEGER" },
+  { name: "deferred_attention_items", type: "INTEGER" },
+  { name: "reviewed_attention_items", type: "INTEGER" },
+  { name: "unresolved_attention_items", type: "INTEGER" },
+  { name: "score_regression_items", type: "INTEGER" },
+  { name: "calibration_guard_regression_items", type: "INTEGER" },
+  { name: "candidate_calibration_guard_rules", type: "INTEGER" },
+  { name: "open_candidate_calibration_guard_rules", type: "INTEGER" },
+  { name: "deferred_candidate_calibration_guard_rules", type: "INTEGER" },
+  { name: "reviewed_candidate_calibration_guard_rules", type: "INTEGER" },
+  { name: "unresolved_candidate_calibration_guard_rules", type: "INTEGER" },
+  { name: "missing_phase_count", type: "INTEGER" },
+  { name: "issue_count", type: "INTEGER" },
+  { name: "missing_phases_json", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
+const forecastBatchHealthIssueColumns = [
+  { name: "report_path", type: "VARCHAR" },
+  { name: "batch_id", type: "VARCHAR" },
+  { name: "generated_at", type: "VARCHAR" },
+  { name: "status", type: "VARCHAR" },
+  { name: "severity", type: "VARCHAR" },
+  { name: "kind", type: "VARCHAR" },
+  { name: "message", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
 type TaskMartRow = RowFor<typeof taskColumns>;
 type ArtifactRowMartRow = RowFor<typeof artifactRowColumns>;
 type BenchmarkRunMartRow = RowFor<typeof benchmarkRunColumns>;
@@ -1002,6 +1054,8 @@ type SourceMartRow = RowFor<typeof sourceColumns>;
 type CalibrationGuardValidationMartRow = RowFor<typeof calibrationGuardValidationColumns>;
 type CalibrationGuardDefaultPlanMartRow = RowFor<typeof calibrationGuardDefaultPlanColumns>;
 type ForecastAttentionItemMartRow = RowFor<typeof forecastAttentionItemColumns>;
+type ForecastBatchHealthMartRow = RowFor<typeof forecastBatchHealthColumns>;
+type ForecastBatchHealthIssueMartRow = RowFor<typeof forecastBatchHealthIssueColumns>;
 type RowFor<T extends readonly DuckColumn[]> = Record<T[number]["name"], unknown>;
 
 async function syncMetadata(duck: DuckDBConnection) {
@@ -1287,6 +1341,52 @@ async function readForecastAttentionItemRows(reportRoot: string): Promise<Foreca
     || String(left.attention_item_id ?? "").localeCompare(String(right.attention_item_id ?? ""))
     || String(left.report_path ?? "").localeCompare(String(right.report_path ?? ""))
   );
+}
+
+function buildForecastBatchHealthMartRows(health: ForecastBatchHealthSnapshot): ForecastBatchHealthMartRow[] {
+  return [{
+    report_path: health.path,
+    report_exists: health.exists,
+    batch_id: health.batchId,
+    status: health.status,
+    generated_at: health.generatedAt,
+    entries: health.summary.entries,
+    forecast_ops: health.summary.forecastOps,
+    resolutions: health.summary.resolutions,
+    performance_reports: health.summary.performanceReports,
+    completed_forecasts: health.summary.completedForecasts,
+    failed_forecasts: health.summary.failedForecasts,
+    resolved_cases: health.summary.resolvedCases,
+    failed_resolutions: health.summary.failedResolutions,
+    performance_score_rows: health.summary.performanceScoreRows,
+    attention_items: health.summary.attentionItems,
+    open_attention_items: health.summary.openAttentionItems,
+    deferred_attention_items: health.summary.deferredAttentionItems,
+    reviewed_attention_items: health.summary.reviewedAttentionItems,
+    unresolved_attention_items: health.summary.unresolvedAttentionItems,
+    score_regression_items: health.summary.scoreRegressionItems,
+    calibration_guard_regression_items: health.summary.calibrationGuardRegressionItems,
+    candidate_calibration_guard_rules: health.summary.candidateCalibrationGuardRules,
+    open_candidate_calibration_guard_rules: health.summary.openCandidateCalibrationGuardRules,
+    deferred_candidate_calibration_guard_rules: health.summary.deferredCandidateCalibrationGuardRules,
+    reviewed_candidate_calibration_guard_rules: health.summary.reviewedCandidateCalibrationGuardRules,
+    unresolved_candidate_calibration_guard_rules: health.summary.unresolvedCandidateCalibrationGuardRules,
+    missing_phase_count: health.missingPhases.length,
+    issue_count: health.issues.length,
+    missing_phases_json: JSON.stringify(health.missingPhases),
+  }];
+}
+
+function buildForecastBatchHealthIssueMartRows(health: ForecastBatchHealthSnapshot): ForecastBatchHealthIssueMartRow[] {
+  return health.issues.map((issue) => ({
+    report_path: health.path,
+    batch_id: health.batchId,
+    generated_at: health.generatedAt,
+    status: health.status,
+    severity: issue.severity,
+    kind: issue.kind,
+    message: issue.message,
+  }));
 }
 
 async function readJsonRecord(path: string) {

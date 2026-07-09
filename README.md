@@ -375,7 +375,9 @@ separately when guarded aggregates are scoring worse than unguarded aggregates;
 baseline-sanity misses remain in the same unresolved attention lane as other
 forecast postmortems. The latest local health report is also exposed through
 `/api/diagnostics` and Prometheus batch-health series, so unresolved attention
-can be monitored without opening the raw JSON artifact.
+can be monitored without opening the raw JSON artifact. `bun run duckdb:sync`
+also exports the latest batch-health summary and issue rows into
+`osf_forecast_batch_health` and `osf_forecast_batch_health_issues`.
 
 Reviewed candidate calibration guard rules can be promoted through a local
 evidence ladder:
