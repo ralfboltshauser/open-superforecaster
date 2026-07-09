@@ -442,6 +442,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byEvidenceRationaleLength = groupScores(aggregateScores, evidenceRationaleLengthGroupKey);
   const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
   const byInputResolutionHorizon = groupScores(aggregateScores, inputResolutionHorizonGroupKey);
+  const byInputBackgroundDepth = groupScores(aggregateScores, inputBackgroundDepthGroupKey);
   const byInputMarketContext = groupScores(aggregateScores, inputMarketContextGroupKey);
   const byInputMarketRecency = groupScores(aggregateScores, inputMarketRecencyGroupKey);
   const byInputQuestionLength = groupScores(aggregateScores, inputQuestionLengthGroupKey);
@@ -536,6 +537,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceRationaleLength,
       byInputContextCompleteness,
       byInputResolutionHorizon,
+      byInputBackgroundDepth,
       byInputMarketContext,
       byInputMarketRecency,
       byInputQuestionLength,
@@ -620,6 +622,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceRationaleLength,
       byInputContextCompleteness,
       byInputResolutionHorizon,
+      byInputBackgroundDepth,
       byInputMarketContext,
       byInputMarketRecency,
       byInputQuestionLength,
@@ -1630,6 +1633,11 @@ function inputResolutionHorizonGroupKey(score: typeof forecastScores.$inferSelec
   return `input_resolution_horizon:${inputContext?.resolutionHorizonBand ?? "unrecorded"}`;
 }
 
+function inputBackgroundDepthGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_background:${inputContext?.backgroundLengthBand ?? "unrecorded"}`;
+}
+
 function inputMarketContextGroupKey(score: typeof forecastScores.$inferSelect) {
   const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
   if (!inputContext) {
@@ -2580,6 +2588,13 @@ function inputContextMissSignal(item: PerformanceCase): { reason: string; delta:
       severity: "medium",
     };
   }
+  if (context.backgroundLengthBand === "absent" || context.backgroundLengthBand === "thin") {
+    return {
+      reason: `${context.backgroundLengthBand} input background (${context.backgroundLength ?? 0} words)`,
+      delta: context.backgroundLength,
+      severity: context.backgroundLengthBand === "absent" ? "high" : "medium",
+    };
+  }
   if (context.questionLengthBand === "short" || context.questionLengthBand === "long") {
     return {
       reason: `${context.questionLengthBand} question text (${context.questionLength ?? 0} words)`,
@@ -2796,6 +2811,7 @@ function renderPerformanceMarkdown(input: {
   byEvidenceRationaleLength: PerformanceGroup[];
   byInputContextCompleteness: PerformanceGroup[];
   byInputResolutionHorizon: PerformanceGroup[];
+  byInputBackgroundDepth: PerformanceGroup[];
   byInputMarketContext: PerformanceGroup[];
   byInputMarketRecency: PerformanceGroup[];
   byInputQuestionLength: PerformanceGroup[];
@@ -2977,6 +2993,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input resolution-horizon groups",
     ...renderGroupTable(input.byInputResolutionHorizon),
+    "",
+    "## Input background-depth groups",
+    ...renderGroupTable(input.byInputBackgroundDepth),
     "",
     "## Input market-context groups",
     ...renderGroupTable(input.byInputMarketContext),

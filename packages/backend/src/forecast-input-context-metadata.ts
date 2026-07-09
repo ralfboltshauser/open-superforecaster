@@ -10,6 +10,8 @@ export type ForecastInputContextSnapshot = {
   resolutionHorizonDays: number | null;
   resolutionHorizonBand: "elapsed" | "near" | "short" | "medium" | "long" | "unknown";
   hasBackground: boolean;
+  backgroundLength: number | null;
+  backgroundLengthBand: "absent" | "thin" | "adequate" | "detailed" | "unknown";
   hasMarketPrice: boolean;
   marketPriceBand: "low" | "balanced" | "high" | "unknown";
   marketPriceAsOfDate: string | null;
@@ -52,6 +54,7 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   const evidenceAsOfDate = readIsoDate(raw, "presentDate", "present_date", "evidenceAsOfDate", "evidence_as_of_date", "asOfDate", "as_of_date", "cutoffDate", "cutoff_date", "cutoff");
   const resolutionHorizonDays = horizonDays(evidenceAsOfDate, resolutionDate);
   const hasBackground = Boolean(normalized.background?.trim());
+  const backgroundLength = normalized.background?.trim() ? wordCount(normalized.background) : null;
   const hasMarketPrice = typeof normalized.market.marketPrice === "number";
   const rawMarket = asRecord(raw.market);
   const marketPriceAsOfDate = readIsoDate(raw, "marketPriceAsOf", "market_price_as_of")
@@ -81,6 +84,8 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     resolutionHorizonDays,
     resolutionHorizonBand: resolutionHorizonBand(resolutionHorizonDays),
     hasBackground,
+    backgroundLength,
+    backgroundLengthBand: backgroundLengthBand(backgroundLength),
     hasMarketPrice,
     marketPriceBand: marketPriceBand(normalized.market.marketPrice ?? null),
     marketPriceAsOfDate,
@@ -110,10 +115,12 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   const thresholdCount = readNumber(value, "thresholdCount");
   const resolutionHorizonDays = readNumber(value, "resolutionHorizonDays");
   const marketPriceAgeDays = readNumber(value, "marketPriceAgeDays");
+  const backgroundLength = readNumber(value, "backgroundLength");
   const marketPriceBandValue = readString(value, "marketPriceBand");
   const marketPriceAgeBandValue = readString(value, "marketPriceAgeBand");
   const contextCompletenessBandValue = readString(value, "contextCompletenessBand");
   const resolutionHorizonBandValue = readString(value, "resolutionHorizonBand");
+  const backgroundLengthBandValue = readString(value, "backgroundLengthBand");
   return {
     questionLength,
     questionLengthBand: readQuestionLengthBand(value) ?? questionLengthBand(questionLength),
@@ -126,6 +133,10 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
       ? resolutionHorizonBandValue
       : resolutionHorizonBand(resolutionHorizonDays),
     hasBackground: readBoolean(value, "hasBackground") ?? false,
+    backgroundLength,
+    backgroundLengthBand: isBackgroundLengthBand(backgroundLengthBandValue)
+      ? backgroundLengthBandValue
+      : backgroundLengthBand(backgroundLength),
     hasMarketPrice: readBoolean(value, "hasMarketPrice") ?? false,
     marketPriceBand: isMarketPriceBand(marketPriceBandValue) ? marketPriceBandValue : "unknown",
     marketPriceAsOfDate: readString(value, "marketPriceAsOfDate"),
@@ -256,6 +267,22 @@ export function resolutionHorizonBand(days: number | null): ForecastInputContext
   return "long";
 }
 
+export function backgroundLengthBand(count: number | null): ForecastInputContextSnapshot["backgroundLengthBand"] {
+  if (count === null) {
+    return "absent";
+  }
+  if (!Number.isFinite(count)) {
+    return "unknown";
+  }
+  if (count < 15) {
+    return "thin";
+  }
+  if (count <= 80) {
+    return "adequate";
+  }
+  return "detailed";
+}
+
 function wordCount(value: string) {
   return value.trim().split(/\s+/).filter(Boolean).length;
 }
@@ -331,6 +358,10 @@ function isContextCompletenessBand(value: string | null): value is ForecastInput
 
 function isResolutionHorizonBand(value: string | null): value is ForecastInputContextSnapshot["resolutionHorizonBand"] {
   return value === "elapsed" || value === "near" || value === "short" || value === "medium" || value === "long" || value === "unknown";
+}
+
+function isBackgroundLengthBand(value: string | null): value is ForecastInputContextSnapshot["backgroundLengthBand"] {
+  return value === "absent" || value === "thin" || value === "adequate" || value === "detailed" || value === "unknown";
 }
 
 function readString(value: Record<string, unknown>, key: string) {

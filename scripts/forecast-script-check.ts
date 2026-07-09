@@ -1010,6 +1010,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Evidence rationale-length groups"), "performance Markdown missing evidence rationale-length group section");
   assert(resolutionSource.includes("## Input context-completeness groups"), "performance Markdown missing input context-completeness group section");
   assert(resolutionSource.includes("## Input resolution-horizon groups"), "performance Markdown missing input resolution-horizon group section");
+  assert(resolutionSource.includes("## Input background-depth groups"), "performance Markdown missing input background-depth group section");
   assert(resolutionSource.includes("## Input market-context groups"), "performance Markdown missing input market-context group section");
   assert(resolutionSource.includes("## Input market-recency groups"), "performance Markdown missing input market-recency group section");
   assert(resolutionSource.includes("## Input question-length groups"), "performance Markdown missing input question-length group section");
@@ -1102,6 +1103,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Input context outcomes"), "lab dashboard does not render input context performance groups");
   assert(dashboardSource.includes("byInputResolutionHorizon"), "lab dashboard does not read input horizon performance groups");
   assert(dashboardSource.includes("Input horizon outcomes"), "lab dashboard does not render input horizon performance groups");
+  assert(dashboardSource.includes("byInputBackgroundDepth"), "lab dashboard does not read input background-depth performance groups");
+  assert(dashboardSource.includes("Input background outcomes"), "lab dashboard does not render input background-depth performance groups");
   assert(dashboardSource.includes("byInputMarketContext"), "lab dashboard does not read input market performance groups");
   assert(dashboardSource.includes("Input market outcomes"), "lab dashboard does not render input market performance groups");
   assert(dashboardSource.includes("byInputMarketRecency"), "lab dashboard does not read input market-recency performance groups");
@@ -1322,6 +1325,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("evidence_rationale_length_band"), "forecast score mart missing evidence rationale length band");
   assert(syncSource.includes("input_context_completeness_band"), "forecast score mart missing input context completeness band");
   assert(syncSource.includes("input_resolution_horizon_band"), "forecast score mart missing input resolution horizon band");
+  assert(syncSource.includes("input_background_length_band"), "forecast score mart missing input background length band");
   assert(syncSource.includes("input_market_price_band"), "forecast score mart missing input market price band");
   assert(syncSource.includes("input_market_price_age_band"), "forecast score mart missing input market price age band");
   assert(syncSource.includes("input_condition_criteria_band"), "forecast score mart missing input condition criteria band");
@@ -2228,6 +2232,8 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(snapshot?.resolutionHorizonDays === 541, "input context resolution horizon days mismatch");
   assert(snapshot?.resolutionHorizonBand === "medium", "input context resolution horizon band mismatch");
   assert(snapshot?.hasBackground === true, "input context background flag mismatch");
+  assert(snapshot?.backgroundLength === 8, "input context background length mismatch");
+  assert(snapshot?.backgroundLengthBand === "thin", "input context background length band mismatch");
   assert(snapshot?.hasMarketPrice === true, "input context market flag mismatch");
   assert(snapshot?.marketPriceBand === "high", "input context market price band mismatch");
   assert(snapshot?.marketPriceAsOfDate === "2026-06-01", "input context market price as-of date mismatch");
@@ -2257,6 +2263,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(conditionOnlySnapshot?.conditionCriteriaBand === "condition_only", "condition-only input context band mismatch");
   const persistedSnapshot = readForecastInputContextSnapshot({ inputContext: snapshot });
   assert(persistedSnapshot?.contextCompletenessBand === "rich", "persisted input context snapshot was not readable");
+  assert(persistedSnapshot?.backgroundLengthBand === "thin", "persisted input context background band mismatch");
   assert(persistedSnapshot?.marketPriceBand === "high", "persisted input context market band mismatch");
   assert(persistedSnapshot?.marketPriceAgeBand === "old", "persisted input context market age band mismatch");
   assert(persistedSnapshot?.conditionCriteriaBand === "condition_with_criteria", "persisted input context condition criteria band mismatch");
@@ -2272,6 +2279,8 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(resolutionSource.includes("byInputContextCompleteness"), "performance report does not group by input context completeness");
   assert(resolutionSource.includes("byInputResolutionHorizon"), "performance report does not group by input resolution horizon");
   assert(resolutionSource.includes("context.resolutionHorizonBand"), "attention queue does not use input resolution horizon");
+  assert(resolutionSource.includes("byInputBackgroundDepth"), "performance report does not group by input background depth");
+  assert(resolutionSource.includes("context.backgroundLengthBand"), "attention queue does not use input background depth");
   assert(resolutionSource.includes("byInputMarketContext"), "performance report does not group by input market context");
   assert(resolutionSource.includes("byInputMarketRecency"), "performance report does not group by input market recency");
   assert(resolutionSource.includes("context.marketPriceAgeBand"), "attention queue does not use input market recency");
@@ -2281,6 +2290,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(resolutionSource.includes("context.conditionCriteriaBand"), "attention queue does not use input condition criteria");
   assert(metricsSource.includes("open_superforecaster_input_context_scores_total"), "metrics missing input context score counts");
   assert(metricsSource.includes("resolution_horizon_band"), "metrics missing input resolution-horizon labels");
+  assert(metricsSource.includes("background_length_band"), "metrics missing input background-depth labels");
   assert(metricsSource.includes("market_price_age_band"), "metrics missing input market-recency labels");
   assert(metricsSource.includes("category_count_band"), "metrics missing input category-count labels");
   assert(metricsSource.includes("threshold_count_band"), "metrics missing input threshold-count labels");
@@ -2288,6 +2298,8 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(syncSource.includes("input_context_completeness_band"), "DuckDB forecast score mart missing input context completeness band");
   assert(syncSource.includes("input_resolution_horizon_days"), "DuckDB forecast score mart missing input resolution horizon days");
   assert(syncSource.includes("input_resolution_horizon_band"), "DuckDB forecast score mart missing input resolution horizon band");
+  assert(syncSource.includes("input_background_length"), "DuckDB forecast score mart missing input background length");
+  assert(syncSource.includes("input_background_length_band"), "DuckDB forecast score mart missing input background length band");
   assert(syncSource.includes("input_market_price_age_days"), "DuckDB forecast score mart missing input market price age days");
   assert(syncSource.includes("input_market_price_age_band"), "DuckDB forecast score mart missing input market price age band");
   assert(syncSource.includes("input_category_count_band"), "DuckDB forecast score mart missing input category count band");
@@ -2296,6 +2308,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(syncSource.includes("input_has_resolution_criteria"), "DuckDB forecast score mart missing resolution criteria flag");
   assert(dashboardSource.includes("Input context outcomes"), "lab dashboard does not render input context outcomes");
   assert(dashboardSource.includes("Input horizon outcomes"), "lab dashboard does not render input horizon outcomes");
+  assert(dashboardSource.includes("Input background outcomes"), "lab dashboard does not render input background outcomes");
   assert(dashboardSource.includes("Input market outcomes"), "lab dashboard does not render input market outcomes");
   assert(dashboardSource.includes("Input market-recency outcomes"), "lab dashboard does not render input market-recency outcomes");
   assert(dashboardSource.includes("Input category outcomes"), "lab dashboard does not render input category outcomes");
