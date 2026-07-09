@@ -31,6 +31,9 @@ are easier to review before promotion.
 It also summarizes large probability misses and worse-than-baseline cases, so
 judgment-quality failures are visible separately from trace or infrastructure
 failures.
+Promotion gates treat those analysis findings as blockers: missing baseline
+sanity, unexplained component disagreement, large misses, and worse-than-baseline
+cases must be cleared before a run is ready for promotion review.
 
 ## Forecast And Research Prompts
 

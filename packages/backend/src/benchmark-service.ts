@@ -74,6 +74,9 @@ export type BenchmarkPromotionGateEvidenceInput = {
   traceMissing: number;
   reviewOrFailed: number;
   comparisonStatus: BenchmarkPromotionComparisonStatus | null;
+  baselineSanityFindings?: Record<string, unknown> | null;
+  componentDisagreementFindings?: Record<string, unknown> | null;
+  forecastErrorFindings?: Record<string, unknown> | null;
 };
 
 export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotionGateEvidenceInput) {
@@ -95,6 +98,18 @@ export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotio
   } else if (input.comparisonStatus !== "candidate_better") {
     blockers.push(`comparison_${input.comparisonStatus}`);
   }
+  if (readFindingCount(input.baselineSanityFindings, "missingBaselineSanityCases", "missing_baseline_sanity_cases") > 0) {
+    blockers.push("missing_baseline_sanity");
+  }
+  if (readFindingCount(input.componentDisagreementFindings, "unexplainedHighDisagreementCases", "unexplained_high_disagreement_cases") > 0) {
+    blockers.push("unexplained_component_disagreement");
+  }
+  if (readFindingCount(input.forecastErrorFindings, "largeProbabilityMissCases", "large_probability_miss_cases") > 0) {
+    blockers.push("large_probability_misses");
+  }
+  if (readFindingCount(input.forecastErrorFindings, "worseThanBaselineCases", "worse_than_baseline_cases") > 0) {
+    blockers.push("worse_than_baseline_cases");
+  }
   return {
     status: blockers.length === 0 ? "review_for_promotion" : "needs_more_evidence",
     blockers: uniqueStrings(blockers),
@@ -104,6 +119,19 @@ export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotio
         ? "This run has paired evidence of candidate improvement and is ready for human promotion review."
         : "Use this run for iteration, but do not promote until blockers are resolved.",
   };
+}
+
+function readFindingCount(findings: Record<string, unknown> | null | undefined, ...keys: string[]) {
+  if (!findings) {
+    return 0;
+  }
+  for (const key of keys) {
+    const value = findings[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return 0;
 }
 
 const benchmarkSuitesByMode: Record<BenchmarkEvalMode, {
@@ -556,6 +584,9 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
           .limit(1)
       : [];
     const analysisReportRow = await readArtifactReportRow(db, row.analysisReportArtifactId);
+    const baselineSanityFindings = readRecord(analysisReportRow, "baselineSanityFindings", "baseline_sanity_findings") ?? null;
+    const componentDisagreementFindings = readRecord(analysisReportRow, "componentDisagreementFindings", "component_disagreement_findings") ?? null;
+    const forecastErrorFindings = readRecord(analysisReportRow, "forecastErrorFindings", "forecast_error_findings") ?? null;
     enriched.push({
       ...row,
       workflowId: variant?.workflowId ?? null,
@@ -563,15 +594,18 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
       workflowPromotionState: variant?.promotionState ?? "candidate",
       latestPromotionDecision: latestPromotionDecision ?? null,
       comparison: comparisonReportRow?.rowJson ?? null,
-      baselineSanityFindings: readRecord(analysisReportRow, "baselineSanityFindings", "baseline_sanity_findings") ?? null,
-      componentDisagreementFindings: readRecord(analysisReportRow, "componentDisagreementFindings", "component_disagreement_findings") ?? null,
-      forecastErrorFindings: readRecord(analysisReportRow, "forecastErrorFindings", "forecast_error_findings") ?? null,
+      baselineSanityFindings,
+      componentDisagreementFindings,
+      forecastErrorFindings,
       promotionGate: summarizeBenchmarkPromotionGateEvidence({
         runStatus: row.status,
         resultCount: results.length,
         traceMissing: results.filter((result) => !result.traceBundleUri).length,
         reviewOrFailed: results.filter((result) => result.status === "failed" || result.status === "needs_review").length,
         comparisonStatus: readComparisonRecommendationStatus(comparisonReportRow?.rowJson ?? null),
+        baselineSanityFindings,
+        componentDisagreementFindings,
+        forecastErrorFindings,
       }),
       completedCases: results.filter((result) => result.status === "completed").length,
       failedCases: results.filter((result) => result.status === "failed").length,
@@ -714,6 +748,7 @@ export async function getBenchmarkRunDetail(db: Db, benchmarkRunId: string) {
         metrics,
         results,
         comparison: comparisonReportRow,
+        analysisReport: analysisReportRow,
       }),
     },
     cases: detailedCases,
@@ -2756,6 +2791,7 @@ function benchmarkPromotionGateSummary(input: {
   metrics: ReturnType<typeof benchmarkRunMetrics>;
   results: BenchmarkCaseResultRow[];
   comparison: Record<string, unknown> | null;
+  analysisReport: Record<string, unknown> | null;
 }) {
   const traceMissing = input.results.filter((result) => !result.traceBundleUri).length;
   const reviewOrFailed = input.metrics.failedCases + input.metrics.reviewCases;
@@ -2765,6 +2801,9 @@ function benchmarkPromotionGateSummary(input: {
     traceMissing,
     reviewOrFailed,
     comparisonStatus: readComparisonRecommendationStatus(input.comparison),
+    baselineSanityFindings: readRecord(input.analysisReport, "baselineSanityFindings", "baseline_sanity_findings"),
+    componentDisagreementFindings: readRecord(input.analysisReport, "componentDisagreementFindings", "component_disagreement_findings"),
+    forecastErrorFindings: readRecord(input.analysisReport, "forecastErrorFindings", "forecast_error_findings"),
   });
 }
 

@@ -493,6 +493,21 @@ await check("benchmark promotion gate requires paired improvement", async () => 
   });
   assert(candidateBetter.status === "review_for_promotion", "candidate improvement should be reviewable");
   assert(candidateBetter.blockers.length === 0, "candidate improvement should not have blockers");
+  const qualityBlocked = summarizeBenchmarkPromotionGateEvidence({
+    runStatus: "completed",
+    resultCount: 24,
+    traceMissing: 0,
+    reviewOrFailed: 0,
+    comparisonStatus: "candidate_better",
+    baselineSanityFindings: { missingBaselineSanityCases: 1 },
+    componentDisagreementFindings: { unexplainedHighDisagreementCases: 1 },
+    forecastErrorFindings: { largeProbabilityMissCases: 1, worseThanBaselineCases: 1 },
+  });
+  assert(qualityBlocked.status === "needs_more_evidence", "analysis quality findings should block promotion review");
+  assert(qualityBlocked.blockers.includes("missing_baseline_sanity"), "baseline sanity blocker missing");
+  assert(qualityBlocked.blockers.includes("unexplained_component_disagreement"), "component disagreement blocker missing");
+  assert(qualityBlocked.blockers.includes("large_probability_misses"), "large miss blocker missing");
+  assert(qualityBlocked.blockers.includes("worse_than_baseline_cases"), "worse-than-baseline blocker missing");
   return "promotion review requires paired candidate improvement";
 });
 
