@@ -6,6 +6,9 @@ export type NumericForecastSnapshot = {
   intervalWidth: number | null;
   intervalWidthBand: "narrow" | "moderate" | "wide" | "unknown";
   actualValue: number | null;
+  p50Error: number | null;
+  absoluteP50Error: number | null;
+  p50ErrorBand: "near" | "moderate" | "large" | "extreme" | "unknown";
   resolvedPositionBand: "below_p10" | "p10_to_p50" | "p50_to_p90" | "above_p90" | "unknown";
   attemptCount: number | null;
   componentValueCount: number | null;
@@ -40,6 +43,8 @@ export function readNumericForecastSnapshot(value: unknown): NumericForecastSnap
     return null;
   }
   const intervalWidth = p10 === null || p90 === null ? null : roundMetric(Math.abs(p90 - p10));
+  const p50Error = numericP50Error({ actualValue, p50 });
+  const absoluteP50Error = p50Error === null ? null : roundMetric(Math.abs(p50Error));
   return {
     unit,
     p10,
@@ -48,10 +53,53 @@ export function readNumericForecastSnapshot(value: unknown): NumericForecastSnap
     intervalWidth,
     intervalWidthBand: numericIntervalWidthBand(intervalWidth, p50),
     actualValue,
+    p50Error,
+    absoluteP50Error,
+    p50ErrorBand: numericP50ErrorBand(absoluteP50Error, intervalWidth, p50),
     resolvedPositionBand: numericResolvedPositionBand({ actualValue, p10, p50, p90 }),
     attemptCount,
     ...componentStats,
   };
+}
+
+export function numericP50Error(input: {
+  actualValue: number | null;
+  p50: number | null;
+}) {
+  if (
+    input.actualValue === null ||
+    input.p50 === null ||
+    !Number.isFinite(input.actualValue) ||
+    !Number.isFinite(input.p50)
+  ) {
+    return null;
+  }
+  return roundMetric(input.p50 - input.actualValue);
+}
+
+export function numericP50ErrorBand(
+  absoluteError: number | null,
+  intervalWidth: number | null,
+  center: number | null,
+): NumericForecastSnapshot["p50ErrorBand"] {
+  if (absoluteError === null || !Number.isFinite(absoluteError)) {
+    return "unknown";
+  }
+  const scale = intervalWidth !== null && Number.isFinite(intervalWidth) && intervalWidth > 0
+    ? absoluteError / intervalWidth
+    : center === null || center === 0
+      ? absoluteError
+      : absoluteError / Math.abs(center);
+  if (scale >= 2) {
+    return "extreme";
+  }
+  if (scale >= 1) {
+    return "large";
+  }
+  if (scale >= 0.25) {
+    return "moderate";
+  }
+  return "near";
 }
 
 export function numericResolvedPositionBand(input: {

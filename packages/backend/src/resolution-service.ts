@@ -419,10 +419,12 @@ export async function getForecastPerformanceReport(db: Db) {
   const byNumericInterval = groupScores(aggregateScores, numericIntervalGroupKey);
   const byNumericUnit = groupScores(aggregateScores, numericUnitGroupKey);
   const byNumericP50Disagreement = groupScores(aggregateScores, numericP50DisagreementGroupKey);
+  const byNumericP50Error = groupScores(aggregateScores, numericP50ErrorGroupKey);
   const byNumericResolvedPosition = groupScores(aggregateScores, numericResolvedPositionGroupKey);
   const byDateInterval = groupScores(aggregateScores, dateIntervalGroupKey);
   const byDateNeverProbability = groupScores(aggregateScores, dateNeverProbabilityGroupKey);
   const byDateP50Disagreement = groupScores(aggregateScores, dateP50DisagreementGroupKey);
+  const byDateP50Error = groupScores(aggregateScores, dateP50ErrorGroupKey);
   const byDateResolvedPosition = groupScores(aggregateScores, dateResolvedPositionGroupKey);
   const byCategoricalConfidence = groupScores(aggregateScores, categoricalConfidenceGroupKey);
   const byCategoricalEntropy = groupScores(aggregateScores, categoricalEntropyGroupKey);
@@ -508,10 +510,12 @@ export async function getForecastPerformanceReport(db: Db) {
       byNumericInterval,
       byNumericUnit,
       byNumericP50Disagreement,
+      byNumericP50Error,
       byNumericResolvedPosition,
       byDateInterval,
       byDateNeverProbability,
       byDateP50Disagreement,
+      byDateP50Error,
       byDateResolvedPosition,
       byCategoricalConfidence,
       byCategoricalEntropy,
@@ -587,10 +591,12 @@ export async function getForecastPerformanceReport(db: Db) {
       byNumericInterval,
       byNumericUnit,
       byNumericP50Disagreement,
+      byNumericP50Error,
       byNumericResolvedPosition,
       byDateInterval,
       byDateNeverProbability,
       byDateP50Disagreement,
+      byDateP50Error,
       byDateResolvedPosition,
       byCategoricalConfidence,
       byCategoricalEntropy,
@@ -1461,6 +1467,14 @@ function numericP50DisagreementGroupKey(score: typeof forecastScores.$inferSelec
   return `numeric_p50_disagreement:${numericForecast?.p50DisagreementBand ?? "unrecorded"}`;
 }
 
+function numericP50ErrorGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "numeric") {
+    return "numeric_p50_error:not_numeric";
+  }
+  const numericForecast = readNumericForecastSnapshot(score.scoreConfig);
+  return `numeric_p50_error:${numericForecast?.p50ErrorBand ?? "unrecorded"}`;
+}
+
 function numericResolvedPositionGroupKey(score: typeof forecastScores.$inferSelect) {
   if (readString(score.scoreConfig, "forecastType") !== "numeric") {
     return "numeric_resolved_position:not_numeric";
@@ -1491,6 +1505,14 @@ function dateP50DisagreementGroupKey(score: typeof forecastScores.$inferSelect) 
   }
   const dateForecast = readDateForecastSnapshot(score.scoreConfig);
   return `date_p50_disagreement:${dateForecast?.p50DisagreementBand ?? "unrecorded"}`;
+}
+
+function dateP50ErrorGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "date") {
+    return "date_p50_error:not_date";
+  }
+  const dateForecast = readDateForecastSnapshot(score.scoreConfig);
+  return `date_p50_error:${dateForecast?.p50ErrorBand ?? "unrecorded"}`;
 }
 
 function dateResolvedPositionGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2275,6 +2297,19 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
   if (
     item.forecastType === "numeric" &&
     item.numericForecast !== null &&
+    (item.numericForecast.p50ErrorBand === "large" || item.numericForecast.p50ErrorBand === "extreme")
+  ) {
+    return {
+      reason:
+        `${item.numericForecast.p50ErrorBand} numeric median miss of ${formatNullableMetric(item.numericForecast.absoluteP50Error)} ${item.numericForecast.unit ?? "units"}`,
+      delta: item.numericForecast.absoluteP50Error,
+      severity: item.numericForecast.p50ErrorBand === "extreme" ? "high" : "medium",
+    };
+  }
+
+  if (
+    item.forecastType === "numeric" &&
+    item.numericForecast !== null &&
     ["moderate", "wide"].includes(item.numericForecast.p50DisagreementBand)
   ) {
     return {
@@ -2295,6 +2330,19 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
         `resolved date was ${item.dateForecast.resolvedPositionBand.replace(/_/g, " ")} for date forecast interval ${item.dateForecast.p10 ?? "unknown"}-${item.dateForecast.p90 ?? "unknown"}`,
       delta: item.dateForecast.intervalDays,
       severity: "high",
+    };
+  }
+
+  if (
+    item.forecastType === "date" &&
+    item.dateForecast !== null &&
+    (item.dateForecast.p50ErrorBand === "large" || item.dateForecast.p50ErrorBand === "extreme")
+  ) {
+    return {
+      reason:
+        `${item.dateForecast.p50ErrorBand} date median miss of ${formatNullableMetric(item.dateForecast.absoluteP50ErrorDays)} days`,
+      delta: item.dateForecast.absoluteP50ErrorDays,
+      severity: item.dateForecast.p50ErrorBand === "extreme" ? "high" : "medium",
     };
   }
 
@@ -2673,10 +2721,12 @@ function renderPerformanceMarkdown(input: {
   byNumericInterval: PerformanceGroup[];
   byNumericUnit: PerformanceGroup[];
   byNumericP50Disagreement: PerformanceGroup[];
+  byNumericP50Error: PerformanceGroup[];
   byNumericResolvedPosition: PerformanceGroup[];
   byDateInterval: PerformanceGroup[];
   byDateNeverProbability: PerformanceGroup[];
   byDateP50Disagreement: PerformanceGroup[];
+  byDateP50Error: PerformanceGroup[];
   byDateResolvedPosition: PerformanceGroup[];
   byCategoricalConfidence: PerformanceGroup[];
   byCategoricalEntropy: PerformanceGroup[];
@@ -2804,6 +2854,9 @@ function renderPerformanceMarkdown(input: {
     "## Numeric component-value groups",
     ...renderGroupTable(input.byNumericP50Disagreement),
     "",
+    "## Numeric median-error groups",
+    ...renderGroupTable(input.byNumericP50Error),
+    "",
     "## Numeric resolved-position groups",
     ...renderGroupTable(input.byNumericResolvedPosition),
     "",
@@ -2815,6 +2868,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Date component timing groups",
     ...renderGroupTable(input.byDateP50Disagreement),
+    "",
+    "## Date median-error groups",
+    ...renderGroupTable(input.byDateP50Error),
     "",
     "## Date resolved-position groups",
     ...renderGroupTable(input.byDateResolvedPosition),

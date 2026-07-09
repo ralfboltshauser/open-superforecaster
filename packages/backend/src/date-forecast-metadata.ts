@@ -5,6 +5,9 @@ export type DateForecastSnapshot = {
   intervalDays: number | null;
   intervalBand: "narrow" | "moderate" | "wide" | "unknown";
   actualDate: string | null;
+  p50ErrorDays: number | null;
+  absoluteP50ErrorDays: number | null;
+  p50ErrorBand: "near" | "moderate" | "large" | "extreme" | "unknown";
   resolvedPositionBand: "before_p10" | "p10_to_p50" | "p50_to_p90" | "after_p90" | "unknown";
   neverProbability: number | null;
   neverProbabilityBand: "low" | "moderate" | "high" | "unknown";
@@ -41,6 +44,8 @@ export function readDateForecastSnapshot(value: unknown): DateForecastSnapshot |
     return null;
   }
   const intervalDays = dateIntervalDays(p10, p90);
+  const p50ErrorDays = dateP50ErrorDays({ actualDate, p50 });
+  const absoluteP50ErrorDays = p50ErrorDays === null ? null : Math.abs(p50ErrorDays);
   return {
     p10,
     p50,
@@ -48,12 +53,49 @@ export function readDateForecastSnapshot(value: unknown): DateForecastSnapshot |
     intervalDays,
     intervalBand: dateIntervalBand(intervalDays),
     actualDate,
+    p50ErrorDays,
+    absoluteP50ErrorDays,
+    p50ErrorBand: dateP50ErrorBand(absoluteP50ErrorDays, intervalDays),
     resolvedPositionBand: dateResolvedPositionBand({ actualDate, p10, p50, p90 }),
     neverProbability,
     neverProbabilityBand: neverBand(neverProbability),
     attemptCount,
     ...componentStats,
   };
+}
+
+export function dateP50ErrorDays(input: {
+  actualDate: string | null;
+  p50: string | null;
+}) {
+  const actual = dateTime(input.actualDate);
+  const p50 = dateTime(input.p50);
+  if (actual === null || p50 === null) {
+    return null;
+  }
+  return Math.round((p50 - actual) / 86_400_000);
+}
+
+export function dateP50ErrorBand(
+  absoluteErrorDays: number | null,
+  intervalDays: number | null,
+): DateForecastSnapshot["p50ErrorBand"] {
+  if (absoluteErrorDays === null || !Number.isFinite(absoluteErrorDays)) {
+    return "unknown";
+  }
+  const scale = intervalDays !== null && Number.isFinite(intervalDays) && intervalDays > 0
+    ? absoluteErrorDays / intervalDays
+    : absoluteErrorDays;
+  if (scale >= 2) {
+    return "extreme";
+  }
+  if (scale >= 1) {
+    return "large";
+  }
+  if (scale >= 0.25) {
+    return "moderate";
+  }
+  return "near";
 }
 
 export function dateResolvedPositionBand(input: {
