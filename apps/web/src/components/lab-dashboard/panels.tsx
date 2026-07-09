@@ -636,6 +636,7 @@ function PerformanceTrendList({ trends }: { trends: JsonRecord[] }) {
 }
 
 function PerformanceGuardImpact({ impact }: { impact: JsonRecord }) {
+  const ruleImpacts = readArray(impact, "byRule").filter(isRecord).slice(0, 4)
   return (
     <div className="border-t pt-3">
       <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Calibration guard impact</p>
@@ -659,6 +660,18 @@ function PerformanceGuardImpact({ impact }: { impact: JsonRecord }) {
           </span>
         </div>
       </div>
+      {ruleImpacts.length > 0 ? (
+        <div className="mt-2 grid gap-2 md:grid-cols-2">
+          {ruleImpacts.map((rule) => (
+            <div className="rounded-md border px-3 py-2 text-sm" key={String(rule.ruleId ?? "rule")}>
+              <span className="block truncate font-medium">{String(rule.ruleId ?? "rule")} · {String(rule.status ?? "unknown")}</span>
+              <span className="mt-1 block truncate text-xs text-muted-foreground">
+                delta {formatSignedMetric(rule.brierDelta) || "unknown"} · {String(rule.guardedResolvedTasks ?? 0)} guarded tasks
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }

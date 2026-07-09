@@ -10,7 +10,7 @@ import {
   type createDb,
 } from "@open-superforecaster/db";
 import { scoreBinaryForecast } from "@open-superforecaster/evals";
-import { buildCalibrationGuardImpact, type CalibrationGuardImpact } from "./calibration-guard-impact";
+import { buildCalibrationGuardImpact, type CalibrationGuardImpact, type CalibrationGuardRuleImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot, type CalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
 
@@ -1198,7 +1198,7 @@ function buildNeedsAttentionQueue(
     rank: 200 - diagnostic.score,
   }));
 
-  const guardImpactItems = calibrationGuardImpact.status === "worse" && calibrationGuardImpact.brierDelta !== null
+  const overallGuardImpactItems = calibrationGuardImpact.status === "worse" && calibrationGuardImpact.brierDelta !== null
     ? [{
         id: "calibration-guard-impact:worse-brier",
         kind: "calibration_guard_regression" as const,
@@ -1220,8 +1220,31 @@ function buildNeedsAttentionQueue(
         rank: 150,
       }]
     : [];
+  const ruleGuardImpactItems = calibrationGuardImpact.byRule
+    .filter((impact) => impact.status === "worse" && impact.brierDelta !== null)
+    .slice(0, 5)
+    .map((impact, index) => ({
+      id: `calibration-guard-impact:${impact.ruleId}:worse-brier`,
+      kind: "calibration_guard_regression" as const,
+      severity: "high" as const,
+      reason:
+        `${impact.ruleId} guarded aggregate forecasts have worse mean Brier than unguarded aggregates by ${formatSignedMetric(impact.brierDelta ?? 0)}.`,
+      recommendedActions: recommendAttentionActions({
+        kind: "calibration_guard_regression",
+        metric: "brier",
+        severity: "high",
+        forecastType: "binary",
+      }),
+      metric: "brier",
+      score: impact.guardedMeanBrier,
+      delta: impact.brierDelta,
+      taskId: null,
+      taskLabel: `Calibration guard rule: ${impact.ruleId}`,
+      forecastType: "binary",
+      rank: 151 + index,
+    }));
 
-  return [...caseItems, ...trendItems, ...guardImpactItems, ...calibrationItems]
+  return [...caseItems, ...trendItems, ...overallGuardImpactItems, ...ruleGuardImpactItems, ...calibrationItems]
     .sort((left, right) => {
       const severityDelta = severityRank(right.severity) - severityRank(left.severity);
       if (severityDelta !== 0) {
@@ -1402,6 +1425,21 @@ function renderCalibrationGuardImpact(impact: CalibrationGuardImpact) {
     `Guarded mean Brier: ${formatNullableMetric(impact.guardedMeanBrier)}`,
     `Unguarded mean Brier: ${formatNullableMetric(impact.unguardedMeanBrier)}`,
     `Guarded minus unguarded Brier: ${impact.brierDelta === null ? "unknown" : formatSignedMetric(impact.brierDelta)}`,
+    "",
+    ...renderCalibrationGuardRuleImpactTable(impact.byRule),
+  ];
+}
+
+function renderCalibrationGuardRuleImpactTable(ruleImpacts: CalibrationGuardRuleImpact[]) {
+  if (ruleImpacts.length === 0) {
+    return ["No applied calibration guard rules have resolved Brier rows yet."];
+  }
+  return [
+    "| Rule | Status | Guarded rows | Guarded tasks | Guarded mean Brier | Delta vs unguarded |",
+    "| --- | --- | ---: | ---: | ---: | ---: |",
+    ...ruleImpacts.map((impact) =>
+      `| ${impact.ruleId} | ${impact.status} | ${impact.guardedRows} | ${impact.guardedResolvedTasks} | ${formatNullableMetric(impact.guardedMeanBrier)} | ${impact.brierDelta === null ? "unknown" : formatSignedMetric(impact.brierDelta)} |`,
+    ),
   ];
 }
 

@@ -457,6 +457,18 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
   if (calibrationGuardImpact.brierDelta !== null) {
     metrics.gauge("open_superforecaster_calibration_guard_impact_brier_delta", "Guarded minus unguarded mean Brier.", calibrationGuardImpact.brierDelta);
   }
+  for (const ruleImpact of calibrationGuardImpact.byRule) {
+    const labels = { rule_id: ruleImpact.ruleId, status: ruleImpact.status };
+    metrics.gauge("open_superforecaster_calibration_guard_rule_impact_status", "Calibration guard impact status by applied rule id.", 1, labels);
+    metrics.gauge("open_superforecaster_calibration_guard_rule_impact_guarded_rows", "Guarded aggregate Brier rows by applied calibration guard rule.", ruleImpact.guardedRows, labels);
+    metrics.gauge("open_superforecaster_calibration_guard_rule_impact_guarded_resolved_tasks", "Guarded resolved tasks by applied calibration guard rule.", ruleImpact.guardedResolvedTasks, labels);
+    if (ruleImpact.guardedMeanBrier !== null) {
+      metrics.gauge("open_superforecaster_calibration_guard_rule_impact_guarded_mean_brier", "Mean Brier by applied calibration guard rule.", ruleImpact.guardedMeanBrier, labels);
+    }
+    if (ruleImpact.brierDelta !== null) {
+      metrics.gauge("open_superforecaster_calibration_guard_rule_impact_brier_delta", "Rule guarded minus unguarded mean Brier.", ruleImpact.brierDelta, labels);
+    }
+  }
   metrics.gauge(
     "open_superforecaster_binary_calibration_sample_size",
     "Binary aggregate calibration sample size.",

@@ -288,6 +288,8 @@ try {
   await replaceTable(duck, "osf_binary_calibration_buckets", binaryCalibrationBucketColumns, binaryCalibrationBuckets);
   const calibrationGuardImpact = [buildCalibrationGuardImpactMartRow(forecastScores, new Date().toISOString())];
   await replaceTable(duck, "osf_calibration_guard_impact", calibrationGuardImpactColumns, calibrationGuardImpact);
+  const calibrationGuardRuleImpact = buildCalibrationGuardRuleImpactMartRows(forecastScores, new Date().toISOString());
+  await replaceTable(duck, "osf_calibration_guard_rule_impact", calibrationGuardRuleImpactColumns, calibrationGuardRuleImpact);
 
   const workflowChangeProposals = await pg<WorkflowChangeProposalMartRow[]>`
     select
@@ -382,6 +384,7 @@ try {
     osf_forecast_scores: forecastScores.length,
     osf_binary_calibration_buckets: binaryCalibrationBuckets.length,
     osf_calibration_guard_impact: calibrationGuardImpact.length,
+    osf_calibration_guard_rule_impact: calibrationGuardRuleImpact.length,
     osf_workflow_change_proposals: workflowChangeProposals.length,
     osf_calibration_guard_validations: calibrationGuardValidations.length,
     osf_calibration_guard_default_plan_candidates: calibrationGuardDefaultPlanCandidates.length,
@@ -398,6 +401,7 @@ try {
       "select benchmark_run_id, promotion_gate_status, promotion_gate_blockers from osf_benchmark_runs order by created_at desc limit 5;",
       "select bucket_label, sample_size, calibration_error, candidate_guard_suggested_adjustment from osf_binary_calibration_buckets;",
       "select status, guarded_rows, unguarded_rows, brier_delta from osf_calibration_guard_impact;",
+      "select rule_id, status, guarded_rows, brier_delta from osf_calibration_guard_rule_impact order by rule_id;",
       "select proposal_id, recommendation, brier_delta, calibration_error_delta from osf_calibration_guard_validations order by generated_at desc limit 5;",
       "select proposal_id, bucket_label, suggested_adjustment, brier_delta, calibration_error_delta, implementation_status from osf_calibration_guard_default_plan_candidates order by generated_at desc limit 5;",
       "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label, validation_benchmark_run_id, validation_result_status, validation_recommendation_status, validation_paired_mean_brier_delta, validation_gate_status from osf_workflow_change_proposals order by created_at desc limit 5;",
@@ -571,6 +575,19 @@ const calibrationGuardImpactColumns = [
   { name: "brier_delta", type: "DOUBLE" },
 ] satisfies DuckColumn[];
 
+const calibrationGuardRuleImpactColumns = [
+  { name: "generated_at", type: "VARCHAR" },
+  { name: "rule_id", type: "VARCHAR" },
+  { name: "status", type: "VARCHAR" },
+  { name: "guarded_rows", type: "INTEGER" },
+  { name: "unguarded_rows", type: "INTEGER" },
+  { name: "guarded_resolved_tasks", type: "INTEGER" },
+  { name: "unguarded_resolved_tasks", type: "INTEGER" },
+  { name: "guarded_mean_brier", type: "DOUBLE" },
+  { name: "unguarded_mean_brier", type: "DOUBLE" },
+  { name: "brier_delta", type: "DOUBLE" },
+] satisfies DuckColumn[];
+
 const workflowChangeProposalColumns = [
   { name: "workflow_change_proposal_id", type: "VARCHAR" },
   { name: "source_benchmark_run_id", type: "VARCHAR" },
@@ -675,6 +692,7 @@ type BenchmarkCaseMartRow = RowFor<typeof benchmarkCaseColumns>;
 type ForecastScoreMartRow = RowFor<typeof forecastScoreColumns>;
 type BinaryCalibrationBucketMartRow = RowFor<typeof binaryCalibrationBucketColumns>;
 type CalibrationGuardImpactMartRow = RowFor<typeof calibrationGuardImpactColumns>;
+type CalibrationGuardRuleImpactMartRow = RowFor<typeof calibrationGuardRuleImpactColumns>;
 type WorkflowChangeProposalMartRow = RowFor<typeof workflowChangeProposalColumns>;
 type SourceMartRow = RowFor<typeof sourceColumns>;
 type CalibrationGuardValidationMartRow = RowFor<typeof calibrationGuardValidationColumns>;
@@ -783,22 +801,7 @@ function buildCalibrationGuardImpactMartRow(
   forecastScores: ForecastScoreMartRow[],
   generatedAt: string,
 ): CalibrationGuardImpactMartRow {
-  const productAggregateBrierScores = forecastScores.filter((score) =>
-    score.score_type === "brier" &&
-    Boolean(score.forecast_aggregate_id) &&
-    score.source === "manual_resolution" &&
-    Boolean(score.task_id)
-  );
-  const impact = buildCalibrationGuardImpact(productAggregateBrierScores.flatMap((score) => {
-    if (typeof score.score_value !== "number" || !Number.isFinite(score.score_value)) {
-      return [];
-    }
-    return [{
-      score: score.score_value,
-      taskId: typeof score.task_id === "string" ? score.task_id : null,
-      calibrationGuard: readCalibrationGuardSnapshot(parseJsonRecord(score.score_config_json)),
-    }];
-  }));
+  const impact = buildCalibrationGuardImpact(calibrationGuardImpactInputs(forecastScores));
   return {
     generated_at: generatedAt,
     status: impact.status,
@@ -810,6 +813,43 @@ function buildCalibrationGuardImpactMartRow(
     unguarded_mean_brier: impact.unguardedMeanBrier,
     brier_delta: impact.brierDelta,
   };
+}
+
+function buildCalibrationGuardRuleImpactMartRows(
+  forecastScores: ForecastScoreMartRow[],
+  generatedAt: string,
+): CalibrationGuardRuleImpactMartRow[] {
+  return buildCalibrationGuardImpact(calibrationGuardImpactInputs(forecastScores)).byRule.map((impact) => ({
+    generated_at: generatedAt,
+    rule_id: impact.ruleId,
+    status: impact.status,
+    guarded_rows: impact.guardedRows,
+    unguarded_rows: impact.unguardedRows,
+    guarded_resolved_tasks: impact.guardedResolvedTasks,
+    unguarded_resolved_tasks: impact.unguardedResolvedTasks,
+    guarded_mean_brier: impact.guardedMeanBrier,
+    unguarded_mean_brier: impact.unguardedMeanBrier,
+    brier_delta: impact.brierDelta,
+  }));
+}
+
+function calibrationGuardImpactInputs(forecastScores: ForecastScoreMartRow[]) {
+  const productAggregateBrierScores = forecastScores.filter((score) =>
+    score.score_type === "brier" &&
+    Boolean(score.forecast_aggregate_id) &&
+    score.source === "manual_resolution" &&
+    Boolean(score.task_id)
+  );
+  return productAggregateBrierScores.flatMap((score) => {
+    if (typeof score.score_value !== "number" || !Number.isFinite(score.score_value)) {
+      return [];
+    }
+    return [{
+      score: score.score_value,
+      taskId: typeof score.task_id === "string" ? score.task_id : null,
+      calibrationGuard: readCalibrationGuardSnapshot(parseJsonRecord(score.score_config_json)),
+    }];
+  });
 }
 
 function scoreToCalibrationInput(score: ForecastScoreMartRow): BinaryCalibrationInput {

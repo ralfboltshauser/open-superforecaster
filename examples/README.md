@@ -80,7 +80,8 @@ Held-out default calibration guard plans are exported to
 `osf_calibration_guard_default_plan_candidates`, and `bun run export-local`
 includes `data/reports` so local review artifacts survive archive handoff.
 The guarded-vs-unguarded impact summary is exported to Prometheus and to
-`osf_calibration_guard_impact`.
+`osf_calibration_guard_impact`, with applied-rule rows in
+`osf_calibration_guard_rule_impact`.
 Benchmark-derived workflow change proposals are exported to
 `osf_workflow_change_proposals`, including source benchmark run, evidence case
 ids, proposed change, expected metric and cost/latency effects, overfit risk,
@@ -184,10 +185,10 @@ defaults have one place to land. Final aggregates include structured
 `calibrationGuard` metadata visible in run reports, so future calibration
 changes are deliberate and auditable. Future binary score rows keep the same
 guard metadata for performance review, including guarded-vs-unguarded score
-groups and a dedicated calibration guard impact summary.
-If guarded aggregate forecasts start scoring worse than unguarded aggregates,
-the performance report adds a high-severity attention item before more default
-guard rules are promoted.
+groups and a dedicated calibration guard impact summary with per-rule rows.
+If guarded aggregate forecasts start scoring worse than unguarded aggregates
+overall or for a specific applied rule, the performance report adds a
+high-severity attention item before more default guard rules are promoted.
 
 To generate a local batch audit from those manifests:
 

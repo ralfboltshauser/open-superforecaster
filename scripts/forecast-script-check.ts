@@ -811,12 +811,15 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("calibrationGuardImpact"), "performance report missing calibration guard impact summary");
   assert(resolutionSource.includes("calibration_guard_regression"), "performance report does not turn worse guard impact into attention");
   assert(resolutionSource.includes("guarded-vs-unguarded Brier delta recovers"), "calibration guard regression action missing");
+  assert(resolutionSource.includes("calibrationGuardImpact.byRule"), "performance report does not inspect rule-level guard impact");
   assert(resolutionSource.includes("calibrationReplayRows: calibrationReplayRows(aggregateBrierScores)"), "performance report missing calibration replay rows");
   assert(resolutionSource.includes("## Calibration guard impact"), "performance Markdown missing calibration guard impact section");
+  assert(resolutionSource.includes("renderCalibrationGuardRuleImpactTable"), "performance Markdown missing rule-level calibration guard impact table");
   assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");
   assert(dashboardSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not read candidate calibration guard rules");
   assert(dashboardSource.includes("Candidate calibration guards"), "lab dashboard does not render candidate calibration guard rules");
   assert(dashboardSource.includes("PerformanceGuardImpact"), "lab dashboard does not render calibration guard impact summary");
+  assert(dashboardSource.includes("readArray(impact, \"byRule\")"), "lab dashboard does not render rule-level guard impact");
   return "candidate calibration guard rules are visible in report artifacts and the lab dashboard";
 });
 
@@ -840,15 +843,30 @@ await check("calibration guard impact summary compares guarded and unguarded Bri
       taskId: "unguarded-2",
       calibrationGuard: { adjustment: 0, appliedRules: [] },
     },
+    {
+      score: 0.8,
+      taskId: "guarded-2",
+      calibrationGuard: {
+        adjustment: -2.5,
+        appliedRules: [{ id: "labor-deterioration-threshold", adjustment: -2.5, note: "Subtracted 2.5 points." }],
+      },
+    },
   ]);
-  assert(impact.status === "improved", "guard impact status mismatch");
-  assert(impact.guardedRows === 1, "guarded row count mismatch");
+  assert(impact.status === "flat", "guard impact status mismatch");
+  assert(impact.guardedRows === 2, "guarded row count mismatch");
   assert(impact.unguardedRows === 2, "unguarded row count mismatch");
-  assert(impact.guardedResolvedTasks === 1, "guarded task count mismatch");
+  assert(impact.guardedResolvedTasks === 2, "guarded task count mismatch");
   assert(impact.unguardedResolvedTasks === 2, "unguarded task count mismatch");
-  assert(impact.guardedMeanBrier === 0.2, "guarded mean Brier mismatch");
+  assert(impact.guardedMeanBrier === 0.5, "guarded mean Brier mismatch");
   assert(impact.unguardedMeanBrier === 0.5, "unguarded mean Brier mismatch");
-  assert(impact.brierDelta === -0.3, "guard impact Brier delta mismatch");
+  assert(impact.brierDelta === 0, "guard impact Brier delta mismatch");
+  assert(impact.byRule.length === 2, "rule-level guard impact count mismatch");
+  assert(impact.byRule[0].ruleId === "labor-deterioration-threshold", "worse rule impact should sort first");
+  assert(impact.byRule[0].status === "worse", "worse rule impact status mismatch");
+  assert(impact.byRule[0].brierDelta === 0.3, "worse rule impact Brier delta mismatch");
+  assert(impact.byRule[1].ruleId === "production-ramp-threshold", "improved rule impact should sort after worse rule");
+  assert(impact.byRule[1].status === "improved", "improved rule impact status mismatch");
+  assert(impact.byRule[1].brierDelta === -0.3, "improved rule impact Brier delta mismatch");
   return "calibration guard impact summary is shared and deterministic";
 });
 
@@ -865,6 +883,8 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("buildCalibrationGuardImpact"), "metrics exporter does not use shared calibration guard impact builder");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_status"), "calibration guard impact status metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_brier_delta"), "calibration guard impact Brier delta metric missing");
+  assert(metricsSource.includes("open_superforecaster_calibration_guard_rule_impact_status"), "rule-level calibration guard impact status metric missing");
+  assert(metricsSource.includes("open_superforecaster_calibration_guard_rule_impact_brier_delta"), "rule-level calibration guard impact Brier delta metric missing");
   assert(metricsSource.includes("readCalibrationGuardValidationMetricRows"), "metrics exporter does not read calibration guard validation reports");
   assert(metricsSource.includes("readCalibrationGuardDefaultPlanMetricRows"), "metrics exporter does not read calibration guard default plan reports");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "calibration validation report metric missing");
@@ -886,10 +906,12 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("osf_forecast_scores"), "DuckDB sync missing forecast score mart");
   assert(syncSource.includes("osf_binary_calibration_buckets"), "DuckDB sync missing binary calibration bucket mart");
   assert(syncSource.includes("osf_calibration_guard_impact"), "DuckDB sync missing calibration guard impact mart");
+  assert(syncSource.includes("osf_calibration_guard_rule_impact"), "DuckDB sync missing rule-level calibration guard impact mart");
   assert(syncSource.includes("osf_calibration_guard_validations"), "DuckDB sync missing calibration guard validation mart");
   assert(syncSource.includes("osf_calibration_guard_default_plan_candidates"), "DuckDB sync missing calibration guard default plan mart");
   assert(syncSource.includes("buildBinaryCalibrationReport"), "DuckDB sync does not use shared binary calibration report builder");
   assert(syncSource.includes("buildCalibrationGuardImpact"), "DuckDB sync does not use shared calibration guard impact builder");
+  assert(syncSource.includes("buildCalibrationGuardRuleImpactMartRows"), "DuckDB sync missing rule-level calibration guard impact mapper");
   assert(syncSource.includes("buildBinaryCalibrationBucketMartRows"), "DuckDB sync missing calibration bucket mart mapper");
   assert(syncSource.includes("calibration_guard_adjustment"), "forecast score mart missing calibration guard adjustment");
   assert(syncSource.includes("calibration_guard_rules_json"), "forecast score mart missing calibration guard rules");

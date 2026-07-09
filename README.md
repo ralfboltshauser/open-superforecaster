@@ -275,8 +275,9 @@ workflow orchestration. Final binary aggregates include a structured
 reports surface those guard rules for review. Future binary score rows persist
 the same guard metadata in score config so performance snapshots can compare
 guarded forecasts against outcomes, summarize guard-rule score groups, and
-report guarded-vs-unguarded Brier impact. Worse guarded impact is also queued
-as a high-severity attention item before more default guard rules are promoted.
+report guarded-vs-unguarded Brier impact overall and by applied rule id. Worse
+overall or rule-level guarded impact is also queued as a high-severity
+attention item before more default guard rules are promoted.
 
 To consolidate those local artifacts into one audit file:
 

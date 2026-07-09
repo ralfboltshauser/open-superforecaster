@@ -15,6 +15,19 @@ export type CalibrationGuardImpact = {
   unguardedMeanBrier: number | null;
   brierDelta: number | null;
   status: "no_guarded_rows" | "needs_unguarded_baseline" | "improved" | "worse" | "flat";
+  byRule: CalibrationGuardRuleImpact[];
+};
+
+export type CalibrationGuardRuleImpact = {
+  ruleId: string;
+  guardedRows: number;
+  unguardedRows: number;
+  guardedResolvedTasks: number;
+  unguardedResolvedTasks: number;
+  guardedMeanBrier: number | null;
+  unguardedMeanBrier: number | null;
+  brierDelta: number | null;
+  status: CalibrationGuardImpact["status"];
 };
 
 export function buildCalibrationGuardImpact(rows: CalibrationGuardImpactInput[]): CalibrationGuardImpact {
@@ -34,7 +47,43 @@ export function buildCalibrationGuardImpact(rows: CalibrationGuardImpactInput[])
     unguardedMeanBrier,
     brierDelta,
     status: calibrationGuardImpactStatus(guardedRows.length, unguardedRows.length, brierDelta),
+    byRule: buildRuleImpacts(rows, unguardedRows),
   };
+}
+
+function buildRuleImpacts(
+  rows: CalibrationGuardImpactInput[],
+  unguardedRows: CalibrationGuardImpactInput[],
+): CalibrationGuardRuleImpact[] {
+  const rowsByRule = new Map<string, CalibrationGuardImpactInput[]>();
+  for (const row of rows) {
+    for (const rule of row.calibrationGuard?.appliedRules ?? []) {
+      if (!rowsByRule.has(rule.id)) {
+        rowsByRule.set(rule.id, []);
+      }
+      rowsByRule.get(rule.id)?.push(row);
+    }
+  }
+  return [...rowsByRule.entries()]
+    .map(([ruleId, guardedRuleRows]) => {
+      const guardedMeanBrier = meanScore(guardedRuleRows);
+      const unguardedMeanBrier = meanScore(unguardedRows);
+      const brierDelta = guardedMeanBrier === null || unguardedMeanBrier === null
+        ? null
+        : roundMetric(guardedMeanBrier - unguardedMeanBrier);
+      return {
+        ruleId,
+        guardedRows: guardedRuleRows.length,
+        unguardedRows: unguardedRows.length,
+        guardedResolvedTasks: uniqueResolvedTaskCount(guardedRuleRows),
+        unguardedResolvedTasks: uniqueResolvedTaskCount(unguardedRows),
+        guardedMeanBrier,
+        unguardedMeanBrier,
+        brierDelta,
+        status: calibrationGuardImpactStatus(guardedRuleRows.length, unguardedRows.length, brierDelta),
+      };
+    })
+    .sort((left, right) => severitySortKey(right) - severitySortKey(left) || left.ruleId.localeCompare(right.ruleId));
 }
 
 function calibrationGuardImpactStatus(
@@ -70,4 +119,11 @@ function meanScore(rows: CalibrationGuardImpactInput[]) {
 
 function roundMetric(value: number) {
   return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+function severitySortKey(impact: CalibrationGuardRuleImpact) {
+  if (impact.status !== "worse" || impact.brierDelta === null) {
+    return 0;
+  }
+  return impact.brierDelta;
 }
