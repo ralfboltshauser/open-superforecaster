@@ -61,9 +61,16 @@ record(
 );
 
 record(
-  "compose ports bind locally",
+  "compose web port can opt into LAN exposure",
+  compose.includes("${OSF_WEB_BIND_ADDRESS:-127.0.0.1}:3000:3000") &&
+    envExample.includes("OSF_WEB_BIND_ADDRESS=127.0.0.1") &&
+    readme.includes("OSF_WEB_BIND_ADDRESS=0.0.0.0 docker compose up --build"),
+  "web port should default to localhost while allowing explicit LAN binding.",
+);
+
+record(
+  "compose non-web ports bind locally",
   [
-    "127.0.0.1:3000:3000",
     "127.0.0.1:3010:3010",
     "127.0.0.1:5432:5432",
     "127.0.0.1:6379:6379",
@@ -72,7 +79,7 @@ record(
     "127.0.0.1:9090:9090",
     "127.0.0.1:3001:3000",
   ].every((binding) => compose.includes(binding)),
-  "v1 has no auth, so published service ports must default to localhost.",
+  "v1 has no auth, so non-web published service ports must stay on localhost.",
 );
 
 record(
@@ -110,7 +117,7 @@ record(
   readme.includes("cp .env.example .env") &&
     readme.includes("docker compose up --build") &&
     readme.includes("cp .env.host.example .env") &&
-    readme.includes("Published\nCompose ports bind to `127.0.0.1`"),
+    readme.includes("web\nCompose port binds to `127.0.0.1`"),
   "README should make Docker first-run and host development distinct.",
 );
 

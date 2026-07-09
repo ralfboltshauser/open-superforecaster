@@ -281,8 +281,18 @@ cp .env.example .env
 docker compose up --build
 ```
 
-The web app runs on [http://localhost:3000](http://localhost:3000). Published
-Compose ports bind to `127.0.0.1` by default because v1 has no user auth.
+The web app runs on [http://localhost:3000](http://localhost:3000). The web
+Compose port binds to `127.0.0.1` by default because v1 has no user auth. To
+make the web app reachable from other machines on your LAN, set
+`OSF_WEB_BIND_ADDRESS=0.0.0.0` in `.env` or prefix the command:
+
+```bash
+OSF_WEB_BIND_ADDRESS=0.0.0.0 docker compose up --build
+```
+
+Then open `http://<host-lan-ip>:3000` from another device. The worker,
+Postgres, Redis, MinIO, OTEL, Prometheus, Tempo, and Grafana ports remain bound
+to localhost unless you edit their port bindings directly.
 Compose runs `bun run db:migrate` in a one-shot `migrate` service before the
 app and Smithers worker start. It also runs a one-shot `minio-init` service that
 creates the local `open-superforecaster-artifacts`,

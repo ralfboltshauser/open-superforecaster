@@ -39,7 +39,7 @@ services:
       SMITHERS_STATE_DIR: /data/smithers
       CODEX_HOME: ${CODEX_CONTAINER_HOME:-/home/bun/.codex}
     ports:
-      - "127.0.0.1:3000:3000"
+      - "${OSF_WEB_BIND_ADDRESS:-127.0.0.1}:3000:3000"
     volumes:
       - .:/app
       - bun-cache:/root/.bun
