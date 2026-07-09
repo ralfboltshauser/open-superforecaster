@@ -316,6 +316,8 @@ function WorkflowProposalSummary({
   const validationResultStatus = typeof proposal.validationResultStatus === "string" ? proposal.validationResultStatus : null
   const validationResultSummary = typeof proposal.validationResultSummary === "string" ? proposal.validationResultSummary : null
   const validationMeanBrierDelta = typeof proposal.validationMeanBrierDelta === "number" ? proposal.validationMeanBrierDelta : null
+  const validationGateStatus = typeof proposal.validationGateStatus === "string" ? proposal.validationGateStatus : null
+  const validationGateBlockers = readArray(proposal, "validationGateBlockers").filter((blocker): blocker is string => typeof blocker === "string")
   const reviewedBy = typeof proposal.reviewedBy === "string" ? proposal.reviewedBy : null
   const reviewedAt = typeof proposal.reviewedAt === "string" ? proposal.reviewedAt : null
   const canUpdate = Boolean(benchmarkRunId && proposalId)
@@ -369,6 +371,11 @@ function WorkflowProposalSummary({
             </p>
           ) : null}
           {validationResultSummary ? <p className="mt-1 line-clamp-2">{validationResultSummary}</p> : null}
+          {validationGateStatus ? (
+            <p className="mt-1 truncate">
+              gate {validationGateStatus}{validationGateBlockers.length ? ` · ${validationGateBlockers.slice(0, 2).join(", ")}` : ""}
+            </p>
+          ) : null}
         </div>
       ) : null}
       {canUpdate ? (

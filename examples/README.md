@@ -57,7 +57,8 @@ including implementation status and experiment label, so accepted, rejected, and
 implemented changes remain monitorable after review. When validation is launched
 from a proposal, the resulting benchmark run id is exported with the same
 proposal metadata. After that benchmark finalizes, the proposal records the
-validation status, summary, completed case count, and mean Brier delta.
+validation status, gate status, blockers, summary, completed case count, and
+mean Brier delta.
 `scripts/sync-duckdb.ts` also exports those gate statuses, blocker strings,
 holdout evidence counts, source-quality counts, trace/schema counts, and
 analysis-finding counts into `osf_benchmark_runs` for local analytics.
@@ -71,7 +72,7 @@ and mark each proposal accepted, rejected, implemented, or reopened. Accepted
 proposals get a planned implementation task title and deterministic experiment
 label, and the lab can move that implementation into patching before launching a
 validation benchmark under that label. Completed validation runs write their
-evidence summary back onto the proposal for review.
+evidence summary and gate blockers back onto the proposal for review.
 
 ## Forecast And Research Prompts
 

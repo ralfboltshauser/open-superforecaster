@@ -743,6 +743,8 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
         validationResultSummary: workflowChangeProposals.validationResultSummary,
         validationMeanBrierDelta: workflowChangeProposals.validationMeanBrierDelta,
         validationCompletedCases: workflowChangeProposals.validationCompletedCases,
+        validationGateStatus: workflowChangeProposals.validationGateStatus,
+        validationGateBlockers: workflowChangeProposals.validationGateBlockers,
         validationCompletedAt: workflowChangeProposals.validationCompletedAt,
         createdAt: workflowChangeProposals.createdAt,
       })
@@ -1128,6 +1130,8 @@ export async function updateWorkflowChangeProposalStatus(
       validationResultSummary: workflowChangeProposals.validationResultSummary,
       validationMeanBrierDelta: workflowChangeProposals.validationMeanBrierDelta,
       validationCompletedCases: workflowChangeProposals.validationCompletedCases,
+      validationGateStatus: workflowChangeProposals.validationGateStatus,
+      validationGateBlockers: workflowChangeProposals.validationGateBlockers,
       validationCompletedAt: workflowChangeProposals.validationCompletedAt,
       createdAt: workflowChangeProposals.createdAt,
       updatedAt: workflowChangeProposals.updatedAt,
@@ -2274,12 +2278,27 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
       })
       .where(eq(benchmarkRuns.id, run.id));
 
+    const validationGate = summarizeBenchmarkPromotionGateEvidence({
+      runStatus: failedCases || reviewCases ? "partial_failure" : "completed",
+      resultCount: results.length,
+      traceMissing: results.filter((result) => !result.traceBundleUri).length,
+      reviewOrFailed: failedCases + reviewCases,
+      comparisonStatus: null,
+      baselineSanityFindings: analysis.baselineSanityFindings,
+      componentDisagreementFindings: analysis.componentDisagreementFindings,
+      forecastErrorFindings: analysis.forecastErrorFindings,
+      splitFindings,
+      sourceQualityFindings: analysis.sourceQualityFindings,
+      traceQualityFindings: analysis.traceQualityFindings,
+    });
     await syncWorkflowProposalValidationEvidence(db, {
       benchmarkRunId: run.id,
       resultStatus: failedCases || reviewCases ? "needs_review" : "completed",
       resultSummary: summary,
       meanBrierDelta,
       completedCases,
+      gateStatus: validationGate.status,
+      gateBlockers: validationGate.blockers,
       completedAt: new Date(),
     });
   }
@@ -2293,6 +2312,8 @@ async function syncWorkflowProposalValidationEvidence(
     resultSummary: string;
     meanBrierDelta: number | null;
     completedCases: number;
+    gateStatus: string;
+    gateBlockers: string[];
     completedAt: Date;
   },
 ) {
@@ -2303,6 +2324,8 @@ async function syncWorkflowProposalValidationEvidence(
       validationResultSummary: input.resultSummary,
       validationMeanBrierDelta: input.meanBrierDelta,
       validationCompletedCases: input.completedCases,
+      validationGateStatus: input.gateStatus,
+      validationGateBlockers: input.gateBlockers,
       validationCompletedAt: input.completedAt,
       implementationStatus: input.resultStatus === "completed" ? "validated" : "in_progress",
       implementationNote:

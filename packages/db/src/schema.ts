@@ -425,6 +425,8 @@ export const workflowChangeProposals = pgTable("workflow_change_proposals", {
   validationResultSummary: text("validation_result_summary"),
   validationMeanBrierDelta: doublePrecision("validation_mean_brier_delta"),
   validationCompletedCases: integer("validation_completed_cases"),
+  validationGateStatus: text("validation_gate_status"),
+  validationGateBlockers: jsonb("validation_gate_blockers").$type<string[]>().notNull().default([]),
   validationCompletedAt: timestamp("validation_completed_at", { withTimezone: true }),
   ...timestamps,
 });

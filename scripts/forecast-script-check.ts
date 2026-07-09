@@ -666,6 +666,7 @@ await check("workflow change proposal lifecycle is exported as metrics", async (
   assert(metricsSource.includes("implementation_experiment_label"), "workflow proposal metric missing implementation experiment label");
   assert(metricsSource.includes("validation_benchmark_run_id"), "workflow proposal metric missing validation benchmark label");
   assert(metricsSource.includes("validation_result_status"), "workflow proposal metric missing validation result status");
+  assert(metricsSource.includes("validation_gate_status"), "workflow proposal metric missing validation gate status");
   assert(metricsSource.includes("reviewed_by"), "workflow proposal metric missing reviewer label");
   assert(metricsSource.includes("source_benchmark_run_id"), "workflow proposal metric missing source benchmark label");
   assert(smokeSource.includes("open_superforecaster_workflow_change_proposals_total"), "smoke check does not require workflow proposal metric");
@@ -721,6 +722,8 @@ await check("workflow change proposals are exported to DuckDB", async () => {
   assert(syncSource.includes("validation_result_summary"), "workflow proposal mart missing validation result summary");
   assert(syncSource.includes("validation_mean_brier_delta"), "workflow proposal mart missing validation Brier delta");
   assert(syncSource.includes("validation_completed_cases"), "workflow proposal mart missing validation completed case count");
+  assert(syncSource.includes("validation_gate_status"), "workflow proposal mart missing validation gate status");
+  assert(syncSource.includes("validation_gate_blockers_json"), "workflow proposal mart missing validation gate blockers");
   return "benchmark-derived workflow proposals are visible in local DuckDB analytics";
 });
 
@@ -740,6 +743,8 @@ await check("workflow change proposals are visible in the lab dashboard", async 
   assert(dashboardSource.includes("validationBenchmarkRunId"), "lab dashboard proposal section missing validation benchmark link");
   assert(dashboardSource.includes("validationResultSummary"), "lab dashboard proposal section missing validation result summary");
   assert(dashboardSource.includes("validationMeanBrierDelta"), "lab dashboard proposal section missing validation score delta");
+  assert(dashboardSource.includes("validationGateStatus"), "lab dashboard proposal section missing validation gate status");
+  assert(dashboardSource.includes("validationGateBlockers"), "lab dashboard proposal section missing validation gate blockers");
   return "benchmark-derived workflow proposals are visible where promotion blockers are reviewed";
 });
 
@@ -763,6 +768,8 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(schemaSource.includes("validationBenchmarkRunId: uuid(\"validation_benchmark_run_id\")"), "workflow proposal schema missing validation benchmark run id");
   assert(schemaSource.includes("validationResultStatus: text(\"validation_result_status\")"), "workflow proposal schema missing validation result status");
   assert(schemaSource.includes("validationMeanBrierDelta: doublePrecision(\"validation_mean_brier_delta\")"), "workflow proposal schema missing validation Brier delta");
+  assert(schemaSource.includes("validationGateStatus: text(\"validation_gate_status\")"), "workflow proposal schema missing validation gate status");
+  assert(schemaSource.includes("validationGateBlockers: jsonb(\"validation_gate_blockers\")"), "workflow proposal schema missing validation gate blockers");
   assert(backendSource.includes("workflowChangeProposalStatuses"), "backend missing shared workflow proposal status set");
   assert(backendSource.includes("workflowChangeProposalImplementationStatuses"), "backend missing shared implementation status set");
   for (const status of ["candidate", "accepted", "rejected", "implemented"]) {
@@ -781,6 +788,7 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(backendSource.includes("already has validation benchmark run"), "backend does not block duplicate proposal validation launches");
   assert(backendSource.includes("syncWorkflowProposalValidationEvidence"), "backend missing proposal validation evidence sync");
   assert(backendSource.includes("validationMeanBrierDelta"), "backend missing validation Brier delta sync");
+  assert(backendSource.includes("gateBlockers: validationGate.blockers"), "backend missing validation gate blocker sync");
   assert(routeSource.includes("updateWorkflowChangeProposalStatus"), "proposal lifecycle API route missing backend update call");
   assert(routeSource.includes("reviewNote"), "proposal lifecycle API route missing review note");
   assert(routeSource.includes("implementationStatus"), "proposal lifecycle API route missing implementation status");

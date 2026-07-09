@@ -107,6 +107,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
         implementationExperimentLabel: workflowChangeProposals.implementationExperimentLabel,
         validationBenchmarkRunId: workflowChangeProposals.validationBenchmarkRunId,
         validationResultStatus: workflowChangeProposals.validationResultStatus,
+        validationGateStatus: workflowChangeProposals.validationGateStatus,
         createdAt: workflowChangeProposals.createdAt,
       })
       .from(workflowChangeProposals)
@@ -340,6 +341,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       implementation_experiment_label: proposal.implementationExperimentLabel ?? "none",
       validation_benchmark_run_id: proposal.validationBenchmarkRunId ?? "none",
       validation_result_status: proposal.validationResultStatus ?? "none",
+      validation_gate_status: proposal.validationGateStatus ?? "none",
       reviewed_by: proposal.reviewedBy ?? "none",
       reviewed: proposal.reviewedAt ? "true" : "false",
     });

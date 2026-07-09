@@ -1,0 +1,2 @@
+ALTER TABLE "workflow_change_proposals" ADD COLUMN "validation_gate_status" text;--> statement-breakpoint
+ALTER TABLE "workflow_change_proposals" ADD COLUMN "validation_gate_blockers" jsonb DEFAULT '[]'::jsonb NOT NULL;
