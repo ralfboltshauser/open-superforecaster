@@ -22,10 +22,12 @@ import { readNumericForecastSnapshot } from "../packages/backend/src/numeric-for
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
 import { readResolutionBoundarySnapshot } from "../packages/backend/src/resolution-boundary-metadata";
 import { readThresholdedForecastSnapshot } from "../packages/backend/src/thresholded-forecast-metadata";
+import { readUncertaintyRangeSnapshot } from "../packages/backend/src/uncertainty-range-metadata";
 import { buildBinaryBaselineSanityAudit } from "../packages/workflows/src/binary-baseline-sanity";
 import { applyBinaryCalibrationGuard, BINARY_CALIBRATION_GUARD_RULES } from "../packages/workflows/src/binary-calibration-guard";
 import { buildBinaryMarketAnchorAudit } from "../packages/workflows/src/binary-market-anchor";
 import { buildBinaryResolutionBoundaryAudit } from "../packages/workflows/src/binary-resolution-boundary";
+import { buildBinaryUncertaintyRangeAudit } from "../packages/workflows/src/binary-uncertainty-range";
 import { readJson, readRecord, readString, timestampLabel, writeJson } from "./lib/forecast-script-utils";
 
 type CheckResult = {
@@ -1053,6 +1055,8 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("market_anchor_delta"), "forecast score mart missing market anchor delta");
   assert(syncSource.includes("resolution_boundary_status"), "forecast score mart missing resolution boundary status");
   assert(syncSource.includes("resolution_boundary_ambiguity_flag_count"), "forecast score mart missing resolution boundary ambiguity count");
+  assert(syncSource.includes("uncertainty_range_status"), "forecast score mart missing uncertainty range status");
+  assert(syncSource.includes("uncertainty_range_median_width"), "forecast score mart missing uncertainty range median width");
   assert(syncSource.includes("aggregate_convergence_status"), "forecast score mart missing aggregate convergence status");
   assert(syncSource.includes("aggregate_max_iterations_reached"), "forecast score mart missing aggregate max-iteration flag");
   assert(syncSource.includes("aggregate_component_disagreement"), "forecast score mart missing aggregate component disagreement");
@@ -1221,6 +1225,47 @@ await check("binary forecast aggregates persist resolution boundary audit", asyn
   assert(panelSource.includes("resolution boundary"), "run workspace does not render resolution boundary");
   assert(reportSource.includes("readReportResolutionBoundary"), "generated report does not include resolution boundary");
   return "binary aggregate resolution boundary audit is deterministic, persisted, and visible";
+});
+
+await check("binary forecast aggregates persist uncertainty range audit", async () => {
+  const narrow = buildBinaryUncertaintyRangeAudit({
+    components: [
+      { probabilityRange: { low: 45, high: 55 } },
+      { probabilityRange: { low: 50, high: 62 } },
+      { probabilityRange: { low: 52, high: 66 } },
+    ],
+  });
+  assert(narrow.status === "narrow", "narrow uncertainty range status mismatch");
+  assert(narrow.componentRangeCount === 3, "uncertainty range component count mismatch");
+  assert(narrow.medianRangeWidth === 12, "uncertainty range median width mismatch");
+  assert(narrow.meanRangeWidth === 12, "uncertainty range mean width mismatch");
+  assert(narrow.widestRangeWidth === 14, "uncertainty range widest width mismatch");
+  assert(narrow.narrowRangeCount === 3, "uncertainty range narrow count mismatch");
+  const missing = buildBinaryUncertaintyRangeAudit({ components: [] });
+  assert(missing.status === "missing_ranges", "missing uncertainty range status mismatch");
+  const snapshot = readUncertaintyRangeSnapshot({ uncertaintyRange: narrow });
+  assert(snapshot?.status === "narrow", "uncertainty range snapshot status mismatch");
+  assert(snapshot?.medianRangeWidth === 12, "uncertainty range snapshot median mismatch");
+  const workflowSource = await readFile(resolve(root, "packages/workflows/src/binary-forecast.workflow.tsx"), "utf8");
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  const panelSource = await readFile(resolve(root, "apps/web/src/components/run-workspace/panels.tsx"), "utf8");
+  const reportSource = await readFile(resolve(root, "packages/backend/src/run-service.ts"), "utf8");
+  assert(workflowSource.includes("buildBinaryUncertaintyRangeAudit"), "binary workflow does not use shared uncertainty range builder");
+  assert(workflowSource.includes("uncertaintyRange"), "binary aggregate schema missing uncertainty range audit");
+  assert(resolutionSource.includes("readUncertaintyRangeSnapshot(input.prediction)"), "resolution scoring does not persist uncertainty range");
+  assert(resolutionSource.includes("byUncertaintyRange"), "performance report does not group by uncertainty range");
+  assert(resolutionSource.includes("uncertainty_range_miss"), "performance report does not flag uncertainty range misses");
+  assert(metricsSource.includes("open_superforecaster_uncertainty_range_scores_total"), "metrics missing uncertainty range score counts");
+  assert(syncSource.includes("uncertainty_range_status"), "DuckDB forecast score mart missing uncertainty range status");
+  assert(syncSource.includes("uncertainty_range_median_width"), "DuckDB forecast score mart missing uncertainty range median width");
+  assert(dashboardSource.includes("byUncertaintyRange"), "lab dashboard does not read uncertainty range performance groups");
+  assert(dashboardSource.includes("Uncertainty-range outcomes"), "lab dashboard does not render uncertainty range performance groups");
+  assert(panelSource.includes("uncertainty range"), "run workspace does not render uncertainty range");
+  assert(reportSource.includes("readReportUncertaintyRange"), "generated report does not include uncertainty range");
+  return "binary aggregate uncertainty range audit is deterministic, persisted, and visible";
 });
 
 await check("binary aggregate quality metadata reaches resolved score analytics", async () => {

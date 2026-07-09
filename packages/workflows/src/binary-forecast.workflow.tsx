@@ -10,6 +10,7 @@ import { buildBinaryBaselineSanityAudit } from "./binary-baseline-sanity";
 import { applyBinaryCalibrationGuard } from "./binary-calibration-guard";
 import { buildBinaryMarketAnchorAudit } from "./binary-market-anchor";
 import { buildBinaryResolutionBoundaryAudit } from "./binary-resolution-boundary";
+import { buildBinaryUncertaintyRangeAudit } from "./binary-uncertainty-range";
 
 const roleIdValues = [
   "base-rate",
@@ -262,6 +263,16 @@ const resolutionBoundary = z.object({
   note: z.string(),
 });
 
+const uncertaintyRange = z.object({
+  status: z.enum(["missing_ranges", "narrow", "moderate", "wide"]),
+  componentRangeCount: z.number().int().min(0),
+  medianRangeWidth: z.number().nullable(),
+  meanRangeWidth: z.number().nullable(),
+  widestRangeWidth: z.number().nullable(),
+  narrowRangeCount: z.number().int().min(0),
+  note: z.string(),
+});
+
 const binaryAggregate = aggregateCore.extend({
   calibrationGuard: z.object({
     adjustment: z.number(),
@@ -270,6 +281,7 @@ const binaryAggregate = aggregateCore.extend({
   baselineSanity,
   marketAnchor,
   resolutionBoundary,
+  uncertaintyRange,
   convergenceStatus: z.enum(["approved", "max_iterations_return_last"]),
   roundsUsed: z.number().int().min(1),
   qualityApproved: z.boolean(),
@@ -486,6 +498,9 @@ export default smithers((ctx) => {
     qualityIssues: finalQualityIssues,
     plannerRisks: plan?.resolutionRisks ?? [],
     resolutionCriteria: forecastInput.resolutionCriteria,
+  });
+  const finalUncertaintyRange = buildBinaryUncertaintyRangeAudit({
+    components: finalRoundAttempts,
   });
 
   return (
@@ -746,6 +761,7 @@ Return round ${round}, approved, confidenceScore, disagreementExplained, issues,
               baselineSanity: finalBaselineSanity,
               marketAnchor: finalMarketAnchor,
               resolutionBoundary: finalResolutionBoundary,
+              uncertaintyRange: finalUncertaintyRange,
               convergenceStatus: qualityApproved ? "approved" as const : "max_iterations_return_last" as const,
               roundsUsed,
               qualityApproved,

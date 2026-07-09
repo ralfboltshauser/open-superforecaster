@@ -474,6 +474,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byBaselineSanity = readArray(groups, "byBaselineSanity").filter(isRecord)
   const byMarketAnchor = readArray(groups, "byMarketAnchor").filter(isRecord)
   const byResolutionBoundary = readArray(groups, "byResolutionBoundary").filter(isRecord)
+  const byUncertaintyRange = readArray(groups, "byUncertaintyRange").filter(isRecord)
   const byAggregateQuality = readArray(groups, "byAggregateQuality").filter(isRecord)
   const byAggregateDisagreement = readArray(groups, "byAggregateDisagreement").filter(isRecord)
   const byAggregationAnchor = readArray(groups, "byAggregationAnchor").filter(isRecord)
@@ -550,6 +551,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byBaselineSanity.length ? <PerformanceBaselineSanityGroupList groups={byBaselineSanity} /> : null}
         {byMarketAnchor.length ? <PerformancePlanShapeGroupList groups={byMarketAnchor} title="Market-anchor outcomes" skipKey="market_anchor:unrecorded" fallback="market anchor" /> : null}
         {byResolutionBoundary.length ? <PerformancePlanShapeGroupList groups={byResolutionBoundary} title="Resolution-boundary outcomes" skipKey="resolution_boundary:unrecorded" fallback="resolution boundary" /> : null}
+        {byUncertaintyRange.length ? <PerformancePlanShapeGroupList groups={byUncertaintyRange} title="Uncertainty-range outcomes" skipKey="uncertainty_range:unrecorded" fallback="uncertainty range" /> : null}
         {byAggregateQuality.length ? <PerformanceAggregateQualityGroupList groups={byAggregateQuality} /> : null}
         {byAggregateDisagreement.length ? <PerformanceComponentDisagreementGroupList groups={byAggregateDisagreement} /> : null}
         {byAggregationAnchor.length ? <PerformanceAggregationAnchorGroupList groups={byAggregationAnchor} /> : null}

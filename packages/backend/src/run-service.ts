@@ -25,6 +25,7 @@ import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { readMarketAnchorSnapshot } from "./market-anchor-metadata";
 import { readResolutionBoundarySnapshot } from "./resolution-boundary-metadata";
 import { inspectSmithersRun, launchSmithersDetached, readSmithersNodeOutput } from "./smithers-launcher";
+import { readUncertaintyRangeSnapshot } from "./uncertainty-range-metadata";
 
 type Db = ReturnType<typeof createDb>["db"];
 
@@ -842,6 +843,7 @@ function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited
   const baselineSanity = readRecord(output, "baselineSanity", "baseline_sanity");
   const marketAnchor = readMarketAnchorSnapshot(output);
   const resolutionBoundary = readResolutionBoundarySnapshot(output);
+  const uncertaintyRange = readUncertaintyRangeSnapshot(output);
   const aggregateQuality = readAggregateQualitySnapshot(output);
   return {
     status: detail.task.status,
@@ -855,6 +857,7 @@ function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited
     baselineSanity: Object.keys(baselineSanity).length ? baselineSanity : null,
     marketAnchor,
     resolutionBoundary,
+    uncertaintyRange,
     aggregateQuality,
     sourceCount: detail.sources.length,
     citationCount: detail.citations.length,
@@ -940,6 +943,7 @@ function renderRunReportMarkdown(report: {
     ...markdownList("Baseline sanity", readReportBaselineSanity(report.quality)),
     ...markdownList("Market anchor", readReportMarketAnchor(report.quality)),
     ...markdownList("Resolution boundary", readReportResolutionBoundary(report.quality)),
+    ...markdownList("Uncertainty range", readReportUncertaintyRange(report.quality)),
     ...markdownList("Aggregate quality", readReportAggregateQuality(report.quality)),
     ...markdownList("Calibration guard rules", readReportGuardRules(report.quality)),
     "",
@@ -991,6 +995,20 @@ function readReportResolutionBoundary(quality: Record<string, unknown>) {
   const note = readString(resolutionBoundary, "note");
   return [
     `${status}: ${componentBoundaryCount ?? 0} boundary review(s), ${ambiguityFlagCount ?? 0} ambiguity flag(s)${note ? `. ${note}` : ""}`,
+  ];
+}
+
+function readReportUncertaintyRange(quality: Record<string, unknown>) {
+  const uncertaintyRange = readRecord(quality, "uncertaintyRange", "uncertainty_range");
+  if (Object.keys(uncertaintyRange).length === 0) {
+    return [];
+  }
+  const status = readString(uncertaintyRange, "status") ?? "unknown";
+  const medianRangeWidth = readNumber(uncertaintyRange, "medianRangeWidth", "median_range_width");
+  const narrowRangeCount = readNumber(uncertaintyRange, "narrowRangeCount", "narrow_range_count");
+  const note = readString(uncertaintyRange, "note");
+  return [
+    `${status}: median width ${medianRangeWidth === null ? "n/a" : `${medianRangeWidth} pts`}, ${narrowRangeCount ?? 0} narrow component range(s)${note ? `. ${note}` : ""}`,
   ];
 }
 

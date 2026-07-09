@@ -382,6 +382,7 @@ async function runSmokeChecks() {
       "open_superforecaster_baseline_sanity_scores_total",
       "open_superforecaster_market_anchor_scores_total",
       "open_superforecaster_resolution_boundary_scores_total",
+      "open_superforecaster_uncertainty_range_scores_total",
       "open_superforecaster_aggregate_quality_scores_total",
       "open_superforecaster_aggregate_stats_scores_total",
       "open_superforecaster_aggregate_plan_scores_total",

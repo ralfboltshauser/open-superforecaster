@@ -231,6 +231,11 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
   const boundaryFlags = readNumberAny(resolutionBoundary, "ambiguityFlagCount", "ambiguity_flag_count")
   const boundaryQualityIssues = readNumberAny(resolutionBoundary, "qualityIssueCount", "quality_issue_count")
   const boundaryPlannerRisks = readNumberAny(resolutionBoundary, "plannerRiskCount", "planner_risk_count")
+  const uncertaintyRange = readRecordAny(output, "uncertaintyRange", "uncertainty_range")
+  const rangeComponents = readNumberAny(uncertaintyRange, "componentRangeCount", "component_range_count")
+  const medianRangeWidth = readNumberAny(uncertaintyRange, "medianRangeWidth", "median_range_width")
+  const widestRangeWidth = readNumberAny(uncertaintyRange, "widestRangeWidth", "widest_range_width")
+  const narrowRangeCount = readNumberAny(uncertaintyRange, "narrowRangeCount", "narrow_range_count")
   const aggregateQuality = readAggregateQualityRecord(output)
   const convergenceStatus = readStringAny(aggregateQuality, "convergenceStatus", "convergence_status")
   const qualityApproved = readBooleanAny(aggregateQuality, "qualityApproved", "quality_approved")
@@ -323,6 +328,18 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
             <MiniMetric label="planner" value={boundaryPlannerRisks === null ? "n/a" : formatNumber(boundaryPlannerRisks)} />
           </div>
           <p className="mt-2 text-xs text-muted-foreground">{String(resolutionBoundary.note ?? "")}</p>
+        </ReportSection>
+      ) : null}
+      {Object.keys(uncertaintyRange).length ? (
+        <ReportSection label="uncertainty range">
+          <div className="grid gap-2 md:grid-cols-5">
+            <MiniMetric label="status" value={String(uncertaintyRange.status ?? "unknown").replace(/_/g, " ")} />
+            <MiniMetric label="ranges" value={rangeComponents === null ? "n/a" : formatNumber(rangeComponents)} />
+            <MiniMetric label="median" value={medianRangeWidth === null ? "n/a" : `${formatNumber(medianRangeWidth)} pts`} />
+            <MiniMetric label="widest" value={widestRangeWidth === null ? "n/a" : `${formatNumber(widestRangeWidth)} pts`} />
+            <MiniMetric label="narrow" value={narrowRangeCount === null ? "n/a" : formatNumber(narrowRangeCount)} />
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">{String(uncertaintyRange.note ?? "")}</p>
         </ReportSection>
       ) : null}
       {Object.keys(aggregateQuality).length ? (

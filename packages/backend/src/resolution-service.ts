@@ -26,6 +26,7 @@ import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
 import { readResolutionBoundarySnapshot, type ResolutionBoundarySnapshot } from "./resolution-boundary-metadata";
 import { readThresholdedForecastSnapshot } from "./thresholded-forecast-metadata";
+import { readUncertaintyRangeSnapshot, type UncertaintyRangeSnapshot } from "./uncertainty-range-metadata";
 
 type Db = ReturnType<typeof createDb>["db"];
 
@@ -81,6 +82,7 @@ type PerformanceCase = {
   baselineSanity: BaselineSanitySnapshot | null;
   marketAnchor: MarketAnchorSnapshot | null;
   resolutionBoundary: ResolutionBoundarySnapshot | null;
+  uncertaintyRange: UncertaintyRangeSnapshot | null;
   aggregateQuality: AggregateQualitySnapshot | null;
   aggregateStats: AggregateStatsSnapshot | null;
   resolutionId: string | null;
@@ -111,6 +113,7 @@ type PerformanceAttentionItem = {
     | "baseline_sanity_miss"
     | "market_anchor_miss"
     | "resolution_boundary_miss"
+    | "uncertainty_range_miss"
     | "aggregate_quality_miss"
     | "component_disagreement_miss";
   severity: "high" | "medium";
@@ -376,6 +379,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byBaselineSanity = groupScores(aggregateScores, baselineSanityGroupKey);
   const byMarketAnchor = groupScores(aggregateScores, marketAnchorGroupKey);
   const byResolutionBoundary = groupScores(aggregateScores, resolutionBoundaryGroupKey);
+  const byUncertaintyRange = groupScores(aggregateScores, uncertaintyRangeGroupKey);
   const byAggregateQuality = groupScores(aggregateScores, aggregateQualityGroupKey);
   const byAggregateDisagreement = groupScores(aggregateScores, aggregateDisagreementGroupKey);
   const byAggregationAnchor = groupScores(aggregateScores, aggregationAnchorGroupKey);
@@ -443,6 +447,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byBaselineSanity,
       byMarketAnchor,
       byResolutionBoundary,
+      byUncertaintyRange,
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregationAnchor,
@@ -500,6 +505,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byBaselineSanity,
       byMarketAnchor,
       byResolutionBoundary,
+      byUncertaintyRange,
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregationAnchor,
@@ -697,6 +703,7 @@ function scoreForecastPrediction(input: {
     const baselineSanity = readBaselineSanitySnapshot(input.prediction);
     const marketAnchor = readMarketAnchorSnapshot(input.prediction);
     const resolutionBoundary = readResolutionBoundarySnapshot(input.prediction);
+    const uncertaintyRange = readUncertaintyRangeSnapshot(input.prediction);
     const aggregateQuality = readAggregateQualitySnapshot(input.prediction);
     const aggregateStats = readAggregateStatsSnapshot(input.prediction);
     return Object.entries(scoreBinaryForecast({ probability, resolved })).map(([scoreType, scoreValue]) => ({
@@ -709,6 +716,7 @@ function scoreForecastPrediction(input: {
         ...(baselineSanity ? { baselineSanity } : {}),
         ...(marketAnchor ? { marketAnchor } : {}),
         ...(resolutionBoundary ? { resolutionBoundary } : {}),
+        ...(uncertaintyRange ? { uncertaintyRange } : {}),
         ...(aggregateQuality ? { aggregateQuality } : {}),
         ...(aggregateStats ? { aggregateStats } : {}),
         ...evidenceConfig,
@@ -1195,6 +1203,11 @@ function resolutionBoundaryGroupKey(score: typeof forecastScores.$inferSelect) {
   return resolutionBoundary ? `resolution_boundary:${resolutionBoundary.status}` : "resolution_boundary:unrecorded";
 }
 
+function uncertaintyRangeGroupKey(score: typeof forecastScores.$inferSelect) {
+  const uncertaintyRange = readUncertaintyRangeSnapshot(score.scoreConfig);
+  return uncertaintyRange ? `uncertainty_range:${uncertaintyRange.status}` : "uncertainty_range:unrecorded";
+}
+
 function aggregateQualityGroupKey(score: typeof forecastScores.$inferSelect) {
   const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
   if (!aggregateQuality) {
@@ -1423,6 +1436,7 @@ function rankAggregateCases(
         baselineSanity: readBaselineSanitySnapshot(latest.scoreConfig),
         marketAnchor: readMarketAnchorSnapshot(latest.scoreConfig),
         resolutionBoundary: readResolutionBoundarySnapshot(latest.scoreConfig),
+        uncertaintyRange: readUncertaintyRangeSnapshot(latest.scoreConfig),
         aggregateQuality: readAggregateQualitySnapshot(latest.scoreConfig),
         aggregateStats: readAggregateStatsSnapshot(latest.scoreConfig),
         resolutionId: latest.resolutionId,
@@ -1644,6 +1658,42 @@ function buildNeedsAttentionQueue(
       rank: 58 + index,
     }));
 
+  const uncertaintyRangeCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    if (
+      item.forecastType !== "binary" ||
+      item.uncertaintyRange === null ||
+      item.uncertaintyRange.status !== "narrow" ||
+      threshold === null ||
+      item.primaryScore < threshold
+    ) {
+      return [];
+    }
+    return [{ item, uncertaintyRange: item.uncertaintyRange }];
+  });
+  const uncertaintyRangeItems = uncertaintyRangeCandidates
+    .slice(0, 5)
+    .map(({ item, uncertaintyRange }, index) => ({
+      id: `uncertainty-range:${item.taskId}:${item.primaryMetric}`,
+      kind: "uncertainty_range_miss" as const,
+      severity: "medium" as const,
+      reason:
+        `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed narrow component uncertainty ranges with median width ${formatNullableMetric(uncertaintyRange.medianRangeWidth)} points.`,
+      recommendedActions: recommendAttentionActions({
+        kind: "uncertainty_range_miss",
+        metric: item.primaryMetric,
+        severity: "medium",
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: uncertaintyRange.medianRangeWidth,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 59 + index,
+    }));
+
   const aggregateQualityCandidates = worstCases.flatMap((item) => {
     const threshold = poorScoreThreshold(item.primaryMetric);
     if (
@@ -1782,6 +1832,7 @@ function buildNeedsAttentionQueue(
     ...baselineSanityItems,
     ...marketAnchorItems,
     ...resolutionBoundaryItems,
+    ...uncertaintyRangeItems,
     ...aggregateQualityItems,
     ...componentDisagreementItems,
     ...trendItems,
@@ -1819,6 +1870,9 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "resolution_boundary_miss") {
     actions.add("Review whether the forecast should have widened uncertainty or changed probability because of resolution-boundary ambiguity.");
     actions.add("Tighten the question template or resolution criteria before using similar cases for calibration changes.");
+  } else if (input.kind === "uncertainty_range_miss") {
+    actions.add("Review whether component forecasts were overconfident; compare probability ranges against the actual resolved miss.");
+    actions.add("Tighten prompts or review rules if narrow ranges repeatedly accompany poor resolved forecasts.");
   } else if (input.kind === "aggregate_quality_miss") {
     actions.add("Review the final quality issues and review rationale before changing prompts or defaults.");
     actions.add("Compare max-iteration cases against approved cases to decide whether the review loop needs another round or sharper rejection criteria.");
@@ -1927,6 +1981,7 @@ function renderPerformanceMarkdown(input: {
   byBaselineSanity: PerformanceGroup[];
   byMarketAnchor: PerformanceGroup[];
   byResolutionBoundary: PerformanceGroup[];
+  byUncertaintyRange: PerformanceGroup[];
   byAggregateQuality: PerformanceGroup[];
   byAggregateDisagreement: PerformanceGroup[];
   byAggregationAnchor: PerformanceGroup[];
@@ -1989,6 +2044,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Resolution-boundary groups",
     ...renderGroupTable(input.byResolutionBoundary),
+    "",
+    "## Uncertainty-range groups",
+    ...renderGroupTable(input.byUncertaintyRange),
     "",
     "## Aggregate quality groups",
     ...renderGroupTable(input.byAggregateQuality),
