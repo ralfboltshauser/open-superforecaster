@@ -273,6 +273,9 @@ treated as question-specification risk instead of hidden model error.
 Poor resolved forecasts with narrow component probability ranges are also
 surfaced as uncertainty-range misses, which helps separate calibrated confidence
 from overconfident misses before changing prompts or guards.
+Poor resolved forecasts where the aggregate downweighted or mixed component
+weights are surfaced separately, so we can inspect whether the evaluator
+discounted the component that best matched reality.
 The metrics endpoint exports baseline-sanity score counts and means as
 Prometheus series so large base-rate departures can be monitored outside the
 lab dashboard.
@@ -295,11 +298,13 @@ market-price divergence. They also include a deterministic `resolutionBoundary`
 audit summarizing component boundary reviews and ambiguity flags. Run reports
 surface those guard rules, baseline deltas, market-anchor deltas, and
 resolution-boundary status for review. They also persist an `uncertaintyRange`
-audit over component probability ranges. Future binary score rows persist
-the same guard, baseline-sanity, market-anchor, resolution-boundary, uncertainty-range, aggregate-quality, aggregate-stat, and
+audit over component probability ranges and a `componentWeighting` audit over
+component audit weights. Future binary score rows persist
+the same guard, baseline-sanity, market-anchor, resolution-boundary, uncertainty-range, component-weighting, aggregate-quality, aggregate-stat, and
 selected plan-shape metadata in score config so performance snapshots can
 compare guarded forecasts, large baseline movements, high component
-market divergences, boundary ambiguity, narrow uncertainty ranges, disagreement, aggregation anchors,
+market divergences, boundary ambiguity, narrow uncertainty ranges, component
+downweighting, disagreement, aggregation anchors,
 research depth, panel size, and complexity against outcomes, summarize score groups, and report guarded-vs-unguarded
 Brier impact overall and by applied rule id. Worse overall or rule-level
 guarded impact is also queued as a high-severity attention item

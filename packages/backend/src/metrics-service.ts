@@ -21,6 +21,7 @@ import { readBaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { buildCalibrationGuardImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { readCategoricalForecastSnapshot } from "./categorical-forecast-metadata";
+import { readComponentWeightingSnapshot } from "./component-weighting-metadata";
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
@@ -588,6 +589,47 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge(
       "open_superforecaster_uncertainty_range_score_mean",
       "Mean product aggregate forecast score by uncertainty-range status.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
+    );
+  }
+  const componentWeightingScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readComponentWeightingSnapshot(row.scoreConfig) !== null
+  );
+  if (componentWeightingScoreRows.length === 0) {
+    const labels = { component_weighting_status: "none", score_type: "all" };
+    metrics.gauge(
+      "open_superforecaster_component_weighting_scores_total",
+      "Product aggregate forecast score rows by component-weighting status.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_component_weighting_score_mean",
+      "Mean product aggregate forecast score by component-weighting status.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(componentWeightingScoreRows, (row) => {
+    const componentWeighting = readComponentWeightingSnapshot(row.scoreConfig);
+    return labelKey({
+      score_type: row.scoreType,
+      component_weighting_status: componentWeighting?.status ?? "unknown",
+    });
+  })) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_component_weighting_scores_total",
+      "Product aggregate forecast score rows by component-weighting status.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_component_weighting_score_mean",
+      "Mean product aggregate forecast score by component-weighting status.",
       mean(rows.map((row) => row.scoreValue)),
       labels,
     );

@@ -16,6 +16,7 @@ import { readBaselineSanitySnapshot, type BaselineSanitySnapshot } from "./basel
 import { buildCalibrationGuardImpact, type CalibrationGuardImpact, type CalibrationGuardRuleImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot, type CalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { readCategoricalForecastSnapshot } from "./categorical-forecast-metadata";
+import { readComponentWeightingSnapshot, type ComponentWeightingSnapshot } from "./component-weighting-metadata";
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
@@ -83,6 +84,7 @@ type PerformanceCase = {
   marketAnchor: MarketAnchorSnapshot | null;
   resolutionBoundary: ResolutionBoundarySnapshot | null;
   uncertaintyRange: UncertaintyRangeSnapshot | null;
+  componentWeighting: ComponentWeightingSnapshot | null;
   aggregateQuality: AggregateQualitySnapshot | null;
   aggregateStats: AggregateStatsSnapshot | null;
   resolutionId: string | null;
@@ -114,6 +116,7 @@ type PerformanceAttentionItem = {
     | "market_anchor_miss"
     | "resolution_boundary_miss"
     | "uncertainty_range_miss"
+    | "component_weighting_miss"
     | "aggregate_quality_miss"
     | "component_disagreement_miss";
   severity: "high" | "medium";
@@ -380,6 +383,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byMarketAnchor = groupScores(aggregateScores, marketAnchorGroupKey);
   const byResolutionBoundary = groupScores(aggregateScores, resolutionBoundaryGroupKey);
   const byUncertaintyRange = groupScores(aggregateScores, uncertaintyRangeGroupKey);
+  const byComponentWeighting = groupScores(aggregateScores, componentWeightingGroupKey);
   const byAggregateQuality = groupScores(aggregateScores, aggregateQualityGroupKey);
   const byAggregateDisagreement = groupScores(aggregateScores, aggregateDisagreementGroupKey);
   const byAggregationAnchor = groupScores(aggregateScores, aggregationAnchorGroupKey);
@@ -448,6 +452,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byMarketAnchor,
       byResolutionBoundary,
       byUncertaintyRange,
+      byComponentWeighting,
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregationAnchor,
@@ -506,6 +511,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byMarketAnchor,
       byResolutionBoundary,
       byUncertaintyRange,
+      byComponentWeighting,
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregationAnchor,
@@ -704,6 +710,7 @@ function scoreForecastPrediction(input: {
     const marketAnchor = readMarketAnchorSnapshot(input.prediction);
     const resolutionBoundary = readResolutionBoundarySnapshot(input.prediction);
     const uncertaintyRange = readUncertaintyRangeSnapshot(input.prediction);
+    const componentWeighting = readComponentWeightingSnapshot(input.prediction);
     const aggregateQuality = readAggregateQualitySnapshot(input.prediction);
     const aggregateStats = readAggregateStatsSnapshot(input.prediction);
     return Object.entries(scoreBinaryForecast({ probability, resolved })).map(([scoreType, scoreValue]) => ({
@@ -717,6 +724,7 @@ function scoreForecastPrediction(input: {
         ...(marketAnchor ? { marketAnchor } : {}),
         ...(resolutionBoundary ? { resolutionBoundary } : {}),
         ...(uncertaintyRange ? { uncertaintyRange } : {}),
+        ...(componentWeighting ? { componentWeighting } : {}),
         ...(aggregateQuality ? { aggregateQuality } : {}),
         ...(aggregateStats ? { aggregateStats } : {}),
         ...evidenceConfig,
@@ -1208,6 +1216,11 @@ function uncertaintyRangeGroupKey(score: typeof forecastScores.$inferSelect) {
   return uncertaintyRange ? `uncertainty_range:${uncertaintyRange.status}` : "uncertainty_range:unrecorded";
 }
 
+function componentWeightingGroupKey(score: typeof forecastScores.$inferSelect) {
+  const componentWeighting = readComponentWeightingSnapshot(score.scoreConfig);
+  return componentWeighting ? `component_weighting:${componentWeighting.status}` : "component_weighting:unrecorded";
+}
+
 function aggregateQualityGroupKey(score: typeof forecastScores.$inferSelect) {
   const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
   if (!aggregateQuality) {
@@ -1437,6 +1450,7 @@ function rankAggregateCases(
         marketAnchor: readMarketAnchorSnapshot(latest.scoreConfig),
         resolutionBoundary: readResolutionBoundarySnapshot(latest.scoreConfig),
         uncertaintyRange: readUncertaintyRangeSnapshot(latest.scoreConfig),
+        componentWeighting: readComponentWeightingSnapshot(latest.scoreConfig),
         aggregateQuality: readAggregateQualitySnapshot(latest.scoreConfig),
         aggregateStats: readAggregateStatsSnapshot(latest.scoreConfig),
         resolutionId: latest.resolutionId,
@@ -1694,6 +1708,42 @@ function buildNeedsAttentionQueue(
       rank: 59 + index,
     }));
 
+  const componentWeightingCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    if (
+      item.forecastType !== "binary" ||
+      item.componentWeighting === null ||
+      !["has_downweight", "mixed_weights"].includes(item.componentWeighting.status) ||
+      threshold === null ||
+      item.primaryScore < threshold
+    ) {
+      return [];
+    }
+    return [{ item, componentWeighting: item.componentWeighting }];
+  });
+  const componentWeightingItems = componentWeightingCandidates
+    .slice(0, 5)
+    .map(({ item, componentWeighting }, index) => ({
+      id: `component-weighting:${item.taskId}:${item.primaryMetric}`,
+      kind: "component_weighting_miss" as const,
+      severity: componentWeighting.status === "mixed_weights" ? "high" as const : "medium" as const,
+      reason:
+        `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${componentWeighting.status.replace(/_/g, " ")} in component audits (${componentWeighting.downweightCount} downweighted, ${componentWeighting.upweightCount} upweighted).`,
+      recommendedActions: recommendAttentionActions({
+        kind: "component_weighting_miss",
+        metric: item.primaryMetric,
+        severity: componentWeighting.status === "mixed_weights" ? "high" : "medium",
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: componentWeighting.downweightCount,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 61 + index,
+    }));
+
   const aggregateQualityCandidates = worstCases.flatMap((item) => {
     const threshold = poorScoreThreshold(item.primaryMetric);
     if (
@@ -1833,6 +1883,7 @@ function buildNeedsAttentionQueue(
     ...marketAnchorItems,
     ...resolutionBoundaryItems,
     ...uncertaintyRangeItems,
+    ...componentWeightingItems,
     ...aggregateQualityItems,
     ...componentDisagreementItems,
     ...trendItems,
@@ -1873,6 +1924,9 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "uncertainty_range_miss") {
     actions.add("Review whether component forecasts were overconfident; compare probability ranges against the actual resolved miss.");
     actions.add("Tighten prompts or review rules if narrow ranges repeatedly accompany poor resolved forecasts.");
+  } else if (input.kind === "component_weighting_miss") {
+    actions.add("Review whether the aggregate downweighted the component that best matched the resolved outcome.");
+    actions.add("Compare component audits, aggregation anchor, and final rationale before changing role weights or prompts.");
   } else if (input.kind === "aggregate_quality_miss") {
     actions.add("Review the final quality issues and review rationale before changing prompts or defaults.");
     actions.add("Compare max-iteration cases against approved cases to decide whether the review loop needs another round or sharper rejection criteria.");
@@ -1982,6 +2036,7 @@ function renderPerformanceMarkdown(input: {
   byMarketAnchor: PerformanceGroup[];
   byResolutionBoundary: PerformanceGroup[];
   byUncertaintyRange: PerformanceGroup[];
+  byComponentWeighting: PerformanceGroup[];
   byAggregateQuality: PerformanceGroup[];
   byAggregateDisagreement: PerformanceGroup[];
   byAggregationAnchor: PerformanceGroup[];
@@ -2047,6 +2102,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Uncertainty-range groups",
     ...renderGroupTable(input.byUncertaintyRange),
+    "",
+    "## Component-weighting groups",
+    ...renderGroupTable(input.byComponentWeighting),
     "",
     "## Aggregate quality groups",
     ...renderGroupTable(input.byAggregateQuality),

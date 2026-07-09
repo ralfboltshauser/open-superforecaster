@@ -236,6 +236,11 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
   const medianRangeWidth = readNumberAny(uncertaintyRange, "medianRangeWidth", "median_range_width")
   const widestRangeWidth = readNumberAny(uncertaintyRange, "widestRangeWidth", "widest_range_width")
   const narrowRangeCount = readNumberAny(uncertaintyRange, "narrowRangeCount", "narrow_range_count")
+  const componentWeighting = readRecordAny(output, "componentWeighting", "component_weighting")
+  const auditedComponentCount = readNumberAny(componentWeighting, "auditedComponentCount", "audited_component_count")
+  const downweightCount = readNumberAny(componentWeighting, "downweightCount", "downweight_count")
+  const upweightCount = readNumberAny(componentWeighting, "upweightCount", "upweight_count")
+  const calibrationRiskCount = readNumberAny(componentWeighting, "calibrationRiskCount", "calibration_risk_count")
   const aggregateQuality = readAggregateQualityRecord(output)
   const convergenceStatus = readStringAny(aggregateQuality, "convergenceStatus", "convergence_status")
   const qualityApproved = readBooleanAny(aggregateQuality, "qualityApproved", "quality_approved")
@@ -340,6 +345,17 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
             <MiniMetric label="narrow" value={narrowRangeCount === null ? "n/a" : formatNumber(narrowRangeCount)} />
           </div>
           <p className="mt-2 text-xs text-muted-foreground">{String(uncertaintyRange.note ?? "")}</p>
+        </ReportSection>
+      ) : null}
+      {Object.keys(componentWeighting).length ? (
+        <ReportSection label="component weighting">
+          <div className="grid gap-2 md:grid-cols-5">
+            <MiniMetric label="status" value={String(componentWeighting.status ?? "unknown").replace(/_/g, " ")} />
+            <MiniMetric label="audited" value={auditedComponentCount === null ? "n/a" : formatNumber(auditedComponentCount)} />
+            <MiniMetric label="down" value={downweightCount === null ? "n/a" : formatNumber(downweightCount)} />
+            <MiniMetric label="up" value={upweightCount === null ? "n/a" : formatNumber(upweightCount)} />
+            <MiniMetric label="risk notes" value={calibrationRiskCount === null ? "n/a" : formatNumber(calibrationRiskCount)} />
+          </div>
         </ReportSection>
       ) : null}
       {Object.keys(aggregateQuality).length ? (

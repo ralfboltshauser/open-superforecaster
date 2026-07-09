@@ -22,6 +22,7 @@ import {
 import type { OperationMode } from "@open-superforecaster/workflow-contracts";
 import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
 import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
+import { readComponentWeightingSnapshot } from "./component-weighting-metadata";
 import { readMarketAnchorSnapshot } from "./market-anchor-metadata";
 import { readResolutionBoundarySnapshot } from "./resolution-boundary-metadata";
 import { inspectSmithersRun, launchSmithersDetached, readSmithersNodeOutput } from "./smithers-launcher";
@@ -844,6 +845,7 @@ function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited
   const marketAnchor = readMarketAnchorSnapshot(output);
   const resolutionBoundary = readResolutionBoundarySnapshot(output);
   const uncertaintyRange = readUncertaintyRangeSnapshot(output);
+  const componentWeighting = readComponentWeightingSnapshot(output);
   const aggregateQuality = readAggregateQualitySnapshot(output);
   return {
     status: detail.task.status,
@@ -858,6 +860,7 @@ function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited
     marketAnchor,
     resolutionBoundary,
     uncertaintyRange,
+    componentWeighting,
     aggregateQuality,
     sourceCount: detail.sources.length,
     citationCount: detail.citations.length,
@@ -944,6 +947,7 @@ function renderRunReportMarkdown(report: {
     ...markdownList("Market anchor", readReportMarketAnchor(report.quality)),
     ...markdownList("Resolution boundary", readReportResolutionBoundary(report.quality)),
     ...markdownList("Uncertainty range", readReportUncertaintyRange(report.quality)),
+    ...markdownList("Component weighting", readReportComponentWeighting(report.quality)),
     ...markdownList("Aggregate quality", readReportAggregateQuality(report.quality)),
     ...markdownList("Calibration guard rules", readReportGuardRules(report.quality)),
     "",
@@ -1009,6 +1013,20 @@ function readReportUncertaintyRange(quality: Record<string, unknown>) {
   const note = readString(uncertaintyRange, "note");
   return [
     `${status}: median width ${medianRangeWidth === null ? "n/a" : `${medianRangeWidth} pts`}, ${narrowRangeCount ?? 0} narrow component range(s)${note ? `. ${note}` : ""}`,
+  ];
+}
+
+function readReportComponentWeighting(quality: Record<string, unknown>) {
+  const componentWeighting = readRecord(quality, "componentWeighting", "component_weighting");
+  if (Object.keys(componentWeighting).length === 0) {
+    return [];
+  }
+  const status = readString(componentWeighting, "status") ?? "unknown";
+  const downweightCount = readNumber(componentWeighting, "downweightCount", "downweight_count");
+  const upweightCount = readNumber(componentWeighting, "upweightCount", "upweight_count");
+  const calibrationRiskCount = readNumber(componentWeighting, "calibrationRiskCount", "calibration_risk_count");
+  return [
+    `${status}: ${downweightCount ?? 0} downweighted, ${upweightCount ?? 0} upweighted, ${calibrationRiskCount ?? 0} calibration risk note(s)`,
   ];
 }
 

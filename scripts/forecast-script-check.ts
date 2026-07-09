@@ -12,6 +12,7 @@ import { readBaselineSanitySnapshot } from "../packages/backend/src/baseline-san
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { readCategoricalForecastSnapshot } from "../packages/backend/src/categorical-forecast-metadata";
+import { buildComponentWeightingSnapshot, readComponentWeightingSnapshot } from "../packages/backend/src/component-weighting-metadata";
 import { readConditionalForecastSnapshot } from "../packages/backend/src/conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "../packages/backend/src/date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "../packages/backend/src/evidence-coverage-metadata";
@@ -1057,6 +1058,8 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("resolution_boundary_ambiguity_flag_count"), "forecast score mart missing resolution boundary ambiguity count");
   assert(syncSource.includes("uncertainty_range_status"), "forecast score mart missing uncertainty range status");
   assert(syncSource.includes("uncertainty_range_median_width"), "forecast score mart missing uncertainty range median width");
+  assert(syncSource.includes("component_weighting_status"), "forecast score mart missing component weighting status");
+  assert(syncSource.includes("component_weighting_downweight_count"), "forecast score mart missing component weighting downweight count");
   assert(syncSource.includes("aggregate_convergence_status"), "forecast score mart missing aggregate convergence status");
   assert(syncSource.includes("aggregate_max_iterations_reached"), "forecast score mart missing aggregate max-iteration flag");
   assert(syncSource.includes("aggregate_component_disagreement"), "forecast score mart missing aggregate component disagreement");
@@ -1266,6 +1269,47 @@ await check("binary forecast aggregates persist uncertainty range audit", async 
   assert(panelSource.includes("uncertainty range"), "run workspace does not render uncertainty range");
   assert(reportSource.includes("readReportUncertaintyRange"), "generated report does not include uncertainty range");
   return "binary aggregate uncertainty range audit is deterministic, persisted, and visible";
+});
+
+await check("binary forecast aggregates persist component weighting audit", async () => {
+  const mixed = buildComponentWeightingSnapshot([
+    { forecasterLabel: "base", weight: "normal", calibrationRisk: "Solid base rate." },
+    { forecasterLabel: "inside", weight: "downweight", calibrationRisk: "Double-counted evidence." },
+    { forecasterLabel: "tail", weight: "upweight", calibrationRisk: "Found a live tail path." },
+  ]);
+  assert(mixed.status === "mixed_weights", "component weighting status mismatch");
+  assert(mixed.auditedComponentCount === 3, "component weighting audited count mismatch");
+  assert(mixed.downweightCount === 1, "component weighting downweight count mismatch");
+  assert(mixed.upweightCount === 1, "component weighting upweight count mismatch");
+  assert(mixed.normalWeightCount === 1, "component weighting normal count mismatch");
+  assert(mixed.calibrationRiskCount === 3, "component weighting risk count mismatch");
+  const snapshot = readComponentWeightingSnapshot({ componentWeighting: mixed });
+  assert(snapshot?.status === "mixed_weights", "component weighting snapshot status mismatch");
+  assert(snapshot?.downweightCount === 1, "component weighting snapshot downweight mismatch");
+  const inferredSnapshot = readComponentWeightingSnapshot({
+    componentAudits: [
+      { weight: "downweight", calibrationRisk: "Unsupported leap." },
+      { weight: "normal", calibrationRisk: "Reasonable." },
+    ],
+  });
+  assert(inferredSnapshot?.status === "has_downweight", "component weighting inferred status mismatch");
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  const panelSource = await readFile(resolve(root, "apps/web/src/components/run-workspace/panels.tsx"), "utf8");
+  const reportSource = await readFile(resolve(root, "packages/backend/src/run-service.ts"), "utf8");
+  assert(resolutionSource.includes("readComponentWeightingSnapshot(input.prediction)"), "resolution scoring does not persist component weighting");
+  assert(resolutionSource.includes("byComponentWeighting"), "performance report does not group by component weighting");
+  assert(resolutionSource.includes("component_weighting_miss"), "performance report does not flag component weighting misses");
+  assert(metricsSource.includes("open_superforecaster_component_weighting_scores_total"), "metrics missing component weighting score counts");
+  assert(syncSource.includes("component_weighting_status"), "DuckDB forecast score mart missing component weighting status");
+  assert(syncSource.includes("component_weighting_downweight_count"), "DuckDB forecast score mart missing component downweight count");
+  assert(dashboardSource.includes("byComponentWeighting"), "lab dashboard does not read component weighting performance groups");
+  assert(dashboardSource.includes("Component-weighting outcomes"), "lab dashboard does not render component weighting performance groups");
+  assert(panelSource.includes("component weighting"), "run workspace does not render component weighting");
+  assert(reportSource.includes("readReportComponentWeighting"), "generated report does not include component weighting");
+  return "binary aggregate component weighting audit is deterministic, persisted, and visible";
 });
 
 await check("binary aggregate quality metadata reaches resolved score analytics", async () => {
