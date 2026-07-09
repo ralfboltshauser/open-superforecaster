@@ -1474,6 +1474,32 @@ await check("thresholded forecast metadata reaches resolved score analytics", as
       ],
       monotonicityRepaired: false,
       attemptCount: 3,
+      componentCurves: [
+        {
+          forecasterLabel: "base-rate",
+          probabilities: [
+            { threshold: "10", probability: 85 },
+            { threshold: "20", probability: 55 },
+            { threshold: "30", probability: 25 },
+          ],
+        },
+        {
+          forecasterLabel: "inside-view",
+          probabilities: [
+            { threshold: "10", probability: 75 },
+            { threshold: "20", probability: 50 },
+            { threshold: "30", probability: 15 },
+          ],
+        },
+        {
+          forecasterLabel: "skeptic",
+          probabilities: [
+            { threshold: "10", probability: 40 },
+            { threshold: "20", probability: 25 },
+            { threshold: "30", probability: 5 },
+          ],
+        },
+      ],
     },
   });
   assert(snapshot?.thresholdDirection === "at_least", "thresholded metadata direction mismatch");
@@ -1481,6 +1507,9 @@ await check("thresholded forecast metadata reaches resolved score analytics", as
   assert(snapshot?.thresholdCount === 3, "thresholded metadata threshold count mismatch");
   assert(snapshot?.probabilitySpread === 60, "thresholded metadata probability spread mismatch");
   assert(snapshot?.monotonicityRepaired === false, "thresholded metadata monotonicity flag mismatch");
+  assert(snapshot?.componentCurveCount === 3, "thresholded metadata component curve count mismatch");
+  assert(snapshot?.componentProbabilityDisagreement === 45, "thresholded metadata component disagreement mismatch");
+  assert(snapshot?.componentDisagreementBand === "wide", "thresholded metadata component disagreement band mismatch");
   const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
@@ -1488,9 +1517,13 @@ await check("thresholded forecast metadata reaches resolved score analytics", as
   assert(resolutionSource.includes("readThresholdedForecastSnapshot(input.prediction)"), "resolution scoring does not persist thresholded metadata");
   assert(resolutionSource.includes("byThresholdedDirection"), "performance report does not group by threshold direction");
   assert(resolutionSource.includes("byThresholdedRepair"), "performance report does not group by threshold repair status");
+  assert(resolutionSource.includes("byThresholdedComponentDisagreement"), "performance report does not group by threshold component disagreement");
   assert(metricsSource.includes("open_superforecaster_thresholded_scores_total"), "metrics missing thresholded score counts");
+  assert(metricsSource.includes("thresholdedForecast?.componentDisagreementBand"), "metrics missing threshold component disagreement labels");
   assert(syncSource.includes("threshold_probability_spread"), "DuckDB forecast score mart missing threshold probability spread");
+  assert(syncSource.includes("thresholded_component_probability_disagreement"), "DuckDB forecast score mart missing threshold component disagreement");
   assert(dashboardSource.includes("Threshold monotonicity outcomes"), "lab dashboard does not render threshold monotonicity outcomes");
+  assert(dashboardSource.includes("Threshold component-disagreement outcomes"), "lab dashboard does not render threshold component disagreement outcomes");
   return "thresholded forecast metadata is persisted and visible in resolved score analytics";
 });
 

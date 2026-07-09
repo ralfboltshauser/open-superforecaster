@@ -396,6 +396,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byThresholdedDirection = groupScores(aggregateScores, thresholdedDirectionGroupKey);
   const byThresholdedSource = groupScores(aggregateScores, thresholdedSourceGroupKey);
   const byThresholdedRepair = groupScores(aggregateScores, thresholdedRepairGroupKey);
+  const byThresholdedComponentDisagreement = groupScores(aggregateScores, thresholdedComponentDisagreementGroupKey);
   const byNumericInterval = groupScores(aggregateScores, numericIntervalGroupKey);
   const byNumericUnit = groupScores(aggregateScores, numericUnitGroupKey);
   const byNumericP50Disagreement = groupScores(aggregateScores, numericP50DisagreementGroupKey);
@@ -469,6 +470,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byThresholdedDirection,
       byThresholdedSource,
       byThresholdedRepair,
+      byThresholdedComponentDisagreement,
       byNumericInterval,
       byNumericUnit,
       byNumericP50Disagreement,
@@ -532,6 +534,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byThresholdedDirection,
       byThresholdedSource,
       byThresholdedRepair,
+      byThresholdedComponentDisagreement,
       byNumericInterval,
       byNumericUnit,
       byNumericP50Disagreement,
@@ -1322,6 +1325,14 @@ function thresholdedRepairGroupKey(score: typeof forecastScores.$inferSelect) {
     : `thresholded_repair:${thresholdedForecast.monotonicityRepaired ? "repaired" : "clean"}`;
 }
 
+function thresholdedComponentDisagreementGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "thresholded") {
+    return "thresholded_component_disagreement:not_thresholded";
+  }
+  const thresholdedForecast = readThresholdedForecastSnapshot(score.scoreConfig);
+  return `thresholded_component_disagreement:${thresholdedForecast?.componentDisagreementBand ?? "unrecorded"}`;
+}
+
 function numericIntervalGroupKey(score: typeof forecastScores.$inferSelect) {
   if (readString(score.scoreConfig, "forecastType") !== "numeric") {
     return "numeric_interval:not_numeric";
@@ -2095,6 +2106,7 @@ function renderPerformanceMarkdown(input: {
   byThresholdedDirection: PerformanceGroup[];
   byThresholdedSource: PerformanceGroup[];
   byThresholdedRepair: PerformanceGroup[];
+  byThresholdedComponentDisagreement: PerformanceGroup[];
   byNumericInterval: PerformanceGroup[];
   byNumericUnit: PerformanceGroup[];
   byNumericP50Disagreement: PerformanceGroup[];
@@ -2191,6 +2203,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Thresholded monotonicity groups",
     ...renderGroupTable(input.byThresholdedRepair),
+    "",
+    "## Thresholded component-disagreement groups",
+    ...renderGroupTable(input.byThresholdedComponentDisagreement),
     "",
     "## Numeric interval groups",
     ...renderGroupTable(input.byNumericInterval),

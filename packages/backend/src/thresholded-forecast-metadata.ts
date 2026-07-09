@@ -5,6 +5,9 @@ export type ThresholdedForecastSnapshot = {
   monotonicityRepaired: boolean | null;
   probabilitySpread: number | null;
   attemptCount: number | null;
+  componentCurveCount: number | null;
+  componentProbabilityDisagreement: number | null;
+  componentDisagreementBand: "tight" | "moderate" | "wide" | "unknown";
 };
 
 export function readThresholdedForecastSnapshot(value: unknown): ThresholdedForecastSnapshot | null {
@@ -23,12 +26,14 @@ export function readThresholdedForecastSnapshot(value: unknown): ThresholdedFore
   const monotonicityRepaired = readBoolean(thresholded, "monotonicityRepaired", "monotonicity_repaired");
   const attemptCount = readNumber(thresholded, "attemptCount", "attempt_count");
   const thresholdCount = thresholds.length || probabilities.length;
+  const componentStats = readComponentCurveStats(thresholded, thresholds);
   if (
     thresholdDirection === "unknown" &&
     thresholdSource === "unknown" &&
     thresholdCount === 0 &&
     monotonicityRepaired === null &&
-    attemptCount === null
+    attemptCount === null &&
+    componentStats.componentCurveCount === null
   ) {
     return null;
   }
@@ -39,6 +44,7 @@ export function readThresholdedForecastSnapshot(value: unknown): ThresholdedFore
     monotonicityRepaired,
     probabilitySpread: probabilitySpread(probabilityValues),
     attemptCount,
+    ...componentStats,
   };
 }
 
@@ -57,6 +63,68 @@ function probabilitySpread(values: number[]) {
     return null;
   }
   return Math.round((Math.max(...values) - Math.min(...values)) * 10) / 10;
+}
+
+function readComponentCurveStats(
+  value: Record<string, unknown>,
+  aggregateThresholds: string[],
+): Pick<ThresholdedForecastSnapshot, "componentCurveCount" | "componentProbabilityDisagreement" | "componentDisagreementBand"> {
+  const explicitComponentCurveCount = readNumber(value, "componentCurveCount", "component_curve_count");
+  const explicitComponentProbabilityDisagreement = readNumber(value, "componentProbabilityDisagreement", "component_probability_disagreement");
+  const explicitBand = readComponentDisagreementBand(value);
+  const componentCurves = readRecordArray(value, "componentCurves", "component_curves");
+  if (componentCurves.length === 0) {
+    return {
+      componentCurveCount: explicitComponentCurveCount,
+      componentProbabilityDisagreement: explicitComponentProbabilityDisagreement,
+      componentDisagreementBand: explicitBand ?? componentDisagreementBand(explicitComponentProbabilityDisagreement),
+    };
+  }
+  const thresholds = aggregateThresholds.length ? aggregateThresholds : uniqueStrings(
+    componentCurves.flatMap((curve) =>
+      readRecordArray(curve, "probabilities").flatMap((item) => {
+        const threshold = readString(item, "threshold");
+        return threshold ? [threshold] : [];
+      }),
+    ),
+  );
+  const perThresholdSpreads = thresholds.flatMap((threshold) => {
+    const values = componentCurves.flatMap((curve) => {
+      const match = readRecordArray(curve, "probabilities").find((item) => readString(item, "threshold") === threshold);
+      const probability = match ? readNumber(match, "probability") : null;
+      return probability === null ? [] : [probability];
+    });
+    const spread = probabilitySpread(values);
+    return spread === null ? [] : [spread];
+  });
+  const disagreement = perThresholdSpreads.length ? Math.max(...perThresholdSpreads) : null;
+  return {
+    componentCurveCount: componentCurves.length,
+    componentProbabilityDisagreement: disagreement,
+    componentDisagreementBand: componentDisagreementBand(disagreement),
+  };
+}
+
+export function componentDisagreementBand(disagreement: number | null): ThresholdedForecastSnapshot["componentDisagreementBand"] {
+  if (disagreement === null || !Number.isFinite(disagreement)) {
+    return "unknown";
+  }
+  if (disagreement >= 40) {
+    return "wide";
+  }
+  if (disagreement >= 15) {
+    return "moderate";
+  }
+  return "tight";
+}
+
+function readComponentDisagreementBand(value: unknown): ThresholdedForecastSnapshot["componentDisagreementBand"] | null {
+  const raw = readString(value, "componentDisagreementBand", "component_disagreement_band");
+  return raw === "tight" || raw === "moderate" || raw === "wide" || raw === "unknown" ? raw : null;
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values)];
 }
 
 function readRecordArray(value: unknown, ...keys: string[]) {

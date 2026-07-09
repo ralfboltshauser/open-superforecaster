@@ -488,6 +488,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byThresholdedDirection = readArray(groups, "byThresholdedDirection").filter(isRecord)
   const byThresholdedSource = readArray(groups, "byThresholdedSource").filter(isRecord)
   const byThresholdedRepair = readArray(groups, "byThresholdedRepair").filter(isRecord)
+  const byThresholdedComponentDisagreement = readArray(groups, "byThresholdedComponentDisagreement").filter(isRecord)
   const byNumericInterval = readArray(groups, "byNumericInterval").filter(isRecord)
   const byNumericUnit = readArray(groups, "byNumericUnit").filter(isRecord)
   const byNumericP50Disagreement = readArray(groups, "byNumericP50Disagreement").filter(isRecord)
@@ -570,6 +571,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byThresholdedDirection.length ? <PerformancePlanShapeGroupList groups={byThresholdedDirection} title="Threshold direction outcomes" skipKey="thresholded_direction:not_thresholded" fallback="threshold direction" /> : null}
         {byThresholdedSource.length ? <PerformancePlanShapeGroupList groups={byThresholdedSource} title="Threshold source outcomes" skipKey="thresholded_source:not_thresholded" fallback="threshold source" /> : null}
         {byThresholdedRepair.length ? <PerformancePlanShapeGroupList groups={byThresholdedRepair} title="Threshold monotonicity outcomes" skipKey="thresholded_repair:not_thresholded" fallback="threshold repair" /> : null}
+        {byThresholdedComponentDisagreement.length ? <PerformancePlanShapeGroupList groups={byThresholdedComponentDisagreement} title="Threshold component-disagreement outcomes" skipKey="thresholded_component_disagreement:not_thresholded" fallback="threshold component disagreement" /> : null}
         {byNumericInterval.length ? <PerformancePlanShapeGroupList groups={byNumericInterval} title="Numeric interval outcomes" skipKey="numeric_interval:not_numeric" fallback="numeric interval" /> : null}
         {byNumericUnit.length ? <PerformancePlanShapeGroupList groups={byNumericUnit} title="Numeric unit outcomes" skipKey="numeric_unit:not_numeric" fallback="numeric unit" /> : null}
         {byNumericP50Disagreement.length ? <PerformancePlanShapeGroupList groups={byNumericP50Disagreement} title="Numeric component-value outcomes" skipKey="numeric_p50_disagreement:not_numeric" fallback="numeric component value" /> : null}

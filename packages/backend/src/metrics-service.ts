@@ -838,6 +838,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       threshold_direction: "none",
       threshold_source: "unknown",
       monotonicity_repaired: "unknown",
+      component_disagreement_band: "unknown",
     };
     metrics.gauge(
       "open_superforecaster_thresholded_scores_total",
@@ -859,6 +860,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       threshold_direction: thresholdedForecast?.thresholdDirection ?? "unknown",
       threshold_source: thresholdedForecast?.thresholdSource ?? "unknown",
       monotonicity_repaired: String(thresholdedForecast?.monotonicityRepaired ?? "unknown"),
+      component_disagreement_band: thresholdedForecast?.componentDisagreementBand ?? "unknown",
     });
   })) {
     const labels = parseLabelKey(key);

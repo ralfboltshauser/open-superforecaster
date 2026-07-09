@@ -79,7 +79,7 @@ the resolved branch, condition/outcome resolution flags, branch probabilities,
 probability delta, condition-effect band, branch disagreement, and
 effect-direction agreement. Thresholded forecast score rows include direction,
 threshold source, threshold count, monotonicity repair status, curve probability
-spread, and attempt count. Numeric and date forecast score
+spread, component curve disagreement, and attempt count. Numeric and date forecast score
 rows include quantile interval fields, unit, attempt count, and date
 never-probability bands, plus numeric component-value disagreement and date
 component timing disagreement. Categorical forecast score rows include
@@ -228,8 +228,9 @@ per-rule rows. Conditional forecasts also get branch and condition-effect
 groups plus branch-disagreement groups so resolved performance can distinguish
 condition-probability errors from outcome-under-condition errors and unstable
 conditional effects. Thresholded forecasts get direction, threshold-source, and
-monotonicity-repair groups so invalid or repaired curves can be reviewed
-separately from clean caller-provided thresholds.
+monotonicity-repair groups plus component-disagreement groups so invalid,
+repaired, or internally split curves can be reviewed separately from clean
+caller-provided thresholds.
 If guarded aggregate forecasts start scoring worse than unguarded aggregates
 overall or for a specific applied rule, the performance report adds a
 high-severity attention item before more default guard rules are promoted.
