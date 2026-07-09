@@ -25,6 +25,7 @@ import { readComponentWeightingSnapshot } from "./component-weighting-metadata";
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
+import { readLatestForecastBatchHealth } from "./forecast-batch-health";
 import { readForecastInputContextSnapshot } from "./forecast-input-context-metadata";
 import { readForecastRunSnapshot } from "./forecast-run-metadata";
 import { readMarketAnchorSnapshot } from "./market-anchor-metadata";
@@ -1301,9 +1302,94 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     const validationRows = await readCalibrationGuardValidationMetricRows(options.root);
     const defaultPlanRows = await readCalibrationGuardDefaultPlanMetricRows(options.root);
     const attentionRows = await readForecastAttentionMetricRows(options.root);
+    const batchHealth = readLatestForecastBatchHealth(options.root);
     const validationReportPaths = uniqueStrings(validationRows.map((row) => row.reportPath));
     const defaultPlanReportPaths = uniqueStrings(defaultPlanRows.map((row) => row.reportPath));
     const attentionReportPaths = uniqueStrings(attentionRows.map((row) => row.reportPath));
+    const batchHealthLabels = {
+      batch_id: batchHealth.batchId ?? "none",
+      status: batchHealth.status,
+    };
+    metrics.gauge(
+      "open_superforecaster_forecast_batch_health_report_present",
+      "Whether the latest local forecast batch health report exists.",
+      batchHealth.exists ? 1 : 0,
+      batchHealthLabels,
+    );
+    metrics.gauge(
+      "open_superforecaster_forecast_batch_health_status",
+      "Latest local forecast batch health status.",
+      1,
+      batchHealthLabels,
+    );
+    emitOptionalGauge(
+      metrics,
+      "open_superforecaster_forecast_batch_health_unresolved_attention_items",
+      "Unresolved attention item count in the latest local forecast batch health report.",
+      batchHealth.summary.unresolvedAttentionItems,
+      batchHealthLabels,
+    );
+    emitOptionalGauge(
+      metrics,
+      "open_superforecaster_forecast_batch_health_open_attention_items",
+      "Open attention item count in the latest local forecast batch health report.",
+      batchHealth.summary.openAttentionItems,
+      batchHealthLabels,
+    );
+    emitOptionalGauge(
+      metrics,
+      "open_superforecaster_forecast_batch_health_deferred_attention_items",
+      "Deferred attention item count in the latest local forecast batch health report.",
+      batchHealth.summary.deferredAttentionItems,
+      batchHealthLabels,
+    );
+    emitOptionalGauge(
+      metrics,
+      "open_superforecaster_forecast_batch_health_unresolved_candidate_guard_rules",
+      "Unresolved candidate calibration guard rule count in the latest local forecast batch health report.",
+      batchHealth.summary.unresolvedCandidateCalibrationGuardRules,
+      batchHealthLabels,
+    );
+    emitOptionalGauge(
+      metrics,
+      "open_superforecaster_forecast_batch_health_score_regression_items",
+      "Score-regression attention item count in the latest local forecast batch health report.",
+      batchHealth.summary.scoreRegressionItems,
+      batchHealthLabels,
+    );
+    emitOptionalGauge(
+      metrics,
+      "open_superforecaster_forecast_batch_health_calibration_guard_regression_items",
+      "Calibration-guard regression attention item count in the latest local forecast batch health report.",
+      batchHealth.summary.calibrationGuardRegressionItems,
+      batchHealthLabels,
+    );
+    metrics.gauge(
+      "open_superforecaster_forecast_batch_health_missing_phases_total",
+      "Missing phase count in the latest local forecast batch health report.",
+      batchHealth.missingPhases.length,
+      batchHealthLabels,
+    );
+    metrics.gauge(
+      "open_superforecaster_forecast_batch_health_issues_total",
+      "Issue count in the latest local forecast batch health report.",
+      batchHealth.issues.length,
+      batchHealthLabels,
+    );
+    for (const [key, count] of countBy(batchHealth.issues, (issue) =>
+      labelKey({
+        ...batchHealthLabels,
+        severity: issue.severity,
+        kind: issue.kind,
+      }),
+    )) {
+      metrics.gauge(
+        "open_superforecaster_forecast_batch_health_issues_total",
+        "Issue count in the latest local forecast batch health report.",
+        count,
+        parseLabelKey(key),
+      );
+    }
     metrics.gauge(
       "open_superforecaster_forecast_attention_reports_total",
       "Local forecast batch index report count containing forecast attention items.",
@@ -1521,6 +1607,18 @@ function parseLabelKey(key: string) {
 
 function uniqueStrings(values: string[]) {
   return [...new Set(values.filter(Boolean))];
+}
+
+function emitOptionalGauge(
+  metrics: MetricsBuilder,
+  name: string,
+  help: string,
+  value: number | null,
+  labels?: Record<string, string>,
+) {
+  if (value !== null) {
+    metrics.gauge(name, help, value, labels);
+  }
 }
 
 function readRecord(value: Record<string, unknown> | null | undefined, ...keys: string[]) {

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { desc } from "drizzle-orm";
 import {
   artifacts,
@@ -16,6 +16,7 @@ import { formatAgentRef, loadAgentPolicy } from "@open-superforecaster/config";
 import { buildHealthSnapshot } from "./health";
 import { listMaintenanceActions, listMaintenanceJobs } from "./maintenance-service";
 import { createObjectStorageTargets, tryHeadBucket } from "./object-storage";
+import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "./forecast-batch-health";
 
 type Db = ReturnType<typeof createDb>["db"];
 
@@ -48,7 +49,7 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
     tryHeadBucket(objectStorage.evals),
     tryHeadBucket(objectStorage.exports),
   ]);
-  const forecastBatchHealth = readForecastBatchHealth(input.root);
+  const forecastBatchHealth = readLatestForecastBatchHealth(input.root);
   const items: DiagnosticItem[] = [
     {
       key: "service_health",
@@ -163,37 +164,6 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
   };
 }
 
-function readForecastBatchHealth(root: string) {
-  const path = `${root}/data/reports/forecast-batch-health/batch-health.json`;
-  try {
-    const payload = asRecord(JSON.parse(readFileSync(path, "utf8")));
-    const summary = asRecord(payload?.summary);
-    return {
-      path,
-      exists: true,
-      batchId: readString(payload, "batchId"),
-      status: readString(payload, "status") ?? "unknown",
-      generatedAt: readString(payload, "generatedAt"),
-      unresolvedAttentionItems: readNumber(summary, "unresolvedAttentionItems"),
-      openAttentionItems: readNumber(summary, "openAttentionItems"),
-      deferredAttentionItems: readNumber(summary, "deferredAttentionItems"),
-      unresolvedCandidateCalibrationGuardRules: readNumber(summary, "unresolvedCandidateCalibrationGuardRules"),
-    };
-  } catch {
-    return {
-      path,
-      exists: false,
-      batchId: null,
-      status: "missing",
-      generatedAt: null,
-      unresolvedAttentionItems: null,
-      openAttentionItems: null,
-      deferredAttentionItems: null,
-      unresolvedCandidateCalibrationGuardRules: null,
-    };
-  }
-}
-
 function bucketDiagnostic(key: string, label: string, bucket: { ok: boolean; status: number | null; error?: string | null }): DiagnosticItem {
   return {
     key,
@@ -204,7 +174,7 @@ function bucketDiagnostic(key: string, label: string, bucket: { ok: boolean; sta
   };
 }
 
-function forecastBatchHealthDiagnostic(health: ReturnType<typeof readForecastBatchHealth>): DiagnosticItem {
+function forecastBatchHealthDiagnostic(health: ForecastBatchHealthSnapshot): DiagnosticItem {
   if (!health.exists) {
     return {
       key: "forecast_batch_health",
@@ -214,8 +184,8 @@ function forecastBatchHealthDiagnostic(health: ReturnType<typeof readForecastBat
       detail: "No local forecast batch health report has been generated yet.",
     };
   }
-  const unresolved = health.unresolvedAttentionItems ?? 0;
-  const candidateRules = health.unresolvedCandidateCalibrationGuardRules ?? 0;
+  const unresolved = health.summary.unresolvedAttentionItems ?? 0;
+  const candidateRules = health.summary.unresolvedCandidateCalibrationGuardRules ?? 0;
   return {
     key: "forecast_batch_health",
     label: "Forecast batch health",
@@ -238,16 +208,4 @@ function readString(value: unknown, key: string) {
   }
   const raw = (value as Record<string, unknown>)[key];
   return typeof raw === "string" ? raw : null;
-}
-
-function readNumber(value: unknown, key: string) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const raw = (value as Record<string, unknown>)[key];
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
-}
-
-function asRecord(value: unknown) {
-  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }

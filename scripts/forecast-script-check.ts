@@ -16,6 +16,7 @@ import { buildComponentWeightingSnapshot, readComponentWeightingSnapshot } from 
 import { readConditionalForecastSnapshot } from "../packages/backend/src/conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "../packages/backend/src/date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "../packages/backend/src/evidence-coverage-metadata";
+import { FORECAST_BATCH_HEALTH_REPORT_PATH, readLatestForecastBatchHealth } from "../packages/backend/src/forecast-batch-health";
 import { readForecastInputContextSnapshot } from "../packages/backend/src/forecast-input-context-metadata";
 import { readForecastRunSnapshot } from "../packages/backend/src/forecast-run-metadata";
 import { readMarketAnchorSnapshot } from "../packages/backend/src/market-anchor-metadata";
@@ -810,16 +811,48 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
 });
 
 await check("diagnostics surface latest forecast batch health", async () => {
+  const fixtureRoot = resolve(tempRoot, "diagnostics-batch-health");
+  await mkdir(resolve(fixtureRoot, "data/reports/forecast-batch-health"), { recursive: true });
+  await writeJson(resolve(fixtureRoot, FORECAST_BATCH_HEALTH_REPORT_PATH), {
+    reportType: "forecast_batch_health",
+    batchId: "diagnostics-batch",
+    generatedAt: "2026-07-09T00:00:00.000Z",
+    status: "needs_attention",
+    summary: {
+      unresolvedAttentionItems: 3,
+      openAttentionItems: 2,
+      deferredAttentionItems: 1,
+      unresolvedCandidateCalibrationGuardRules: 1,
+      scoreRegressionItems: 1,
+      calibrationGuardRegressionItems: 1,
+    },
+    missingPhases: ["forecast_performance"],
+    issues: [
+      { severity: "high", kind: "unresolved_attention", message: "3 attention item(s) remain open or deferred." },
+    ],
+  });
+  const health = readLatestForecastBatchHealth(fixtureRoot);
   const diagnosticsSource = await readFile(resolve(root, "packages/backend/src/diagnostics-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/use-lab-dashboard.ts"), "utf8");
-  assert(diagnosticsSource.includes("readForecastBatchHealth"), "diagnostics does not read local forecast batch health");
+  assert(health.exists, "shared batch health reader did not find the report");
+  assert(health.batchId === "diagnostics-batch", "shared batch health reader did not preserve batch id");
+  assert(health.summary.unresolvedAttentionItems === 3, "shared batch health reader did not expose unresolved attention count");
+  assert(health.summary.unresolvedCandidateCalibrationGuardRules === 1, "shared batch health reader did not expose unresolved candidate guard count");
+  assert(health.missingPhases.includes("forecast_performance"), "shared batch health reader did not expose missing phases");
+  assert(health.issues.some((issue) => issue.kind === "unresolved_attention"), "shared batch health reader did not expose issue kinds");
+  assert(diagnosticsSource.includes("readLatestForecastBatchHealth"), "diagnostics does not read local forecast batch health through the shared reader");
   assert(diagnosticsSource.includes("forecastBatchHealthDiagnostic"), "diagnostics does not turn forecast batch health into a check item");
-  assert(diagnosticsSource.includes("data/reports/forecast-batch-health/batch-health.json"), "diagnostics reads the wrong batch health report path");
+  assert(diagnosticsSource.includes("ForecastBatchHealthSnapshot"), "diagnostics does not type batch health from the shared reader");
   assert(diagnosticsSource.includes("unresolvedAttentionItems"), "diagnostics does not expose unresolved attention count");
   assert(diagnosticsSource.includes("unresolvedCandidateCalibrationGuardRules"), "diagnostics does not expose unresolved candidate guard count");
+  assert(metricsSource.includes("readLatestForecastBatchHealth"), "metrics do not read latest forecast batch health through the shared reader");
+  assert(metricsSource.includes("open_superforecaster_forecast_batch_health_status"), "metrics do not expose batch health status");
+  assert(metricsSource.includes("open_superforecaster_forecast_batch_health_unresolved_attention_items"), "metrics do not expose unresolved attention count");
+  assert(metricsSource.includes("open_superforecaster_forecast_batch_health_unresolved_candidate_guard_rules"), "metrics do not expose unresolved candidate guard count");
   assert(diagnosticsSource.includes("items,"), "diagnostics snapshot does not expose structured diagnostic items");
   assert(dashboardSource.includes("...readArray(diagnostics, \"items\")"), "lab dashboard does not read diagnostics items");
-  return "latest forecast batch health is visible through diagnostics";
+  return "latest forecast batch health is shared by diagnostics and metrics";
 });
 
 await check("forecast performance calibration buckets are stable", async () => {

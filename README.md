@@ -373,7 +373,9 @@ steps, unresolved attention items, open candidate calibration guard reviews, and
 score-regression attention signals. Calibration guard regressions are called out
 separately when guarded aggregates are scoring worse than unguarded aggregates;
 baseline-sanity misses remain in the same unresolved attention lane as other
-forecast postmortems.
+forecast postmortems. The latest local health report is also exposed through
+`/api/diagnostics` and Prometheus batch-health series, so unresolved attention
+can be monitored without opening the raw JSON artifact.
 
 Reviewed candidate calibration guard rules can be promoted through a local
 evidence ladder:
