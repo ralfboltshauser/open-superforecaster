@@ -285,6 +285,7 @@ export async function getResolutionDashboard(db: Db) {
     },
     calibrationBuckets: calibrationReport.calibrationBuckets,
     calibrationSummary: calibrationReport.calibrationSummary,
+    candidateCalibrationGuardRules: calibrationReport.candidateCalibrationGuardRules,
     pendingForecasts,
     recentResolutions: resolutionRows.slice(0, 8).map((resolution) => ({
       id: resolution.id,
@@ -365,6 +366,7 @@ export async function getForecastPerformanceReport(db: Db) {
     calibrationBuckets: calibrationReport.calibrationBuckets,
     calibrationSummary: calibrationReport.calibrationSummary,
     calibrationDiagnostics: calibrationReport.calibrationDiagnostics,
+    candidateCalibrationGuardRules: calibrationReport.candidateCalibrationGuardRules,
     groups: {
       byForecastType,
       byTarget,
@@ -404,6 +406,7 @@ export async function getForecastPerformanceReport(db: Db) {
       needsAttention,
       calibrationBuckets: calibrationReport.calibrationBuckets,
       calibrationSummary: calibrationReport.calibrationSummary,
+      candidateCalibrationGuardRules: calibrationReport.candidateCalibrationGuardRules,
     }),
   };
 }
@@ -1249,6 +1252,10 @@ function formatNullableMetric(value: number | null) {
   return value === null ? "unknown" : String(roundMetric(value));
 }
 
+function formatSignedMetric(value: number) {
+  return `${value >= 0 ? "+" : ""}${roundMetric(value)}`;
+}
+
 function selectPrimaryMetric(meanScores: Record<string, number>) {
   const preference = [
     "brier",
@@ -1282,6 +1289,7 @@ function renderPerformanceMarkdown(input: {
   needsAttention: PerformanceAttentionItem[];
   calibrationBuckets: BinaryCalibrationReport["calibrationBuckets"];
   calibrationSummary: BinaryCalibrationReport["calibrationSummary"];
+  candidateCalibrationGuardRules: BinaryCalibrationReport["candidateCalibrationGuardRules"];
 }) {
   const lines = [
     "# Forecast performance report",
@@ -1313,11 +1321,29 @@ function renderPerformanceMarkdown(input: {
     "## Calibration",
     ...renderCalibrationTable(input.calibrationBuckets, input.calibrationSummary),
     "",
+    "## Candidate calibration guards",
+    ...renderCandidateCalibrationGuardTable(input.candidateCalibrationGuardRules),
+    "",
     "## Needs attention",
     ...renderAttentionTable(input.needsAttention),
     "",
   ];
   return `${lines.join("\n")}\n`;
+}
+
+function renderCandidateCalibrationGuardTable(
+  rules: BinaryCalibrationReport["candidateCalibrationGuardRules"],
+) {
+  if (rules.length === 0) {
+    return ["No candidate calibration guard rules yet."];
+  }
+  return [
+    "| Bucket | Direction | Suggested adjustment | Sample size | Mean forecast | Observed rate | Status |",
+    "| --- | --- | ---: | ---: | ---: | ---: | --- |",
+    ...rules.map((rule) =>
+      `| ${rule.bucketLabel} | ${rule.direction} | ${formatSignedMetric(rule.suggestedAdjustment)} | ${rule.sampleSize} | ${roundMetric(rule.meanForecast)} | ${roundMetric(rule.observedRate)} | ${rule.activationStatus} |`,
+    ),
+  ];
 }
 
 function renderCalibrationTable(

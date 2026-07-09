@@ -152,8 +152,8 @@ label, includes best and worst resolved aggregate forecasts, tracks recent
 score deltas against older baselines, adds a needs-attention queue with
 recommended actions for poor scores or worsening trends, adds binary aggregate
 calibration buckets with expected calibration error, turns large calibration
-bucket gaps into attention items, and writes JSON plus Markdown snapshots for
-review.
+bucket gaps into attention items, emits candidate calibration guard rules for
+review, and writes JSON plus Markdown snapshots.
 
 Use the same `--batch-id` across forecast ops, resolution, and performance
 commands to keep their manifests tied to the same operational batch.

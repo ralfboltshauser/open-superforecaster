@@ -263,7 +263,8 @@ The performance report includes grouped score means, best and worst resolved
 aggregate forecasts, score trends, attention items, and binary aggregate
 calibration buckets with expected calibration error. Calibration buckets with
 enough resolved examples and large forecast-vs-observed gaps are added to the
-attention queue with review actions.
+attention queue with review actions and structured candidate calibration guard
+rules for human review.
 
 Binary forecast generation also applies a deterministic final calibration guard
 for known threshold, timing, and production-ramp failure modes. The guard lives

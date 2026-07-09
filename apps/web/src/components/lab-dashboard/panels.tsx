@@ -476,6 +476,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const scoreTrends = readArray(performance, "scoreTrends").filter(isRecord)
   const needsAttention = readArray(performance, "needsAttention").filter(isRecord)
   const calibrationBuckets = readArray(performance, "calibrationBuckets").filter(isRecord)
+  const candidateCalibrationGuardRules = readArray(performance, "candidateCalibrationGuardRules").filter(isRecord)
   const calibrationSummary = isRecord(performance?.calibrationSummary) ? performance.calibrationSummary : null
   return (
     <Card id="performance">
@@ -515,6 +516,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {scoreTrends.length ? <PerformanceTrendList trends={scoreTrends} /> : null}
         {byCalibrationGuard.length ? <PerformanceGuardGroupList groups={byCalibrationGuard} /> : null}
         {calibrationBuckets.length ? <PerformanceCalibrationList buckets={calibrationBuckets} summary={calibrationSummary} /> : null}
+        {candidateCalibrationGuardRules.length ? <PerformanceCandidateGuardList rules={candidateCalibrationGuardRules} /> : null}
         {needsAttention.length ? <PerformanceAttentionList items={needsAttention} /> : null}
       </CardContent>
     </Card>
@@ -670,6 +672,32 @@ function PerformanceCalibrationList({ buckets, summary }: { buckets: JsonRecord[
             </span>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+function PerformanceCandidateGuardList({ rules }: { rules: JsonRecord[] }) {
+  return (
+    <div className="border-t pt-3">
+      <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Candidate calibration guards</p>
+      <div className="grid gap-2 md:grid-cols-2">
+        {rules.slice(0, 4).map((rule) => {
+          const adjustment = typeof rule.suggestedAdjustment === "number" ? rule.suggestedAdjustment : null
+          return (
+            <div className="rounded-md border px-3 py-2 text-sm" key={String(rule.id ?? rule.bucketLabel)}>
+              <span className="block truncate font-medium">
+                {String(rule.bucketLabel ?? "bucket")} · {adjustment === null ? "review" : `${adjustment >= 0 ? "+" : ""}${formatMetric(adjustment)} pts`}
+              </span>
+              <span className="mt-1 block truncate text-xs text-muted-foreground">
+                {String(rule.activationStatus ?? "review")} · {String(rule.direction ?? "drift")} · {String(rule.sampleSize ?? 0)} cases
+              </span>
+              <span className="mt-1 block truncate text-xs text-muted-foreground">
+                forecast {formatMetric(rule.meanForecast)} · observed {formatMetric(rule.observedRate)}
+              </span>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

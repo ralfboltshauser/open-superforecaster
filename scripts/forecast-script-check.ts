@@ -399,6 +399,7 @@ await check("forecast performance calibration buckets are stable", async () => {
   assert(report.calibrationSummary.sampleSize === 4, "calibration sample size mismatch");
   assert(Math.round((report.calibrationSummary.expectedCalibrationError ?? 0) * 100) / 100 === 50, "expected calibration error mismatch");
   assert(report.calibrationSummary.status === "collecting_resolved_forecasts", "calibration fitting status mismatch");
+  assert(report.candidateCalibrationGuardRules.length === 0, "small calibration sample should not emit candidate guard rules");
   return "binary calibration buckets and ECE summary are deterministic";
 });
 
@@ -418,7 +419,21 @@ await check("forecast performance calibration diagnostics flag bucket drift", as
   assert(diagnostics[0].score === 90, "calibration diagnostic score mismatch");
   assert(diagnostics[0].delta === -90, "calibration diagnostic delta mismatch");
   assert(diagnostics[0].recommendedActions.some((action) => action.includes("candidate calibration guard")), "calibration guard action missing");
+  assert(report.candidateCalibrationGuardRules.length === 1, "candidate calibration guard rule missing");
+  assert(report.candidateCalibrationGuardRules[0].id === "candidate-guard:80-100%", "candidate calibration guard id mismatch");
+  assert(report.candidateCalibrationGuardRules[0].suggestedAdjustment === -15, "candidate calibration guard adjustment mismatch");
+  assert(report.candidateCalibrationGuardRules[0].activationStatus === "ready_for_review", "candidate calibration guard activation status mismatch");
   return "calibration diagnostics convert bucket drift into review actions";
+});
+
+await check("forecast performance reports surface candidate calibration guards", async () => {
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(resolutionSource.includes("candidateCalibrationGuardRules: calibrationReport.candidateCalibrationGuardRules"), "performance report missing candidate calibration guard rules");
+  assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");
+  assert(dashboardSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not read candidate calibration guard rules");
+  assert(dashboardSource.includes("Candidate calibration guards"), "lab dashboard does not render candidate calibration guard rules");
+  return "candidate calibration guard rules are visible in report artifacts and the lab dashboard";
 });
 
 await check("binary forecast calibration guard preserves deterministic adjustments", async () => {

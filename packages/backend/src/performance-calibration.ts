@@ -39,10 +39,26 @@ export type CalibrationDiagnostic = {
   direction: "overforecast" | "underforecast";
 };
 
+export type CandidateCalibrationGuardRule = {
+  id: string;
+  bucketLabel: string;
+  minProbability: number;
+  maxProbability: number;
+  direction: CalibrationDiagnostic["direction"];
+  suggestedAdjustment: number;
+  sampleSize: number;
+  meanForecast: number;
+  observedRate: number;
+  calibrationError: number;
+  activationStatus: "needs_more_resolved_forecasts" | "ready_for_review";
+  rationale: string;
+};
+
 export type BinaryCalibrationReport = {
   calibrationBuckets: CalibrationBucket[];
   calibrationSummary: CalibrationSummary;
   calibrationDiagnostics: CalibrationDiagnostic[];
+  candidateCalibrationGuardRules: CandidateCalibrationGuardRule[];
 };
 
 export function buildBinaryCalibrationReport(
@@ -51,10 +67,12 @@ export function buildBinaryCalibrationReport(
 ): BinaryCalibrationReport {
   const calibrationBuckets = buildCalibrationBuckets(rows);
   const calibrationSummary = summarizeCalibration(calibrationBuckets, resolvedForecastCount);
+  const calibrationDiagnostics = buildCalibrationDiagnostics(calibrationBuckets, calibrationSummary);
   return {
     calibrationBuckets,
     calibrationSummary,
-    calibrationDiagnostics: buildCalibrationDiagnostics(calibrationBuckets, calibrationSummary),
+    calibrationDiagnostics,
+    candidateCalibrationGuardRules: buildCandidateCalibrationGuardRules(calibrationDiagnostics, calibrationSummary),
   };
 }
 
@@ -188,10 +206,47 @@ function calibrationActions(input: {
   return actions;
 }
 
+function buildCandidateCalibrationGuardRules(
+  diagnostics: CalibrationDiagnostic[],
+  summary: CalibrationSummary,
+): CandidateCalibrationGuardRule[] {
+  return diagnostics.map((diagnostic) => {
+    const [minProbability, maxProbability] = diagnostic.bucketLabel
+      .replace("%", "")
+      .split("-")
+      .map((value) => Number(value));
+    const suggestedAdjustment = conservativeCalibrationAdjustment(diagnostic.delta);
+    return {
+      id: `candidate-guard:${diagnostic.bucketLabel}`,
+      bucketLabel: diagnostic.bucketLabel,
+      minProbability,
+      maxProbability,
+      direction: diagnostic.direction,
+      suggestedAdjustment,
+      sampleSize: diagnostic.sampleSize,
+      meanForecast: diagnostic.meanForecast,
+      observedRate: diagnostic.observedRate,
+      calibrationError: diagnostic.score,
+      activationStatus: summary.status === "ready_for_candidate_fitting" ? "ready_for_review" : "needs_more_resolved_forecasts",
+      rationale: `${diagnostic.bucketLabel} binary aggregates resolved at ${roundMetric(diagnostic.observedRate)}% versus ${roundMetric(diagnostic.meanForecast)}% mean forecast; review a ${formatSignedMetric(suggestedAdjustment)} point guard for this probability bucket.`,
+    };
+  });
+}
+
+function conservativeCalibrationAdjustment(delta: number) {
+  const halfError = delta / 2;
+  const clipped = Math.max(-15, Math.min(15, halfError));
+  return roundMetric(clipped);
+}
+
 function meanNumber(values: number[]) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 function roundMetric(value: number) {
   return Math.round(value * 10_000) / 10_000;
+}
+
+function formatSignedMetric(value: number) {
+  return `${value >= 0 ? "+" : ""}${roundMetric(value)}`;
 }
