@@ -28,7 +28,11 @@ type ProposalDraft = {
   };
 };
 
+type ValidationMode = "source_replay" | "holdout_replay";
+type ValidationRecommendation = "promote_for_holdout" | "promote_for_default" | "needs_more_evidence" | "reject";
+
 type ValidationRow = {
+  validationMode: ValidationMode;
   proposalId: string;
   sourceCandidateGuardId: string;
   bucketLabel: string;
@@ -40,7 +44,7 @@ type ValidationRow = {
   baselineCalibrationError: number | null;
   candidateCalibrationError: number | null;
   calibrationErrorDelta: number | null;
-  recommendation: "promote_for_holdout" | "needs_more_evidence" | "reject";
+  recommendation: ValidationRecommendation;
 };
 
 type ValidationReport = {
@@ -49,8 +53,10 @@ type ValidationReport = {
   summary: {
     proposalDrafts: number;
     replayRows: number;
+    holdoutReplayRows: number;
     validations: number;
     promoteForHoldout: number;
+    promoteForDefault: number;
     needsMoreEvidence: number;
     rejected: number;
   };
@@ -60,6 +66,7 @@ type ValidationReport = {
     markdown: string;
     proposals: string | null;
     performanceReport: string | null;
+    holdoutPerformanceReport: string | null;
   };
 };
 
@@ -72,17 +79,23 @@ const proposalsPath = resolve(
 const performanceReportPath = readArgValue(args, "--performance-report")
   ? resolve(root, readArgValue(args, "--performance-report") ?? "")
   : await latestPerformanceReportPath(resolve(root, readArgValue(args, "--performance-dir") ?? "data/reports/forecast-performance"));
+const holdoutPerformanceReportPath = readArgValue(args, "--holdout-performance-report")
+  ? resolve(root, readArgValue(args, "--holdout-performance-report") ?? "")
+  : null;
 const outputDir = resolve(root, readArgValue(args, "--out-dir") ?? "data/reports/forecast-calibration-guard-validation");
 const jsonPath = resolve(outputDir, "calibration-guard-validation.json");
 const markdownPath = resolve(outputDir, "calibration-guard-validation.md");
 
 const proposalsPayload = await readOptionalRecord(proposalsPath);
 const performancePayload = performanceReportPath ? await readOptionalRecord(performanceReportPath) : null;
+const holdoutPerformancePayload = holdoutPerformanceReportPath ? await readOptionalRecord(holdoutPerformanceReportPath) : null;
 const report = buildValidationReport({
   proposalsPath,
   performanceReportPath,
+  holdoutPerformanceReportPath,
   proposalsPayload,
   performancePayload,
+  holdoutPerformancePayload,
   jsonPath,
   markdownPath,
 });
@@ -93,6 +106,7 @@ await writeFile(markdownPath, renderMarkdown(report), "utf8");
 
 console.log(`Calibration guard validations: ${report.summary.validations}`);
 console.log(`Promote for holdout: ${report.summary.promoteForHoldout}`);
+console.log(`Promote for default: ${report.summary.promoteForDefault}`);
 console.log(`Output: ${jsonPath}`);
 
 async function latestPerformanceReportPath(performanceRoot: string) {
@@ -120,22 +134,29 @@ async function readOptionalRecord(path: string) {
 function buildValidationReport(input: {
   proposalsPath: string;
   performanceReportPath: string | null;
+  holdoutPerformanceReportPath: string | null;
   proposalsPayload: JsonRecord | null;
   performancePayload: JsonRecord | null;
+  holdoutPerformancePayload: JsonRecord | null;
   jsonPath: string;
   markdownPath: string;
 }): ValidationReport {
   const proposals = readRecordArray(input.proposalsPayload, "proposalDrafts").flatMap(readProposalDraft);
-  const replayRows = readRecordArray(input.performancePayload, "calibrationReplayRows").flatMap(readReplayRow);
-  const validations = proposals.flatMap((proposal) => validateProposal(proposal, replayRows));
+  const sourceReplayRows = readRecordArray(input.performancePayload, "calibrationReplayRows").flatMap(readReplayRow);
+  const holdoutReplayRows = readRecordArray(input.holdoutPerformancePayload, "calibrationReplayRows").flatMap(readReplayRow);
+  const validationMode: ValidationMode = input.holdoutPerformancePayload ? "holdout_replay" : "source_replay";
+  const replayRows = validationMode === "holdout_replay" ? holdoutReplayRows : sourceReplayRows;
+  const validations = proposals.flatMap((proposal) => validateProposal(proposal, replayRows, validationMode));
   return {
     reportType: "forecast_calibration_guard_validation",
     generatedAt: new Date().toISOString(),
     summary: {
       proposalDrafts: proposals.length,
       replayRows: replayRows.length,
+      holdoutReplayRows: holdoutReplayRows.length,
       validations: validations.length,
       promoteForHoldout: validations.filter((row) => row.recommendation === "promote_for_holdout").length,
+      promoteForDefault: validations.filter((row) => row.recommendation === "promote_for_default").length,
       needsMoreEvidence: validations.filter((row) => row.recommendation === "needs_more_evidence").length,
       rejected: validations.filter((row) => row.recommendation === "reject").length,
     },
@@ -145,11 +166,12 @@ function buildValidationReport(input: {
       markdown: input.markdownPath,
       proposals: input.proposalsPayload ? input.proposalsPath : null,
       performanceReport: input.performancePayload ? input.performanceReportPath : null,
+      holdoutPerformanceReport: input.holdoutPerformancePayload ? input.holdoutPerformanceReportPath : null,
     },
   };
 }
 
-function validateProposal(proposal: ProposalDraft, replayRows: ReplayRow[]): ValidationRow[] {
+function validateProposal(proposal: ProposalDraft, replayRows: ReplayRow[], validationMode: ValidationMode): ValidationRow[] {
   const bucket = parseBucketLabel(proposal.calibrationEvidence.bucketLabel);
   const adjustment = proposal.calibrationEvidence.suggestedAdjustment;
   if (!bucket || adjustment === null) {
@@ -168,6 +190,7 @@ function validateProposal(proposal: ProposalDraft, replayRows: ReplayRow[]): Val
     matchedRows.map((row) => row.resolved),
   );
   return [{
+    validationMode,
     proposalId: proposal.id,
     sourceCandidateGuardId: proposal.sourceCandidateGuardId,
     bucketLabel: proposal.calibrationEvidence.bucketLabel,
@@ -179,17 +202,18 @@ function validateProposal(proposal: ProposalDraft, replayRows: ReplayRow[]): Val
     baselineCalibrationError,
     candidateCalibrationError,
     calibrationErrorDelta: delta(candidateCalibrationError, baselineCalibrationError),
-    recommendation: recommendationFor({ matchedRows: matchedRows.length, baselineMeanBrier, candidateMeanBrier, baselineCalibrationError, candidateCalibrationError }),
+    recommendation: recommendationFor({ validationMode, matchedRows: matchedRows.length, baselineMeanBrier, candidateMeanBrier, baselineCalibrationError, candidateCalibrationError }),
   }];
 }
 
 function recommendationFor(input: {
+  validationMode: ValidationMode;
   matchedRows: number;
   baselineMeanBrier: number | null;
   candidateMeanBrier: number | null;
   baselineCalibrationError: number | null;
   candidateCalibrationError: number | null;
-}): ValidationRow["recommendation"] {
+}): ValidationRecommendation {
   if (input.matchedRows < 3 || input.baselineMeanBrier === null || input.candidateMeanBrier === null) {
     return "needs_more_evidence";
   }
@@ -199,7 +223,7 @@ function recommendationFor(input: {
     input.baselineCalibrationError !== null &&
     input.candidateCalibrationError <= input.baselineCalibrationError
   ) {
-    return "promote_for_holdout";
+    return input.validationMode === "holdout_replay" ? "promote_for_default" : "promote_for_holdout";
   }
   return "reject";
 }
@@ -214,8 +238,10 @@ function renderMarkdown(report: ValidationReport) {
     "",
     `- Proposal drafts: ${report.summary.proposalDrafts}`,
     `- Replay rows: ${report.summary.replayRows}`,
+    `- Holdout replay rows: ${report.summary.holdoutReplayRows}`,
     `- Validations: ${report.summary.validations}`,
     `- Promote for holdout: ${report.summary.promoteForHoldout}`,
+    `- Promote for default: ${report.summary.promoteForDefault}`,
     `- Needs more evidence: ${report.summary.needsMoreEvidence}`,
     `- Rejected: ${report.summary.rejected}`,
     "",
@@ -232,10 +258,10 @@ function renderValidationTable(rows: ValidationRow[]) {
     return ["No calibration guard validations found."];
   }
   return [
-    "| Proposal | Bucket | Rows | Adjustment | Brier delta | Calibration error delta | Recommendation |",
-    "| --- | --- | ---: | ---: | ---: | ---: | --- |",
+    "| Proposal | Mode | Bucket | Rows | Adjustment | Brier delta | Calibration error delta | Recommendation |",
+    "| --- | --- | --- | ---: | ---: | ---: | ---: | --- |",
     ...rows.map((row) =>
-      `| ${escapeMarkdownCell(row.proposalId)} | ${escapeMarkdownCell(row.bucketLabel)} | ${row.matchedRows} | ${
+      `| ${escapeMarkdownCell(row.proposalId)} | ${row.validationMode} | ${escapeMarkdownCell(row.bucketLabel)} | ${row.matchedRows} | ${
         formatSignedNumber(row.suggestedAdjustment)
       } | ${formatNullableSigned(row.brierDelta)} | ${formatNullableSigned(row.calibrationErrorDelta)} | ${row.recommendation} |`,
     ),

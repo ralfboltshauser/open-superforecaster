@@ -309,9 +309,11 @@ await check("forecast calibration guard validation replays proposal impact", asy
   const fixtureRoot = resolve(tempRoot, "calibration-guard-validation");
   const proposalsDir = resolve(fixtureRoot, "proposals");
   const performanceDir = resolve(fixtureRoot, "performance", "contract-batch");
+  const holdoutPerformanceDir = resolve(fixtureRoot, "performance", "holdout-batch");
   const outputDir = resolve(fixtureRoot, "out");
   await mkdir(proposalsDir, { recursive: true });
   await mkdir(performanceDir, { recursive: true });
+  await mkdir(holdoutPerformanceDir, { recursive: true });
   await writeJson(resolve(proposalsDir, "calibration-guard-proposals.json"), {
     reportType: "forecast_calibration_guard_proposals",
     proposalDrafts: [
@@ -335,6 +337,15 @@ await check("forecast calibration guard validation replays proposal impact", asy
       { id: "score-3", taskId: "task-3", probability: 90, resolved: false, score: 0.81 },
     ],
   });
+  await writeJson(resolve(holdoutPerformanceDir, "forecast-performance.json"), {
+    reportType: "forecast_performance_report",
+    generatedAt: "2026-07-10T00:07:00.000Z",
+    calibrationReplayRows: [
+      { id: "holdout-score-1", taskId: "holdout-task-1", probability: 90, resolved: false, score: 0.81 },
+      { id: "holdout-score-2", taskId: "holdout-task-2", probability: 85, resolved: true, score: 0.0225 },
+      { id: "holdout-score-3", taskId: "holdout-task-3", probability: 90, resolved: false, score: 0.81 },
+    ],
+  });
   await runScript("scripts/forecast-calibration-guard-validation.ts", [
     "--proposals",
     resolve(proposalsDir, "calibration-guard-proposals.json"),
@@ -350,10 +361,29 @@ await check("forecast calibration guard validation replays proposal impact", asy
   assert(summary, "validation summary missing");
   assert(readNumber(summary, "proposalDrafts") === 1, "proposal draft count mismatch");
   assert(readNumber(summary, "replayRows") === 3, "replay row count mismatch");
+  assert(readNumber(summary, "holdoutReplayRows") === 0, "source replay should not count holdout rows");
   assert(readNumber(summary, "promoteForHoldout") === 1, "validation should promote for holdout");
   assert(readString(validations[0], "recommendation") === "promote_for_holdout", "wrong validation recommendation");
+  assert(readString(validations[0], "validationMode") === "source_replay", "source validation mode mismatch");
   assert(readNumber(validations[0], "matchedRows") === 3, "matched replay rows mismatch");
   assert((readNumber(validations[0], "brierDelta") ?? 0) < 0, "candidate guard did not improve Brier");
+  await runScript("scripts/forecast-calibration-guard-validation.ts", [
+    "--proposals",
+    resolve(proposalsDir, "calibration-guard-proposals.json"),
+    "--performance-report",
+    resolve(performanceDir, "forecast-performance.json"),
+    "--holdout-performance-report",
+    resolve(holdoutPerformanceDir, "forecast-performance.json"),
+    "--out-dir",
+    outputDir,
+  ]);
+  const holdoutReport = readRecord(await readJson(resolve(outputDir, "calibration-guard-validation.json")));
+  const holdoutSummary = readRecord(holdoutReport, "summary");
+  const holdoutValidations = readArray(holdoutReport, "validations");
+  assert(readNumber(holdoutSummary, "holdoutReplayRows") === 3, "holdout replay row count mismatch");
+  assert(readNumber(holdoutSummary, "promoteForDefault") === 1, "holdout validation should promote for default");
+  assert(readString(holdoutValidations[0], "validationMode") === "holdout_replay", "holdout validation mode mismatch");
+  assert(readString(holdoutValidations[0], "recommendation") === "promote_for_default", "holdout recommendation mismatch");
   return "calibration guard proposals are replayed before promotion";
 });
 
@@ -728,6 +758,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("candidate_guard_suggested_adjustment"), "binary calibration bucket mart missing candidate guard adjustment");
   assert(syncSource.includes("candidate_guard_activation_status"), "binary calibration bucket mart missing candidate guard activation status");
   assert(syncSource.includes("readCalibrationGuardValidationRows"), "DuckDB sync does not read calibration guard validation reports");
+  assert(syncSource.includes("validation_mode"), "calibration guard validation mart missing validation mode");
   assert(syncSource.includes("brier_delta"), "calibration guard validation mart missing Brier delta");
   assert(syncSource.includes("calibration_error_delta"), "calibration guard validation mart missing calibration error delta");
   assert(syncSource.includes("recommendation"), "calibration guard validation mart missing recommendation");

@@ -699,6 +699,7 @@ const sourceColumns = [
 const calibrationGuardValidationColumns = [
   { name: "report_path", type: "VARCHAR" },
   { name: "generated_at", type: "VARCHAR" },
+  { name: "validation_mode", type: "VARCHAR" },
   { name: "proposal_id", type: "VARCHAR" },
   { name: "source_candidate_guard_id", type: "VARCHAR" },
   { name: "bucket_label", type: "VARCHAR" },
@@ -794,6 +795,7 @@ async function readCalibrationGuardValidationRows(reportRoot: string): Promise<C
       rows.push({
         report_path: path,
         generated_at: generatedAt,
+        validation_mode: readString(validation, "validationMode"),
         proposal_id: readString(validation, "proposalId"),
         source_candidate_guard_id: readString(validation, "sourceCandidateGuardId"),
         bucket_label: readString(validation, "bucketLabel"),

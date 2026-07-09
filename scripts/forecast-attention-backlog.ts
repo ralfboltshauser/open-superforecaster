@@ -258,7 +258,7 @@ function readCandidateCalibrationGuardBacklogItem(item: JsonRecord, batchId: str
 function readCalibrationGuardValidationBacklogItem(item: JsonRecord, sourcePath: string): BacklogItem | null {
   const proposalId = readString(item, "proposalId");
   const recommendation = readString(item, "recommendation");
-  if (!proposalId || recommendation === "reject") {
+  if (!proposalId || !recommendation || recommendation === "reject") {
     return null;
   }
   const batchId = batchIdFromProposalId(proposalId) ?? "unknown-batch";
@@ -270,16 +270,10 @@ function readCalibrationGuardValidationBacklogItem(item: JsonRecord, sourcePath:
     batchId,
     id: `calibration-validation:${proposalId}`,
     reviewStatus: "open",
-    severity: recommendation === "promote_for_holdout" ? "high" : "medium",
-    kind: recommendation === "promote_for_holdout" ? "calibration_guard_holdout_candidate" : "calibration_guard_needs_more_evidence",
+    severity: recommendation === "promote_for_holdout" || recommendation === "promote_for_default" ? "high" : "medium",
+    kind: kindForCalibrationValidationRecommendation(recommendation),
     reason: `${bucketLabel} calibration guard validation recommendation: ${recommendation}.`,
-    recommendedActions: recommendation === "promote_for_holdout"
-      ? [
-        `Run a held-out resolved batch before enabling this ${bucketLabel} calibration guard candidate.`,
-      ]
-      : [
-        `Collect more resolved binary forecasts before acting on this ${bucketLabel} calibration guard candidate.`,
-      ],
+    recommendedActions: recommendedActionsForCalibrationValidation(recommendation, bucketLabel),
     metric: "validation_brier_delta",
     score: brierDelta,
     delta: calibrationErrorDelta,
@@ -288,6 +282,26 @@ function readCalibrationGuardValidationBacklogItem(item: JsonRecord, sourcePath:
     forecastType: "binary",
     sourcePath,
   };
+}
+
+function kindForCalibrationValidationRecommendation(recommendation: string) {
+  if (recommendation === "promote_for_default") {
+    return "calibration_guard_default_candidate";
+  }
+  if (recommendation === "promote_for_holdout") {
+    return "calibration_guard_holdout_candidate";
+  }
+  return "calibration_guard_needs_more_evidence";
+}
+
+function recommendedActionsForCalibrationValidation(recommendation: string, bucketLabel: string) {
+  if (recommendation === "promote_for_default") {
+    return [`Review this held-out ${bucketLabel} validation before enabling the calibration guard as a default.`];
+  }
+  if (recommendation === "promote_for_holdout") {
+    return [`Run a held-out resolved batch before enabling this ${bucketLabel} calibration guard candidate.`];
+  }
+  return [`Collect more resolved binary forecasts before acting on this ${bucketLabel} calibration guard candidate.`];
 }
 
 function buildReport(

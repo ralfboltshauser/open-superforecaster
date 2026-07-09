@@ -23,6 +23,7 @@ type Db = ReturnType<typeof createDb>["db"];
 type CalibrationGuardValidationMetricRow = {
   reportPath: string;
   generatedAt: string | null;
+  validationMode: string | null;
   proposalId: string | null;
   sourceCandidateGuardId: string | null;
   bucketLabel: string | null;
@@ -507,6 +508,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     }
     for (const validation of validationRows.slice(-50)) {
       const labels = {
+        validation_mode: validation.validationMode ?? "unknown",
         proposal_id: validation.proposalId ?? "unknown",
         source_candidate_guard_id: validation.sourceCandidateGuardId ?? "unknown",
         bucket: validation.bucketLabel ?? "unknown",
@@ -634,6 +636,7 @@ async function readCalibrationGuardValidationMetricRows(root: string): Promise<C
       rows.push({
         reportPath,
         generatedAt,
+        validationMode: readString(validation, "validationMode"),
         proposalId: readString(validation, "proposalId"),
         sourceCandidateGuardId: readString(validation, "sourceCandidateGuardId"),
         bucketLabel: readString(validation, "bucketLabel"),

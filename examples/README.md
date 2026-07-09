@@ -261,7 +261,9 @@ bun run forecast:calibration-validate -- --performance-report data/reports/forec
 
 The validation report compares before/after Brier score and bucket calibration
 error, then marks each proposal as `promote_for_holdout`, `needs_more_evidence`,
-or `reject`.
+or `reject`. Pass `--holdout-performance-report path/to/forecast-performance.json`
+to replay against held-out resolved forecasts; improving holdout replays are
+marked `promote_for_default`.
 
 Run the script contract checks before changing these tools:
 
