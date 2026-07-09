@@ -241,19 +241,20 @@ a local manifest plus JSON/Markdown snapshots:
 ```bash
 bun run forecast:ops
 bun run forecast:ops -- --execute --case binary-foldable-iphone
+bun run forecast:ops -- --batch-id july-smoke --execute --case binary-foldable-iphone
 ```
 
 When outcomes are known, feed resolutions back into the scoring ledger:
 
 ```bash
 bun run forecast:resolve -- --input examples/resolutions.sample.jsonl
-bun run forecast:resolve -- --execute --input data/resolutions/manual.jsonl
+bun run forecast:resolve -- --batch-id july-smoke --execute --input data/resolutions/manual.jsonl
 ```
 
 Then snapshot the scored performance report:
 
 ```bash
-bun run forecast:performance
+bun run forecast:performance -- --batch-id july-smoke
 ```
 
 ### Host Development

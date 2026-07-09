@@ -1,7 +1,16 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-
-type JsonRecord = Record<string, unknown>;
+import {
+  hasArg,
+  readArgValue,
+  readArgValues,
+  readRecord,
+  readString,
+  safeSegment,
+  timestampLabel,
+  type JsonRecord,
+  writeJson,
+} from "./lib/forecast-script-utils";
 
 type ResolutionCase = {
   id: string;
@@ -22,12 +31,13 @@ type ResolutionResult = {
 
 const root = resolve(import.meta.dir, "..");
 const args = Bun.argv.slice(2);
-const execute = hasArg("--execute");
-const allowSampleInput = hasArg("--allow-sample-input");
-const baseUrl = readArgValue("--base-url") ?? process.env.OPEN_SUPERFORECASTER_BASE_URL ?? "http://localhost:3000";
-const inputPath = resolve(root, readArgValue("--input") ?? "examples/resolutions.sample.jsonl");
-const outputDir = resolve(root, readArgValue("--out-dir") ?? `data/resolutions/${timestampLabel()}`);
-const caseFilters = readArgValues("--case");
+const execute = hasArg(args, "--execute");
+const allowSampleInput = hasArg(args, "--allow-sample-input");
+const batchId = readArgValue(args, "--batch-id") ?? timestampLabel();
+const baseUrl = readArgValue(args, "--base-url") ?? process.env.OPEN_SUPERFORECASTER_BASE_URL ?? "http://localhost:3000";
+const inputPath = resolve(root, readArgValue(args, "--input") ?? "examples/resolutions.sample.jsonl");
+const outputDir = resolve(root, readArgValue(args, "--out-dir") ?? `data/resolutions/${batchId}`);
+const caseFilters = readArgValues(args, "--case");
 
 if (execute && basename(inputPath) === "resolutions.sample.jsonl" && !allowSampleInput) {
   throw new Error("Refusing to execute the bundled sample resolution input. Pass a real input file or --allow-sample-input.");
@@ -41,6 +51,7 @@ if (cases.length === 0) {
 console.log(`${execute ? "Resolving" : "Planning"} ${cases.length} forecast resolution case(s) against ${baseUrl}`);
 console.log(`Input: ${inputPath}`);
 console.log(`Output: ${outputDir}`);
+console.log(`Batch: ${batchId}`);
 console.log(`Cases: ${cases.map((testCase) => testCase.id).join(", ")}`);
 
 const results: ResolutionResult[] = [];
@@ -155,6 +166,8 @@ async function writeManifest(resultsToWrite: ResolutionResult[]) {
   await mkdir(outputDir, { recursive: true });
   await writeJson(resolve(outputDir, "manifest.json"), {
     reportType: "forecast_resolution_run",
+    batchId,
+    phase: "forecast_resolution",
     createdAt: new Date().toISOString(),
     execute,
     baseUrl,
@@ -193,10 +206,6 @@ async function postJson(path: string, body: unknown) {
     throw new Error(`${path} returned ${response.status}: ${await response.text()}`);
   }
   return (await response.json()) as JsonRecord;
-}
-
-async function writeJson(path: string, value: unknown) {
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
 function extractResolvedValue(record: JsonRecord) {
@@ -242,48 +251,4 @@ function describeResolvedValue(value: JsonRecord) {
     return `conditionResolved=${String(value.conditionResolved)}, outcomeResolved=${String(value.outcomeResolved)}`;
   }
   return JSON.stringify(value);
-}
-
-function hasArg(name: string) {
-  return args.includes(name);
-}
-
-function readArgValue(name: string) {
-  const index = args.indexOf(name);
-  return index >= 0 ? args[index + 1] : undefined;
-}
-
-function readArgValues(name: string) {
-  const values: string[] = [];
-  for (let index = 0; index < args.length; index += 1) {
-    if (args[index] === name && args[index + 1]) {
-      values.push(args[index + 1]);
-    }
-  }
-  return values;
-}
-
-function readRecord(record: unknown, key?: string): JsonRecord | null {
-  const value = key && isRecord(record) ? record[key] : record;
-  return isRecord(value) ? value : null;
-}
-
-function readString(record: unknown, key: string) {
-  if (!isRecord(record)) {
-    return null;
-  }
-  const value = record[key];
-  return typeof value === "string" ? value : null;
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function safeSegment(value: string) {
-  return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "") || "case";
-}
-
-function timestampLabel() {
-  return new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
 }

@@ -1,7 +1,17 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-
-type JsonRecord = Record<string, unknown>;
+import {
+  hasArg,
+  readArgValue,
+  readArgValues,
+  readNumberArg,
+  readRecord,
+  readString,
+  safeSegment,
+  timestampLabel,
+  type JsonRecord,
+  writeJson,
+} from "./lib/forecast-script-utils";
 
 type ForecastOpsCase = {
   id: string;
@@ -24,13 +34,14 @@ type ForecastOpsResult = {
 
 const root = resolve(import.meta.dir, "..");
 const args = Bun.argv.slice(2);
-const execute = hasArg("--execute");
-const baseUrl = readArgValue("--base-url") ?? process.env.OPEN_SUPERFORECASTER_BASE_URL ?? "http://localhost:3000";
-const inputPath = resolve(root, readArgValue("--input") ?? "examples/questions.jsonl");
-const outputDir = resolve(root, readArgValue("--out-dir") ?? `data/forecast-ops/${timestampLabel()}`);
-const caseFilters = readArgValues("--case");
-const timeoutMs = readNumberArg("--timeout-ms", 60 * 60 * 1000);
-const pollMs = readNumberArg("--poll-ms", 15_000);
+const execute = hasArg(args, "--execute");
+const batchId = readArgValue(args, "--batch-id") ?? timestampLabel();
+const baseUrl = readArgValue(args, "--base-url") ?? process.env.OPEN_SUPERFORECASTER_BASE_URL ?? "http://localhost:3000";
+const inputPath = resolve(root, readArgValue(args, "--input") ?? "examples/questions.jsonl");
+const outputDir = resolve(root, readArgValue(args, "--out-dir") ?? `data/forecast-ops/${batchId}`);
+const caseFilters = readArgValues(args, "--case");
+const timeoutMs = readNumberArg(args, "--timeout-ms", 60 * 60 * 1000);
+const pollMs = readNumberArg(args, "--poll-ms", 15_000);
 
 const cases = filterCases(await loadCases(inputPath));
 if (cases.length === 0) {
@@ -40,6 +51,7 @@ if (cases.length === 0) {
 console.log(`${execute ? "Executing" : "Planning"} ${cases.length} forecast ops case(s) against ${baseUrl}`);
 console.log(`Input: ${inputPath}`);
 console.log(`Output: ${outputDir}`);
+console.log(`Batch: ${batchId}`);
 console.log(`Cases: ${cases.map((testCase) => testCase.id).join(", ")}`);
 
 const results: ForecastOpsResult[] = [];
@@ -186,6 +198,8 @@ async function writeManifest(results: ForecastOpsResult[]) {
   await mkdir(outputDir, { recursive: true });
   await writeJson(resolve(outputDir, "manifest.json"), {
     reportType: "forecast_ops_run",
+    batchId,
+    phase: "forecast_ops",
     createdAt: new Date().toISOString(),
     execute,
     baseUrl,
@@ -226,66 +240,12 @@ async function postJson(path: string, body: unknown) {
   return (await response.json()) as JsonRecord;
 }
 
-async function writeJson(path: string, value: unknown) {
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-}
-
 function progressLabel(status: JsonRecord) {
   const progress = readRecord(status, "progress");
   if (!progress) {
     return "";
   }
   return `${String(progress.completed ?? 0)}/${String(progress.total ?? 0)}`;
-}
-
-function hasArg(name: string) {
-  return args.includes(name);
-}
-
-function readArgValue(name: string) {
-  const index = args.indexOf(name);
-  return index >= 0 ? args[index + 1] : undefined;
-}
-
-function readArgValues(name: string) {
-  const values: string[] = [];
-  for (let index = 0; index < args.length; index += 1) {
-    if (args[index] === name && args[index + 1]) {
-      values.push(args[index + 1]);
-    }
-  }
-  return values;
-}
-
-function readNumberArg(name: string, fallback: number) {
-  const raw = readArgValue(name);
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function readRecord(record: unknown, key?: string): JsonRecord | null {
-  const value = key && isRecord(record) ? record[key] : record;
-  return isRecord(value) ? value : null;
-}
-
-function readString(record: unknown, key: string) {
-  if (!isRecord(record)) {
-    return null;
-  }
-  const value = record[key];
-  return typeof value === "string" ? value : null;
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function safeSegment(value: string) {
-  return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "") || "case";
-}
-
-function timestampLabel() {
-  return new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
 }
 
 function sleep(ms: number) {

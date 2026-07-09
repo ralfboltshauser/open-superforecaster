@@ -58,6 +58,7 @@ not internal database calls:
 ```bash
 bun run forecast:ops
 bun run forecast:ops -- --execute --case binary-foldable-iphone
+bun run forecast:ops -- --batch-id july-smoke --execute --case binary-foldable-iphone
 bun run forecast:ops -- --execute --input examples/questions.jsonl --out-dir data/forecast-ops/manual-smoke
 ```
 
@@ -71,7 +72,7 @@ outcomes. Replace the placeholder task ids with completed forecast task ids:
 
 ```bash
 bun run forecast:resolve -- --input examples/resolutions.sample.jsonl
-bun run forecast:resolve -- --execute --input data/resolutions/manual.jsonl
+bun run forecast:resolve -- --batch-id july-smoke --execute --input data/resolutions/manual.jsonl
 ```
 
 Execute mode calls `/api/resolutions`, writes each response, and snapshots the
@@ -80,12 +81,15 @@ resolution dashboard so score and calibration changes are auditable.
 After resolutions have created score rows, snapshot grouped performance metrics:
 
 ```bash
-bun run forecast:performance
-bun run forecast:performance -- --out-dir data/reports/forecast-performance/manual
+bun run forecast:performance -- --batch-id july-smoke
+bun run forecast:performance -- --batch-id july-smoke --out-dir data/reports/forecast-performance/manual
 ```
 
 The report groups existing score rows by forecast type, target, and forecaster
 label, and writes JSON plus Markdown snapshots for review.
+
+Use the same `--batch-id` across forecast ops, resolution, and performance
+commands to keep their manifests tied to the same operational batch.
 
 ## Table Workflows
 
