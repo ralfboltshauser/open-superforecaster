@@ -134,6 +134,8 @@ export function ForecastBatchHealthCard({ forecastBatchHealth }: { forecastBatch
   const issues = readArray(forecastBatchHealth, "issues").filter(isRecord)
   const attentionByKind = readArray(forecastBatchHealth, "attentionByKind").filter(isRecord)
   const attentionBySeverity = readArray(forecastBatchHealth, "attentionBySeverity").filter(isRecord)
+  const attentionItems = readArray(forecastBatchHealth, "attentionItems").filter(isRecord)
+  const candidateRules = readArray(forecastBatchHealth, "candidateCalibrationGuardRules").filter(isRecord)
   const missingPhases = readArray(forecastBatchHealth, "missingPhases").filter((phase): phase is string => typeof phase === "string")
   const batchId = readString(forecastBatchHealth, "batchId") ?? "latest batch"
   const status = readString(forecastBatchHealth, "status") ?? "missing"
@@ -201,6 +203,37 @@ export function ForecastBatchHealthCard({ forecastBatchHealth }: { forecastBatch
             ))}
           </div>
         ) : null}
+        {attentionItems.length ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-medium uppercase text-muted-foreground">Top attention items</p>
+            {attentionItems.slice(0, 3).map((item) => (
+              <div className="rounded-md border px-3 py-2 text-xs" key={String(item.id ?? item.reason ?? "attention")}>
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="truncate font-medium">{String(item.taskLabel ?? item.taskId ?? item.kind ?? "attention")}</span>
+                  <Badge variant={item.severity === "high" ? "destructive" : "secondary"}>{String(item.reviewStatus ?? "open")}</Badge>
+                </div>
+                <p className="mt-1 line-clamp-2 text-muted-foreground">{String(item.reason ?? "")}</p>
+                {item.recommendedAction ? <p className="mt-1 line-clamp-1 text-muted-foreground">{String(item.recommendedAction)}</p> : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {candidateRules.length ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-medium uppercase text-muted-foreground">Candidate guard rules</p>
+            {candidateRules.slice(0, 2).map((rule) => (
+              <div className="rounded-md border px-3 py-2 text-xs" key={String(rule.id ?? rule.bucketLabel ?? "candidate-rule")}>
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="truncate font-medium">{String(rule.bucketLabel ?? "bucket")} · {String(rule.direction ?? "drift")}</span>
+                  <Badge variant={rule.reviewStatus === "open" ? "destructive" : "secondary"}>{String(rule.reviewStatus ?? "open")}</Badge>
+                </div>
+                <p className="mt-1 truncate text-muted-foreground">
+                  adjustment {formatSignedCount(readNumber(rule, "suggestedAdjustment"))} pts · n={formatCount(readNumber(rule, "sampleSize") ?? 0)}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {issues.length ? (
           <div className="flex flex-col gap-2">
             {issues.slice(0, 3).map((issue) => (
@@ -232,6 +265,13 @@ function BatchHealthMetric({ label, value }: { label: string; value: string }) {
 
 function formatCount(value: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value)
+}
+
+function formatSignedCount(value: number | null) {
+  if (value === null) {
+    return "n/a"
+  }
+  return `${value >= 0 ? "+" : ""}${formatCount(value)}`
 }
 
 export function BenchmarksCard({

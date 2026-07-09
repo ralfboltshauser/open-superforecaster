@@ -836,6 +836,36 @@ await check("diagnostics surface latest forecast batch health", async () => {
     attentionBySeverity: [
       { severity: "high", items: 2, open: 1, deferred: 1, reviewed: 0 },
     ],
+    attentionItems: [
+      {
+        id: "evidence-coverage:task-1:brier",
+        reviewStatus: "open",
+        severity: "high",
+        kind: "evidence_coverage_miss",
+        reason: "brier 0.5 followed sparse evidence coverage.",
+        recommendedAction: "Audit cited sources.",
+        metric: "brier",
+        score: 0.5,
+        delta: 1,
+        taskId: "task-1",
+        taskLabel: "Sparse evidence forecast",
+      },
+    ],
+    candidateCalibrationGuardRules: [
+      {
+        id: "candidate-guard:80-100%",
+        reviewStatus: "open",
+        bucketLabel: "80-100%",
+        direction: "overforecast",
+        suggestedAdjustment: -15,
+        sampleSize: 5,
+        meanForecast: 90,
+        observedRate: 0,
+        calibrationError: 90,
+        activationStatus: "ready_for_review",
+        rationale: "80-100% binary aggregates are overforecasting.",
+      },
+    ],
   });
   const health = readLatestForecastBatchHealth(fixtureRoot);
   const diagnosticsSource = await readFile(resolve(root, "packages/backend/src/diagnostics-service.ts"), "utf8");
@@ -851,6 +881,8 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(health.issues.some((issue) => issue.kind === "unresolved_attention"), "shared batch health reader did not expose issue kinds");
   assert(health.attentionByKind.some((row) => row.kind === "evidence_coverage_miss" && row.open === 2), "shared batch health reader did not expose attention kind breakdowns");
   assert(health.attentionBySeverity.some((row) => row.severity === "high" && row.deferred === 1), "shared batch health reader did not expose attention severity breakdowns");
+  assert(health.attentionItems.some((item) => item.id === "evidence-coverage:task-1:brier" && item.recommendedAction === "Audit cited sources."), "shared batch health reader did not expose actionable attention items");
+  assert(health.candidateCalibrationGuardRules.some((rule) => rule.id === "candidate-guard:80-100%" && rule.suggestedAdjustment === -15), "shared batch health reader did not expose candidate guard rules");
   assert(diagnosticsSource.includes("readLatestForecastBatchHealth"), "diagnostics does not read local forecast batch health through the shared reader");
   assert(diagnosticsSource.includes("forecastBatchHealthDiagnostic"), "diagnostics does not turn forecast batch health into a check item");
   assert(diagnosticsSource.includes("ForecastBatchHealthSnapshot"), "diagnostics does not type batch health from the shared reader");
@@ -868,6 +900,8 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(dashboardPanelSource.includes("calibrationGuardRegressionItems"), "lab dashboard does not render guard regression count");
   assert(dashboardPanelSource.includes("attentionByKind"), "lab dashboard does not render attention kind breakdowns");
   assert(dashboardPanelSource.includes("attentionBySeverity"), "lab dashboard does not render attention severity breakdowns");
+  assert(dashboardPanelSource.includes("attentionItems"), "lab dashboard does not render actionable attention items");
+  assert(dashboardPanelSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not render candidate guard rules from batch health");
   return "latest forecast batch health is shared by diagnostics and metrics";
 });
 
