@@ -455,6 +455,8 @@ try {
 
   const calibrationGuardValidations = await readCalibrationGuardValidationRows(resolve(root, "data/reports/forecast-calibration-guard-validation"));
   await replaceTable(duck, "osf_calibration_guard_validations", calibrationGuardValidationColumns, calibrationGuardValidations);
+  const calibrationGuardDefaultPlanCandidates = await readCalibrationGuardDefaultPlanRows(resolve(root, "data/reports/forecast-calibration-guard-default-plan"));
+  await replaceTable(duck, "osf_calibration_guard_default_plan_candidates", calibrationGuardDefaultPlanColumns, calibrationGuardDefaultPlanCandidates);
 
   const counts = {
     osf_tasks: tasks.length,
@@ -465,6 +467,7 @@ try {
     osf_binary_calibration_buckets: binaryCalibrationBuckets.length,
     osf_workflow_change_proposals: workflowChangeProposals.length,
     osf_calibration_guard_validations: calibrationGuardValidations.length,
+    osf_calibration_guard_default_plan_candidates: calibrationGuardDefaultPlanCandidates.length,
     osf_source_bank_entries: sources.length,
   };
   console.log(JSON.stringify({
@@ -478,6 +481,7 @@ try {
       "select benchmark_run_id, promotion_gate_status, promotion_gate_blockers from osf_benchmark_runs order by created_at desc limit 5;",
       "select bucket_label, sample_size, calibration_error, candidate_guard_suggested_adjustment from osf_binary_calibration_buckets;",
       "select proposal_id, recommendation, brier_delta, calibration_error_delta from osf_calibration_guard_validations order by generated_at desc limit 5;",
+      "select proposal_id, bucket_label, suggested_adjustment, brier_delta, calibration_error_delta, implementation_status from osf_calibration_guard_default_plan_candidates order by generated_at desc limit 5;",
       "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label, validation_benchmark_run_id, validation_result_status, validation_recommendation_status, validation_paired_mean_brier_delta, validation_gate_status from osf_workflow_change_proposals order by created_at desc limit 5;",
       "select operation_mode, operation_submode, status, count(*) from osf_tasks group by 1,2,3 order by 4 desc;",
     ],
@@ -716,6 +720,24 @@ const calibrationGuardValidationColumns = [
   { name: "performance_report_path", type: "VARCHAR" },
 ] satisfies DuckColumn[];
 
+const calibrationGuardDefaultPlanColumns = [
+  { name: "report_path", type: "VARCHAR" },
+  { name: "generated_at", type: "VARCHAR" },
+  { name: "proposal_id", type: "VARCHAR" },
+  { name: "source_candidate_guard_id", type: "VARCHAR" },
+  { name: "bucket_label", type: "VARCHAR" },
+  { name: "suggested_adjustment", type: "DOUBLE" },
+  { name: "matched_rows", type: "INTEGER" },
+  { name: "brier_delta", type: "DOUBLE" },
+  { name: "calibration_error_delta", type: "DOUBLE" },
+  { name: "target_workflow_id", type: "VARCHAR" },
+  { name: "target_file", type: "VARCHAR" },
+  { name: "implementation_status", type: "VARCHAR" },
+  { name: "recommended_action", type: "VARCHAR" },
+  { name: "acceptance_criteria_json", type: "VARCHAR" },
+  { name: "validation_report_path", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
 type TaskMartRow = RowFor<typeof taskColumns>;
 type ArtifactRowMartRow = RowFor<typeof artifactRowColumns>;
 type BenchmarkRunMartRow = RowFor<typeof benchmarkRunColumns>;
@@ -725,6 +747,7 @@ type BinaryCalibrationBucketMartRow = RowFor<typeof binaryCalibrationBucketColum
 type WorkflowChangeProposalMartRow = RowFor<typeof workflowChangeProposalColumns>;
 type SourceMartRow = RowFor<typeof sourceColumns>;
 type CalibrationGuardValidationMartRow = RowFor<typeof calibrationGuardValidationColumns>;
+type CalibrationGuardDefaultPlanMartRow = RowFor<typeof calibrationGuardDefaultPlanColumns>;
 type RowFor<T extends readonly DuckColumn[]> = Record<T[number]["name"], unknown>;
 
 async function syncMetadata(duck: DuckDBConnection) {
@@ -820,6 +843,43 @@ async function readCalibrationGuardValidationRows(reportRoot: string): Promise<C
   );
 }
 
+async function readCalibrationGuardDefaultPlanRows(reportRoot: string): Promise<CalibrationGuardDefaultPlanMartRow[]> {
+  const paths = await listFilesNamed(reportRoot, "calibration-guard-default-plan.json");
+  const rows: CalibrationGuardDefaultPlanMartRow[] = [];
+  for (const path of paths) {
+    const payload = await readJsonRecord(path);
+    if (!payload) {
+      continue;
+    }
+    const generatedAt = readString(payload, "generatedAt");
+    const pathsRecord = readRecord(payload, "paths");
+    for (const candidate of readRecordArray(payload, "defaultCandidates")) {
+      rows.push({
+        report_path: path,
+        generated_at: generatedAt,
+        proposal_id: readString(candidate, "proposalId"),
+        source_candidate_guard_id: readString(candidate, "sourceCandidateGuardId"),
+        bucket_label: readString(candidate, "bucketLabel"),
+        suggested_adjustment: readNumber(candidate, "suggestedAdjustment"),
+        matched_rows: readNumber(candidate, "matchedRows"),
+        brier_delta: readNumber(candidate, "brierDelta"),
+        calibration_error_delta: readNumber(candidate, "calibrationErrorDelta"),
+        target_workflow_id: readString(candidate, "targetWorkflowId"),
+        target_file: readString(candidate, "targetFile"),
+        implementation_status: readString(candidate, "implementationStatus"),
+        recommended_action: readString(candidate, "recommendedAction"),
+        acceptance_criteria_json: JSON.stringify(readStringArray(candidate, "acceptanceCriteria")),
+        validation_report_path: readString(pathsRecord, "validationReport"),
+      });
+    }
+  }
+  return rows.sort((left, right) =>
+    String(left.generated_at ?? "").localeCompare(String(right.generated_at ?? ""))
+    || String(left.proposal_id ?? "").localeCompare(String(right.proposal_id ?? ""))
+    || String(left.report_path ?? "").localeCompare(String(right.report_path ?? ""))
+  );
+}
+
 async function readJsonRecord(path: string) {
   try {
     return readRecord(await readJson(path));
@@ -836,6 +896,11 @@ function readRecordArray(value: unknown, key: string) {
 function readNumber(value: unknown, key: string) {
   const raw = readRecord(value)?.[key];
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
+function readStringArray(value: unknown, key: string) {
+  const raw = readRecord(value)?.[key];
+  return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string") : [];
 }
 
 await main();

@@ -809,9 +809,12 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_binary_calibration_diagnostic"), "calibration diagnostic metric missing");
   assert(metricsSource.includes("open_superforecaster_binary_calibration_candidate_guard_rules_total"), "candidate calibration guard metric missing");
   assert(metricsSource.includes("readCalibrationGuardValidationMetricRows"), "metrics exporter does not read calibration guard validation reports");
+  assert(metricsSource.includes("readCalibrationGuardDefaultPlanMetricRows"), "metrics exporter does not read calibration guard default plan reports");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "calibration validation report metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_validation_brier_delta"), "calibration validation Brier delta metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_validation_calibration_error_delta"), "calibration validation calibration error delta metric missing");
+  assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_candidates_total"), "calibration default plan candidate metric missing");
+  assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_candidate_brier_delta"), "calibration default plan Brier delta metric missing");
   assert(smokeSource.includes("open_superforecaster_binary_calibration_status"), "smoke check does not require calibration status metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
   assert(metricsRouteSource.includes("renderPrometheusMetrics"), "metrics route does not render Prometheus metrics");
@@ -824,17 +827,27 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("osf_forecast_scores"), "DuckDB sync missing forecast score mart");
   assert(syncSource.includes("osf_binary_calibration_buckets"), "DuckDB sync missing binary calibration bucket mart");
   assert(syncSource.includes("osf_calibration_guard_validations"), "DuckDB sync missing calibration guard validation mart");
+  assert(syncSource.includes("osf_calibration_guard_default_plan_candidates"), "DuckDB sync missing calibration guard default plan mart");
   assert(syncSource.includes("calibration_guard_adjustment"), "forecast score mart missing calibration guard adjustment");
   assert(syncSource.includes("calibration_guard_rules_json"), "forecast score mart missing calibration guard rules");
   assert(syncSource.includes("candidate_guard_suggested_adjustment"), "binary calibration bucket mart missing candidate guard adjustment");
   assert(syncSource.includes("candidate_guard_activation_status"), "binary calibration bucket mart missing candidate guard activation status");
   assert(syncSource.includes("readCalibrationGuardValidationRows"), "DuckDB sync does not read calibration guard validation reports");
+  assert(syncSource.includes("readCalibrationGuardDefaultPlanRows"), "DuckDB sync does not read calibration guard default plan reports");
   assert(syncSource.includes("validation_mode"), "calibration guard validation mart missing validation mode");
   assert(syncSource.includes("brier_delta"), "calibration guard validation mart missing Brier delta");
   assert(syncSource.includes("calibration_error_delta"), "calibration guard validation mart missing calibration error delta");
   assert(syncSource.includes("recommendation"), "calibration guard validation mart missing recommendation");
+  assert(syncSource.includes("acceptance_criteria_json"), "calibration guard default plan mart missing acceptance criteria");
   assert(syncSource.includes("resolved_forecast_count"), "binary calibration bucket mart missing resolved forecast count");
   return "binary calibration scores, candidate guard rules, and validation outcomes are visible in local DuckDB analytics";
+});
+
+await check("local export includes forecast review reports", async () => {
+  const exportSource = await readFile(resolve(root, "scripts/export-local.ts"), "utf8");
+  assert(exportSource.includes("\"data/reports\""), "local export does not include data/reports");
+  assert(exportSource.includes("local forecast review reports"), "local export manifest notes do not mention forecast review reports");
+  return "local export preserves forecast review reports";
 });
 
 await check("binary forecast calibration guard preserves deterministic adjustments", async () => {

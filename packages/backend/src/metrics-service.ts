@@ -33,6 +33,21 @@ type CalibrationGuardValidationMetricRow = {
   recommendation: string | null;
 };
 
+type CalibrationGuardDefaultPlanMetricRow = {
+  reportPath: string;
+  generatedAt: string | null;
+  proposalId: string | null;
+  sourceCandidateGuardId: string | null;
+  bucketLabel: string | null;
+  suggestedAdjustment: number | null;
+  matchedRows: number | null;
+  brierDelta: number | null;
+  calibrationErrorDelta: number | null;
+  targetWorkflowId: string | null;
+  targetFile: string | null;
+  implementationStatus: string | null;
+};
+
 export async function renderPrometheusMetrics(db: Db, options: { root?: string } = {}) {
   const [
     taskRows,
@@ -483,7 +498,9 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
 
   if (options.root) {
     const validationRows = await readCalibrationGuardValidationMetricRows(options.root);
+    const defaultPlanRows = await readCalibrationGuardDefaultPlanMetricRows(options.root);
     const validationReportPaths = uniqueStrings(validationRows.map((row) => row.reportPath));
+    const defaultPlanReportPaths = uniqueStrings(defaultPlanRows.map((row) => row.reportPath));
     metrics.gauge(
       "open_superforecaster_calibration_guard_validation_reports_total",
       "Local calibration guard validation report count.",
@@ -526,6 +543,58 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
           "open_superforecaster_calibration_guard_validation_calibration_error_delta",
           "Candidate minus baseline bucket calibration error in calibration guard validation.",
           validation.calibrationErrorDelta,
+          labels,
+        );
+      }
+    }
+    metrics.gauge(
+      "open_superforecaster_calibration_guard_default_plan_reports_total",
+      "Local calibration guard default plan report count.",
+      defaultPlanReportPaths.length,
+    );
+    metrics.gauge(
+      "open_superforecaster_calibration_guard_default_plan_candidates_total",
+      "Local calibration guard default implementation candidate count.",
+      defaultPlanRows.length,
+    );
+    for (const candidate of defaultPlanRows.slice(-50)) {
+      const labels = {
+        proposal_id: candidate.proposalId ?? "unknown",
+        source_candidate_guard_id: candidate.sourceCandidateGuardId ?? "unknown",
+        bucket: candidate.bucketLabel ?? "unknown",
+        target_workflow_id: candidate.targetWorkflowId ?? "unknown",
+        implementation_status: candidate.implementationStatus ?? "unknown",
+      };
+      metrics.gauge("open_superforecaster_calibration_guard_default_plan_candidate_info", "Recent calibration guard default plan candidate metadata.", 1, labels);
+      if (candidate.suggestedAdjustment !== null) {
+        metrics.gauge(
+          "open_superforecaster_calibration_guard_default_plan_candidate_adjustment",
+          "Suggested percentage-point adjustment for a calibration guard default plan candidate.",
+          candidate.suggestedAdjustment,
+          labels,
+        );
+      }
+      if (candidate.matchedRows !== null) {
+        metrics.gauge(
+          "open_superforecaster_calibration_guard_default_plan_candidate_matched_rows",
+          "Held-out rows matched by a calibration guard default plan candidate.",
+          candidate.matchedRows,
+          labels,
+        );
+      }
+      if (candidate.brierDelta !== null) {
+        metrics.gauge(
+          "open_superforecaster_calibration_guard_default_plan_candidate_brier_delta",
+          "Candidate minus baseline mean Brier for a calibration guard default plan candidate.",
+          candidate.brierDelta,
+          labels,
+        );
+      }
+      if (candidate.calibrationErrorDelta !== null) {
+        metrics.gauge(
+          "open_superforecaster_calibration_guard_default_plan_candidate_calibration_error_delta",
+          "Candidate minus baseline bucket calibration error for a calibration guard default plan candidate.",
+          candidate.calibrationErrorDelta,
           labels,
         );
       }
@@ -644,6 +713,41 @@ async function readCalibrationGuardValidationMetricRows(root: string): Promise<C
         brierDelta: readNumber(validation, "brierDelta"),
         calibrationErrorDelta: readNumber(validation, "calibrationErrorDelta"),
         recommendation: readString(validation, "recommendation"),
+      });
+    }
+  }
+  return rows.sort((left, right) =>
+    String(left.generatedAt ?? "").localeCompare(String(right.generatedAt ?? ""))
+    || String(left.proposalId ?? "").localeCompare(String(right.proposalId ?? ""))
+    || left.reportPath.localeCompare(right.reportPath)
+  );
+}
+
+async function readCalibrationGuardDefaultPlanMetricRows(root: string): Promise<CalibrationGuardDefaultPlanMetricRow[]> {
+  const reportPaths = await listFilesNamed(resolve(root, "data/reports/forecast-calibration-guard-default-plan"), "calibration-guard-default-plan.json");
+  const rows: CalibrationGuardDefaultPlanMetricRow[] = [];
+  for (const reportPath of reportPaths) {
+    let payload: Record<string, unknown> | null;
+    try {
+      payload = asRecord(JSON.parse(await readFile(reportPath, "utf8")));
+    } catch {
+      continue;
+    }
+    const generatedAt = readString(payload, "generatedAt");
+    for (const candidate of readRecordArray(payload, "defaultCandidates")) {
+      rows.push({
+        reportPath,
+        generatedAt,
+        proposalId: readString(candidate, "proposalId"),
+        sourceCandidateGuardId: readString(candidate, "sourceCandidateGuardId"),
+        bucketLabel: readString(candidate, "bucketLabel"),
+        suggestedAdjustment: readNumber(candidate, "suggestedAdjustment"),
+        matchedRows: readNumber(candidate, "matchedRows"),
+        brierDelta: readNumber(candidate, "brierDelta"),
+        calibrationErrorDelta: readNumber(candidate, "calibrationErrorDelta"),
+        targetWorkflowId: readString(candidate, "targetWorkflowId"),
+        targetFile: readString(candidate, "targetFile"),
+        implementationStatus: readString(candidate, "implementationStatus"),
       });
     }
   }
