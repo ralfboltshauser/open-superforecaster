@@ -57,7 +57,7 @@ const promotionStates = [
   "rejected",
   "needs_more_cases",
 ] as const;
-type WorkflowPromotionState = (typeof promotionStates)[number];
+export type WorkflowPromotionState = (typeof promotionStates)[number];
 type BenchmarkPromotionComparisonStatus =
   | "candidate_better"
   | "candidate_worse"
@@ -119,6 +119,21 @@ export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotio
         ? "This run has paired evidence of candidate improvement and is ready for human promotion review."
         : "Use this run for iteration, but do not promote until blockers are resolved.",
   };
+}
+
+export function assertBenchmarkPromotionDecisionAllowed(
+  state: WorkflowPromotionState,
+  promotionGate: ReturnType<typeof summarizeBenchmarkPromotionGateEvidence>,
+) {
+  if (!isPromotedState(state) || promotionGate.status === "review_for_promotion") {
+    return;
+  }
+  const blockers = promotionGate.blockers.length ? promotionGate.blockers.join(", ") : "unknown";
+  throw new Error(`Cannot record ${state} while benchmark promotion gate is ${promotionGate.status}. Blockers: ${blockers}.`);
+}
+
+function isPromotedState(state: WorkflowPromotionState) {
+  return state === "promoted_for_local_default" || state === "promoted_for_eval_only";
 }
 
 function readFindingCount(findings: Record<string, unknown> | null | undefined, ...keys: string[]) {
@@ -788,6 +803,9 @@ export async function recordWorkflowPromotionDecision(
     throw new Error(`Workflow variant not found: ${run.workflowVariantId}`);
   }
 
+  const promotionGate = await benchmarkPromotionGateForRun(db, run);
+  assertBenchmarkPromotionDecisionAllowed(state, promotionGate);
+
   const [decision] = await db
     .insert(workflowPromotionDecisions)
     .values({
@@ -828,6 +846,7 @@ export async function recordWorkflowPromotionDecision(
     workflowId: variant.workflowId,
     workflowSourceHash: variant.workflowSourceHash,
     benchmarkStatus: run.status,
+    promotionGate,
   };
 }
 
@@ -2804,6 +2823,24 @@ function benchmarkPromotionGateSummary(input: {
     baselineSanityFindings: readRecord(input.analysisReport, "baselineSanityFindings", "baseline_sanity_findings"),
     componentDisagreementFindings: readRecord(input.analysisReport, "componentDisagreementFindings", "component_disagreement_findings"),
     forecastErrorFindings: readRecord(input.analysisReport, "forecastErrorFindings", "forecast_error_findings"),
+  });
+}
+
+async function benchmarkPromotionGateForRun(db: Db, run: BenchmarkRunRow) {
+  const results = await db
+    .select()
+    .from(benchmarkCaseResults)
+    .where(eq(benchmarkCaseResults.benchmarkRunId, run.id));
+  const [comparisonReport, analysisReport] = await Promise.all([
+    readArtifactReportRow(db, run.comparisonReportArtifactId),
+    readArtifactReportRow(db, run.analysisReportArtifactId),
+  ]);
+  return benchmarkPromotionGateSummary({
+    run,
+    metrics: benchmarkRunMetrics(results),
+    results,
+    comparison: comparisonReport,
+    analysisReport,
   });
 }
 

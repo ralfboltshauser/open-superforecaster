@@ -34,6 +34,9 @@ failures.
 Promotion gates treat those analysis findings as blockers: missing baseline
 sanity, unexplained component disagreement, large misses, and worse-than-baseline
 cases must be cleared before a run is ready for promotion review.
+The promotion decision API enforces the same gate for promoted states; use
+`needs_more_cases`, `candidate`, or `rejected` when recording non-promoting
+review outcomes with blockers still present.
 
 ## Forecast And Research Prompts
 

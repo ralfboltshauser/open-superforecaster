@@ -1,6 +1,9 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { summarizeBenchmarkPromotionGateEvidence } from "../packages/backend/src/benchmark-service";
+import {
+  assertBenchmarkPromotionDecisionAllowed,
+  summarizeBenchmarkPromotionGateEvidence,
+} from "../packages/backend/src/benchmark-service";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
 import { applyBinaryCalibrationGuard } from "../packages/workflows/src/binary-calibration-guard";
@@ -508,6 +511,10 @@ await check("benchmark promotion gate requires paired improvement", async () => 
   assert(qualityBlocked.blockers.includes("unexplained_component_disagreement"), "component disagreement blocker missing");
   assert(qualityBlocked.blockers.includes("large_probability_misses"), "large miss blocker missing");
   assert(qualityBlocked.blockers.includes("worse_than_baseline_cases"), "worse-than-baseline blocker missing");
+  assertBenchmarkPromotionDecisionAllowed("needs_more_cases", qualityBlocked);
+  const blockedPromotion = catchError(() => assertBenchmarkPromotionDecisionAllowed("promoted_for_local_default", qualityBlocked));
+  assert(blockedPromotion?.message.includes("missing_baseline_sanity"), "blocked promotion did not report blockers");
+  assertBenchmarkPromotionDecisionAllowed("promoted_for_eval_only", candidateBetter);
   return "promotion review requires paired candidate improvement";
 });
 
@@ -602,6 +609,15 @@ function readNumber(record: unknown, key: string) {
 function readStringArray(record: unknown, key: string) {
   const value = readRecord(record)?.[key];
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function catchError(fn: () => void) {
+  try {
+    fn();
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
 }
 
 function assert(condition: unknown, message: string): asserts condition {
