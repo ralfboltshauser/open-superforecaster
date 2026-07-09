@@ -1,10 +1,12 @@
 import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import { DuckDBInstance, type DuckDBAppender, type DuckDBConnection } from "@duckdb/node-api";
 import postgres from "postgres";
 import { loadAppConfig } from "../packages/config/src/index";
+import { listFilesNamed, readJson, readRecord, readString, type JsonRecord } from "./lib/forecast-script-utils";
 
 const config = loadAppConfig();
+const root = resolve(import.meta.dir, "..");
 
 async function main() {
 await mkdir(dirname(config.DUCKDB_PATH), { recursive: true });
@@ -451,6 +453,9 @@ try {
   `;
   await replaceTable(duck, "osf_source_bank_entries", sourceColumns, sources);
 
+  const calibrationGuardValidations = await readCalibrationGuardValidationRows(resolve(root, "data/reports/forecast-calibration-guard-validation"));
+  await replaceTable(duck, "osf_calibration_guard_validations", calibrationGuardValidationColumns, calibrationGuardValidations);
+
   const counts = {
     osf_tasks: tasks.length,
     osf_artifact_rows: artifactRows.length,
@@ -459,6 +464,7 @@ try {
     osf_forecast_scores: forecastScores.length,
     osf_binary_calibration_buckets: binaryCalibrationBuckets.length,
     osf_workflow_change_proposals: workflowChangeProposals.length,
+    osf_calibration_guard_validations: calibrationGuardValidations.length,
     osf_source_bank_entries: sources.length,
   };
   console.log(JSON.stringify({
@@ -471,6 +477,7 @@ try {
       "select benchmark_run_id, paired_mean_brier_delta, paired_brier_ci_lower, paired_brier_ci_upper, recommendation_status from osf_benchmark_runs where comparison_report_artifact_id is not null;",
       "select benchmark_run_id, promotion_gate_status, promotion_gate_blockers from osf_benchmark_runs order by created_at desc limit 5;",
       "select bucket_label, sample_size, calibration_error, candidate_guard_suggested_adjustment from osf_binary_calibration_buckets;",
+      "select proposal_id, recommendation, brier_delta, calibration_error_delta from osf_calibration_guard_validations order by generated_at desc limit 5;",
       "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label, validation_benchmark_run_id, validation_result_status, validation_recommendation_status, validation_paired_mean_brier_delta, validation_gate_status from osf_workflow_change_proposals order by created_at desc limit 5;",
       "select operation_mode, operation_submode, status, count(*) from osf_tasks group by 1,2,3 order by 4 desc;",
     ],
@@ -689,6 +696,25 @@ const sourceColumns = [
   { name: "created_at", type: "VARCHAR" },
 ] satisfies DuckColumn[];
 
+const calibrationGuardValidationColumns = [
+  { name: "report_path", type: "VARCHAR" },
+  { name: "generated_at", type: "VARCHAR" },
+  { name: "proposal_id", type: "VARCHAR" },
+  { name: "source_candidate_guard_id", type: "VARCHAR" },
+  { name: "bucket_label", type: "VARCHAR" },
+  { name: "suggested_adjustment", type: "DOUBLE" },
+  { name: "matched_rows", type: "INTEGER" },
+  { name: "baseline_mean_brier", type: "DOUBLE" },
+  { name: "candidate_mean_brier", type: "DOUBLE" },
+  { name: "brier_delta", type: "DOUBLE" },
+  { name: "baseline_calibration_error", type: "DOUBLE" },
+  { name: "candidate_calibration_error", type: "DOUBLE" },
+  { name: "calibration_error_delta", type: "DOUBLE" },
+  { name: "recommendation", type: "VARCHAR" },
+  { name: "proposals_path", type: "VARCHAR" },
+  { name: "performance_report_path", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
 type TaskMartRow = RowFor<typeof taskColumns>;
 type ArtifactRowMartRow = RowFor<typeof artifactRowColumns>;
 type BenchmarkRunMartRow = RowFor<typeof benchmarkRunColumns>;
@@ -697,6 +723,7 @@ type ForecastScoreMartRow = RowFor<typeof forecastScoreColumns>;
 type BinaryCalibrationBucketMartRow = RowFor<typeof binaryCalibrationBucketColumns>;
 type WorkflowChangeProposalMartRow = RowFor<typeof workflowChangeProposalColumns>;
 type SourceMartRow = RowFor<typeof sourceColumns>;
+type CalibrationGuardValidationMartRow = RowFor<typeof calibrationGuardValidationColumns>;
 type RowFor<T extends readonly DuckColumn[]> = Record<T[number]["name"], unknown>;
 
 async function syncMetadata(duck: DuckDBConnection) {
@@ -751,6 +778,62 @@ function appendValue(
     return;
   }
   appender.appendVarchar(String(value));
+}
+
+async function readCalibrationGuardValidationRows(reportRoot: string): Promise<CalibrationGuardValidationMartRow[]> {
+  const paths = await listFilesNamed(reportRoot, "calibration-guard-validation.json");
+  const rows: CalibrationGuardValidationMartRow[] = [];
+  for (const path of paths) {
+    const payload = await readJsonRecord(path);
+    if (!payload) {
+      continue;
+    }
+    const generatedAt = readString(payload, "generatedAt");
+    const pathsRecord = readRecord(payload, "paths");
+    for (const validation of readRecordArray(payload, "validations")) {
+      rows.push({
+        report_path: path,
+        generated_at: generatedAt,
+        proposal_id: readString(validation, "proposalId"),
+        source_candidate_guard_id: readString(validation, "sourceCandidateGuardId"),
+        bucket_label: readString(validation, "bucketLabel"),
+        suggested_adjustment: readNumber(validation, "suggestedAdjustment"),
+        matched_rows: readNumber(validation, "matchedRows"),
+        baseline_mean_brier: readNumber(validation, "baselineMeanBrier"),
+        candidate_mean_brier: readNumber(validation, "candidateMeanBrier"),
+        brier_delta: readNumber(validation, "brierDelta"),
+        baseline_calibration_error: readNumber(validation, "baselineCalibrationError"),
+        candidate_calibration_error: readNumber(validation, "candidateCalibrationError"),
+        calibration_error_delta: readNumber(validation, "calibrationErrorDelta"),
+        recommendation: readString(validation, "recommendation"),
+        proposals_path: readString(pathsRecord, "proposals"),
+        performance_report_path: readString(pathsRecord, "performanceReport"),
+      });
+    }
+  }
+  return rows.sort((left, right) =>
+    String(left.generated_at ?? "").localeCompare(String(right.generated_at ?? ""))
+    || String(left.proposal_id ?? "").localeCompare(String(right.proposal_id ?? ""))
+    || String(left.report_path ?? "").localeCompare(String(right.report_path ?? ""))
+  );
+}
+
+async function readJsonRecord(path: string) {
+  try {
+    return readRecord(await readJson(path));
+  } catch {
+    return null;
+  }
+}
+
+function readRecordArray(value: unknown, key: string) {
+  const raw = readRecord(value)?.[key];
+  return Array.isArray(raw) ? raw.filter((item): item is JsonRecord => Boolean(readRecord(item))) : [];
+}
+
+function readNumber(value: unknown, key: string) {
+  const raw = readRecord(value)?.[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
 
 await main();

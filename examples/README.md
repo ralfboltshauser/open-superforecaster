@@ -67,6 +67,9 @@ Product forecast score rows are exported to `osf_forecast_scores`, including
 probability, resolved outcome, score, and calibration-guard metadata. Binary
 aggregate calibration buckets are exported to `osf_binary_calibration_buckets`
 with bucket error, diagnostic direction, and candidate guard adjustment fields.
+Calibration guard validation reports are exported to
+`osf_calibration_guard_validations` with before/after Brier, bucket calibration
+error deltas, and recommendation status.
 Benchmark-derived workflow change proposals are exported to
 `osf_workflow_change_proposals`, including source benchmark run, evidence case
 ids, proposed change, expected metric and cost/latency effects, overfit risk,
