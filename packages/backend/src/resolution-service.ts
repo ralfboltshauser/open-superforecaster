@@ -82,7 +82,7 @@ type PerformanceTrend = {
 
 type PerformanceAttentionItem = {
   id: string;
-  kind: "poor_resolved_forecast" | "worsening_trend";
+  kind: "poor_resolved_forecast" | "worsening_trend" | "calibration_mismatch";
   severity: "high" | "medium";
   reason: string;
   recommendedActions: string[];
@@ -339,8 +339,8 @@ export async function getForecastPerformanceReport(db: Db) {
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
   const worstResolvedForecasts = [...rankedAggregateCases].reverse().slice(0, 8);
   const scoreTrends = buildScoreTrends(aggregateScores);
-  const needsAttention = buildNeedsAttentionQueue(worstResolvedForecasts, scoreTrends);
   const calibrationReport = buildBinaryCalibrationReport(scoreRowsForCalibration(aggregateBrierScores), productResolutionIds.size);
+  const needsAttention = buildNeedsAttentionQueue(worstResolvedForecasts, scoreTrends, calibrationReport);
 
   return {
     reportType: "forecast_performance_report",
@@ -361,6 +361,7 @@ export async function getForecastPerformanceReport(db: Db) {
     },
     calibrationBuckets: calibrationReport.calibrationBuckets,
     calibrationSummary: calibrationReport.calibrationSummary,
+    calibrationDiagnostics: calibrationReport.calibrationDiagnostics,
     groups: {
       byForecastType,
       byTarget,
@@ -1080,6 +1081,7 @@ function trendDirection(delta: number | null): PerformanceTrend["direction"] {
 function buildNeedsAttentionQueue(
   worstCases: PerformanceCase[],
   trends: PerformanceTrend[],
+  calibrationReport: BinaryCalibrationReport,
 ): PerformanceAttentionItem[] {
   const caseItems = worstCases.slice(0, 5).map((item, index) => {
     const threshold = poorScoreThreshold(item.primaryMetric);
@@ -1130,7 +1132,22 @@ function buildNeedsAttentionQueue(
       rank: 100 + trend.recentDays,
     }));
 
-  return [...caseItems, ...trendItems]
+  const calibrationItems = calibrationReport.calibrationDiagnostics.map((diagnostic) => ({
+    id: diagnostic.id,
+    kind: "calibration_mismatch" as const,
+    severity: diagnostic.severity,
+    reason: diagnostic.reason,
+    recommendedActions: diagnostic.recommendedActions,
+    metric: diagnostic.metric,
+    score: diagnostic.score,
+    delta: diagnostic.delta,
+    taskId: null,
+    taskLabel: `${diagnostic.bucketLabel} calibration bucket`,
+    forecastType: "binary",
+    rank: 200 - diagnostic.score,
+  }));
+
+  return [...caseItems, ...trendItems, ...calibrationItems]
     .sort((left, right) => {
       const severityDelta = severityRank(right.severity) - severityRank(left.severity);
       if (severityDelta !== 0) {
@@ -1152,9 +1169,12 @@ function recommendAttentionActions(input: {
   if (input.kind === "poor_resolved_forecast") {
     actions.add("Open the run report and compare the final answer against the written resolution criteria.");
     actions.add("Inspect component disagreement and final calibration notes before changing prompts or defaults.");
-  } else {
+  } else if (input.kind === "worsening_trend") {
     actions.add("Review recent resolved runs in this metric before treating the trend as a workflow regression.");
     actions.add("Compare recent cases against older baseline cases for domain mix or resolution-source drift.");
+  } else {
+    actions.add("Review the affected calibration bucket before changing prompts or defaults.");
+    actions.add("Compare mean forecast probability against observed outcome rate for resolved binary aggregates.");
   }
 
   if (isProbabilityMetric(input.metric)) {

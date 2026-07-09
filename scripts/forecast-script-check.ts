@@ -394,6 +394,25 @@ await check("forecast performance calibration buckets are stable", async () => {
   return "binary calibration buckets and ECE summary are deterministic";
 });
 
+await check("forecast performance calibration diagnostics flag bucket drift", async () => {
+  const report = buildBinaryCalibrationReport([
+    { probability: 90, resolved: false, score: 0.81 },
+    { probability: 90, resolved: false, score: 0.81 },
+    { probability: 90, resolved: false, score: 0.81 },
+    { probability: 90, resolved: false, score: 0.81 },
+    { probability: 90, resolved: false, score: 0.81 },
+  ], 25);
+  const diagnostics = report.calibrationDiagnostics;
+  assert(diagnostics.length === 1, `expected 1 calibration diagnostic, got ${diagnostics.length}`);
+  assert(diagnostics[0].id === "calibration:80-100", "calibration diagnostic id mismatch");
+  assert(diagnostics[0].severity === "high", "calibration diagnostic severity mismatch");
+  assert(diagnostics[0].direction === "overforecast", "calibration diagnostic direction mismatch");
+  assert(diagnostics[0].score === 90, "calibration diagnostic score mismatch");
+  assert(diagnostics[0].delta === -90, "calibration diagnostic delta mismatch");
+  assert(diagnostics[0].recommendedActions.some((action) => action.includes("candidate calibration guard")), "calibration guard action missing");
+  return "calibration diagnostics convert bucket drift into review actions";
+});
+
 const failed = checks.filter((result) => !result.ok);
 for (const result of checks) {
   console.log(`${result.ok ? "PASS" : "FAIL"} ${result.name}: ${result.detail}`);

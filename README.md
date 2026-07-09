@@ -259,7 +259,9 @@ bun run forecast:performance -- --batch-id july-smoke
 
 The performance report includes grouped score means, best and worst resolved
 aggregate forecasts, score trends, attention items, and binary aggregate
-calibration buckets with expected calibration error.
+calibration buckets with expected calibration error. Calibration buckets with
+enough resolved examples and large forecast-vs-observed gaps are added to the
+attention queue with review actions.
 
 To consolidate those local artifacts into one audit file:
 
