@@ -251,6 +251,126 @@ try {
   `;
   await replaceTable(duck, "osf_benchmark_case_results", benchmarkCaseColumns, benchmarkCases);
 
+  const forecastScores = await pg<ForecastScoreMartRow[]>`
+    select
+      fs.id::text as forecast_score_id,
+      fs.forecast_aggregate_id::text as forecast_aggregate_id,
+      fs.forecast_attempt_id::text as forecast_attempt_id,
+      fs.resolution_id::text as resolution_id,
+      fs.score_config #>> '{taskId}' as task_id,
+      coalesce(fs.score_config #>> '{forecastType}', fa.forecast_type::text, fat.forecast_type::text) as forecast_type,
+      fs.score_config #>> '{target}' as target,
+      fs.score_config #>> '{source}' as source,
+      fs.score_type,
+      fs.score_value,
+      nullif(coalesce(fs.score_config #>> '{probability}', fs.score_config #>> '{probability_pct}', fs.score_config #>> '{probabilityPct}'), '')::double precision as probability,
+      nullif(fs.score_config #>> '{resolved}', '')::boolean as resolved,
+      nullif(fs.score_config #>> '{calibrationGuard,adjustment}', '')::double precision as calibration_guard_adjustment,
+      (fs.score_config #> '{calibrationGuard,appliedRules}')::text as calibration_guard_rules_json,
+      fs.score_config::text as score_config_json,
+      fs.created_at::text as created_at
+    from forecast_scores fs
+    left join forecast_aggregates fa on fa.id = fs.forecast_aggregate_id
+    left join forecast_attempts fat on fat.id = fs.forecast_attempt_id
+    where fs.score_config #>> '{source}' = 'manual_resolution'
+      and fs.score_config ? 'taskId'
+      and not (fs.score_config ? 'benchmarkRunId')
+    order by fs.created_at
+  `;
+  await replaceTable(duck, "osf_forecast_scores", forecastScoreColumns, forecastScores);
+
+  const binaryCalibrationBuckets = await pg<BinaryCalibrationBucketMartRow[]>`
+    with bucket_defs as (
+      select * from (values
+        (0, 20, '0-20%'),
+        (20, 40, '20-40%'),
+        (40, 60, '40-60%'),
+        (60, 80, '60-80%'),
+        (80, 100, '80-100%')
+      ) as bucket(min_probability, max_probability, label)
+    ),
+    product_scores as (
+      select
+        fs.id,
+        fs.resolution_id,
+        fs.score_value,
+        nullif(coalesce(fs.score_config #>> '{probability}', fs.score_config #>> '{probability_pct}', fs.score_config #>> '{probabilityPct}'), '')::double precision as probability,
+        nullif(fs.score_config #>> '{resolved}', '')::boolean as resolved
+      from forecast_scores fs
+      where fs.score_type = 'brier'
+        and fs.forecast_aggregate_id is not null
+        and fs.score_config #>> '{source}' = 'manual_resolution'
+        and fs.score_config ? 'taskId'
+        and not (fs.score_config ? 'benchmarkRunId')
+    ),
+    resolved_counts as (
+      select count(distinct resolution_id)::integer as resolved_forecast_count
+      from forecast_scores
+      where score_config #>> '{source}' = 'manual_resolution'
+        and score_config ? 'taskId'
+        and not (score_config ? 'benchmarkRunId')
+    ),
+    bucket_rows as (
+      select
+        bucket.label,
+        bucket.min_probability,
+        bucket.max_probability,
+        ps.probability,
+        ps.resolved,
+        ps.score_value
+      from bucket_defs bucket
+      left join product_scores ps
+        on ps.probability is not null
+       and (
+          (bucket.max_probability = 100 and ps.probability >= bucket.min_probability and ps.probability <= bucket.max_probability)
+          or (bucket.max_probability < 100 and ps.probability >= bucket.min_probability and ps.probability < bucket.max_probability)
+       )
+    ),
+    buckets as (
+      select
+        label,
+        min_probability,
+        max_probability,
+        count(probability)::integer as sample_size,
+        avg(probability)::double precision as mean_forecast,
+        (avg(case when resolved is true then 1.0 when resolved is false then 0.0 end) * 100)::double precision as observed_rate,
+        avg(score_value)::double precision as mean_brier
+      from bucket_rows
+      group by label, min_probability, max_probability
+    ),
+    diagnostics as (
+      select
+        buckets.*,
+        abs(mean_forecast - observed_rate)::double precision as calibration_error,
+        (observed_rate - mean_forecast)::double precision as calibration_delta,
+        case when observed_rate - mean_forecast < 0 then 'overforecast' else 'underforecast' end as direction,
+        case when sample_size >= 5 and abs(mean_forecast - observed_rate) >= 30 then 'high' else 'medium' end as severity
+      from buckets
+    )
+    select
+      label as bucket_label,
+      min_probability,
+      max_probability,
+      sample_size,
+      mean_forecast,
+      observed_rate,
+      mean_brier,
+      calibration_error,
+      case when sample_size >= 3 and calibration_error >= 20 then severity end as diagnostic_severity,
+      case when sample_size >= 3 and calibration_error >= 20 then direction end as diagnostic_direction,
+      case when sample_size >= 3 and calibration_error >= 20 then 'candidate-guard:' || label end as candidate_guard_id,
+      case when sample_size >= 3 and calibration_error >= 20 then least(15, greatest(-15, calibration_delta / 2)) end as candidate_guard_suggested_adjustment,
+      case
+        when sample_size >= 3 and calibration_error >= 20 and resolved_counts.resolved_forecast_count >= 25 then 'ready_for_review'
+        when sample_size >= 3 and calibration_error >= 20 then 'needs_more_resolved_forecasts'
+      end as candidate_guard_activation_status,
+      resolved_counts.resolved_forecast_count,
+      25::integer as minimum_for_fitting
+    from diagnostics, resolved_counts
+    order by min_probability
+  `;
+  await replaceTable(duck, "osf_binary_calibration_buckets", binaryCalibrationBucketColumns, binaryCalibrationBuckets);
+
   const workflowChangeProposals = await pg<WorkflowChangeProposalMartRow[]>`
     select
       wcp.id::text as workflow_change_proposal_id,
@@ -336,6 +456,8 @@ try {
     osf_artifact_rows: artifactRows.length,
     osf_benchmark_runs: benchmarkRuns.length,
     osf_benchmark_case_results: benchmarkCases.length,
+    osf_forecast_scores: forecastScores.length,
+    osf_binary_calibration_buckets: binaryCalibrationBuckets.length,
     osf_workflow_change_proposals: workflowChangeProposals.length,
     osf_source_bank_entries: sources.length,
   };
@@ -348,6 +470,7 @@ try {
       "select * from osf_benchmark_runs order by created_at desc limit 5;",
       "select benchmark_run_id, paired_mean_brier_delta, paired_brier_ci_lower, paired_brier_ci_upper, recommendation_status from osf_benchmark_runs where comparison_report_artifact_id is not null;",
       "select benchmark_run_id, promotion_gate_status, promotion_gate_blockers from osf_benchmark_runs order by created_at desc limit 5;",
+      "select bucket_label, sample_size, calibration_error, candidate_guard_suggested_adjustment from osf_binary_calibration_buckets;",
       "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label, validation_benchmark_run_id, validation_result_status, validation_recommendation_status, validation_paired_mean_brier_delta, validation_gate_status from osf_workflow_change_proposals order by created_at desc limit 5;",
       "select operation_mode, operation_submode, status, count(*) from osf_tasks group by 1,2,3 order by 4 desc;",
     ],
@@ -470,6 +593,43 @@ const benchmarkCaseColumns = [
   { name: "updated_at", type: "VARCHAR" },
 ] satisfies DuckColumn[];
 
+const forecastScoreColumns = [
+  { name: "forecast_score_id", type: "VARCHAR" },
+  { name: "forecast_aggregate_id", type: "VARCHAR" },
+  { name: "forecast_attempt_id", type: "VARCHAR" },
+  { name: "resolution_id", type: "VARCHAR" },
+  { name: "task_id", type: "VARCHAR" },
+  { name: "forecast_type", type: "VARCHAR" },
+  { name: "target", type: "VARCHAR" },
+  { name: "source", type: "VARCHAR" },
+  { name: "score_type", type: "VARCHAR" },
+  { name: "score_value", type: "DOUBLE" },
+  { name: "probability", type: "DOUBLE" },
+  { name: "resolved", type: "BOOLEAN" },
+  { name: "calibration_guard_adjustment", type: "DOUBLE" },
+  { name: "calibration_guard_rules_json", type: "VARCHAR" },
+  { name: "score_config_json", type: "VARCHAR" },
+  { name: "created_at", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
+const binaryCalibrationBucketColumns = [
+  { name: "bucket_label", type: "VARCHAR" },
+  { name: "min_probability", type: "INTEGER" },
+  { name: "max_probability", type: "INTEGER" },
+  { name: "sample_size", type: "INTEGER" },
+  { name: "mean_forecast", type: "DOUBLE" },
+  { name: "observed_rate", type: "DOUBLE" },
+  { name: "mean_brier", type: "DOUBLE" },
+  { name: "calibration_error", type: "DOUBLE" },
+  { name: "diagnostic_severity", type: "VARCHAR" },
+  { name: "diagnostic_direction", type: "VARCHAR" },
+  { name: "candidate_guard_id", type: "VARCHAR" },
+  { name: "candidate_guard_suggested_adjustment", type: "DOUBLE" },
+  { name: "candidate_guard_activation_status", type: "VARCHAR" },
+  { name: "resolved_forecast_count", type: "INTEGER" },
+  { name: "minimum_for_fitting", type: "INTEGER" },
+] satisfies DuckColumn[];
+
 const workflowChangeProposalColumns = [
   { name: "workflow_change_proposal_id", type: "VARCHAR" },
   { name: "source_benchmark_run_id", type: "VARCHAR" },
@@ -533,6 +693,8 @@ type TaskMartRow = RowFor<typeof taskColumns>;
 type ArtifactRowMartRow = RowFor<typeof artifactRowColumns>;
 type BenchmarkRunMartRow = RowFor<typeof benchmarkRunColumns>;
 type BenchmarkCaseMartRow = RowFor<typeof benchmarkCaseColumns>;
+type ForecastScoreMartRow = RowFor<typeof forecastScoreColumns>;
+type BinaryCalibrationBucketMartRow = RowFor<typeof binaryCalibrationBucketColumns>;
 type WorkflowChangeProposalMartRow = RowFor<typeof workflowChangeProposalColumns>;
 type SourceMartRow = RowFor<typeof sourceColumns>;
 type RowFor<T extends readonly DuckColumn[]> = Record<T[number]["name"], unknown>;

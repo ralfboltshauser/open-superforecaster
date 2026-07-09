@@ -520,6 +520,18 @@ await check("forecast calibration health is exported as metrics", async () => {
   return "binary calibration health and candidate guard rules are visible in Prometheus metrics";
 });
 
+await check("forecast calibration health is exported to DuckDB", async () => {
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  assert(syncSource.includes("osf_forecast_scores"), "DuckDB sync missing forecast score mart");
+  assert(syncSource.includes("osf_binary_calibration_buckets"), "DuckDB sync missing binary calibration bucket mart");
+  assert(syncSource.includes("calibration_guard_adjustment"), "forecast score mart missing calibration guard adjustment");
+  assert(syncSource.includes("calibration_guard_rules_json"), "forecast score mart missing calibration guard rules");
+  assert(syncSource.includes("candidate_guard_suggested_adjustment"), "binary calibration bucket mart missing candidate guard adjustment");
+  assert(syncSource.includes("candidate_guard_activation_status"), "binary calibration bucket mart missing candidate guard activation status");
+  assert(syncSource.includes("resolved_forecast_count"), "binary calibration bucket mart missing resolved forecast count");
+  return "binary calibration scores and candidate guard rules are visible in local DuckDB analytics";
+});
+
 await check("binary forecast calibration guard preserves deterministic adjustments", async () => {
   const productionRamp = applyBinaryCalibrationGuard({
     probability: 25,
