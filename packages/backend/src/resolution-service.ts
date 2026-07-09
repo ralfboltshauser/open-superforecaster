@@ -10,6 +10,7 @@ import {
   type createDb,
 } from "@open-superforecaster/db";
 import { scoreBinaryForecast } from "@open-superforecaster/evals";
+import { readAggregateQualitySnapshot, type AggregateQualitySnapshot } from "./aggregate-quality-metadata";
 import { readBaselineSanitySnapshot, type BaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { buildCalibrationGuardImpact, type CalibrationGuardImpact, type CalibrationGuardRuleImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot, type CalibrationGuardSnapshot } from "./calibration-guard-metadata";
@@ -67,6 +68,7 @@ type PerformanceCase = {
   resolved: boolean | null;
   calibrationGuard: CalibrationGuardSnapshot | null;
   baselineSanity: BaselineSanitySnapshot | null;
+  aggregateQuality: AggregateQualitySnapshot | null;
   resolutionId: string | null;
   forecastAggregateId: string | null;
   createdAt: Date;
@@ -87,7 +89,13 @@ type PerformanceTrend = {
 
 type PerformanceAttentionItem = {
   id: string;
-  kind: "poor_resolved_forecast" | "worsening_trend" | "calibration_mismatch" | "calibration_guard_regression" | "baseline_sanity_miss";
+  kind:
+    | "poor_resolved_forecast"
+    | "worsening_trend"
+    | "calibration_mismatch"
+    | "calibration_guard_regression"
+    | "baseline_sanity_miss"
+    | "aggregate_quality_miss";
   severity: "high" | "medium";
   reason: string;
   recommendedActions: string[];
@@ -343,6 +351,7 @@ export async function getForecastPerformanceReport(db: Db) {
   });
   const byCalibrationGuard = groupScores(aggregateScores, calibrationGuardGroupKey);
   const byBaselineSanity = groupScores(aggregateScores, baselineSanityGroupKey);
+  const byAggregateQuality = groupScores(aggregateScores, aggregateQualityGroupKey);
   const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
@@ -381,6 +390,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byForecastTypeAndTarget,
       byCalibrationGuard,
       byBaselineSanity,
+      byAggregateQuality,
     },
     bestResolvedForecasts,
     worstResolvedForecasts,
@@ -409,6 +419,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byForecaster,
       byCalibrationGuard,
       byBaselineSanity,
+      byAggregateQuality,
       bestResolvedForecasts,
       worstResolvedForecasts,
       scoreTrends,
@@ -575,6 +586,7 @@ function scoreForecastPrediction(input: {
     }
     const calibrationGuard = readCalibrationGuardSnapshot(input.prediction);
     const baselineSanity = readBaselineSanitySnapshot(input.prediction);
+    const aggregateQuality = readAggregateQualitySnapshot(input.prediction);
     return Object.entries(scoreBinaryForecast({ probability, resolved })).map(([scoreType, scoreValue]) => ({
       scoreType,
       scoreValue,
@@ -583,6 +595,7 @@ function scoreForecastPrediction(input: {
         resolved,
         ...(calibrationGuard ? { calibrationGuard } : {}),
         ...(baselineSanity ? { baselineSanity } : {}),
+        ...(aggregateQuality ? { aggregateQuality } : {}),
       },
     }));
   }
@@ -1045,6 +1058,14 @@ function baselineSanityGroupKey(score: typeof forecastScores.$inferSelect) {
   return baselineSanity ? `baseline:${baselineSanity.status}` : "baseline:unrecorded";
 }
 
+function aggregateQualityGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
+  if (!aggregateQuality) {
+    return "aggregate_quality:unrecorded";
+  }
+  return `aggregate_quality:${aggregateQuality.convergenceStatus}`;
+}
+
 function rankAggregateCases(
   rows: Array<typeof forecastScores.$inferSelect>,
   taskMeta: Map<string, { id: string; label: string; operationSubmode: string | null }>,
@@ -1085,6 +1106,7 @@ function rankAggregateCases(
         resolved: readResolved(latest.scoreConfig),
         calibrationGuard: readCalibrationGuardSnapshot(latest.scoreConfig),
         baselineSanity: readBaselineSanitySnapshot(latest.scoreConfig),
+        aggregateQuality: readAggregateQualitySnapshot(latest.scoreConfig),
         resolutionId: latest.resolutionId,
         forecastAggregateId: latest.forecastAggregateId,
         createdAt: latest.createdAt,
@@ -1232,6 +1254,42 @@ function buildNeedsAttentionQueue(
       rank: 50 + index,
     }));
 
+  const aggregateQualityCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    if (
+      item.forecastType !== "binary" ||
+      item.aggregateQuality === null ||
+      threshold === null ||
+      item.primaryScore < threshold ||
+      (item.aggregateQuality.qualityApproved !== false && item.aggregateQuality.maxIterationsReached !== true)
+    ) {
+      return [];
+    }
+    return [{ item, aggregateQuality: item.aggregateQuality }];
+  });
+  const aggregateQualityItems = aggregateQualityCandidates
+    .slice(0, 5)
+    .map(({ item, aggregateQuality }, index) => ({
+      id: `aggregate-quality:${item.taskId}:${item.primaryMetric}`,
+      kind: "aggregate_quality_miss" as const,
+      severity: aggregateQuality.maxIterationsReached ? "high" as const : "medium" as const,
+      reason:
+        `${item.primaryMetric} ${roundMetric(item.primaryScore)} came from a ${aggregateQuality.convergenceStatus.replace(/_/g, " ")} binary aggregate after ${aggregateQuality.roundsUsed ?? "unknown"} review round(s).`,
+      recommendedActions: recommendAttentionActions({
+        kind: "aggregate_quality_miss",
+        metric: item.primaryMetric,
+        severity: aggregateQuality.maxIterationsReached ? "high" : "medium",
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: null,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 60 + index,
+    }));
+
   const calibrationItems = calibrationReport.calibrationDiagnostics.map((diagnostic) => ({
     id: diagnostic.id,
     kind: "calibration_mismatch" as const,
@@ -1293,7 +1351,15 @@ function buildNeedsAttentionQueue(
       rank: 151 + index,
     }));
 
-  return [...caseItems, ...baselineSanityItems, ...trendItems, ...overallGuardImpactItems, ...ruleGuardImpactItems, ...calibrationItems]
+  return [
+    ...caseItems,
+    ...baselineSanityItems,
+    ...aggregateQualityItems,
+    ...trendItems,
+    ...overallGuardImpactItems,
+    ...ruleGuardImpactItems,
+    ...calibrationItems,
+  ]
     .sort((left, right) => {
       const severityDelta = severityRank(right.severity) - severityRank(left.severity);
       if (severityDelta !== 0) {
@@ -1318,6 +1384,9 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "baseline_sanity_miss") {
     actions.add("Audit why the aggregate moved away from the component base-rate anchor before changing prompts or calibration defaults.");
     actions.add("Compare the component base-rate estimates, inside-view deltas, and final rationale against the resolved outcome.");
+  } else if (input.kind === "aggregate_quality_miss") {
+    actions.add("Review the final quality issues and review rationale before changing prompts or defaults.");
+    actions.add("Compare max-iteration cases against approved cases to decide whether the review loop needs another round or sharper rejection criteria.");
   } else if (input.kind === "worsening_trend") {
     actions.add("Review recent resolved runs in this metric before treating the trend as a workflow regression.");
     actions.add("Compare recent cases against older baseline cases for domain mix or resolution-source drift.");
@@ -1418,6 +1487,7 @@ function renderPerformanceMarkdown(input: {
   byForecaster: PerformanceGroup[];
   byCalibrationGuard: PerformanceGroup[];
   byBaselineSanity: PerformanceGroup[];
+  byAggregateQuality: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
   worstResolvedForecasts: PerformanceCase[];
   scoreTrends: PerformanceTrend[];
@@ -1447,6 +1517,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Baseline sanity groups",
     ...renderGroupTable(input.byBaselineSanity),
+    "",
+    "## Aggregate quality groups",
+    ...renderGroupTable(input.byAggregateQuality),
     "",
     "## Calibration guard impact",
     ...renderCalibrationGuardImpact(input.calibrationGuardImpact),

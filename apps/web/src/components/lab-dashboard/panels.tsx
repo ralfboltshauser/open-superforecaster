@@ -472,6 +472,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byForecastType = readArray(groups, "byForecastType").filter(isRecord)
   const byCalibrationGuard = readArray(groups, "byCalibrationGuard").filter(isRecord)
   const byBaselineSanity = readArray(groups, "byBaselineSanity").filter(isRecord)
+  const byAggregateQuality = readArray(groups, "byAggregateQuality").filter(isRecord)
   const bestForecasts = readArray(performance, "bestResolvedForecasts").filter(isRecord)
   const worstForecasts = readArray(performance, "worstResolvedForecasts").filter(isRecord)
   const scoreTrends = readArray(performance, "scoreTrends").filter(isRecord)
@@ -519,6 +520,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {calibrationGuardImpact ? <PerformanceGuardImpact impact={calibrationGuardImpact} /> : null}
         {byCalibrationGuard.length ? <PerformanceGuardGroupList groups={byCalibrationGuard} /> : null}
         {byBaselineSanity.length ? <PerformanceBaselineSanityGroupList groups={byBaselineSanity} /> : null}
+        {byAggregateQuality.length ? <PerformanceAggregateQualityGroupList groups={byAggregateQuality} /> : null}
         {calibrationBuckets.length ? <PerformanceCalibrationList buckets={calibrationBuckets} summary={calibrationSummary} /> : null}
         {candidateCalibrationGuardRules.length ? <PerformanceCandidateGuardList rules={candidateCalibrationGuardRules} /> : null}
         {needsAttention.length ? <PerformanceAttentionList items={needsAttention} /> : null}
@@ -712,6 +714,28 @@ function PerformanceBaselineSanityGroupList({ groups }: { groups: JsonRecord[] }
         {visibleGroups.map((group) => (
           <div className="rounded-md border px-3 py-2 text-sm" key={String(group.key ?? group.label)}>
             <span className="block truncate font-medium">{String(group.label ?? group.key ?? "baseline sanity")}</span>
+            <span className="mt-1 block truncate text-xs text-muted-foreground">
+              {String(group.resolvedTasks ?? 0)} tasks · {String(group.primaryMetric ?? "metric")} {formatMetric(group.primaryMean)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function PerformanceAggregateQualityGroupList({ groups }: { groups: JsonRecord[] }) {
+  const visibleGroups = groups.filter((group) => String(group.key ?? "") !== "aggregate_quality:unrecorded").slice(0, 4)
+  if (visibleGroups.length === 0) {
+    return null
+  }
+  return (
+    <div className="border-t pt-3">
+      <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Aggregate quality outcomes</p>
+      <div className="grid gap-2 md:grid-cols-2">
+        {visibleGroups.map((group) => (
+          <div className="rounded-md border px-3 py-2 text-sm" key={String(group.key ?? group.label)}>
+            <span className="block truncate font-medium">{String(group.label ?? group.key ?? "aggregate quality")}</span>
             <span className="mt-1 block truncate text-xs text-muted-foreground">
               {String(group.resolvedTasks ?? 0)} tasks · {String(group.primaryMetric ?? "metric")} {formatMetric(group.primaryMean)}
             </span>

@@ -69,7 +69,9 @@ holdout evidence counts, source-quality counts, trace/schema counts, and
 analysis-finding counts into `osf_benchmark_runs` for local analytics.
 Product forecast score rows are exported to `osf_forecast_scores`, including
 probability, resolved outcome, score, calibration-guard metadata, and
-baseline-sanity deltas. Binary
+baseline-sanity deltas, plus binary aggregate quality-review metadata such as
+convergence status, review approval, max-iteration status, rounds used, and
+quality-issue counts. Binary
 aggregate calibration buckets are exported to `osf_binary_calibration_buckets`
 with bucket error, diagnostic direction, and candidate guard adjustment fields.
 Those bucket rows are generated from the same shared calibration report builder

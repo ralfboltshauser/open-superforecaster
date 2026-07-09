@@ -277,6 +277,11 @@ try {
       nullif(fs.score_config #>> '{baselineSanity,baselineDelta}', '')::double precision as baseline_delta,
       nullif(fs.score_config #>> '{baselineSanity,componentBaseRateCount}', '')::integer as component_base_rate_count,
       nullif(fs.score_config #>> '{baselineSanity,componentBaseRateDisagreement}', '')::double precision as component_base_rate_disagreement,
+      fs.score_config #>> '{aggregateQuality,convergenceStatus}' as aggregate_convergence_status,
+      nullif(fs.score_config #>> '{aggregateQuality,qualityApproved}', '')::boolean as aggregate_quality_approved,
+      nullif(fs.score_config #>> '{aggregateQuality,maxIterationsReached}', '')::boolean as aggregate_max_iterations_reached,
+      nullif(fs.score_config #>> '{aggregateQuality,roundsUsed}', '')::integer as aggregate_rounds_used,
+      nullif(fs.score_config #>> '{aggregateQuality,qualityIssueCount}', '')::integer as aggregate_quality_issue_count,
       fs.score_config::text as score_config_json,
       fs.created_at::text as created_at
     from forecast_scores fs
@@ -551,6 +556,11 @@ const forecastScoreColumns = [
   { name: "baseline_delta", type: "DOUBLE" },
   { name: "component_base_rate_count", type: "INTEGER" },
   { name: "component_base_rate_disagreement", type: "DOUBLE" },
+  { name: "aggregate_convergence_status", type: "VARCHAR" },
+  { name: "aggregate_quality_approved", type: "BOOLEAN" },
+  { name: "aggregate_max_iterations_reached", type: "BOOLEAN" },
+  { name: "aggregate_rounds_used", type: "INTEGER" },
+  { name: "aggregate_quality_issue_count", type: "INTEGER" },
   { name: "score_config_json", type: "VARCHAR" },
   { name: "created_at", type: "VARCHAR" },
 ] satisfies DuckColumn[];

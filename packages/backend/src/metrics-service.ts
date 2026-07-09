@@ -15,6 +15,7 @@ import {
   type createDb,
 } from "@open-superforecaster/db";
 import { summarizeBenchmarkPromotionGateEvidence } from "./benchmark-service";
+import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
 import { readBaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { buildCalibrationGuardImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
@@ -451,6 +452,54 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge(
       "open_superforecaster_baseline_sanity_score_mean",
       "Mean product aggregate forecast score by baseline sanity status.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
+    );
+  }
+  const aggregateQualityScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readAggregateQualitySnapshot(row.scoreConfig) !== null
+  );
+  if (aggregateQualityScoreRows.length === 0) {
+    const labels = {
+      aggregate_convergence_status: "none",
+      aggregate_quality_approved: "unknown",
+      aggregate_max_iterations_reached: "unknown",
+      score_type: "all",
+    };
+    metrics.gauge(
+      "open_superforecaster_aggregate_quality_scores_total",
+      "Product aggregate forecast score rows by aggregate quality status.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_aggregate_quality_score_mean",
+      "Mean product aggregate forecast score by aggregate quality status.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(aggregateQualityScoreRows, (row) => {
+    const aggregateQuality = readAggregateQualitySnapshot(row.scoreConfig);
+    return labelKey({
+      score_type: row.scoreType,
+      aggregate_convergence_status: aggregateQuality?.convergenceStatus ?? "unknown",
+      aggregate_quality_approved: String(aggregateQuality?.qualityApproved ?? "unknown"),
+      aggregate_max_iterations_reached: String(aggregateQuality?.maxIterationsReached ?? "unknown"),
+    });
+  })) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_aggregate_quality_scores_total",
+      "Product aggregate forecast score rows by aggregate quality status.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_aggregate_quality_score_mean",
+      "Mean product aggregate forecast score by aggregate quality status.",
       mean(rows.map((row) => row.scoreValue)),
       labels,
     );
