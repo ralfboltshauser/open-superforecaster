@@ -517,6 +517,16 @@ await check("benchmark lab surfaces baseline sanity findings", async () => {
   return "benchmark list and lab dashboard expose baseline sanity findings";
 });
 
+await check("benchmark analysis summarizes component disagreement", async () => {
+  const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(backendSource.includes("componentDisagreementFindingsForRun"), "benchmark analysis does not summarize component disagreement");
+  assert(backendSource.includes("warn_unexplained_component_disagreement"), "component disagreement warning missing");
+  assert(backendSource.includes("componentProbabilitySpread"), "component probability spread is not recorded");
+  assert(dashboardSource.includes("component spread"), "lab dashboard does not surface component disagreement findings");
+  return "benchmark analysis and lab dashboard expose component disagreement findings";
+});
+
 const failed = checks.filter((result) => !result.ok);
 for (const result of checks) {
   console.log(`${result.ok ? "PASS" : "FAIL"} ${result.name}: ${result.detail}`);

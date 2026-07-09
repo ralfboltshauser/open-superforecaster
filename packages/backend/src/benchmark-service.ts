@@ -564,6 +564,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
       latestPromotionDecision: latestPromotionDecision ?? null,
       comparison: comparisonReportRow?.rowJson ?? null,
       baselineSanityFindings: readRecord(analysisReportRow, "baselineSanityFindings", "baseline_sanity_findings") ?? null,
+      componentDisagreementFindings: readRecord(analysisReportRow, "componentDisagreementFindings", "component_disagreement_findings") ?? null,
       promotionGate: summarizeBenchmarkPromotionGateEvidence({
         runStatus: row.status,
         resultCount: results.length,
@@ -1686,6 +1687,7 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
       traceQualityFindings: traceQualityFindingsForRun(results, caseAnalyses),
       sourceQualityFindings: sourceQualityFindingsForRun(results, caseAnalyses, isFixedEvidence),
       baselineSanityFindings: baselineSanityFindingsForRun(caseAnalyses),
+      componentDisagreementFindings: componentDisagreementFindingsForRun(caseAnalyses),
       costLatencyFindings: {
         note: "V1 records Smithers run IDs, trace bundles, agent-call counts, and token totals parsed from durable Smithers logs.",
         runnableLoopSignal: "Use task_id, smithers_run_id, benchmark_run_id, and workflow_variant_id labels to correlate benchmark quality with runtime cost proxies.",
@@ -2069,6 +2071,16 @@ function buildTraceAudit(input: {
   const traceCompletenessScore = readNumber(input.output, "traceCompletenessScore", "trace_completeness_score");
   const attemptCount = readNumber(input.output, "attemptCount", "attempt_count");
   const componentProbabilities = readAnyArray(input.output, "componentProbabilities", "component_probabilities");
+  const componentProbabilityValues = componentProbabilities.flatMap((component) => {
+    if (!component || typeof component !== "object" || Array.isArray(component)) {
+      return [];
+    }
+    const probability = readNumber(component as Record<string, unknown>, "probability");
+    return probability === null ? [] : [probability];
+  });
+  const componentProbabilitySpread = componentProbabilityValues.length >= 2
+    ? Math.round((Math.max(...componentProbabilityValues) - Math.min(...componentProbabilityValues)) * 10) / 10
+    : null;
   return {
     traceBundleWritten: Boolean(input.result.traceBundleUri),
     traceBundleUri: input.result.traceBundleUri,
@@ -2076,6 +2088,7 @@ function buildTraceAudit(input: {
     traceProvenance: readString(input.output, "traceProvenance", "trace_provenance"),
     attemptCount,
     componentProbabilityCount: componentProbabilities.length,
+    componentProbabilitySpread,
     sourceCount: input.sourceCount,
     status:
       !input.result.traceBundleUri
@@ -2265,6 +2278,7 @@ function qualityGatesForCase(input: {
     sourceProvenance: String(input.sourceAudit.sourceAuditStatus ?? "unknown"),
     baselineComparison: input.baselineProbability === null ? "warn_no_baseline" : "pass",
     baselineSanity: baselineSanityGate(input.output, input.baselineProbability),
+    componentAgreement: componentAgreementGate(input.output, input.traceAudit),
     aggregateRationale: readString(input.output, "rationale") ? "pass" : "warn_missing_rationale",
   };
 }
@@ -2281,6 +2295,22 @@ function baselineSanityGate(output: Record<string, unknown>, baselineProbability
     return "warn_missing_baseline_sanity";
   }
   return "pass";
+}
+
+function componentAgreementGate(output: Record<string, unknown>, traceAudit: Record<string, unknown>) {
+  const spread = typeof traceAudit.componentProbabilitySpread === "number" ? traceAudit.componentProbabilitySpread : null;
+  if (spread === null) {
+    return "warn_missing_components";
+  }
+  if (spread <= 25) {
+    return "pass";
+  }
+  const unresolvedDisagreement = readString(output, "unresolvedDisagreement", "unresolved_disagreement");
+  const rationale = readString(output, "rationale");
+  if (!unresolvedDisagreement && !rationale?.toLowerCase().includes("disagree")) {
+    return "warn_unexplained_component_disagreement";
+  }
+  return "pass_high_disagreement_explained";
 }
 
 function traceQualityFindingsForRun(
@@ -2331,6 +2361,28 @@ function baselineSanityFindingsForRun(caseAnalyses: BenchmarkCaseAnalysis[]) {
     missingBaselineSanityCaseIds: missingCases.slice(0, 10),
     gateCounts: baselineGateCounts,
     note: "Fixed-evidence benchmark outputs should explain the provided baseline anchor, final delta, and aggregation rule so worse-than-baseline cases can be debugged from artifacts.",
+  };
+}
+
+function componentDisagreementFindingsForRun(caseAnalyses: BenchmarkCaseAnalysis[]) {
+  const highDisagreementCases = caseAnalyses.filter((analysis) => {
+    const spread = analysis.traceAudit.componentProbabilitySpread;
+    return typeof spread === "number" && spread > 25;
+  });
+  const unexplainedCases = caseAnalyses
+    .filter((analysis) => analysis.qualityGates.componentAgreement === "warn_unexplained_component_disagreement")
+    .map((analysis) => analysis.benchmarkCaseId);
+  const spreads = caseAnalyses
+    .map((analysis) => analysis.traceAudit.componentProbabilitySpread)
+    .filter((spread): spread is number => typeof spread === "number" && Number.isFinite(spread));
+  return {
+    casesWithComponentSpread: spreads.length,
+    highDisagreementCases: highDisagreementCases.length,
+    unexplainedHighDisagreementCases: unexplainedCases.length,
+    unexplainedHighDisagreementCaseIds: unexplainedCases.slice(0, 10),
+    maxComponentProbabilitySpread: spreads.length ? Math.max(...spreads) : null,
+    gateCounts: countBy(caseAnalyses.map((analysis) => analysis.qualityGates.componentAgreement ?? "unknown")),
+    note: "Large component probability spread should be explicitly reconciled before treating an aggregate as stable forecast evidence.",
   };
 }
 

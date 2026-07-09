@@ -25,6 +25,9 @@ movement, skeptical adjustment, and aggregation rule. Those fields make
 worse-than-baseline cases easier to debug from the saved artifact alone. New
 analysis reports summarize missing baseline-sanity metadata, and the lab
 benchmark list shows that summary when it is available.
+Benchmark analysis also summarizes component probability spread and flags high
+unexplained disagreement, so aggregates with internally conflicting rollouts
+are easier to review before promotion.
 
 ## Forecast And Research Prompts
 
