@@ -9,6 +9,7 @@ import {
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
+import { buildBinaryBaselineSanityAudit } from "../packages/workflows/src/binary-baseline-sanity";
 import { applyBinaryCalibrationGuard, BINARY_CALIBRATION_GUARD_RULES } from "../packages/workflows/src/binary-calibration-guard";
 import { readJson, readRecord, readString, timestampLabel, writeJson } from "./lib/forecast-script-utils";
 
@@ -934,6 +935,34 @@ await check("local export includes forecast review reports", async () => {
   assert(exportSource.includes("\"data/reports\""), "local export does not include data/reports");
   assert(exportSource.includes("local forecast review reports"), "local export manifest notes do not mention forecast review reports");
   return "local export preserves forecast review reports";
+});
+
+await check("binary forecast aggregates persist baseline sanity audit", async () => {
+  const workflowSource = await readFile(resolve(root, "packages/workflows/src/binary-forecast.workflow.tsx"), "utf8");
+  const panelSource = await readFile(resolve(root, "apps/web/src/components/run-workspace/panels.tsx"), "utf8");
+  const reportSource = await readFile(resolve(root, "packages/backend/src/run-service.ts"), "utf8");
+  const largeDelta = buildBinaryBaselineSanityAudit({
+    finalProbability: 75,
+    components: [
+      { baseRateProbability: 30 },
+      { baseRateProbability: 40 },
+      { baseRateProbability: 35 },
+    ],
+  });
+  assert(largeDelta.status === "large_delta", "large baseline delta status mismatch");
+  assert(largeDelta.baselineProbability === 35, "baseline probability mismatch");
+  assert(largeDelta.baselineDelta === 40, "baseline delta mismatch");
+  assert(largeDelta.componentBaseRateCount === 3, "base-rate count mismatch");
+  assert(largeDelta.componentBaseRateDisagreement === 10, "base-rate disagreement mismatch");
+
+  const missing = buildBinaryBaselineSanityAudit({ finalProbability: 52, components: [] });
+  assert(missing.status === "missing_component_base_rates", "missing baseline status mismatch");
+  assert(missing.baselineProbability === null, "missing baseline probability should be null");
+  assert(workflowSource.includes("baselineSanity"), "binary aggregate schema missing baseline sanity");
+  assert(workflowSource.includes("buildBinaryBaselineSanityAudit"), "binary workflow does not use shared baseline sanity builder");
+  assert(panelSource.includes("baseline sanity"), "run workspace does not render baseline sanity");
+  assert(reportSource.includes("readReportBaselineSanity"), "generated report does not include baseline sanity");
+  return "binary aggregate baseline sanity audit is deterministic and visible";
 });
 
 await check("binary forecast calibration guard preserves deterministic adjustments", async () => {

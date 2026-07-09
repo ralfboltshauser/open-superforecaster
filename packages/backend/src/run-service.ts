@@ -836,6 +836,7 @@ function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited
   const warnings = readStringArray(output, "calibrationWarnings", "calibration_warnings", "qualityIssues", "quality_issues");
   const calibrationGuard = readCalibrationGuardSnapshot(output);
   const calibrationGuardRules = calibrationGuard?.appliedRules ?? [];
+  const baselineSanity = readRecord(output, "baselineSanity", "baseline_sanity");
   return {
     status: detail.task.status,
     outputPresent: Object.keys(output).length > 0,
@@ -845,6 +846,7 @@ function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited
     calibrationGuardAdjustment: calibrationGuard?.adjustment ?? null,
     calibrationGuardRules,
     calibrationGuardRuleCount: calibrationGuardRules.length,
+    baselineSanity: Object.keys(baselineSanity).length ? baselineSanity : null,
     sourceCount: detail.sources.length,
     citationCount: detail.citations.length,
     attemptCount: detail.forecastAttempts.length,
@@ -926,6 +928,7 @@ function renderRunReportMarkdown(report: {
     ...markdownList("Key uncertainties", report.uncertainty.keyUncertainties),
     ...markdownList("Wildcards", report.uncertainty.wildcards),
     ...markdownList("Warnings", report.quality.warnings),
+    ...markdownList("Baseline sanity", readReportBaselineSanity(report.quality)),
     ...markdownList("Calibration guard rules", readReportGuardRules(report.quality)),
     "",
     "## Links",
@@ -934,6 +937,20 @@ function renderRunReportMarkdown(report: {
     `- Report page: ${report.links.reportPage}`,
   ];
   return `${lines.filter((line) => line !== "").join("\n")}\n`;
+}
+
+function readReportBaselineSanity(quality: Record<string, unknown>) {
+  const baselineSanity = readRecord(quality, "baselineSanity", "baseline_sanity");
+  if (Object.keys(baselineSanity).length === 0) {
+    return [];
+  }
+  const status = readString(baselineSanity, "status") ?? "unknown";
+  const baselineProbability = readNumber(baselineSanity, "baselineProbability", "baseline_probability");
+  const baselineDelta = readNumber(baselineSanity, "baselineDelta", "baseline_delta");
+  const note = readString(baselineSanity, "note");
+  return [
+    `${status}: baseline ${baselineProbability === null ? "n/a" : `${baselineProbability}%`}, delta ${baselineDelta === null ? "n/a" : `${baselineDelta >= 0 ? "+" : ""}${baselineDelta} pts`}${note ? `. ${note}` : ""}`,
+  ];
 }
 
 function readReportGuardRules(quality: Record<string, unknown>) {

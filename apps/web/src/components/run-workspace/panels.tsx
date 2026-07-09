@@ -217,6 +217,10 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
   const calibrationGuard = readRecordAny(output, "calibrationGuard", "calibration_guard")
   const calibrationGuardAdjustment = readNumber(calibrationGuard, "adjustment")
   const calibrationGuardRules = recordArray(calibrationGuard, "appliedRules", "applied_rules")
+  const baselineSanity = readRecordAny(output, "baselineSanity", "baseline_sanity")
+  const baselineProbability = readNumberAny(baselineSanity, "baselineProbability", "baseline_probability")
+  const baselineDelta = readNumberAny(baselineSanity, "baselineDelta", "baseline_delta")
+  const baselineDisagreement = readNumberAny(baselineSanity, "componentBaseRateDisagreement", "component_base_rate_disagreement")
   const rationale = readRationale(output)
   const components = recordArray(output, "componentProbabilities", "component_probabilities").flatMap((component, index) => {
     const componentProbability = readNumber(component, "probability")
@@ -254,6 +258,30 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
           />
         ))}
       </div>
+      {baselineSanity ? (
+        <ReportSection label="baseline sanity">
+          <div className="grid gap-2 md:grid-cols-4">
+            <MiniMetric label="status" value={String(baselineSanity.status ?? "unknown")} />
+            <MiniMetric
+              label="baseline"
+              value={baselineProbability === null
+                ? "n/a"
+                : formatProbabilityPercent(baselineProbability)}
+            />
+            <MiniMetric
+              label="delta"
+              value={formatSignedPoints(baselineDelta) ?? "n/a"}
+            />
+            <MiniMetric
+              label="base spread"
+              value={baselineDisagreement === null
+                ? "n/a"
+                : `${formatNumber(baselineDisagreement)} pts`}
+            />
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">{String(baselineSanity.note ?? "")}</p>
+        </ReportSection>
+      ) : null}
       {calibrationWarnings.length ? (
         <ReportSection label="calibration warnings">
           <div className="flex flex-wrap gap-2">
@@ -567,6 +595,10 @@ function formatNullablePercent(probability: number | null, label: string) {
 
 function formatNumber(value: number) {
   return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 1 })
+}
+
+function formatSignedPoints(value: number | null) {
+  return value === null ? null : `${value >= 0 ? "+" : ""}${formatNumber(value)} pts`
 }
 
 function recordArray(record: unknown, ...keys: string[]) {

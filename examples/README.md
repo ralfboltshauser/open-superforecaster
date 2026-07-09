@@ -182,8 +182,9 @@ known threshold, timing, and production-ramp failure modes. Contract checks pin
 those adjustments. The live guard is an explicit rule registry in
 `packages/workflows/src/binary-calibration-guard.ts`, so future reviewed
 defaults have one place to land. Final aggregates include structured
-`calibrationGuard` metadata visible in run reports, so future calibration
-changes are deliberate and auditable. Future binary score rows keep the same
+`calibrationGuard` metadata and deterministic `baselineSanity` deltas visible
+in run reports, so future calibration changes are deliberate and auditable.
+Future binary score rows keep the same
 guard metadata for performance review, including guarded-vs-unguarded score
 groups and a dedicated calibration guard impact summary with per-rule rows.
 If guarded aggregate forecasts start scoring worse than unguarded aggregates

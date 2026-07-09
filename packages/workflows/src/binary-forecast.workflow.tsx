@@ -6,6 +6,7 @@ import {
   normalizeForecastInputRow,
 } from "@open-superforecaster/workflow-contracts";
 import { codexResearchAgent, codexStructuredAgent } from "./agents";
+import { buildBinaryBaselineSanityAudit } from "./binary-baseline-sanity";
 import { applyBinaryCalibrationGuard } from "./binary-calibration-guard";
 
 const roleIdValues = [
@@ -227,11 +228,22 @@ const calibrationGuardRule = z.object({
   note: z.string(),
 });
 
+const baselineSanity = z.object({
+  status: z.enum(["missing_component_base_rates", "near_baseline", "moderate_delta", "large_delta"]),
+  baselineProbability: z.number().min(0).max(100).nullable(),
+  finalProbability: z.number().min(0).max(100),
+  baselineDelta: z.number().nullable(),
+  componentBaseRateCount: z.number().int().min(0),
+  componentBaseRateDisagreement: z.number().min(0).max(100).nullable(),
+  note: z.string(),
+});
+
 const binaryAggregate = aggregateCore.extend({
   calibrationGuard: z.object({
     adjustment: z.number(),
     appliedRules: z.array(calibrationGuardRule).default([]),
   }),
+  baselineSanity,
   convergenceStatus: z.enum(["approved", "max_iterations_return_last"]),
   roundsUsed: z.number().int().min(1),
   qualityApproved: z.boolean(),
@@ -434,6 +446,10 @@ export default smithers((ctx) => {
       cutoffHorizonDays,
     })
     : { probability: 50, adjustment: 0, notes: [], appliedRules: [] };
+  const finalBaselineSanity = buildBinaryBaselineSanityAudit({
+    finalProbability: finalCalibration.probability,
+    components: finalComponentProbabilities,
+  });
 
   return (
     <Workflow name="binary-forecast">
@@ -688,6 +704,7 @@ Return round ${round}, approved, confidenceScore, disagreementExplained, issues,
                 adjustment: finalCalibration.adjustment,
                 appliedRules: finalCalibration.appliedRules,
               },
+              baselineSanity: finalBaselineSanity,
               convergenceStatus: qualityApproved ? "approved" as const : "max_iterations_return_last" as const,
               roundsUsed,
               qualityApproved,

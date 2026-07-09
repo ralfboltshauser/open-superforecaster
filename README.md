@@ -271,8 +271,10 @@ for known threshold, timing, and production-ramp failure modes. The guard is an
 explicit rule registry in `packages/workflows/src/binary-calibration-guard.ts`
 so measured calibration rules can be reviewed, tested, and added outside the
 workflow orchestration. Final binary aggregates include a structured
-`calibrationGuard` block with applied rule ids and point adjustments, and run
-reports surface those guard rules for review. Future binary score rows persist
+`calibrationGuard` block with applied rule ids and point adjustments plus a
+deterministic `baselineSanity` audit comparing the final probability with the
+mean component base-rate anchor. Run reports surface those guard rules and
+baseline deltas for review. Future binary score rows persist
 the same guard metadata in score config so performance snapshots can compare
 guarded forecasts against outcomes, summarize guard-rule score groups, and
 report guarded-vs-unguarded Brier impact overall and by applied rule id. Worse
