@@ -313,6 +313,9 @@ function WorkflowProposalSummary({
   const implementationTaskTitle = typeof proposal.implementationTaskTitle === "string" ? proposal.implementationTaskTitle : null
   const implementationExperimentLabel = typeof proposal.implementationExperimentLabel === "string" ? proposal.implementationExperimentLabel : null
   const validationBenchmarkRunId = typeof proposal.validationBenchmarkRunId === "string" ? proposal.validationBenchmarkRunId : null
+  const validationResultStatus = typeof proposal.validationResultStatus === "string" ? proposal.validationResultStatus : null
+  const validationResultSummary = typeof proposal.validationResultSummary === "string" ? proposal.validationResultSummary : null
+  const validationMeanBrierDelta = typeof proposal.validationMeanBrierDelta === "number" ? proposal.validationMeanBrierDelta : null
   const reviewedBy = typeof proposal.reviewedBy === "string" ? proposal.reviewedBy : null
   const reviewedAt = typeof proposal.reviewedAt === "string" ? proposal.reviewedAt : null
   const canUpdate = Boolean(benchmarkRunId && proposalId)
@@ -359,7 +362,13 @@ function WorkflowProposalSummary({
             implementation {implementationStatus}{implementationExperimentLabel ? ` · ${implementationExperimentLabel}` : ""}
           </p>
           {implementationTaskTitle ? <p className="mt-1 line-clamp-1">{implementationTaskTitle}</p> : null}
-          {validationBenchmarkRunId ? <p className="mt-1 truncate">validation run {validationBenchmarkRunId}</p> : null}
+          {validationBenchmarkRunId ? (
+            <p className="mt-1 truncate">
+              validation run {validationBenchmarkRunId}{validationResultStatus ? ` · ${validationResultStatus}` : ""}
+              {validationMeanBrierDelta === null ? "" : ` · delta ${formatMetric(validationMeanBrierDelta)}`}
+            </p>
+          ) : null}
+          {validationResultSummary ? <p className="mt-1 line-clamp-2">{validationResultSummary}</p> : null}
         </div>
       ) : null}
       {canUpdate ? (

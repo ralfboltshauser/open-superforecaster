@@ -739,6 +739,11 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
         validationBenchmarkRunId: workflowChangeProposals.validationBenchmarkRunId,
         validationLaunchedBy: workflowChangeProposals.validationLaunchedBy,
         validationLaunchedAt: workflowChangeProposals.validationLaunchedAt,
+        validationResultStatus: workflowChangeProposals.validationResultStatus,
+        validationResultSummary: workflowChangeProposals.validationResultSummary,
+        validationMeanBrierDelta: workflowChangeProposals.validationMeanBrierDelta,
+        validationCompletedCases: workflowChangeProposals.validationCompletedCases,
+        validationCompletedAt: workflowChangeProposals.validationCompletedAt,
         createdAt: workflowChangeProposals.createdAt,
       })
       .from(workflowChangeProposals)
@@ -1119,6 +1124,11 @@ export async function updateWorkflowChangeProposalStatus(
       validationBenchmarkRunId: workflowChangeProposals.validationBenchmarkRunId,
       validationLaunchedBy: workflowChangeProposals.validationLaunchedBy,
       validationLaunchedAt: workflowChangeProposals.validationLaunchedAt,
+      validationResultStatus: workflowChangeProposals.validationResultStatus,
+      validationResultSummary: workflowChangeProposals.validationResultSummary,
+      validationMeanBrierDelta: workflowChangeProposals.validationMeanBrierDelta,
+      validationCompletedCases: workflowChangeProposals.validationCompletedCases,
+      validationCompletedAt: workflowChangeProposals.validationCompletedAt,
       createdAt: workflowChangeProposals.createdAt,
       updatedAt: workflowChangeProposals.updatedAt,
     });
@@ -2263,7 +2273,46 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
         updatedAt: new Date(),
       })
       .where(eq(benchmarkRuns.id, run.id));
+
+    await syncWorkflowProposalValidationEvidence(db, {
+      benchmarkRunId: run.id,
+      resultStatus: failedCases || reviewCases ? "needs_review" : "completed",
+      resultSummary: summary,
+      meanBrierDelta,
+      completedCases,
+      completedAt: new Date(),
+    });
   }
+}
+
+async function syncWorkflowProposalValidationEvidence(
+  db: Db,
+  input: {
+    benchmarkRunId: string;
+    resultStatus: string;
+    resultSummary: string;
+    meanBrierDelta: number | null;
+    completedCases: number;
+    completedAt: Date;
+  },
+) {
+  await db
+    .update(workflowChangeProposals)
+    .set({
+      validationResultStatus: input.resultStatus,
+      validationResultSummary: input.resultSummary,
+      validationMeanBrierDelta: input.meanBrierDelta,
+      validationCompletedCases: input.completedCases,
+      validationCompletedAt: input.completedAt,
+      implementationStatus: input.resultStatus === "completed" ? "validated" : "in_progress",
+      implementationNote:
+        input.resultStatus === "completed"
+          ? `Validation completed: ${input.resultSummary}`
+          : `Validation needs review: ${input.resultSummary}`,
+      implementationUpdatedAt: input.completedAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(workflowChangeProposals.validationBenchmarkRunId, input.benchmarkRunId));
 }
 
 type BenchmarkResultForAnalysis = {

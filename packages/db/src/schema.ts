@@ -421,6 +421,11 @@ export const workflowChangeProposals = pgTable("workflow_change_proposals", {
   validationBenchmarkRunId: uuid("validation_benchmark_run_id").references(() => benchmarkRuns.id),
   validationLaunchedBy: text("validation_launched_by"),
   validationLaunchedAt: timestamp("validation_launched_at", { withTimezone: true }),
+  validationResultStatus: text("validation_result_status"),
+  validationResultSummary: text("validation_result_summary"),
+  validationMeanBrierDelta: doublePrecision("validation_mean_brier_delta"),
+  validationCompletedCases: integer("validation_completed_cases"),
+  validationCompletedAt: timestamp("validation_completed_at", { withTimezone: true }),
   ...timestamps,
 });
 
