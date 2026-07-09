@@ -12,6 +12,9 @@ export type ForecastInputContextSnapshot = {
   hasBackground: boolean;
   hasMarketPrice: boolean;
   marketPriceBand: "low" | "balanced" | "high" | "unknown";
+  marketPriceAsOfDate: string | null;
+  marketPriceAgeDays: number | null;
+  marketPriceAgeBand: "current" | "stale" | "old" | "unknown";
   marketPlatform: string | null;
   categoryCount: number | null;
   categoryCountBand: "none" | "few" | "many" | "unknown";
@@ -48,6 +51,10 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   const resolutionHorizonDays = horizonDays(evidenceAsOfDate, resolutionDate);
   const hasBackground = Boolean(normalized.background?.trim());
   const hasMarketPrice = typeof normalized.market.marketPrice === "number";
+  const rawMarket = asRecord(raw.market);
+  const marketPriceAsOfDate = readIsoDate(raw, "marketPriceAsOf", "market_price_as_of")
+    ?? readIsoDate(rawMarket, "marketPriceAsOf", "market_price_as_of", "priceAsOf", "price_as_of", "asOf", "as_of");
+  const marketPriceAgeDays = hasMarketPrice ? horizonDays(marketPriceAsOfDate, evidenceAsOfDate) : null;
   const hasCondition = Boolean(normalized.condition?.trim());
   const hasUnit = Boolean(normalized.unit?.trim());
   const contextCompleteness = [
@@ -72,6 +79,9 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     hasBackground,
     hasMarketPrice,
     marketPriceBand: marketPriceBand(normalized.market.marketPrice ?? null),
+    marketPriceAsOfDate,
+    marketPriceAgeDays,
+    marketPriceAgeBand: marketPriceAgeBand(marketPriceAgeDays),
     marketPlatform,
     categoryCount,
     categoryCountBand: categoryCountBand(categoryCount),
@@ -93,7 +103,9 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   const categoryCount = readNumber(value, "categoryCount");
   const thresholdCount = readNumber(value, "thresholdCount");
   const resolutionHorizonDays = readNumber(value, "resolutionHorizonDays");
+  const marketPriceAgeDays = readNumber(value, "marketPriceAgeDays");
   const marketPriceBandValue = readString(value, "marketPriceBand");
+  const marketPriceAgeBandValue = readString(value, "marketPriceAgeBand");
   const contextCompletenessBandValue = readString(value, "contextCompletenessBand");
   const resolutionHorizonBandValue = readString(value, "resolutionHorizonBand");
   return {
@@ -110,6 +122,11 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
     hasBackground: readBoolean(value, "hasBackground") ?? false,
     hasMarketPrice: readBoolean(value, "hasMarketPrice") ?? false,
     marketPriceBand: isMarketPriceBand(marketPriceBandValue) ? marketPriceBandValue : "unknown",
+    marketPriceAsOfDate: readString(value, "marketPriceAsOfDate"),
+    marketPriceAgeDays,
+    marketPriceAgeBand: isMarketPriceAgeBand(marketPriceAgeBandValue)
+      ? marketPriceAgeBandValue
+      : marketPriceAgeBand(marketPriceAgeDays),
     marketPlatform: readString(value, "marketPlatform"),
     categoryCount,
     categoryCountBand: readCategoryCountBand(value) ?? categoryCountBand(categoryCount),
@@ -148,6 +165,19 @@ export function marketPriceBand(price: number | null): ForecastInputContextSnaps
     return "balanced";
   }
   return "high";
+}
+
+export function marketPriceAgeBand(days: number | null): ForecastInputContextSnapshot["marketPriceAgeBand"] {
+  if (days === null || !Number.isFinite(days) || days < 0) {
+    return "unknown";
+  }
+  if (days <= 7) {
+    return "current";
+  }
+  if (days <= 30) {
+    return "stale";
+  }
+  return "old";
 }
 
 export function categoryCountBand(count: number | null): ForecastInputContextSnapshot["categoryCountBand"] {
@@ -263,6 +293,10 @@ function readThresholdCountBand(value: Record<string, unknown>) {
 
 function isMarketPriceBand(value: string | null): value is ForecastInputContextSnapshot["marketPriceBand"] {
   return value === "low" || value === "balanced" || value === "high" || value === "unknown";
+}
+
+function isMarketPriceAgeBand(value: string | null): value is ForecastInputContextSnapshot["marketPriceAgeBand"] {
+  return value === "current" || value === "stale" || value === "old" || value === "unknown";
 }
 
 function isContextCompletenessBand(value: string | null): value is ForecastInputContextSnapshot["contextCompletenessBand"] {

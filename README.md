@@ -351,10 +351,10 @@ aggregates. They also share canonical evidence aggregation with source-bank
 persistence, so repeated citations are deduped before source-count analytics and
 attempt-level key uncertainties are preserved on aggregate forecasts. New forecast runs also preserve
 structured input context in score rows, including resolution criteria/date,
-resolution horizon, market price, background, option/threshold counts and
-bands, condition/unit flags, and question length, so short-horizon,
-market-anchored, option-heavy, threshold-curve, or richly specified questions
-can be measured separately from sparse prompts.
+resolution horizon, market price and market-price recency, background,
+option/threshold counts and bands, condition/unit flags, and question length,
+so short-horizon, stale-market, market-anchored, option-heavy, threshold-curve,
+or richly specified questions can be measured separately from sparse prompts.
 Score rows also keep workflow version,
 workflow variant, experiment label, and run duration bands so quality changes
 can be compared against runtime and variant changes.

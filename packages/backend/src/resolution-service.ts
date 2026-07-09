@@ -443,6 +443,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
   const byInputResolutionHorizon = groupScores(aggregateScores, inputResolutionHorizonGroupKey);
   const byInputMarketContext = groupScores(aggregateScores, inputMarketContextGroupKey);
+  const byInputMarketRecency = groupScores(aggregateScores, inputMarketRecencyGroupKey);
   const byInputQuestionLength = groupScores(aggregateScores, inputQuestionLengthGroupKey);
   const byInputCategoryCount = groupScores(aggregateScores, inputCategoryCountGroupKey);
   const byInputThresholdCount = groupScores(aggregateScores, inputThresholdCountGroupKey);
@@ -535,6 +536,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputContextCompleteness,
       byInputResolutionHorizon,
       byInputMarketContext,
+      byInputMarketRecency,
       byInputQuestionLength,
       byInputCategoryCount,
       byInputThresholdCount,
@@ -617,6 +619,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputContextCompleteness,
       byInputResolutionHorizon,
       byInputMarketContext,
+      byInputMarketRecency,
       byInputQuestionLength,
       byInputCategoryCount,
       byInputThresholdCount,
@@ -1635,6 +1638,17 @@ function inputMarketContextGroupKey(score: typeof forecastScores.$inferSelect) {
   return `input_market:${inputContext.marketPriceBand}`;
 }
 
+function inputMarketRecencyGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  if (!inputContext) {
+    return "input_market_recency:unrecorded";
+  }
+  if (!inputContext.hasMarketPrice) {
+    return "input_market_recency:none";
+  }
+  return `input_market_recency:${inputContext.marketPriceAgeBand}`;
+}
+
 function inputQuestionLengthGroupKey(score: typeof forecastScores.$inferSelect) {
   const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
   return `input_question:${inputContext?.questionLengthBand ?? "unrecorded"}`;
@@ -2544,6 +2558,13 @@ function inputContextMissSignal(item: PerformanceCase): { reason: string; delta:
       severity: "high",
     };
   }
+  if (context.hasMarketPrice && context.marketPriceAgeBand === "old") {
+    return {
+      reason: `old structured market price (${formatNullableMetric(context.marketPriceAgeDays)} days before evidence as-of date)`,
+      delta: context.marketPriceAgeDays,
+      severity: "medium",
+    };
+  }
   if (context.questionLengthBand === "short" || context.questionLengthBand === "long") {
     return {
       reason: `${context.questionLengthBand} question text (${context.questionLength ?? 0} words)`,
@@ -2761,6 +2782,7 @@ function renderPerformanceMarkdown(input: {
   byInputContextCompleteness: PerformanceGroup[];
   byInputResolutionHorizon: PerformanceGroup[];
   byInputMarketContext: PerformanceGroup[];
+  byInputMarketRecency: PerformanceGroup[];
   byInputQuestionLength: PerformanceGroup[];
   byInputCategoryCount: PerformanceGroup[];
   byInputThresholdCount: PerformanceGroup[];
@@ -2942,6 +2964,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input market-context groups",
     ...renderGroupTable(input.byInputMarketContext),
+    "",
+    "## Input market-recency groups",
+    ...renderGroupTable(input.byInputMarketRecency),
     "",
     "## Input question-length groups",
     ...renderGroupTable(input.byInputQuestionLength),
