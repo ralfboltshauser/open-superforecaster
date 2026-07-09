@@ -86,7 +86,8 @@ status. All product forecast score rows include evidence-coverage fields for
 source count, source-domain count, uncertainty count, rationale length, and
 method, plus input-context fields for resolution criteria/date, market price,
 question length, option/threshold counts, condition/unit flags, and context
-completeness. Binary
+completeness. They also include run metadata fields for workflow version,
+workflow variant, experiment label, duration seconds, and duration band. Binary
 aggregate calibration buckets are exported to `osf_binary_calibration_buckets`
 with bucket error, diagnostic direction, and candidate guard adjustment fields.
 Those bucket rows are generated from the same shared calibration report builder
@@ -196,9 +197,9 @@ error, turns large calibration bucket gaps into attention items, emits
 candidate calibration guard rules for review, and writes JSON plus Markdown
 snapshots. Numeric/date interval groups, date never-probability groups,
 categorical confidence/entropy/source groups, evidence-coverage groups, and
-input-context groups are included alongside the binary, conditional, and
-thresholded groups. The lab dashboard renders the same outcome groups for quick
-scan review.
+input-context groups are included alongside run duration/experiment groups and
+the binary, conditional, and thresholded groups. The lab dashboard renders the
+same outcome groups for quick scan review.
 
 Use the same `--batch-id` across forecast ops, resolution, and performance
 commands to keep their manifests tied to the same operational batch.

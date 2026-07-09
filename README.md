@@ -308,7 +308,9 @@ can be compared against resolved outcomes. New forecast runs also preserve
 structured input context in score rows, including resolution criteria/date,
 market price, background, option/threshold counts, condition/unit flags, and
 question length, so market-anchored or richly specified questions can be
-measured separately from sparse prompts.
+measured separately from sparse prompts. Score rows also keep workflow version,
+workflow variant, experiment label, and run duration bands so quality changes
+can be compared against runtime and variant changes.
 
 To consolidate those local artifacts into one audit file:
 

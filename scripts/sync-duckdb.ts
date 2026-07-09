@@ -356,6 +356,11 @@ try {
       nullif(fs.score_config #>> '{inputContext,hasUnit}', '')::boolean as input_has_unit,
       nullif(fs.score_config #>> '{inputContext,contextCompleteness}', '')::integer as input_context_completeness,
       fs.score_config #>> '{inputContext,contextCompletenessBand}' as input_context_completeness_band,
+      fs.score_config #>> '{runMetadata,workflowVersion}' as run_workflow_version,
+      fs.score_config #>> '{runMetadata,workflowVariantId}' as run_workflow_variant_id,
+      fs.score_config #>> '{runMetadata,experimentLabel}' as run_experiment_label,
+      nullif(fs.score_config #>> '{runMetadata,durationSeconds}', '')::integer as run_duration_seconds,
+      fs.score_config #>> '{runMetadata,durationBand}' as run_duration_band,
       fs.score_config::text as score_config_json,
       fs.created_at::text as created_at
     from forecast_scores fs
@@ -709,6 +714,11 @@ const forecastScoreColumns = [
   { name: "input_has_unit", type: "BOOLEAN" },
   { name: "input_context_completeness", type: "INTEGER" },
   { name: "input_context_completeness_band", type: "VARCHAR" },
+  { name: "run_workflow_version", type: "VARCHAR" },
+  { name: "run_workflow_variant_id", type: "VARCHAR" },
+  { name: "run_experiment_label", type: "VARCHAR" },
+  { name: "run_duration_seconds", type: "INTEGER" },
+  { name: "run_duration_band", type: "VARCHAR" },
   { name: "score_config_json", type: "VARCHAR" },
   { name: "created_at", type: "VARCHAR" },
 ] satisfies DuckColumn[];

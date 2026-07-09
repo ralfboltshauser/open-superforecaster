@@ -25,6 +25,7 @@ import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
 import { readForecastInputContextSnapshot } from "./forecast-input-context-metadata";
+import { readForecastRunSnapshot } from "./forecast-run-metadata";
 import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport } from "./performance-calibration";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
@@ -933,6 +934,50 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge(
       "open_superforecaster_input_context_score_mean",
       "Mean product aggregate forecast score by input context bands.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
+    );
+  }
+  const runMetadataScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readForecastRunSnapshot(row.scoreConfig) !== null
+  );
+  if (runMetadataScoreRows.length === 0) {
+    const labels = {
+      score_type: "all",
+      duration_band: "none",
+    };
+    metrics.gauge(
+      "open_superforecaster_run_metadata_scores_total",
+      "Product aggregate forecast score rows by run metadata bands.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_run_metadata_score_mean",
+      "Mean product aggregate forecast score by run metadata bands.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(runMetadataScoreRows, (row) => {
+    const runMetadata = readForecastRunSnapshot(row.scoreConfig);
+    return labelKey({
+      score_type: row.scoreType,
+      duration_band: runMetadata?.durationBand ?? "unknown",
+    });
+  })) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_run_metadata_scores_total",
+      "Product aggregate forecast score rows by run metadata bands.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_run_metadata_score_mean",
+      "Mean product aggregate forecast score by run metadata bands.",
       mean(rows.map((row) => row.scoreValue)),
       labels,
     );

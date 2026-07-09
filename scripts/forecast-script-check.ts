@@ -16,6 +16,7 @@ import { readConditionalForecastSnapshot } from "../packages/backend/src/conditi
 import { readDateForecastSnapshot } from "../packages/backend/src/date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "../packages/backend/src/evidence-coverage-metadata";
 import { readForecastInputContextSnapshot } from "../packages/backend/src/forecast-input-context-metadata";
+import { readForecastRunSnapshot } from "../packages/backend/src/forecast-run-metadata";
 import { readNumericForecastSnapshot } from "../packages/backend/src/numeric-forecast-metadata";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
 import { readThresholdedForecastSnapshot } from "../packages/backend/src/thresholded-forecast-metadata";
@@ -851,6 +852,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Input context-completeness groups"), "performance Markdown missing input context-completeness group section");
   assert(resolutionSource.includes("## Input market-context groups"), "performance Markdown missing input market-context group section");
   assert(resolutionSource.includes("## Input question-length groups"), "performance Markdown missing input question-length group section");
+  assert(resolutionSource.includes("## Run duration groups"), "performance Markdown missing run duration group section");
+  assert(resolutionSource.includes("## Run experiment groups"), "performance Markdown missing run experiment group section");
   assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");
   assert(dashboardSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not read candidate calibration guard rules");
   assert(dashboardSource.includes("Candidate calibration guards"), "lab dashboard does not render candidate calibration guard rules");
@@ -906,6 +909,10 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Input market outcomes"), "lab dashboard does not render input market performance groups");
   assert(dashboardSource.includes("byInputQuestionLength"), "lab dashboard does not read input question performance groups");
   assert(dashboardSource.includes("Input question outcomes"), "lab dashboard does not render input question performance groups");
+  assert(dashboardSource.includes("byRunDuration"), "lab dashboard does not read run duration performance groups");
+  assert(dashboardSource.includes("Run duration outcomes"), "lab dashboard does not render run duration performance groups");
+  assert(dashboardSource.includes("byRunExperiment"), "lab dashboard does not read run experiment performance groups");
+  assert(dashboardSource.includes("Run experiment outcomes"), "lab dashboard does not render run experiment performance groups");
   return "candidate calibration guard rules are visible in report artifacts and the lab dashboard";
 });
 
@@ -988,6 +995,8 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_evidence_coverage_score_mean"), "evidence coverage score mean metric missing");
   assert(metricsSource.includes("open_superforecaster_input_context_scores_total"), "input context score count metric missing");
   assert(metricsSource.includes("open_superforecaster_input_context_score_mean"), "input context score mean metric missing");
+  assert(metricsSource.includes("open_superforecaster_run_metadata_scores_total"), "run metadata score count metric missing");
+  assert(metricsSource.includes("open_superforecaster_run_metadata_score_mean"), "run metadata score mean metric missing");
   assert(metricsSource.includes("buildCalibrationGuardImpact"), "metrics exporter does not use shared calibration guard impact builder");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_status"), "calibration guard impact status metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_brier_delta"), "calibration guard impact Brier delta metric missing");
@@ -1012,6 +1021,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(smokeSource.includes("open_superforecaster_categorical_distribution_scores_total"), "smoke check does not require categorical distribution metric");
   assert(smokeSource.includes("open_superforecaster_evidence_coverage_scores_total"), "smoke check does not require evidence coverage metric");
   assert(smokeSource.includes("open_superforecaster_input_context_scores_total"), "smoke check does not require input context metric");
+  assert(smokeSource.includes("open_superforecaster_run_metadata_scores_total"), "smoke check does not require run metadata metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
   assert(metricsRouteSource.includes("renderPrometheusMetrics"), "metrics route does not render Prometheus metrics");
   assert(metricsRouteSource.includes("text/plain; version=0.0.4"), "metrics route missing Prometheus content type");
@@ -1059,6 +1069,9 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("input_context_completeness_band"), "forecast score mart missing input context completeness band");
   assert(syncSource.includes("input_market_price_band"), "forecast score mart missing input market price band");
   assert(syncSource.includes("input_question_length_band"), "forecast score mart missing input question length band");
+  assert(syncSource.includes("run_workflow_version"), "forecast score mart missing run workflow version");
+  assert(syncSource.includes("run_experiment_label"), "forecast score mart missing run experiment label");
+  assert(syncSource.includes("run_duration_band"), "forecast score mart missing run duration band");
   assert(syncSource.includes("candidate_guard_suggested_adjustment"), "binary calibration bucket mart missing candidate guard adjustment");
   assert(syncSource.includes("candidate_guard_activation_status"), "binary calibration bucket mart missing candidate guard activation status");
   assert(syncSource.includes("readCalibrationGuardValidationRows"), "DuckDB sync does not read calibration guard validation reports");
@@ -1483,6 +1496,38 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(dashboardSource.includes("Input context outcomes"), "lab dashboard does not render input context outcomes");
   assert(dashboardSource.includes("Input market outcomes"), "lab dashboard does not render input market outcomes");
   return "forecast input context is persisted and visible in resolved score analytics";
+});
+
+await check("forecast run metadata reaches resolved score analytics", async () => {
+  const snapshot = readForecastRunSnapshot({
+    workflowVersion: "abc123",
+    workflowVariantId: "variant-1",
+    experimentLabel: "holdout-a",
+    startedAt: "2026-07-09T00:00:00.000Z",
+    completedAt: "2026-07-09T00:12:30.000Z",
+  });
+  assert(snapshot?.workflowVersion === "abc123", "run metadata workflow version mismatch");
+  assert(snapshot?.workflowVariantId === "variant-1", "run metadata workflow variant mismatch");
+  assert(snapshot?.experimentLabel === "holdout-a", "run metadata experiment label mismatch");
+  assert(snapshot?.durationSeconds === 750, "run metadata duration mismatch");
+  assert(snapshot?.durationBand === "slow", "run metadata duration band mismatch");
+  const persistedSnapshot = readForecastRunSnapshot({ runMetadata: snapshot });
+  assert(persistedSnapshot?.durationBand === "slow", "persisted run metadata snapshot was not readable");
+  assert(persistedSnapshot?.experimentLabel === "holdout-a", "persisted run metadata experiment mismatch");
+
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(resolutionSource.includes("readForecastRunSnapshot(task)"), "resolution scoring does not persist run metadata from task rows");
+  assert(resolutionSource.includes("byRunDuration"), "performance report does not group by run duration");
+  assert(resolutionSource.includes("byRunExperiment"), "performance report does not group by run experiment");
+  assert(metricsSource.includes("open_superforecaster_run_metadata_scores_total"), "metrics missing run metadata score counts");
+  assert(syncSource.includes("run_workflow_version"), "DuckDB forecast score mart missing workflow version");
+  assert(syncSource.includes("run_duration_band"), "DuckDB forecast score mart missing duration band");
+  assert(dashboardSource.includes("Run duration outcomes"), "lab dashboard does not render run duration outcomes");
+  assert(dashboardSource.includes("Run experiment outcomes"), "lab dashboard does not render run experiment outcomes");
+  return "forecast run metadata is persisted and visible in resolved score analytics";
 });
 
 await check("binary aggregate quality metadata is visible before resolution", async () => {

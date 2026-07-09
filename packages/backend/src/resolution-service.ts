@@ -20,6 +20,7 @@ import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
 import { readForecastInputContextSnapshot } from "./forecast-input-context-metadata";
+import { readForecastRunSnapshot } from "./forecast-run-metadata";
 import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
 import { readThresholdedForecastSnapshot } from "./thresholded-forecast-metadata";
@@ -153,6 +154,7 @@ export async function resolveForecastTask(db: Db, input: ForecastResolutionInput
   validateResolvedValue(forecastType, input.resolvedValue);
   const resolutionSource = input.resolutionSource?.trim() || "manual";
   const inputContext = readForecastInputContextSnapshot(task.configJson);
+  const runMetadata = readForecastRunSnapshot(task);
   const existing = input.forceNew
     ? null
     : await findExistingResolution(db, {
@@ -226,6 +228,7 @@ export async function resolveForecastTask(db: Db, input: ForecastResolutionInput
           forecastType,
           resolutionSource,
           ...(inputContext ? { inputContext } : {}),
+          ...(runMetadata ? { runMetadata } : {}),
         },
       })),
     );
@@ -256,6 +259,7 @@ export async function resolveForecastTask(db: Db, input: ForecastResolutionInput
           forecasterLabel: attempt.forecasterLabel,
           resolutionSource,
           ...(inputContext ? { inputContext } : {}),
+          ...(runMetadata ? { runMetadata } : {}),
         },
       })),
     );
@@ -388,6 +392,8 @@ export async function getForecastPerformanceReport(db: Db) {
   const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
   const byInputMarketContext = groupScores(aggregateScores, inputMarketContextGroupKey);
   const byInputQuestionLength = groupScores(aggregateScores, inputQuestionLengthGroupKey);
+  const byRunDuration = groupScores(aggregateScores, runDurationGroupKey);
+  const byRunExperiment = groupScores(aggregateScores, runExperimentGroupKey);
   const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
@@ -450,6 +456,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputContextCompleteness,
       byInputMarketContext,
       byInputQuestionLength,
+      byRunDuration,
+      byRunExperiment,
     },
     bestResolvedForecasts,
     worstResolvedForecasts,
@@ -502,6 +510,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputContextCompleteness,
       byInputMarketContext,
       byInputQuestionLength,
+      byRunDuration,
+      byRunExperiment,
       bestResolvedForecasts,
       worstResolvedForecasts,
       scoreTrends,
@@ -1327,6 +1337,16 @@ function inputQuestionLengthGroupKey(score: typeof forecastScores.$inferSelect) 
   return `input_question:${inputContext?.questionLengthBand ?? "unrecorded"}`;
 }
 
+function runDurationGroupKey(score: typeof forecastScores.$inferSelect) {
+  const runMetadata = readForecastRunSnapshot(score.scoreConfig);
+  return `run_duration:${runMetadata?.durationBand ?? "unrecorded"}`;
+}
+
+function runExperimentGroupKey(score: typeof forecastScores.$inferSelect) {
+  const runMetadata = readForecastRunSnapshot(score.scoreConfig);
+  return runMetadata?.experimentLabel ? `run_experiment:${runMetadata.experimentLabel}` : "run_experiment:unrecorded";
+}
+
 function rankAggregateCases(
   rows: Array<typeof forecastScores.$inferSelect>,
   taskMeta: Map<string, { id: string; label: string; operationSubmode: string | null }>,
@@ -1813,6 +1833,8 @@ function renderPerformanceMarkdown(input: {
   byInputContextCompleteness: PerformanceGroup[];
   byInputMarketContext: PerformanceGroup[];
   byInputQuestionLength: PerformanceGroup[];
+  byRunDuration: PerformanceGroup[];
+  byRunExperiment: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
   worstResolvedForecasts: PerformanceCase[];
   scoreTrends: PerformanceTrend[];
@@ -1914,6 +1936,12 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input question-length groups",
     ...renderGroupTable(input.byInputQuestionLength),
+    "",
+    "## Run duration groups",
+    ...renderGroupTable(input.byRunDuration),
+    "",
+    "## Run experiment groups",
+    ...renderGroupTable(input.byRunExperiment),
     "",
     "## Calibration guard impact",
     ...renderCalibrationGuardImpact(input.calibrationGuardImpact),
