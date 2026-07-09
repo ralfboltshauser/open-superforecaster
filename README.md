@@ -243,6 +243,13 @@ bun run forecast:ops
 bun run forecast:ops -- --execute --case binary-foldable-iphone
 ```
 
+When outcomes are known, feed resolutions back into the scoring ledger:
+
+```bash
+bun run forecast:resolve -- --input examples/resolutions.sample.jsonl
+bun run forecast:resolve -- --execute --input data/resolutions/manual.jsonl
+```
+
 ### Host Development
 
 For direct host development, keep the backing services in Docker and run the web

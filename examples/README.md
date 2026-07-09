@@ -64,6 +64,19 @@ bun run forecast:ops -- --execute --input examples/questions.jsonl --out-dir dat
 Plan mode writes `manifest.json` only. Execute mode writes one folder per case
 with `result.json`, `report.json`, and `report.md`.
 
+## Resolution Runner
+
+Use `examples/resolutions.sample.jsonl` as the batch format for resolved
+outcomes. Replace the placeholder task ids with completed forecast task ids:
+
+```bash
+bun run forecast:resolve -- --input examples/resolutions.sample.jsonl
+bun run forecast:resolve -- --execute --input data/resolutions/manual.jsonl
+```
+
+Execute mode calls `/api/resolutions`, writes each response, and snapshots the
+resolution dashboard so score and calibration changes are auditable.
+
 ## Table Workflows
 
 Use the CSV files in the web composer by selecting the relevant mode and
