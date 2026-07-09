@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { formatAgentRef, loadAgentPolicy, selectAgentRef, type AgentPurpose } from "@open-superforecaster/config";
 import {
   artifactRows,
   artifacts,
@@ -899,13 +900,14 @@ async function persistBinaryForecastLedger(
   for (const attemptOutput of attemptsToPersist) {
     const probability = readNumber(attemptOutput, "probability") ?? 50;
     const forecasterLabel = readString(attemptOutput, "forecasterLabel", "forecaster_label") ?? "binary forecaster";
+    const agentRef = configuredAgentRefForAttempt("forecast", readString(attemptOutput, "roleId", "role_id") ?? forecasterLabel);
     const [attempt] = await db
       .insert(forecastAttempts)
       .values({
         forecasterLabel,
         forecastType: "binary",
         researchPassId: input.smithersRunId,
-        model: process.env.CODEX_MODEL ?? "codex-subscription",
+        model: `${formatAgentRef(agentRef)}${process.env.CODEX_MODEL && agentRef.provider === "codex" ? `:${process.env.CODEX_MODEL}` : ""}`,
         promptVersion: "binary-forecast-inline-v0",
         rawPrediction: attemptOutput,
         parsedPrediction: {
@@ -920,7 +922,9 @@ async function persistBinaryForecastLedger(
         status: "completed",
         costProxy: {
           smithersRunId: input.smithersRunId,
-          source: "smithers-codexagent",
+          source: "smithers-agent",
+          provider: agentRef.provider,
+          profile: agentRef.profile,
         },
       })
       .returning({ id: forecastAttempts.id });
@@ -1010,13 +1014,14 @@ async function persistNonBinaryForecastLedger(
   const componentAttemptIds: string[] = [];
 
   for (const attemptOutput of attemptOutputs) {
+    const agentRef = configuredAgentRefForAttempt("forecast", forecastType);
     const [attempt] = await db
       .insert(forecastAttempts)
       .values({
         forecasterLabel: readString(attemptOutput, "forecasterLabel", "forecaster_label") ?? `${forecastType} forecaster`,
         forecastType,
         researchPassId: input.smithersRunId,
-        model: process.env.CODEX_MODEL ?? "codex-subscription",
+        model: `${formatAgentRef(agentRef)}${process.env.CODEX_MODEL && agentRef.provider === "codex" ? `:${process.env.CODEX_MODEL}` : ""}`,
         promptVersion: `${forecastType}-forecast-inline-v0`,
         rawPrediction: attemptOutput,
         parsedPrediction: attemptOutput,
@@ -1025,7 +1030,9 @@ async function persistNonBinaryForecastLedger(
         status: "completed",
         costProxy: {
           smithersRunId: input.smithersRunId,
-          source: "smithers-codexagent",
+          source: "smithers-agent",
+          provider: agentRef.provider,
+          profile: agentRef.profile,
         },
       })
       .returning({ id: forecastAttempts.id });
@@ -1192,6 +1199,11 @@ async function persistSources(
 
 async function readBinaryAttemptOutputs(smithersRunId: string, root: string) {
   return readForecastAttemptOutputs(smithersRunId, root);
+}
+
+function configuredAgentRefForAttempt(purpose: AgentPurpose, slot: string) {
+  const policy = loadAgentPolicy(process.env, process.cwd());
+  return selectAgentRef(policy, purpose, slot);
 }
 
 async function hasForecastLedgerForRun(db: Db, smithersRunId: string) {

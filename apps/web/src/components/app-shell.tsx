@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
-import { BarChart3, FlaskConical, KeyRound, MessageSquarePlus, Workflow } from "lucide-react"
+import { BarChart3, FlaskConical, KeyRound, MessageSquarePlus, Settings2, Workflow } from "lucide-react"
 
 import { LogoMark } from "@/components/logo-mark"
 import {
@@ -35,6 +35,7 @@ type SidebarNavItem = {
 const nav: SidebarNavItem[] = [
   { href: "/", label: "New Forecast", icon: MessageSquarePlus, path: "/" },
   { href: "/lab", label: "Lab", icon: FlaskConical, path: "/lab" },
+  { href: "/setup", label: "Setup", icon: Settings2, path: "/setup" },
 ]
 
 const labNav: SidebarNavItem[] = [

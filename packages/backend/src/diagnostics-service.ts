@@ -12,6 +12,7 @@ import {
   type createDb,
 } from "@open-superforecaster/db";
 import type { AppConfig } from "@open-superforecaster/config";
+import { formatAgentRef, loadAgentPolicy } from "@open-superforecaster/config";
 import { buildHealthSnapshot } from "./health";
 import { listMaintenanceActions, listMaintenanceJobs } from "./maintenance-service";
 import { createObjectStorageTargets, tryHeadBucket } from "./object-storage";
@@ -19,6 +20,7 @@ import { createObjectStorageTargets, tryHeadBucket } from "./object-storage";
 type Db = ReturnType<typeof createDb>["db"];
 
 export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input: { root: string }) {
+  const agentPolicy = loadAgentPolicy(process.env, input.root);
   const [health, suites, cases, taskRows, artifactRows, benchmarkRunRows, sourceRows, scoreRows, cleanupJobRows, recentMaintenanceJobs] = await Promise.all([
     buildHealthSnapshot(config),
     db.select().from(benchmarkSuites).orderBy(desc(benchmarkSuites.createdAt)),
@@ -65,6 +67,15 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
       codexModel: config.CODEX_MODEL,
       codexAuthMode: config.CODEX_AUTH_MODE,
       codexHome: config.CODEX_HOME,
+      agentAuthRoot: config.AGENT_AUTH_ROOT,
+      agentPolicy: {
+        default: formatAgentRef(agentPolicy.defaultRef),
+        structured: agentPolicy.purposes.structured.map(formatAgentRef),
+        research: agentPolicy.purposes.research.map(formatAgentRef),
+        forecast: agentPolicy.purposes.forecast.map(formatAgentRef),
+        critic: agentPolicy.purposes.critic.map(formatAgentRef),
+        allowNativeWeb: agentPolicy.allowNativeWeb,
+      },
       smithersStateDir: config.SMITHERS_STATE_DIR,
       duckdbPath: config.DUCKDB_PATH,
       artifactsDir: config.ARTIFACTS_DIR,

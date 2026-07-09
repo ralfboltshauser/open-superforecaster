@@ -73,6 +73,7 @@ forecast should answer:
 
 - Docker Compose
 - A Codex subscription, with local auth available under `${HOME}/.codex`
+  or an auth profile under `./data/agent-auth/codex/default`
 - Bun only if you want to run the web app directly on the host
 
 ### Start the Full Local Stack
@@ -83,7 +84,8 @@ docker compose up --build
 ```
 
 Open [http://localhost:3000](http://localhost:3000), ask a forecast, and inspect
-the run from the sidebar.
+the run from the sidebar. Open [http://localhost:3000/setup](http://localhost:3000/setup)
+to inspect the active agent-provider policy and auth profile health.
 
 The app binds to `127.0.0.1` by default because this local v1 does not include
 user auth. To test from another machine on your LAN, set this in `.env` first:
@@ -94,6 +96,80 @@ OSF_WEB_BIND_ADDRESS=0.0.0.0
 
 Then restart Compose and open `http://<host-lan-ip>:3000`. Do not expose it
 publicly without adding authentication.
+
+### Agent Providers and Auth
+
+Workflows use Smithers agents through [`packages/workflows/src/agents.ts`](packages/workflows/src/agents.ts).
+Codex is the default provider, but the same install can route structured,
+research, forecast, and critic tasks to different Smithers-supported CLI agents.
+
+Provider policy lives in `.env`:
+
+```bash
+AGENT_AUTH_ROOT=/agent-auth
+AGENT_DEFAULT=codex:default
+AGENT_STRUCTURED=codex:default
+AGENT_RESEARCH=codex:default
+AGENT_FORECAST=codex:default
+AGENT_CRITIC=codex:default
+AGENT_ALLOW_NATIVE_WEB=false
+```
+
+Each value is `provider:profile`. Docker mounts one auth root and keeps
+provider-specific profiles underneath it:
+
+```text
+./data/agent-auth/
+  codex/default/      # CODEX_HOME
+  claude/default/     # CLAUDE_CONFIG_DIR
+  kimi/default/       # KIMI_SHARE_DIR
+  pi/default/         # PI sessions/config
+```
+
+Create an isolated Codex profile:
+
+```bash
+mkdir -p ./data/agent-auth/codex/default
+CODEX_HOME="$PWD/data/agent-auth/codex/default" codex login
+```
+
+Or copy an existing Codex login:
+
+```bash
+mkdir -p ./data/agent-auth/codex/default
+cp "$HOME/.codex/auth.json" ./data/agent-auth/codex/default/auth.json
+chmod 600 ./data/agent-auth/codex/default/auth.json
+```
+
+Create an isolated Claude Code profile:
+
+```bash
+mkdir -p ./data/agent-auth/claude/default
+CLAUDE_CONFIG_DIR="$PWD/data/agent-auth/claude/default" claude
+```
+
+Complete `/login` inside Claude Code, or copy an existing login:
+
+```bash
+mkdir -p ./data/agent-auth/claude/default
+cp "$HOME/.claude/.credentials.json" ./data/agent-auth/claude/default/.credentials.json
+chmod 600 ./data/agent-auth/claude/default/.credentials.json
+```
+
+Then add Claude to the policy when you want it used:
+
+```bash
+AGENT_RESEARCH=codex:default,claude:default
+AGENT_CRITIC=claude:default,codex:default
+CLAUDE_CONFIG_DIR=/agent-auth/claude/default
+```
+
+Keep `AGENT_ALLOW_NATIVE_WEB=false` unless you explicitly want provider-native
+web search. Native web search is outside the deterministic source ledger and
+should stay off for fixed-evidence and pastcasting evaluation.
+
+See [`docs/agent-providers.md`](docs/agent-providers.md) for provider setup,
+Docker mount details, and troubleshooting.
 
 ### Check Your Setup
 

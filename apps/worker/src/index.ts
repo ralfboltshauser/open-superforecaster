@@ -10,8 +10,18 @@ const server = Bun.serve({
     const url = new URL(request.url);
 
     if (url.pathname === "/health" || url.pathname === "/ready") {
-      const health = await buildHealthSnapshot(config, { requireCodex: true });
+      const health = await buildHealthSnapshot(config);
       return jsonResponse(health, { status: health.ok ? 200 : 503 });
+    }
+
+    if (url.pathname === "/agent-auth") {
+      const health = await buildHealthSnapshot(config);
+      const agentChecks = Object.fromEntries(Object.entries(health.checks).filter(([key]) => key.startsWith("agent_") || key === "agentPolicy"));
+      return jsonResponse({
+        ok: Object.values(agentChecks).every((check) => check.ok),
+        agentAuthRoot: config.AGENT_AUTH_ROOT,
+        checks: agentChecks,
+      });
     }
 
     if (url.pathname === "/codex-auth") {

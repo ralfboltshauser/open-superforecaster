@@ -64,7 +64,7 @@ record(
   "compose web port can opt into LAN exposure",
   compose.includes("${OSF_WEB_BIND_ADDRESS:-127.0.0.1}:3000:3000") &&
     envExample.includes("OSF_WEB_BIND_ADDRESS=127.0.0.1") &&
-    readme.includes("OSF_WEB_BIND_ADDRESS=0.0.0.0 docker compose up --build"),
+    readme.includes("OSF_WEB_BIND_ADDRESS=0.0.0.0"),
   "web port should default to localhost while allowing explicit LAN binding.",
 );
 
@@ -107,9 +107,13 @@ record(
 );
 
 record(
-  "codex mount has portable default",
-  compose.includes("${CODEX_HOST_HOME:-${HOME}/.codex}") && !compose.includes("/home/ralf/.codex") && !envExample.includes("/home/ralf/.codex"),
-  "Codex auth mount should default to the current user's home, not this machine.",
+  "agent auth root has portable default",
+  compose.includes("${AGENT_AUTH_HOST_ROOT:-./data/agent-auth}:${AGENT_AUTH_CONTAINER_ROOT:-/agent-auth}") &&
+    envExample.includes("AGENT_AUTH_ROOT=/agent-auth") &&
+    envHostExample.includes("AGENT_AUTH_ROOT=./data/agent-auth") &&
+    !compose.includes("/home/ralf/.codex") &&
+    !envExample.includes("/home/ralf/.codex"),
+  "Agent auth should mount one provider-profile root, not a machine-specific user path.",
 );
 
 record(
@@ -117,7 +121,9 @@ record(
   readme.includes("cp .env.example .env") &&
     readme.includes("docker compose up --build") &&
     readme.includes("cp .env.host.example .env") &&
-    readme.includes("web\nCompose port binds to `127.0.0.1`"),
+    readme.includes("The app binds to `127.0.0.1` by default") &&
+    readme.includes("docs/agent-providers.md") &&
+    readme.includes("AGENT_AUTH_ROOT=/agent-auth"),
   "README should make Docker first-run and host development distinct.",
 );
 

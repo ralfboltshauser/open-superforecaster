@@ -12,7 +12,7 @@ const repo = "https://github.com/ralfboltshauser/open-superforecaster"
 
 const metrics = [
   ["06", "Forecast modes"],
-  ["03×", "Parallel researchers"],
+  ["03×", "Parallel agents"],
   ["04", "Local start steps"],
   ["100%", "Local trust chain"],
 ]
@@ -26,7 +26,7 @@ const proofChain = [
   [
     "02",
     "Fan out",
-    "Three parallel CodexAgent researchers gather evidence independently, so disagreement stays visible instead of averaged away.",
+    "Parallel Smithers agents gather evidence independently, so disagreement stays visible instead of averaged away.",
   ],
   [
     "03",
@@ -66,7 +66,7 @@ const stack = [
   ["MinIO", "Artifact + trace storage"],
   ["DuckDB", "Local analytics"],
   ["Smithers", "Durable workflows"],
-  ["CodexAgent", "Research fan-out"],
+  ["Smithers agents", "Configurable fan-out"],
 ]
 ---
 
@@ -267,6 +267,10 @@ const stack = [
             <p>
               Postgres, object storage, the web cockpit, and the worker come up from the repo with Docker Compose, so the full trust chain stays
               local and inspectable.
+            </p>
+            <p>
+              Agent subscriptions are mounted through one local auth root. Keep Codex as the default, or configure Claude Code, Pi, Kimi, and
+              other Smithers CLI providers from the setup page after their profiles are logged in.
             </p>
             <div class="stack-strip" aria-label="Technology stack">
               {

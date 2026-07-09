@@ -1,6 +1,20 @@
 import { z } from "zod";
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
+export {
+  agentAuthPath,
+  agentProviderIds,
+  formatAgentRef,
+  loadAgentPolicy,
+  normalizeRoleKey,
+  parseAgentRef,
+  parseAgentRefList,
+  selectAgentRef,
+  type AgentPolicy,
+  type AgentProviderId,
+  type AgentPurpose,
+  type AgentRef,
+} from "./agents";
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -21,9 +35,23 @@ const envSchema = z.object({
   EXPORTS_DIR: z.string().min(1).default("./data/exports"),
   EVALS_DIR: z.string().min(1).default("./data/evals"),
   SMITHERS_STATE_DIR: z.string().min(1).default("./data/smithers"),
+  AGENT_AUTH_ROOT: z.string().min(1).default("./data/agent-auth"),
+  AGENT_DEFAULT: z.string().min(1).default("codex:default"),
+  AGENT_STRUCTURED: z.string().min(1).default("codex:default"),
+  AGENT_RESEARCH: z.string().min(1).default("codex:default"),
+  AGENT_FORECAST: z.string().min(1).default("codex:default"),
+  AGENT_CRITIC: z.string().min(1).default("codex:default"),
+  AGENT_ALLOW_NATIVE_WEB: z.enum(["true", "false"]).default("false"),
   CODEX_HOME: z.string().min(1).default(`${process.env.HOME ?? "/home/bun"}/.codex`),
   CODEX_MODEL: z.string().min(1).default("gpt-5.5"),
   CODEX_AUTH_MODE: z.enum(["mount", "copy"]).default("mount"),
+  CLAUDE_CONFIG_DIR: z.string().optional(),
+  CLAUDE_MODEL: z.string().optional(),
+  KIMI_SHARE_DIR: z.string().optional(),
+  KIMI_MODEL: z.string().optional(),
+  PI_PROVIDER: z.string().optional(),
+  PI_MODEL: z.string().optional(),
+  PI_API_KEY: z.string().optional(),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().min(1).default("http://localhost:4318"),
   OTEL_SERVICE_NAME: z.string().min(1).default("open-superforecaster"),
 });
@@ -41,6 +69,7 @@ export function loadAppConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     EXPORTS_DIR: resolveProjectPath(root, parsed.EXPORTS_DIR),
     EVALS_DIR: resolveProjectPath(root, parsed.EVALS_DIR),
     SMITHERS_STATE_DIR: resolveProjectPath(root, parsed.SMITHERS_STATE_DIR),
+    AGENT_AUTH_ROOT: resolveProjectPath(root, parsed.AGENT_AUTH_ROOT),
   };
 }
 
@@ -49,6 +78,7 @@ export function redactConfig(config: AppConfig) {
     ...config,
     DATABASE_URL: redactUrl(config.DATABASE_URL),
     MINIO_SECRET_KEY: config.MINIO_SECRET_KEY ? "[redacted]" : "",
+    PI_API_KEY: config.PI_API_KEY ? "[redacted]" : "",
   };
 }
 

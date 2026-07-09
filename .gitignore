@@ -18,6 +18,7 @@ data/smithers/
 data/artifacts/
 data/exports/
 data/evals/
+data/agent-auth/
 .smithers/executions/
 .smithers/runs/
 .smithers/state/

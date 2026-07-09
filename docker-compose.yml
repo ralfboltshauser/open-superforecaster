@@ -37,7 +37,10 @@ services:
       EXPORTS_DIR: /data/exports
       EVALS_DIR: /data/evals
       SMITHERS_STATE_DIR: /data/smithers
-      CODEX_HOME: ${CODEX_CONTAINER_HOME:-/home/bun/.codex}
+      AGENT_AUTH_ROOT: ${AGENT_AUTH_CONTAINER_ROOT:-/agent-auth}
+      CODEX_HOME: ${CODEX_CONTAINER_HOME:-/agent-auth/codex/default}
+      CLAUDE_CONFIG_DIR: ${CLAUDE_CONTAINER_HOME:-/agent-auth/claude/default}
+      IS_SANDBOX: "1"
     ports:
       - "${OSF_WEB_BIND_ADDRESS:-127.0.0.1}:3000:3000"
     volumes:
@@ -49,7 +52,7 @@ services:
       - ./data/exports:/data/exports
       - ./data/evals:/data/evals
       - ./data/smithers:/data/smithers
-      - ${CODEX_HOST_HOME:-${HOME}/.codex}:${CODEX_CONTAINER_HOME:-/home/bun/.codex}
+      - ${AGENT_AUTH_HOST_ROOT:-./data/agent-auth}:${AGENT_AUTH_CONTAINER_ROOT:-/agent-auth}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -106,7 +109,10 @@ services:
       EXPORTS_DIR: /data/exports
       EVALS_DIR: /data/evals
       SMITHERS_STATE_DIR: /data/smithers
-      CODEX_HOME: ${CODEX_CONTAINER_HOME:-/home/bun/.codex}
+      AGENT_AUTH_ROOT: ${AGENT_AUTH_CONTAINER_ROOT:-/agent-auth}
+      CODEX_HOME: ${CODEX_CONTAINER_HOME:-/agent-auth/codex/default}
+      CLAUDE_CONFIG_DIR: ${CLAUDE_CONTAINER_HOME:-/agent-auth/claude/default}
+      IS_SANDBOX: "1"
     ports:
       - "127.0.0.1:3010:3010"
     volumes:
@@ -118,7 +124,7 @@ services:
       - ./data/exports:/data/exports
       - ./data/evals:/data/evals
       - ./data/smithers:/data/smithers
-      - ${CODEX_HOST_HOME:-${HOME}/.codex}:${CODEX_CONTAINER_HOME:-/home/bun/.codex}
+      - ${AGENT_AUTH_HOST_ROOT:-./data/agent-auth}:${AGENT_AUTH_CONTAINER_ROOT:-/agent-auth}
     depends_on:
       migrate:
         condition: service_completed_successfully
