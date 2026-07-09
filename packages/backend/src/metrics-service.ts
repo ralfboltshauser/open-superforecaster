@@ -1182,6 +1182,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       category_count_band: "unknown",
       threshold_count_band: "unknown",
       condition_criteria_band: "unknown",
+      unit_specificity_band: "unknown",
     };
     metrics.gauge(
       "open_superforecaster_input_context_scores_total",
@@ -1209,6 +1210,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       category_count_band: inputContext?.categoryCountBand ?? "unknown",
       threshold_count_band: inputContext?.thresholdCountBand ?? "unknown",
       condition_criteria_band: inputContext?.conditionCriteriaBand ?? "unknown",
+      unit_specificity_band: inputContext?.unitSpecificityBand ?? "unknown",
     });
   })) {
     const labels = parseLabelKey(key);

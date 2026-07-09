@@ -26,6 +26,8 @@ export type ForecastInputContextSnapshot = {
   hasConditionResolutionCriteria: boolean;
   conditionCriteriaBand: "none" | "condition_only" | "condition_with_criteria" | "unknown";
   hasUnit: boolean;
+  unit: string | null;
+  unitSpecificityBand: "missing" | "generic" | "specific" | "unknown";
   contextCompleteness: number;
   contextCompletenessBand: "sparse" | "partial" | "rich";
 };
@@ -62,7 +64,8 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   const marketPriceAgeDays = hasMarketPrice ? horizonDays(marketPriceAsOfDate, evidenceAsOfDate) : null;
   const hasCondition = Boolean(normalized.condition?.trim());
   const hasConditionResolutionCriteria = Boolean(normalized.conditionResolutionCriteria?.trim());
-  const hasUnit = Boolean(normalized.unit?.trim());
+  const unit = normalized.unit?.trim() || null;
+  const hasUnit = unit !== null;
   const contextCompleteness = [
     hasResolutionCriteria,
     hasResolutionDate,
@@ -100,6 +103,8 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     hasConditionResolutionCriteria,
     conditionCriteriaBand: conditionCriteriaBand({ hasCondition, hasConditionResolutionCriteria }),
     hasUnit,
+    unit,
+    unitSpecificityBand: unitSpecificityBand(unit),
     contextCompleteness,
     contextCompletenessBand: contextCompletenessBand(contextCompleteness),
   };
@@ -121,6 +126,8 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   const contextCompletenessBandValue = readString(value, "contextCompletenessBand");
   const resolutionHorizonBandValue = readString(value, "resolutionHorizonBand");
   const backgroundLengthBandValue = readString(value, "backgroundLengthBand");
+  const unit = readString(value, "unit");
+  const unitSpecificityBandValue = readString(value, "unitSpecificityBand");
   return {
     questionLength,
     questionLengthBand: readQuestionLengthBand(value) ?? questionLengthBand(questionLength),
@@ -156,6 +163,10 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
       hasConditionResolutionCriteria: readBoolean(value, "hasConditionResolutionCriteria") ?? false,
     }),
     hasUnit: readBoolean(value, "hasUnit") ?? false,
+    unit,
+    unitSpecificityBand: isUnitSpecificityBand(unitSpecificityBandValue)
+      ? unitSpecificityBandValue
+      : unitSpecificityBand(unit),
     contextCompleteness: contextCompleteness ?? 0,
     contextCompletenessBand: isContextCompletenessBand(contextCompletenessBandValue)
       ? contextCompletenessBandValue
@@ -283,6 +294,20 @@ export function backgroundLengthBand(count: number | null): ForecastInputContext
   return "detailed";
 }
 
+export function unitSpecificityBand(unit: string | null): ForecastInputContextSnapshot["unitSpecificityBand"] {
+  if (unit === null) {
+    return "missing";
+  }
+  const normalized = unit.trim().toLowerCase();
+  if (!normalized) {
+    return "missing";
+  }
+  if (normalized === "unit" || normalized === "units" || normalized === "item" || normalized === "items") {
+    return "generic";
+  }
+  return "specific";
+}
+
 function wordCount(value: string) {
   return value.trim().split(/\s+/).filter(Boolean).length;
 }
@@ -362,6 +387,10 @@ function isResolutionHorizonBand(value: string | null): value is ForecastInputCo
 
 function isBackgroundLengthBand(value: string | null): value is ForecastInputContextSnapshot["backgroundLengthBand"] {
   return value === "absent" || value === "thin" || value === "adequate" || value === "detailed" || value === "unknown";
+}
+
+function isUnitSpecificityBand(value: string | null): value is ForecastInputContextSnapshot["unitSpecificityBand"] {
+  return value === "missing" || value === "generic" || value === "specific" || value === "unknown";
 }
 
 function readString(value: Record<string, unknown>, key: string) {

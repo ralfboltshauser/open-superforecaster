@@ -449,6 +449,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byInputCategoryCount = groupScores(aggregateScores, inputCategoryCountGroupKey);
   const byInputThresholdCount = groupScores(aggregateScores, inputThresholdCountGroupKey);
   const byInputConditionCriteria = groupScores(aggregateScores, inputConditionCriteriaGroupKey);
+  const byInputUnitSpecificity = groupScores(aggregateScores, inputUnitSpecificityGroupKey);
   const byRunDuration = groupScores(aggregateScores, runDurationGroupKey);
   const byRunExperiment = groupScores(aggregateScores, runExperimentGroupKey);
   const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
@@ -544,6 +545,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputCategoryCount,
       byInputThresholdCount,
       byInputConditionCriteria,
+      byInputUnitSpecificity,
       byRunDuration,
       byRunExperiment,
     },
@@ -629,6 +631,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputCategoryCount,
       byInputThresholdCount,
       byInputConditionCriteria,
+      byInputUnitSpecificity,
       byRunDuration,
       byRunExperiment,
       bestResolvedForecasts,
@@ -1680,6 +1683,11 @@ function inputConditionCriteriaGroupKey(score: typeof forecastScores.$inferSelec
   return `input_condition_criteria:${inputContext?.conditionCriteriaBand ?? "unrecorded"}`;
 }
 
+function inputUnitSpecificityGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_unit:${inputContext?.unitSpecificityBand ?? "unrecorded"}`;
+}
+
 function runDurationGroupKey(score: typeof forecastScores.$inferSelect) {
   const runMetadata = readForecastRunSnapshot(score.scoreConfig);
   return `run_duration:${runMetadata?.durationBand ?? "unrecorded"}`;
@@ -2595,6 +2603,13 @@ function inputContextMissSignal(item: PerformanceCase): { reason: string; delta:
       severity: context.backgroundLengthBand === "absent" ? "high" : "medium",
     };
   }
+  if (isUnitSensitiveForecastType(item.forecastType) && (context.unitSpecificityBand === "missing" || context.unitSpecificityBand === "generic")) {
+    return {
+      reason: `${context.unitSpecificityBand} input unit${context.unit ? ` (${context.unit})` : ""}`,
+      delta: context.contextCompleteness,
+      severity: context.unitSpecificityBand === "missing" ? "high" : "medium",
+    };
+  }
   if (context.questionLengthBand === "short" || context.questionLengthBand === "long") {
     return {
       reason: `${context.questionLengthBand} question text (${context.questionLength ?? 0} words)`,
@@ -2603,6 +2618,10 @@ function inputContextMissSignal(item: PerformanceCase): { reason: string; delta:
     };
   }
   return null;
+}
+
+function isUnitSensitiveForecastType(forecastType: string) {
+  return forecastType === "numeric" || forecastType === "thresholded";
 }
 
 function runMetadataMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
@@ -2818,6 +2837,7 @@ function renderPerformanceMarkdown(input: {
   byInputCategoryCount: PerformanceGroup[];
   byInputThresholdCount: PerformanceGroup[];
   byInputConditionCriteria: PerformanceGroup[];
+  byInputUnitSpecificity: PerformanceGroup[];
   byRunDuration: PerformanceGroup[];
   byRunExperiment: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
@@ -3014,6 +3034,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input condition-criteria groups",
     ...renderGroupTable(input.byInputConditionCriteria),
+    "",
+    "## Input unit-specificity groups",
+    ...renderGroupTable(input.byInputUnitSpecificity),
     "",
     "## Run duration groups",
     ...renderGroupTable(input.byRunDuration),
