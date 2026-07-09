@@ -490,6 +490,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byThresholdedRepair = readArray(groups, "byThresholdedRepair").filter(isRecord)
   const byNumericInterval = readArray(groups, "byNumericInterval").filter(isRecord)
   const byNumericUnit = readArray(groups, "byNumericUnit").filter(isRecord)
+  const byNumericP50Disagreement = readArray(groups, "byNumericP50Disagreement").filter(isRecord)
   const byDateInterval = readArray(groups, "byDateInterval").filter(isRecord)
   const byDateNeverProbability = readArray(groups, "byDateNeverProbability").filter(isRecord)
   const byDateP50Disagreement = readArray(groups, "byDateP50Disagreement").filter(isRecord)
@@ -571,6 +572,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byThresholdedRepair.length ? <PerformancePlanShapeGroupList groups={byThresholdedRepair} title="Threshold monotonicity outcomes" skipKey="thresholded_repair:not_thresholded" fallback="threshold repair" /> : null}
         {byNumericInterval.length ? <PerformancePlanShapeGroupList groups={byNumericInterval} title="Numeric interval outcomes" skipKey="numeric_interval:not_numeric" fallback="numeric interval" /> : null}
         {byNumericUnit.length ? <PerformancePlanShapeGroupList groups={byNumericUnit} title="Numeric unit outcomes" skipKey="numeric_unit:not_numeric" fallback="numeric unit" /> : null}
+        {byNumericP50Disagreement.length ? <PerformancePlanShapeGroupList groups={byNumericP50Disagreement} title="Numeric component-value outcomes" skipKey="numeric_p50_disagreement:not_numeric" fallback="numeric component value" /> : null}
         {byDateInterval.length ? <PerformancePlanShapeGroupList groups={byDateInterval} title="Date interval outcomes" skipKey="date_interval:not_date" fallback="date interval" /> : null}
         {byDateNeverProbability.length ? <PerformancePlanShapeGroupList groups={byDateNeverProbability} title="Date never-probability outcomes" skipKey="date_never_probability:not_date" fallback="date never probability" /> : null}
         {byDateP50Disagreement.length ? <PerformancePlanShapeGroupList groups={byDateP50Disagreement} title="Date component-timing outcomes" skipKey="date_p50_disagreement:not_date" fallback="date component timing" /> : null}

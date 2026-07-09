@@ -885,6 +885,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       score_type: "all",
       numeric_interval_band: "none",
       unit: "unknown",
+      p50_disagreement_band: "unknown",
     };
     metrics.gauge(
       "open_superforecaster_numeric_distribution_scores_total",
@@ -905,6 +906,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       score_type: row.scoreType,
       numeric_interval_band: numericForecast?.intervalWidthBand ?? "unknown",
       unit: numericForecast?.unit ?? "unknown",
+      p50_disagreement_band: numericForecast?.p50DisagreementBand ?? "unknown",
     });
   })) {
     const labels = parseLabelKey(key);

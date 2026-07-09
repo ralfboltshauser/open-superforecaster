@@ -1504,6 +1504,11 @@ await check("numeric and date forecast distribution metadata reaches resolved sc
         p90: 150,
       },
       attemptCount: 3,
+      componentValues: [
+        { forecasterLabel: "base-rate", unit: "units", quantiles: { p10: 70, p25: 80, p50: 90, p75: 105, p90: 120 }, value: 90 },
+        { forecasterLabel: "inside-view", unit: "units", quantiles: { p10: 80, p25: 90, p50: 100, p75: 130, p90: 150 }, value: 100 },
+        { forecasterLabel: "skeptic", unit: "items", quantiles: { p10: 95, p25: 115, p50: 175, p75: 210, p90: 240 }, value: 175 },
+      ],
     },
   });
   assert(numericSnapshot?.unit === "units", "numeric metadata unit mismatch");
@@ -1513,6 +1518,10 @@ await check("numeric and date forecast distribution metadata reaches resolved sc
   assert(numericSnapshot?.intervalWidth === 70, "numeric metadata interval width mismatch");
   assert(numericSnapshot?.intervalWidthBand === "moderate", "numeric metadata interval band mismatch");
   assert(numericSnapshot?.attemptCount === 3, "numeric metadata attempt count mismatch");
+  assert(numericSnapshot?.componentValueCount === 3, "numeric metadata component value count mismatch");
+  assert(numericSnapshot?.p50Disagreement === 85, "numeric metadata p50 disagreement mismatch");
+  assert(numericSnapshot?.p50DisagreementBand === "wide", "numeric metadata p50 disagreement band mismatch");
+  assert(numericSnapshot?.unitDisagreementCount === 1, "numeric metadata unit disagreement count mismatch");
 
   const dateSnapshot = readDateForecastSnapshot({
     dateForecast: {
@@ -1565,17 +1574,20 @@ await check("numeric and date forecast distribution metadata reaches resolved sc
   assert(resolutionSource.includes("readNumericForecastSnapshot(input.prediction)"), "resolution scoring does not persist numeric distribution metadata");
   assert(resolutionSource.includes("readDateForecastSnapshot(input.prediction)"), "resolution scoring does not persist date distribution metadata");
   assert(resolutionSource.includes("byNumericInterval"), "performance report does not group by numeric interval width");
+  assert(resolutionSource.includes("byNumericP50Disagreement"), "performance report does not group by numeric component value disagreement");
   assert(resolutionSource.includes("byDateNeverProbability"), "performance report does not group by date never probability");
   assert(resolutionSource.includes("byDateP50Disagreement"), "performance report does not group by date component timing disagreement");
   assert(metricsSource.includes("open_superforecaster_numeric_distribution_scores_total"), "metrics missing numeric distribution score counts");
+  assert(metricsSource.includes("numericForecast?.p50DisagreementBand"), "metrics missing numeric component disagreement labels");
   assert(metricsSource.includes("open_superforecaster_date_distribution_scores_total"), "metrics missing date distribution score counts");
-  assert(metricsSource.includes("p50_disagreement_band"), "metrics missing date component timing disagreement labels");
   assert(syncSource.includes("numeric_interval_width"), "DuckDB forecast score mart missing numeric interval width");
   assert(syncSource.includes("numeric_interval_width_band"), "DuckDB forecast score mart missing numeric interval band");
+  assert(syncSource.includes("numeric_p50_disagreement"), "DuckDB forecast score mart missing numeric component value disagreement");
   assert(syncSource.includes("date_interval_days"), "DuckDB forecast score mart missing date interval days");
   assert(syncSource.includes("date_never_probability_band"), "DuckDB forecast score mart missing date never-probability band");
   assert(syncSource.includes("date_p50_disagreement_days"), "DuckDB forecast score mart missing date component timing disagreement");
   assert(dashboardSource.includes("Numeric interval outcomes"), "lab dashboard does not render numeric interval outcomes");
+  assert(dashboardSource.includes("Numeric component-value outcomes"), "lab dashboard does not render numeric component value outcomes");
   assert(dashboardSource.includes("Date never-probability outcomes"), "lab dashboard does not render date never-probability outcomes");
   assert(dashboardSource.includes("Date component-timing outcomes"), "lab dashboard does not render date component timing outcomes");
   return "numeric and date forecast distributions are persisted and visible in resolved score analytics";

@@ -81,9 +81,10 @@ effect-direction agreement. Thresholded forecast score rows include direction,
 threshold source, threshold count, monotonicity repair status, curve probability
 spread, and attempt count. Numeric and date forecast score
 rows include quantile interval fields, unit, attempt count, and date
-never-probability bands, plus date component timing disagreement. Categorical
-forecast score rows include top-choice confidence, normalized entropy, category
-source, category count, closed-set status, top-category agreement, and
+never-probability bands, plus numeric component-value disagreement and date
+component timing disagreement. Categorical forecast score rows include
+top-choice confidence, normalized entropy, category source, category count,
+closed-set status, top-category agreement, and
 winner-probability spread. All product
 forecast score rows include evidence-coverage fields for
 source count, source-domain count, dated/undated source counts, newest/oldest
@@ -199,8 +200,8 @@ scores, worsening trends, or poor large moves away from component base-rate
 anchors, adds binary aggregate calibration buckets with expected calibration
 error, turns large calibration bucket gaps into attention items, emits
 candidate calibration guard rules for review, and writes JSON plus Markdown
-snapshots. Numeric/date interval groups, date never-probability groups, date
-component-timing groups,
+snapshots. Numeric/date interval groups, numeric component-value groups, date
+never-probability groups, date component-timing groups,
 categorical confidence/entropy/source/agreement groups, evidence-coverage
 groups, source-date coverage groups, and input-context groups are included alongside run duration/experiment groups and
 the binary, conditional, and thresholded groups. The lab dashboard renders the

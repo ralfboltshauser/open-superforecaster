@@ -398,6 +398,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byThresholdedRepair = groupScores(aggregateScores, thresholdedRepairGroupKey);
   const byNumericInterval = groupScores(aggregateScores, numericIntervalGroupKey);
   const byNumericUnit = groupScores(aggregateScores, numericUnitGroupKey);
+  const byNumericP50Disagreement = groupScores(aggregateScores, numericP50DisagreementGroupKey);
   const byDateInterval = groupScores(aggregateScores, dateIntervalGroupKey);
   const byDateNeverProbability = groupScores(aggregateScores, dateNeverProbabilityGroupKey);
   const byDateP50Disagreement = groupScores(aggregateScores, dateP50DisagreementGroupKey);
@@ -470,6 +471,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byThresholdedRepair,
       byNumericInterval,
       byNumericUnit,
+      byNumericP50Disagreement,
       byDateInterval,
       byDateNeverProbability,
       byDateP50Disagreement,
@@ -532,6 +534,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byThresholdedRepair,
       byNumericInterval,
       byNumericUnit,
+      byNumericP50Disagreement,
       byDateInterval,
       byDateNeverProbability,
       byDateP50Disagreement,
@@ -1335,6 +1338,14 @@ function numericUnitGroupKey(score: typeof forecastScores.$inferSelect) {
   return numericForecast?.unit ? `numeric_unit:${numericForecast.unit}` : "numeric_unit:unrecorded";
 }
 
+function numericP50DisagreementGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "numeric") {
+    return "numeric_p50_disagreement:not_numeric";
+  }
+  const numericForecast = readNumericForecastSnapshot(score.scoreConfig);
+  return `numeric_p50_disagreement:${numericForecast?.p50DisagreementBand ?? "unrecorded"}`;
+}
+
 function dateIntervalGroupKey(score: typeof forecastScores.$inferSelect) {
   if (readString(score.scoreConfig, "forecastType") !== "date") {
     return "date_interval:not_date";
@@ -2086,6 +2097,7 @@ function renderPerformanceMarkdown(input: {
   byThresholdedRepair: PerformanceGroup[];
   byNumericInterval: PerformanceGroup[];
   byNumericUnit: PerformanceGroup[];
+  byNumericP50Disagreement: PerformanceGroup[];
   byDateInterval: PerformanceGroup[];
   byDateNeverProbability: PerformanceGroup[];
   byDateP50Disagreement: PerformanceGroup[];
@@ -2185,6 +2197,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Numeric unit groups",
     ...renderGroupTable(input.byNumericUnit),
+    "",
+    "## Numeric component-value groups",
+    ...renderGroupTable(input.byNumericP50Disagreement),
     "",
     "## Date interval groups",
     ...renderGroupTable(input.byDateInterval),
