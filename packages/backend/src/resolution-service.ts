@@ -337,6 +337,7 @@ export async function getForecastPerformanceReport(db: Db) {
     const target = readString(score.scoreConfig, "target") ?? "unknown";
     return `${forecastType}:${target}`;
   });
+  const byCalibrationGuard = groupScores(aggregateScores, calibrationGuardGroupKey);
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
   const worstResolvedForecasts = [...rankedAggregateCases].reverse().slice(0, 8);
@@ -369,6 +370,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byTarget,
       byForecaster,
       byForecastTypeAndTarget,
+      byCalibrationGuard,
     },
     bestResolvedForecasts,
     worstResolvedForecasts,
@@ -395,6 +397,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byForecastType,
       byTarget,
       byForecaster,
+      byCalibrationGuard,
       bestResolvedForecasts,
       worstResolvedForecasts,
       scoreTrends,
@@ -988,6 +991,14 @@ function groupScores(
     });
 }
 
+function calibrationGuardGroupKey(score: typeof forecastScores.$inferSelect) {
+  const guard = readCalibrationGuardSnapshot(score.scoreConfig);
+  if (!guard || guard.appliedRules.length === 0) {
+    return "unguarded";
+  }
+  return `guard:${guard.appliedRules.map((rule) => rule.id).sort().join("+")}`;
+}
+
 function rankAggregateCases(
   rows: Array<typeof forecastScores.$inferSelect>,
   taskMeta: Map<string, { id: string; label: string; operationSubmode: string | null }>,
@@ -1264,6 +1275,7 @@ function renderPerformanceMarkdown(input: {
   byForecastType: PerformanceGroup[];
   byTarget: PerformanceGroup[];
   byForecaster: PerformanceGroup[];
+  byCalibrationGuard: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
   worstResolvedForecasts: PerformanceCase[];
   scoreTrends: PerformanceTrend[];
@@ -1285,6 +1297,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Forecasters",
     ...renderGroupTable(input.byForecaster),
+    "",
+    "## Calibration guard groups",
+    ...renderGroupTable(input.byCalibrationGuard),
     "",
     "## Best resolved forecasts",
     ...renderCaseTable(input.bestResolvedForecasts),

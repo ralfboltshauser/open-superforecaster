@@ -148,6 +148,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const summary = isRecord(performance?.summary) ? performance.summary : {}
   const groups = isRecord(performance?.groups) ? performance.groups : {}
   const byForecastType = readArray(groups, "byForecastType").filter(isRecord)
+  const byCalibrationGuard = readArray(groups, "byCalibrationGuard").filter(isRecord)
   const bestForecasts = readArray(performance, "bestResolvedForecasts").filter(isRecord)
   const worstForecasts = readArray(performance, "worstResolvedForecasts").filter(isRecord)
   const scoreTrends = readArray(performance, "scoreTrends").filter(isRecord)
@@ -190,6 +191,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
           </div>
         ) : null}
         {scoreTrends.length ? <PerformanceTrendList trends={scoreTrends} /> : null}
+        {byCalibrationGuard.length ? <PerformanceGuardGroupList groups={byCalibrationGuard} /> : null}
         {calibrationBuckets.length ? <PerformanceCalibrationList buckets={calibrationBuckets} summary={calibrationSummary} /> : null}
         {needsAttention.length ? <PerformanceAttentionList items={needsAttention} /> : null}
       </CardContent>
@@ -291,6 +293,28 @@ function PerformanceTrendList({ trends }: { trends: JsonRecord[] }) {
             <span className="block truncate font-medium">{String(trend.label ?? "window")} · {String(trend.metric ?? "metric")}</span>
             <span className="mt-1 block truncate text-xs text-muted-foreground">
               {String(trend.direction ?? "trend")} · delta {formatMetric(trend.delta)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function PerformanceGuardGroupList({ groups }: { groups: JsonRecord[] }) {
+  const visibleGroups = groups.filter((group) => String(group.key ?? "") !== "unguarded").slice(0, 4)
+  if (visibleGroups.length === 0) {
+    return null
+  }
+  return (
+    <div className="border-t pt-3">
+      <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Calibration guard outcomes</p>
+      <div className="grid gap-2 md:grid-cols-2">
+        {visibleGroups.map((group) => (
+          <div className="rounded-md border px-3 py-2 text-sm" key={String(group.key ?? group.label)}>
+            <span className="block truncate font-medium">{String(group.label ?? group.key ?? "guard")}</span>
+            <span className="mt-1 block truncate text-xs text-muted-foreground">
+              {String(group.resolvedTasks ?? 0)} tasks · {String(group.primaryMetric ?? "metric")} {formatMetric(group.primaryMean)}
             </span>
           </div>
         ))}
