@@ -665,6 +665,8 @@ await check("workflow change proposal lifecycle is exported as metrics", async (
   assert(metricsSource.includes("implementation_status"), "workflow proposal metric missing implementation status label");
   assert(metricsSource.includes("implementation_experiment_label"), "workflow proposal metric missing implementation experiment label");
   assert(metricsSource.includes("validation_benchmark_run_id"), "workflow proposal metric missing validation benchmark label");
+  assert(metricsSource.includes("validation_comparison_report_artifact_id"), "workflow proposal metric missing validation comparison artifact label");
+  assert(metricsSource.includes("validation_recommendation_status"), "workflow proposal metric missing validation recommendation status label");
   assert(metricsSource.includes("validation_result_status"), "workflow proposal metric missing validation result status");
   assert(metricsSource.includes("validation_gate_status"), "workflow proposal metric missing validation gate status");
   assert(metricsSource.includes("reviewed_by"), "workflow proposal metric missing reviewer label");
@@ -724,6 +726,11 @@ await check("workflow change proposals are exported to DuckDB", async () => {
   assert(syncSource.includes("validation_completed_cases"), "workflow proposal mart missing validation completed case count");
   assert(syncSource.includes("validation_gate_status"), "workflow proposal mart missing validation gate status");
   assert(syncSource.includes("validation_gate_blockers_json"), "workflow proposal mart missing validation gate blockers");
+  assert(syncSource.includes("validation_comparison_report_artifact_id"), "workflow proposal mart missing validation comparison artifact id");
+  assert(syncSource.includes("validation_recommendation_status"), "workflow proposal mart missing validation recommendation status");
+  assert(syncSource.includes("validation_primary_baseline_benchmark_run_id"), "workflow proposal mart missing validation primary baseline id");
+  assert(syncSource.includes("validation_paired_mean_brier_delta"), "workflow proposal mart missing validation paired Brier delta");
+  assert(syncSource.includes("validation_paired_brier_ci_lower"), "workflow proposal mart missing validation paired uncertainty interval");
   return "benchmark-derived workflow proposals are visible in local DuckDB analytics";
 });
 
@@ -743,6 +750,9 @@ await check("workflow change proposals are visible in the lab dashboard", async 
   assert(dashboardSource.includes("validationBenchmarkRunId"), "lab dashboard proposal section missing validation benchmark link");
   assert(dashboardSource.includes("validationResultSummary"), "lab dashboard proposal section missing validation result summary");
   assert(dashboardSource.includes("validationMeanBrierDelta"), "lab dashboard proposal section missing validation score delta");
+  assert(dashboardSource.includes("validationComparisonReport"), "lab dashboard proposal section missing validation comparison report");
+  assert(dashboardSource.includes("validationRecommendationStatus"), "lab dashboard proposal section missing validation recommendation status");
+  assert(dashboardSource.includes("validationPairedMeanBrierDelta"), "lab dashboard proposal section missing validation paired Brier delta");
   assert(dashboardSource.includes("validationGateStatus"), "lab dashboard proposal section missing validation gate status");
   assert(dashboardSource.includes("validationGateBlockers"), "lab dashboard proposal section missing validation gate blockers");
   assert(dashboardSource.includes("canMarkImplemented"), "lab dashboard does not gate implemented action on validation result");

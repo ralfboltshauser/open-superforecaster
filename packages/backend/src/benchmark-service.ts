@@ -746,9 +746,13 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
         validationGateStatus: workflowChangeProposals.validationGateStatus,
         validationGateBlockers: workflowChangeProposals.validationGateBlockers,
         validationCompletedAt: workflowChangeProposals.validationCompletedAt,
+        validationComparisonReportArtifactId: benchmarkRuns.comparisonReportArtifactId,
+        validationComparisonReport: artifactRows.rowJson,
         createdAt: workflowChangeProposals.createdAt,
       })
       .from(workflowChangeProposals)
+      .leftJoin(benchmarkRuns, eq(workflowChangeProposals.validationBenchmarkRunId, benchmarkRuns.id))
+      .leftJoin(artifactRows, and(eq(benchmarkRuns.comparisonReportArtifactId, artifactRows.artifactId), eq(artifactRows.rowIndex, 0)))
       .where(eq(workflowChangeProposals.sourceBenchmarkRunId, row.id))
       .orderBy(desc(workflowChangeProposals.createdAt))
       .limit(3);

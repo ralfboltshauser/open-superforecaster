@@ -253,40 +253,62 @@ try {
 
   const workflowChangeProposals = await pg<WorkflowChangeProposalMartRow[]>`
     select
-      id::text as workflow_change_proposal_id,
-      source_benchmark_run_id::text as source_benchmark_run_id,
-      target_workflow_id,
-      problem_statement,
-      evidence_case_ids::text as evidence_case_ids_json,
-      proposed_change,
-      expected_metric_effect,
-      expected_cost_latency_effect,
-      overfit_risk,
-      validation_plan,
-      status,
-      review_note,
-      reviewed_by,
-      reviewed_at::text as reviewed_at,
-      implementation_task_title,
-      implementation_status,
-      implementation_experiment_label,
-      implementation_note,
-      implementation_updated_by,
-      implementation_updated_at::text as implementation_updated_at,
-      validation_benchmark_run_id::text as validation_benchmark_run_id,
-      validation_launched_by,
-      validation_launched_at::text as validation_launched_at,
-      validation_result_status,
-      validation_result_summary,
-      validation_mean_brier_delta,
-      validation_completed_cases,
-      validation_gate_status,
-      validation_gate_blockers::text as validation_gate_blockers_json,
-      validation_completed_at::text as validation_completed_at,
-      created_at::text as created_at,
-      updated_at::text as updated_at
-    from workflow_change_proposals
-    order by created_at
+      wcp.id::text as workflow_change_proposal_id,
+      wcp.source_benchmark_run_id::text as source_benchmark_run_id,
+      wcp.target_workflow_id,
+      wcp.problem_statement,
+      wcp.evidence_case_ids::text as evidence_case_ids_json,
+      wcp.proposed_change,
+      wcp.expected_metric_effect,
+      wcp.expected_cost_latency_effect,
+      wcp.overfit_risk,
+      wcp.validation_plan,
+      wcp.status,
+      wcp.review_note,
+      wcp.reviewed_by,
+      wcp.reviewed_at::text as reviewed_at,
+      wcp.implementation_task_title,
+      wcp.implementation_status,
+      wcp.implementation_experiment_label,
+      wcp.implementation_note,
+      wcp.implementation_updated_by,
+      wcp.implementation_updated_at::text as implementation_updated_at,
+      wcp.validation_benchmark_run_id::text as validation_benchmark_run_id,
+      wcp.validation_launched_by,
+      wcp.validation_launched_at::text as validation_launched_at,
+      wcp.validation_result_status,
+      wcp.validation_result_summary,
+      wcp.validation_mean_brier_delta,
+      wcp.validation_completed_cases,
+      wcp.validation_gate_status,
+      wcp.validation_gate_blockers::text as validation_gate_blockers_json,
+      wcp.validation_completed_at::text as validation_completed_at,
+      vbr.comparison_report_artifact_id::text as validation_comparison_report_artifact_id,
+      vcr.row_json #>> '{recommendation,status}' as validation_recommendation_status,
+      vcr.row_json #>> '{recommendation,summary}' as validation_recommendation_summary,
+      validation_primary_baseline.row_json #>> '{baselineBenchmarkRunId}' as validation_primary_baseline_benchmark_run_id,
+      nullif(validation_primary_baseline.row_json #>> '{pairedCaseCount}', '')::integer as validation_paired_case_count,
+      nullif(validation_primary_baseline.row_json #>> '{pairedMeanBrierDelta}', '')::double precision as validation_paired_mean_brier_delta,
+      nullif(validation_primary_baseline.row_json #>> '{pairedMeanLogDelta}', '')::double precision as validation_paired_mean_log_delta,
+      nullif(validation_primary_baseline.row_json #>> '{pairedUncertainty,brierDelta,lower}', '')::double precision as validation_paired_brier_ci_lower,
+      nullif(validation_primary_baseline.row_json #>> '{pairedUncertainty,brierDelta,upper}', '')::double precision as validation_paired_brier_ci_upper,
+      wcp.created_at::text as created_at,
+      wcp.updated_at::text as updated_at
+    from workflow_change_proposals wcp
+    left join benchmark_runs vbr on vbr.id = wcp.validation_benchmark_run_id
+    left join artifact_rows vcr on vcr.artifact_id = vbr.comparison_report_artifact_id and vcr.row_index = 0
+    left join lateral (
+      select baseline.row_json
+      from jsonb_array_elements(coalesce(vcr.row_json #> '{baselines}', '[]'::jsonb)) as baseline(row_json)
+      order by
+        case
+          when baseline.row_json #>> '{baselineBenchmarkRunId}' = coalesce(vcr.row_json #>> '{recommendation,primaryBaselineBenchmarkRunId}', vcr.row_json #>> '{baselines,0,baselineBenchmarkRunId}') then 0
+          else 1
+        end,
+        baseline.row_json #>> '{baselineBenchmarkRunId}'
+      limit 1
+    ) validation_primary_baseline on true
+    order by wcp.created_at
   `;
   await replaceTable(duck, "osf_workflow_change_proposals", workflowChangeProposalColumns, workflowChangeProposals);
 
@@ -326,7 +348,7 @@ try {
       "select * from osf_benchmark_runs order by created_at desc limit 5;",
       "select benchmark_run_id, paired_mean_brier_delta, paired_brier_ci_lower, paired_brier_ci_upper, recommendation_status from osf_benchmark_runs where comparison_report_artifact_id is not null;",
       "select benchmark_run_id, promotion_gate_status, promotion_gate_blockers from osf_benchmark_runs order by created_at desc limit 5;",
-      "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label, validation_benchmark_run_id, validation_result_status, validation_gate_status from osf_workflow_change_proposals order by created_at desc limit 5;",
+      "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label, validation_benchmark_run_id, validation_result_status, validation_recommendation_status, validation_paired_mean_brier_delta, validation_gate_status from osf_workflow_change_proposals order by created_at desc limit 5;",
       "select operation_mode, operation_submode, status, count(*) from osf_tasks group by 1,2,3 order by 4 desc;",
     ],
   }, null, 2));
@@ -479,6 +501,15 @@ const workflowChangeProposalColumns = [
   { name: "validation_gate_status", type: "VARCHAR" },
   { name: "validation_gate_blockers_json", type: "VARCHAR" },
   { name: "validation_completed_at", type: "VARCHAR" },
+  { name: "validation_comparison_report_artifact_id", type: "VARCHAR" },
+  { name: "validation_recommendation_status", type: "VARCHAR" },
+  { name: "validation_recommendation_summary", type: "VARCHAR" },
+  { name: "validation_primary_baseline_benchmark_run_id", type: "VARCHAR" },
+  { name: "validation_paired_case_count", type: "INTEGER" },
+  { name: "validation_paired_mean_brier_delta", type: "DOUBLE" },
+  { name: "validation_paired_mean_log_delta", type: "DOUBLE" },
+  { name: "validation_paired_brier_ci_lower", type: "DOUBLE" },
+  { name: "validation_paired_brier_ci_upper", type: "DOUBLE" },
   { name: "created_at", type: "VARCHAR" },
   { name: "updated_at", type: "VARCHAR" },
 ] satisfies DuckColumn[];

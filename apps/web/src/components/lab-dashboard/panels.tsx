@@ -318,6 +318,16 @@ function WorkflowProposalSummary({
   const validationMeanBrierDelta = typeof proposal.validationMeanBrierDelta === "number" ? proposal.validationMeanBrierDelta : null
   const validationGateStatus = typeof proposal.validationGateStatus === "string" ? proposal.validationGateStatus : null
   const validationGateBlockers = readArray(proposal, "validationGateBlockers").filter((blocker): blocker is string => typeof blocker === "string")
+  const validationComparisonReport = isRecord(proposal.validationComparisonReport) ? proposal.validationComparisonReport : null
+  const validationRecommendation = isRecord(validationComparisonReport?.recommendation) ? validationComparisonReport.recommendation : null
+  const validationRecommendationStatus = typeof validationRecommendation?.status === "string" ? validationRecommendation.status : null
+  const validationPrimaryBaselineId =
+    typeof validationRecommendation?.primaryBaselineBenchmarkRunId === "string" ? validationRecommendation.primaryBaselineBenchmarkRunId : null
+  const validationBaselines = readArray(validationComparisonReport, "baselines").filter(isRecord)
+  const validationPrimaryBaseline =
+    validationBaselines.find((baseline) => baseline.baselineBenchmarkRunId === validationPrimaryBaselineId) ?? validationBaselines[0] ?? null
+  const validationPairedMeanBrierDelta =
+    typeof validationPrimaryBaseline?.pairedMeanBrierDelta === "number" ? validationPrimaryBaseline.pairedMeanBrierDelta : null
   const reviewedBy = typeof proposal.reviewedBy === "string" ? proposal.reviewedBy : null
   const reviewedAt = typeof proposal.reviewedAt === "string" ? proposal.reviewedAt : null
   const canUpdate = Boolean(benchmarkRunId && proposalId)
@@ -372,6 +382,12 @@ function WorkflowProposalSummary({
             </p>
           ) : null}
           {validationResultSummary ? <p className="mt-1 line-clamp-2">{validationResultSummary}</p> : null}
+          {validationRecommendationStatus ? (
+            <p className="mt-1 truncate">
+              comparison {validationRecommendationStatus}
+              {validationPairedMeanBrierDelta === null ? "" : ` · paired delta ${formatMetric(validationPairedMeanBrierDelta)}`}
+            </p>
+          ) : null}
           {validationGateStatus ? (
             <p className="mt-1 truncate">
               gate {validationGateStatus}{validationGateBlockers.length ? ` · ${validationGateBlockers.slice(0, 2).join(", ")}` : ""}

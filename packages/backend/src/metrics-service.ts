@@ -1,4 +1,4 @@
-import { desc, inArray } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import {
   artifactRows,
   benchmarkCaseResults,
@@ -106,11 +106,13 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
         implementationStatus: workflowChangeProposals.implementationStatus,
         implementationExperimentLabel: workflowChangeProposals.implementationExperimentLabel,
         validationBenchmarkRunId: workflowChangeProposals.validationBenchmarkRunId,
+        validationComparisonReportArtifactId: benchmarkRuns.comparisonReportArtifactId,
         validationResultStatus: workflowChangeProposals.validationResultStatus,
         validationGateStatus: workflowChangeProposals.validationGateStatus,
         createdAt: workflowChangeProposals.createdAt,
       })
       .from(workflowChangeProposals)
+      .leftJoin(benchmarkRuns, eq(workflowChangeProposals.validationBenchmarkRunId, benchmarkRuns.id))
       .orderBy(desc(workflowChangeProposals.createdAt))
       .limit(100),
     db
@@ -145,7 +147,9 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
   const reportArtifactIds = uniqueStrings(benchmarkRunRows.flatMap((run) => [
     run.comparisonReportArtifactId,
     run.analysisReportArtifactId,
-  ].filter((id): id is string => Boolean(id))));
+  ].filter((id): id is string => Boolean(id))).concat(
+    workflowProposalRows.map((proposal) => proposal.validationComparisonReportArtifactId).filter((id): id is string => Boolean(id)),
+  ));
   const reportRows = reportArtifactIds.length
     ? await db
         .select({
@@ -332,6 +336,9 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge("open_superforecaster_workflow_change_proposals_total", "Workflow change proposal count by lifecycle, implementation status, and target workflow.", count, parseLabelKey(key));
   }
   for (const proposal of workflowProposalRows.slice(0, 50)) {
+    const validationComparisonReport = proposal.validationComparisonReportArtifactId
+      ? reportRowsByArtifactId.get(proposal.validationComparisonReportArtifactId) ?? null
+      : null;
     metrics.gauge("open_superforecaster_workflow_change_proposal_info", "Recent workflow change proposal lifecycle metadata.", 1, {
       proposal_id: proposal.id,
       source_benchmark_run_id: proposal.sourceBenchmarkRunId ?? "none",
@@ -340,6 +347,8 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       implementation_status: proposal.implementationStatus,
       implementation_experiment_label: proposal.implementationExperimentLabel ?? "none",
       validation_benchmark_run_id: proposal.validationBenchmarkRunId ?? "none",
+      validation_comparison_report_artifact_id: proposal.validationComparisonReportArtifactId ?? "none",
+      validation_recommendation_status: readComparisonRecommendationStatus(validationComparisonReport) ?? "none",
       validation_result_status: proposal.validationResultStatus ?? "none",
       validation_gate_status: proposal.validationGateStatus ?? "none",
       reviewed_by: proposal.reviewedBy ?? "none",

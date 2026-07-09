@@ -53,12 +53,12 @@ The metrics endpoint exports promotion-gate status and blocker series for
 recent benchmark runs, so blocked promotion reasons can be monitored outside the
 lab dashboard.
 It also exports workflow proposal lifecycle counts and recent proposal metadata,
-including implementation status and experiment label, so accepted, rejected, and
-implemented changes remain monitorable after review. When validation is launched
-from a proposal, the resulting benchmark run id is exported with the same
-proposal metadata. After that benchmark finalizes, the proposal records the
-validation status, gate status, blockers, summary, completed case count, and
-mean Brier delta.
+including implementation status, experiment label, and validation comparison
+recommendations, so accepted, rejected, and implemented changes remain
+monitorable after review. When validation is launched from a proposal, the
+resulting benchmark run id is exported with the same proposal metadata. After
+that benchmark finalizes, the proposal records the validation status, gate
+status, blockers, summary, completed case count, and mean Brier delta.
 `scripts/sync-duckdb.ts` also exports those gate statuses, blocker strings,
 holdout evidence counts, source-quality counts, trace/schema counts, and
 analysis-finding counts into `osf_benchmark_runs` for local analytics.
@@ -74,8 +74,9 @@ label, and the lab can move that implementation into patching before launching a
 validation benchmark under that label. Validation uses the same benchmark suite
 as the proposal's source run and automatically compares against that source run.
 Completed validation runs write their evidence summary and gate blockers back
-onto the proposal for review, and a proposal cannot be marked implemented until
-validation has completed.
+onto the proposal for review, and the lab shows the validation recommendation
+and paired Brier delta beside the proposal. A proposal cannot be marked
+implemented until validation has completed.
 
 ## Forecast And Research Prompts
 
