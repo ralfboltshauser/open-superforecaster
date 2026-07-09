@@ -1165,11 +1165,23 @@ export async function startWorkflowChangeProposalValidation(
   if (existing.validationBenchmarkRunId) {
     throw new Error(`Workflow change proposal already has validation benchmark run: ${existing.validationBenchmarkRunId}`);
   }
+  if (!existing.sourceBenchmarkRunId) {
+    throw new Error(`Workflow change proposal has no source benchmark run: ${input.proposalId}`);
+  }
+  const [sourceRun] = await db
+    .select()
+    .from(benchmarkRuns)
+    .where(eq(benchmarkRuns.id, existing.sourceBenchmarkRunId))
+    .limit(1);
+  if (!sourceRun) {
+    throw new Error(`Source benchmark run not found for workflow change proposal: ${input.proposalId}`);
+  }
   const launchedBy = input.launchedBy?.trim() || "local-user";
   const implementationExperimentLabel = existing.implementationExperimentLabel || `proposal-${existing.id.slice(0, 8)}`;
   const validationRun = await startBenchmarkRun(db, {
     root: input.root,
-    evalMode: evalModeForProposalTargetWorkflow(existing.targetWorkflowId),
+    evalMode: sourceRun.evalMode || evalModeForProposalTargetWorkflow(existing.targetWorkflowId),
+    suiteId: sourceRun.suiteId,
     maxCases: input.maxCases ?? 1,
     rollouts: input.rollouts,
     experimentLabel: implementationExperimentLabel,
@@ -2292,12 +2304,13 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
       })
       .where(eq(benchmarkRuns.id, run.id));
 
+    const validationComparisonStatus = await createWorkflowProposalValidationComparison(db, run.id);
     const validationGate = summarizeBenchmarkPromotionGateEvidence({
       runStatus: failedCases || reviewCases ? "partial_failure" : "completed",
       resultCount: results.length,
       traceMissing: results.filter((result) => !result.traceBundleUri).length,
       reviewOrFailed: failedCases + reviewCases,
-      comparisonStatus: null,
+      comparisonStatus: validationComparisonStatus,
       baselineSanityFindings: analysis.baselineSanityFindings,
       componentDisagreementFindings: analysis.componentDisagreementFindings,
       forecastErrorFindings: analysis.forecastErrorFindings,
@@ -2316,6 +2329,24 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
       completedAt: new Date(),
     });
   }
+}
+
+async function createWorkflowProposalValidationComparison(db: Db, validationBenchmarkRunId: string) {
+  const [proposal] = await db
+    .select({
+      sourceBenchmarkRunId: workflowChangeProposals.sourceBenchmarkRunId,
+    })
+    .from(workflowChangeProposals)
+    .where(eq(workflowChangeProposals.validationBenchmarkRunId, validationBenchmarkRunId))
+    .limit(1);
+  if (!proposal?.sourceBenchmarkRunId) {
+    return null;
+  }
+  const comparison = await createBenchmarkComparisonReport(db, {
+    benchmarkRunId: validationBenchmarkRunId,
+    baselineBenchmarkRunIds: [proposal.sourceBenchmarkRunId],
+  });
+  return readComparisonRecommendationStatus(comparison.report);
 }
 
 async function syncWorkflowProposalValidationEvidence(

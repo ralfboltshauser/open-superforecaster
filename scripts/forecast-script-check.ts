@@ -787,8 +787,11 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(backendSource.includes("proposal-${existing.id.slice(0, 8)}"), "backend missing deterministic proposal experiment label");
   assert(backendSource.includes("startWorkflowChangeProposalValidation"), "backend missing proposal validation launcher");
   assert(backendSource.includes("evalModeForProposalTargetWorkflow"), "backend missing proposal target workflow mapper");
+  assert(backendSource.includes("suiteId: sourceRun.suiteId"), "proposal validation does not reuse source benchmark suite");
   assert(backendSource.includes("validationBenchmarkRunId"), "backend missing validation benchmark linkage");
   assert(backendSource.includes("already has validation benchmark run"), "backend does not block duplicate proposal validation launches");
+  assert(backendSource.includes("createWorkflowProposalValidationComparison"), "backend missing proposal validation comparison helper");
+  assert(backendSource.includes("baselineBenchmarkRunIds: [proposal.sourceBenchmarkRunId]"), "proposal validation comparison does not use source benchmark as baseline");
   assert(backendSource.includes("syncWorkflowProposalValidationEvidence"), "backend missing proposal validation evidence sync");
   assert(backendSource.includes("validationMeanBrierDelta"), "backend missing validation Brier delta sync");
   assert(backendSource.includes("gateBlockers: validationGate.blockers"), "backend missing validation gate blocker sync");
