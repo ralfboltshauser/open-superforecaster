@@ -15,18 +15,18 @@ import { readAggregateStatsSnapshot, type AggregateStatsSnapshot } from "./aggre
 import { readBaselineSanitySnapshot, type BaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { buildCalibrationGuardImpact, type CalibrationGuardImpact, type CalibrationGuardRuleImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot, type CalibrationGuardSnapshot } from "./calibration-guard-metadata";
-import { readCategoricalForecastSnapshot } from "./categorical-forecast-metadata";
+import { readCategoricalForecastSnapshot, type CategoricalForecastSnapshot } from "./categorical-forecast-metadata";
 import { readComponentWeightingSnapshot, type ComponentWeightingSnapshot } from "./component-weighting-metadata";
-import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
-import { readDateForecastSnapshot } from "./date-forecast-metadata";
+import { readConditionalForecastSnapshot, type ConditionalForecastSnapshot } from "./conditional-forecast-metadata";
+import { readDateForecastSnapshot, type DateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
 import { readForecastInputContextSnapshot } from "./forecast-input-context-metadata";
 import { readForecastRunSnapshot } from "./forecast-run-metadata";
 import { readMarketAnchorSnapshot, type MarketAnchorSnapshot } from "./market-anchor-metadata";
-import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
+import { readNumericForecastSnapshot, type NumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
 import { readResolutionBoundarySnapshot, type ResolutionBoundarySnapshot } from "./resolution-boundary-metadata";
-import { readThresholdedForecastSnapshot } from "./thresholded-forecast-metadata";
+import { readThresholdedForecastSnapshot, type ThresholdedForecastSnapshot } from "./thresholded-forecast-metadata";
 import { readUncertaintyRangeSnapshot, type UncertaintyRangeSnapshot } from "./uncertainty-range-metadata";
 
 type Db = ReturnType<typeof createDb>["db"];
@@ -87,6 +87,11 @@ type PerformanceCase = {
   componentWeighting: ComponentWeightingSnapshot | null;
   aggregateQuality: AggregateQualitySnapshot | null;
   aggregateStats: AggregateStatsSnapshot | null;
+  conditionalForecast: ConditionalForecastSnapshot | null;
+  thresholdedForecast: ThresholdedForecastSnapshot | null;
+  numericForecast: NumericForecastSnapshot | null;
+  dateForecast: DateForecastSnapshot | null;
+  categoricalForecast: CategoricalForecastSnapshot | null;
   resolutionId: string | null;
   forecastAggregateId: string | null;
   createdAt: Date;
@@ -1510,6 +1515,11 @@ function rankAggregateCases(
         componentWeighting: readComponentWeightingSnapshot(latest.scoreConfig),
         aggregateQuality: readAggregateQualitySnapshot(latest.scoreConfig),
         aggregateStats: readAggregateStatsSnapshot(latest.scoreConfig),
+        conditionalForecast: readConditionalForecastSnapshot(latest.scoreConfig),
+        thresholdedForecast: readThresholdedForecastSnapshot(latest.scoreConfig),
+        numericForecast: readNumericForecastSnapshot(latest.scoreConfig),
+        dateForecast: readDateForecastSnapshot(latest.scoreConfig),
+        categoricalForecast: readCategoricalForecastSnapshot(latest.scoreConfig),
         resolutionId: latest.resolutionId,
         forecastAggregateId: latest.forecastAggregateId,
         createdAt: latest.createdAt,
@@ -1839,34 +1849,28 @@ function buildNeedsAttentionQueue(
 
   const componentDisagreementCandidates = worstCases.flatMap((item) => {
     const threshold = poorScoreThreshold(item.primaryMetric);
-    if (
-      item.forecastType !== "binary" ||
-      item.aggregateStats === null ||
-      !["high", "extreme"].includes(item.aggregateStats.disagreementBand) ||
-      threshold === null ||
-      item.primaryScore < threshold
-    ) {
+    const signal = componentDisagreementMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
       return [];
     }
-    return [{ item, aggregateStats: item.aggregateStats }];
+    return [{ item, signal }];
   });
   const componentDisagreementItems = componentDisagreementCandidates
     .slice(0, 5)
-    .map(({ item, aggregateStats }, index) => ({
+    .map(({ item, signal }, index) => ({
       id: `component-disagreement:${item.taskId}:${item.primaryMetric}`,
       kind: "component_disagreement_miss" as const,
-      severity: aggregateStats.disagreementBand === "extreme" ? "high" as const : "medium" as const,
-      reason:
-        `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${aggregateStats.disagreementBand} component disagreement of ${formatNullableMetric(aggregateStats.disagreement)} points.`,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
       recommendedActions: recommendAttentionActions({
         kind: "component_disagreement_miss",
         metric: item.primaryMetric,
-        severity: aggregateStats.disagreementBand === "extreme" ? "high" : "medium",
+        severity: signal.severity,
         forecastType: item.forecastType,
       }),
       metric: item.primaryMetric,
       score: item.primaryScore,
-      delta: aggregateStats.disagreement,
+      delta: signal.delta,
       taskId: item.taskId,
       taskLabel: item.taskLabel,
       forecastType: item.forecastType,
@@ -1957,6 +1961,94 @@ function buildNeedsAttentionQueue(
     })
     .slice(0, 10)
     .map(({ rank: _rank, ...item }) => item);
+}
+
+function componentDisagreementMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  if (
+    item.forecastType === "binary" &&
+    item.aggregateStats !== null &&
+    ["high", "extreme"].includes(item.aggregateStats.disagreementBand)
+  ) {
+    return {
+      reason: `${item.aggregateStats.disagreementBand} component disagreement of ${formatNullableMetric(item.aggregateStats.disagreement)} points`,
+      delta: item.aggregateStats.disagreement,
+      severity: item.aggregateStats.disagreementBand === "extreme" ? "high" : "medium",
+    };
+  }
+
+  if (
+    item.forecastType === "conditional" &&
+    item.conditionalForecast !== null &&
+    (
+      ["moderate", "wide"].includes(item.conditionalForecast.branchDisagreementBand) ||
+      item.conditionalForecast.effectDirectionAgreement === "mixed"
+    )
+  ) {
+    const severity = item.conditionalForecast.branchDisagreementBand === "wide" ||
+      item.conditionalForecast.effectDirectionAgreement === "mixed"
+      ? "high" as const
+      : "medium" as const;
+    return {
+      reason:
+        `${item.conditionalForecast.branchDisagreementBand} conditional branch disagreement with ${item.conditionalForecast.effectDirectionAgreement.replace(/_/g, " ")} effect direction`,
+      delta: item.conditionalForecast.effectDisagreement,
+      severity,
+    };
+  }
+
+  if (
+    item.forecastType === "thresholded" &&
+    item.thresholdedForecast !== null &&
+    ["moderate", "wide"].includes(item.thresholdedForecast.componentDisagreementBand)
+  ) {
+    return {
+      reason:
+        `${item.thresholdedForecast.componentDisagreementBand} threshold-curve component disagreement of ${formatNullableMetric(item.thresholdedForecast.componentProbabilityDisagreement)} points`,
+      delta: item.thresholdedForecast.componentProbabilityDisagreement,
+      severity: item.thresholdedForecast.componentDisagreementBand === "wide" ? "high" : "medium",
+    };
+  }
+
+  if (
+    item.forecastType === "numeric" &&
+    item.numericForecast !== null &&
+    ["moderate", "wide"].includes(item.numericForecast.p50DisagreementBand)
+  ) {
+    return {
+      reason:
+        `${item.numericForecast.p50DisagreementBand} numeric component-value disagreement of ${formatNullableMetric(item.numericForecast.p50Disagreement)} ${item.numericForecast.unit ?? "units"}`,
+      delta: item.numericForecast.p50Disagreement,
+      severity: item.numericForecast.p50DisagreementBand === "wide" ? "high" : "medium",
+    };
+  }
+
+  if (
+    item.forecastType === "date" &&
+    item.dateForecast !== null &&
+    ["moderate", "wide"].includes(item.dateForecast.p50DisagreementBand)
+  ) {
+    return {
+      reason:
+        `${item.dateForecast.p50DisagreementBand} component median-date disagreement of ${formatNullableMetric(item.dateForecast.p50DisagreementDays)} days`,
+      delta: item.dateForecast.p50DisagreementDays,
+      severity: item.dateForecast.p50DisagreementBand === "wide" ? "high" : "medium",
+    };
+  }
+
+  if (
+    item.forecastType === "categorical" &&
+    item.categoricalForecast !== null &&
+    ["split", "none"].includes(item.categoricalForecast.topCategoryAgreementBand)
+  ) {
+    return {
+      reason:
+        `${item.categoricalForecast.topCategoryAgreementBand} component agreement on the aggregate top category (${formatNullableMetric(item.categoricalForecast.topCategoryVoteShare)}% vote share)`,
+      delta: item.categoricalForecast.topCategoryVoteShare,
+      severity: item.categoricalForecast.topCategoryAgreementBand === "none" ? "high" : "medium",
+    };
+  }
+
+  return null;
 }
 
 function recommendAttentionActions(input: {

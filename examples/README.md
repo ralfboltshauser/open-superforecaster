@@ -231,6 +231,9 @@ conditional effects. Thresholded forecasts get direction, threshold-source, and
 monotonicity-repair groups plus component-disagreement groups so invalid,
 repaired, or internally split curves can be reviewed separately from clean
 caller-provided thresholds.
+Poor resolved forecasts with high component disagreement across binary,
+conditional, thresholded, numeric, date, or categorical outputs enter the same
+component-disagreement attention queue for postmortem review.
 If guarded aggregate forecasts start scoring worse than unguarded aggregates
 overall or for a specific applied rule, the performance report adds a
 high-severity attention item before more default guard rules are promoted.

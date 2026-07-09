@@ -1378,6 +1378,12 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   assert(resolutionSource.includes("byAggregateDisagreement"), "performance report does not group by component disagreement");
   assert(resolutionSource.includes("byAggregationAnchor"), "performance report does not group by aggregation anchor");
   assert(resolutionSource.includes("component_disagreement_miss"), "performance report does not flag high-disagreement misses");
+  assert(resolutionSource.includes("componentDisagreementMissSignal"), "performance report does not centralize component disagreement miss signals");
+  assert(resolutionSource.includes("thresholdedForecast.componentDisagreementBand"), "attention queue does not use thresholded component disagreement");
+  assert(resolutionSource.includes("numericForecast.p50DisagreementBand"), "attention queue does not use numeric component disagreement");
+  assert(resolutionSource.includes("dateForecast.p50DisagreementBand"), "attention queue does not use date component disagreement");
+  assert(resolutionSource.includes("categoricalForecast.topCategoryAgreementBand"), "attention queue does not use categorical top-category agreement");
+  assert(resolutionSource.includes("conditionalForecast.branchDisagreementBand"), "attention queue does not use conditional branch disagreement");
   assert(metricsSource.includes("open_superforecaster_aggregate_stats_scores_total"), "metrics missing aggregate stats score counts");
   assert(syncSource.includes("aggregate_component_disagreement_band"), "DuckDB forecast score mart missing disagreement band");
   assert(dashboardSource.includes("Component disagreement outcomes"), "lab dashboard does not render component disagreement outcomes");

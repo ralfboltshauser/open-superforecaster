@@ -276,6 +276,10 @@ from overconfident misses before changing prompts or guards.
 Poor resolved forecasts where the aggregate downweighted or mixed component
 weights are surfaced separately, so we can inspect whether the evaluator
 discounted the component that best matched reality.
+Poor resolved forecasts with high component disagreement are queued across
+forecast types too: binary component probabilities, conditional branches,
+threshold curves, numeric medians, date medians, and categorical top-choice
+agreement all feed the same component-disagreement review path.
 The metrics endpoint exports baseline-sanity score counts and means as
 Prometheus series so large base-rate departures can be monitored outside the
 lab dashboard.
