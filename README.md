@@ -296,7 +296,9 @@ outcome-under-condition errors.
 Thresholded score rows preserve threshold direction, source, count,
 monotonicity repair status, curve spread, and attempt count so repaired or
 extracted threshold curves can be reviewed separately from clean caller-provided
-curves.
+curves. Numeric and date score rows preserve quantile interval width, unit,
+attempt count, and date never-probability bands so wide or unit-specific
+forecasts can be compared against resolved errors.
 
 To consolidate those local artifacts into one audit file:
 

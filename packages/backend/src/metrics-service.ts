@@ -21,6 +21,8 @@ import { readBaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { buildCalibrationGuardImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
+import { readDateForecastSnapshot } from "./date-forecast-metadata";
+import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport } from "./performance-calibration";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
 import { readThresholdedForecastSnapshot } from "./thresholded-forecast-metadata";
@@ -692,6 +694,98 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge(
       "open_superforecaster_thresholded_score_mean",
       "Mean product thresholded aggregate forecast score by direction, source, and monotonicity repair.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
+    );
+  }
+  const numericScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readString(asRecord(row.scoreConfig), "forecastType") === "numeric"
+  );
+  if (numericScoreRows.length === 0) {
+    const labels = {
+      score_type: "all",
+      numeric_interval_band: "none",
+      unit: "unknown",
+    };
+    metrics.gauge(
+      "open_superforecaster_numeric_distribution_scores_total",
+      "Product numeric aggregate forecast score rows by interval width band and unit.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_numeric_distribution_score_mean",
+      "Mean product numeric aggregate forecast score by interval width band and unit.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(numericScoreRows, (row) => {
+    const numericForecast = readNumericForecastSnapshot(row.scoreConfig);
+    return labelKey({
+      score_type: row.scoreType,
+      numeric_interval_band: numericForecast?.intervalWidthBand ?? "unknown",
+      unit: numericForecast?.unit ?? "unknown",
+    });
+  })) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_numeric_distribution_scores_total",
+      "Product numeric aggregate forecast score rows by interval width band and unit.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_numeric_distribution_score_mean",
+      "Mean product numeric aggregate forecast score by interval width band and unit.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
+    );
+  }
+  const dateScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readString(asRecord(row.scoreConfig), "forecastType") === "date"
+  );
+  if (dateScoreRows.length === 0) {
+    const labels = {
+      score_type: "all",
+      date_interval_band: "none",
+      never_probability_band: "unknown",
+    };
+    metrics.gauge(
+      "open_superforecaster_date_distribution_scores_total",
+      "Product date aggregate forecast score rows by interval width and never-probability band.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_date_distribution_score_mean",
+      "Mean product date aggregate forecast score by interval width and never-probability band.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(dateScoreRows, (row) => {
+    const dateForecast = readDateForecastSnapshot(row.scoreConfig);
+    return labelKey({
+      score_type: row.scoreType,
+      date_interval_band: dateForecast?.intervalBand ?? "unknown",
+      never_probability_band: dateForecast?.neverProbabilityBand ?? "unknown",
+    });
+  })) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_date_distribution_scores_total",
+      "Product date aggregate forecast score rows by interval width and never-probability band.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_date_distribution_score_mean",
+      "Mean product date aggregate forecast score by interval width and never-probability band.",
       mean(rows.map((row) => row.scoreValue)),
       labels,
     );

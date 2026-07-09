@@ -483,6 +483,10 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byThresholdedDirection = readArray(groups, "byThresholdedDirection").filter(isRecord)
   const byThresholdedSource = readArray(groups, "byThresholdedSource").filter(isRecord)
   const byThresholdedRepair = readArray(groups, "byThresholdedRepair").filter(isRecord)
+  const byNumericInterval = readArray(groups, "byNumericInterval").filter(isRecord)
+  const byNumericUnit = readArray(groups, "byNumericUnit").filter(isRecord)
+  const byDateInterval = readArray(groups, "byDateInterval").filter(isRecord)
+  const byDateNeverProbability = readArray(groups, "byDateNeverProbability").filter(isRecord)
   const bestForecasts = readArray(performance, "bestResolvedForecasts").filter(isRecord)
   const worstForecasts = readArray(performance, "worstResolvedForecasts").filter(isRecord)
   const scoreTrends = readArray(performance, "scoreTrends").filter(isRecord)
@@ -541,6 +545,10 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byThresholdedDirection.length ? <PerformancePlanShapeGroupList groups={byThresholdedDirection} title="Threshold direction outcomes" skipKey="thresholded_direction:not_thresholded" fallback="threshold direction" /> : null}
         {byThresholdedSource.length ? <PerformancePlanShapeGroupList groups={byThresholdedSource} title="Threshold source outcomes" skipKey="thresholded_source:not_thresholded" fallback="threshold source" /> : null}
         {byThresholdedRepair.length ? <PerformancePlanShapeGroupList groups={byThresholdedRepair} title="Threshold monotonicity outcomes" skipKey="thresholded_repair:not_thresholded" fallback="threshold repair" /> : null}
+        {byNumericInterval.length ? <PerformancePlanShapeGroupList groups={byNumericInterval} title="Numeric interval outcomes" skipKey="numeric_interval:not_numeric" fallback="numeric interval" /> : null}
+        {byNumericUnit.length ? <PerformancePlanShapeGroupList groups={byNumericUnit} title="Numeric unit outcomes" skipKey="numeric_unit:not_numeric" fallback="numeric unit" /> : null}
+        {byDateInterval.length ? <PerformancePlanShapeGroupList groups={byDateInterval} title="Date interval outcomes" skipKey="date_interval:not_date" fallback="date interval" /> : null}
+        {byDateNeverProbability.length ? <PerformancePlanShapeGroupList groups={byDateNeverProbability} title="Date never-probability outcomes" skipKey="date_never_probability:not_date" fallback="date never probability" /> : null}
         {calibrationBuckets.length ? <PerformanceCalibrationList buckets={calibrationBuckets} summary={calibrationSummary} /> : null}
         {candidateCalibrationGuardRules.length ? <PerformanceCandidateGuardList rules={candidateCalibrationGuardRules} /> : null}
         {needsAttention.length ? <PerformanceAttentionList items={needsAttention} /> : null}

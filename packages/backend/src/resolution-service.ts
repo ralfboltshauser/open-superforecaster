@@ -16,6 +16,8 @@ import { readBaselineSanitySnapshot, type BaselineSanitySnapshot } from "./basel
 import { buildCalibrationGuardImpact, type CalibrationGuardImpact, type CalibrationGuardRuleImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot, type CalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
+import { readDateForecastSnapshot } from "./date-forecast-metadata";
+import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
 import { readThresholdedForecastSnapshot } from "./thresholded-forecast-metadata";
 
@@ -367,6 +369,10 @@ export async function getForecastPerformanceReport(db: Db) {
   const byThresholdedDirection = groupScores(aggregateScores, thresholdedDirectionGroupKey);
   const byThresholdedSource = groupScores(aggregateScores, thresholdedSourceGroupKey);
   const byThresholdedRepair = groupScores(aggregateScores, thresholdedRepairGroupKey);
+  const byNumericInterval = groupScores(aggregateScores, numericIntervalGroupKey);
+  const byNumericUnit = groupScores(aggregateScores, numericUnitGroupKey);
+  const byDateInterval = groupScores(aggregateScores, dateIntervalGroupKey);
+  const byDateNeverProbability = groupScores(aggregateScores, dateNeverProbabilityGroupKey);
   const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
@@ -416,6 +422,10 @@ export async function getForecastPerformanceReport(db: Db) {
       byThresholdedDirection,
       byThresholdedSource,
       byThresholdedRepair,
+      byNumericInterval,
+      byNumericUnit,
+      byDateInterval,
+      byDateNeverProbability,
     },
     bestResolvedForecasts,
     worstResolvedForecasts,
@@ -455,6 +465,10 @@ export async function getForecastPerformanceReport(db: Db) {
       byThresholdedDirection,
       byThresholdedSource,
       byThresholdedRepair,
+      byNumericInterval,
+      byNumericUnit,
+      byDateInterval,
+      byDateNeverProbability,
       bestResolvedForecasts,
       worstResolvedForecasts,
       scoreTrends,
@@ -643,25 +657,26 @@ function scoreForecastPrediction(input: {
     if (predicted === null || actual === null) {
       return [];
     }
+    const numericForecast = readNumericForecastSnapshot(input.prediction);
     const error = predicted - actual;
     const absoluteError = Math.abs(error);
     const rows: ScoreRowInput[] = [
       {
         scoreType: "absolute_error",
         scoreValue: absoluteError,
-        scoreConfig: { predicted, actual, error },
+        scoreConfig: { predicted, actual, error, ...(numericForecast ? { numericForecast } : {}) },
       },
       {
         scoreType: "squared_error",
         scoreValue: error ** 2,
-        scoreConfig: { predicted, actual, error },
+        scoreConfig: { predicted, actual, error, ...(numericForecast ? { numericForecast } : {}) },
       },
     ];
     if (actual !== 0) {
       rows.push({
         scoreType: "absolute_percentage_error",
         scoreValue: absoluteError / Math.abs(actual),
-        scoreConfig: { predicted, actual, error },
+        scoreConfig: { predicted, actual, error, ...(numericForecast ? { numericForecast } : {}) },
       });
     }
     return rows;
@@ -673,6 +688,7 @@ function scoreForecastPrediction(input: {
     if (!predicted || !actual) {
       return [];
     }
+    const dateForecast = readDateForecastSnapshot(input.prediction);
     const errorDays = Math.round(((predicted.getTime() - actual.getTime()) / 86_400_000) * 100) / 100;
     const absoluteDays = Math.abs(errorDays);
     return [
@@ -683,6 +699,7 @@ function scoreForecastPrediction(input: {
           predictedDate: predicted.toISOString().slice(0, 10),
           actualDate: actual.toISOString().slice(0, 10),
           errorDays,
+          ...(dateForecast ? { dateForecast } : {}),
         },
       },
       {
@@ -692,6 +709,7 @@ function scoreForecastPrediction(input: {
           predictedDate: predicted.toISOString().slice(0, 10),
           actualDate: actual.toISOString().slice(0, 10),
           errorDays,
+          ...(dateForecast ? { dateForecast } : {}),
         },
       },
     ];
@@ -1177,6 +1195,38 @@ function thresholdedRepairGroupKey(score: typeof forecastScores.$inferSelect) {
     : `thresholded_repair:${thresholdedForecast.monotonicityRepaired ? "repaired" : "clean"}`;
 }
 
+function numericIntervalGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "numeric") {
+    return "numeric_interval:not_numeric";
+  }
+  const numericForecast = readNumericForecastSnapshot(score.scoreConfig);
+  return `numeric_interval:${numericForecast?.intervalWidthBand ?? "unrecorded"}`;
+}
+
+function numericUnitGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "numeric") {
+    return "numeric_unit:not_numeric";
+  }
+  const numericForecast = readNumericForecastSnapshot(score.scoreConfig);
+  return numericForecast?.unit ? `numeric_unit:${numericForecast.unit}` : "numeric_unit:unrecorded";
+}
+
+function dateIntervalGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "date") {
+    return "date_interval:not_date";
+  }
+  const dateForecast = readDateForecastSnapshot(score.scoreConfig);
+  return `date_interval:${dateForecast?.intervalBand ?? "unrecorded"}`;
+}
+
+function dateNeverProbabilityGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "date") {
+    return "date_never_probability:not_date";
+  }
+  const dateForecast = readDateForecastSnapshot(score.scoreConfig);
+  return `date_never_probability:${dateForecast?.neverProbabilityBand ?? "unrecorded"}`;
+}
+
 function rankAggregateCases(
   rows: Array<typeof forecastScores.$inferSelect>,
   taskMeta: Map<string, { id: string; label: string; operationSubmode: string | null }>,
@@ -1650,6 +1700,10 @@ function renderPerformanceMarkdown(input: {
   byThresholdedDirection: PerformanceGroup[];
   byThresholdedSource: PerformanceGroup[];
   byThresholdedRepair: PerformanceGroup[];
+  byNumericInterval: PerformanceGroup[];
+  byNumericUnit: PerformanceGroup[];
+  byDateInterval: PerformanceGroup[];
+  byDateNeverProbability: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
   worstResolvedForecasts: PerformanceCase[];
   scoreTrends: PerformanceTrend[];
@@ -1712,6 +1766,18 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Thresholded monotonicity groups",
     ...renderGroupTable(input.byThresholdedRepair),
+    "",
+    "## Numeric interval groups",
+    ...renderGroupTable(input.byNumericInterval),
+    "",
+    "## Numeric unit groups",
+    ...renderGroupTable(input.byNumericUnit),
+    "",
+    "## Date interval groups",
+    ...renderGroupTable(input.byDateInterval),
+    "",
+    "## Date never-probability groups",
+    ...renderGroupTable(input.byDateNeverProbability),
     "",
     "## Calibration guard impact",
     ...renderCalibrationGuardImpact(input.calibrationGuardImpact),

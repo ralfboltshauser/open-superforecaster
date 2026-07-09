@@ -12,6 +12,8 @@ import { readBaselineSanitySnapshot } from "../packages/backend/src/baseline-san
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { readConditionalForecastSnapshot } from "../packages/backend/src/conditional-forecast-metadata";
+import { readDateForecastSnapshot } from "../packages/backend/src/date-forecast-metadata";
+import { readNumericForecastSnapshot } from "../packages/backend/src/numeric-forecast-metadata";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
 import { readThresholdedForecastSnapshot } from "../packages/backend/src/thresholded-forecast-metadata";
 import { buildBinaryBaselineSanityAudit } from "../packages/workflows/src/binary-baseline-sanity";
@@ -833,6 +835,10 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Thresholded direction groups"), "performance Markdown missing thresholded direction group section");
   assert(resolutionSource.includes("## Thresholded source groups"), "performance Markdown missing thresholded source group section");
   assert(resolutionSource.includes("## Thresholded monotonicity groups"), "performance Markdown missing thresholded monotonicity group section");
+  assert(resolutionSource.includes("## Numeric interval groups"), "performance Markdown missing numeric interval group section");
+  assert(resolutionSource.includes("## Numeric unit groups"), "performance Markdown missing numeric unit group section");
+  assert(resolutionSource.includes("## Date interval groups"), "performance Markdown missing date interval group section");
+  assert(resolutionSource.includes("## Date never-probability groups"), "performance Markdown missing date never-probability group section");
   assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");
   assert(dashboardSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not read candidate calibration guard rules");
   assert(dashboardSource.includes("Candidate calibration guards"), "lab dashboard does not render candidate calibration guard rules");
@@ -862,6 +868,14 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Threshold source outcomes"), "lab dashboard does not render thresholded source performance groups");
   assert(dashboardSource.includes("byThresholdedRepair"), "lab dashboard does not read thresholded repair performance groups");
   assert(dashboardSource.includes("Threshold monotonicity outcomes"), "lab dashboard does not render thresholded repair performance groups");
+  assert(dashboardSource.includes("byNumericInterval"), "lab dashboard does not read numeric interval performance groups");
+  assert(dashboardSource.includes("Numeric interval outcomes"), "lab dashboard does not render numeric interval performance groups");
+  assert(dashboardSource.includes("byNumericUnit"), "lab dashboard does not read numeric unit performance groups");
+  assert(dashboardSource.includes("Numeric unit outcomes"), "lab dashboard does not render numeric unit performance groups");
+  assert(dashboardSource.includes("byDateInterval"), "lab dashboard does not read date interval performance groups");
+  assert(dashboardSource.includes("Date interval outcomes"), "lab dashboard does not render date interval performance groups");
+  assert(dashboardSource.includes("byDateNeverProbability"), "lab dashboard does not read date never-probability performance groups");
+  assert(dashboardSource.includes("Date never-probability outcomes"), "lab dashboard does not render date never-probability performance groups");
   return "candidate calibration guard rules are visible in report artifacts and the lab dashboard";
 });
 
@@ -934,6 +948,10 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_conditional_score_mean"), "conditional score mean metric missing");
   assert(metricsSource.includes("open_superforecaster_thresholded_scores_total"), "thresholded score count metric missing");
   assert(metricsSource.includes("open_superforecaster_thresholded_score_mean"), "thresholded score mean metric missing");
+  assert(metricsSource.includes("open_superforecaster_numeric_distribution_scores_total"), "numeric distribution score count metric missing");
+  assert(metricsSource.includes("open_superforecaster_numeric_distribution_score_mean"), "numeric distribution score mean metric missing");
+  assert(metricsSource.includes("open_superforecaster_date_distribution_scores_total"), "date distribution score count metric missing");
+  assert(metricsSource.includes("open_superforecaster_date_distribution_score_mean"), "date distribution score mean metric missing");
   assert(metricsSource.includes("buildCalibrationGuardImpact"), "metrics exporter does not use shared calibration guard impact builder");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_status"), "calibration guard impact status metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_brier_delta"), "calibration guard impact Brier delta metric missing");
@@ -953,6 +971,8 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(smokeSource.includes("open_superforecaster_aggregate_plan_scores_total"), "smoke check does not require aggregate plan metric");
   assert(smokeSource.includes("open_superforecaster_conditional_scores_total"), "smoke check does not require conditional metric");
   assert(smokeSource.includes("open_superforecaster_thresholded_scores_total"), "smoke check does not require thresholded metric");
+  assert(smokeSource.includes("open_superforecaster_numeric_distribution_scores_total"), "smoke check does not require numeric distribution metric");
+  assert(smokeSource.includes("open_superforecaster_date_distribution_scores_total"), "smoke check does not require date distribution metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
   assert(metricsRouteSource.includes("renderPrometheusMetrics"), "metrics route does not render Prometheus metrics");
   assert(metricsRouteSource.includes("text/plain; version=0.0.4"), "metrics route missing Prometheus content type");
@@ -987,6 +1007,10 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("conditional_effect_band"), "forecast score mart missing conditional effect band");
   assert(syncSource.includes("threshold_source"), "forecast score mart missing threshold source");
   assert(syncSource.includes("monotonicity_repaired"), "forecast score mart missing monotonicity repair flag");
+  assert(syncSource.includes("numeric_interval_width_band"), "forecast score mart missing numeric interval band");
+  assert(syncSource.includes("numeric_attempt_count"), "forecast score mart missing numeric attempt count");
+  assert(syncSource.includes("date_interval_days"), "forecast score mart missing date interval days");
+  assert(syncSource.includes("date_never_probability_band"), "forecast score mart missing date never-probability band");
   assert(syncSource.includes("candidate_guard_suggested_adjustment"), "binary calibration bucket mart missing candidate guard adjustment");
   assert(syncSource.includes("candidate_guard_activation_status"), "binary calibration bucket mart missing candidate guard activation status");
   assert(syncSource.includes("readCalibrationGuardValidationRows"), "DuckDB sync does not read calibration guard validation reports");
@@ -1209,6 +1233,65 @@ await check("thresholded forecast metadata reaches resolved score analytics", as
   assert(syncSource.includes("threshold_probability_spread"), "DuckDB forecast score mart missing threshold probability spread");
   assert(dashboardSource.includes("Threshold monotonicity outcomes"), "lab dashboard does not render threshold monotonicity outcomes");
   return "thresholded forecast metadata is persisted and visible in resolved score analytics";
+});
+
+await check("numeric and date forecast distribution metadata reaches resolved score analytics", async () => {
+  const numericSnapshot = readNumericForecastSnapshot({
+    numericForecast: {
+      unit: "units",
+      distribution: {
+        p10: 80,
+        p50: 100,
+        p90: 150,
+      },
+      attemptCount: 3,
+    },
+  });
+  assert(numericSnapshot?.unit === "units", "numeric metadata unit mismatch");
+  assert(numericSnapshot?.p10 === 80, "numeric metadata p10 mismatch");
+  assert(numericSnapshot?.p50 === 100, "numeric metadata p50 mismatch");
+  assert(numericSnapshot?.p90 === 150, "numeric metadata p90 mismatch");
+  assert(numericSnapshot?.intervalWidth === 70, "numeric metadata interval width mismatch");
+  assert(numericSnapshot?.intervalWidthBand === "moderate", "numeric metadata interval band mismatch");
+  assert(numericSnapshot?.attemptCount === 3, "numeric metadata attempt count mismatch");
+
+  const dateSnapshot = readDateForecastSnapshot({
+    dateForecast: {
+      dateDistribution: {
+        p10: "2026-01-01",
+        p50: "2026-03-01",
+        p90: "2026-07-01",
+      },
+      neverProbability: 12,
+      attemptCount: 3,
+    },
+  });
+  assert(dateSnapshot?.p10 === "2026-01-01", "date metadata p10 mismatch");
+  assert(dateSnapshot?.p50 === "2026-03-01", "date metadata p50 mismatch");
+  assert(dateSnapshot?.p90 === "2026-07-01", "date metadata p90 mismatch");
+  assert(dateSnapshot?.intervalDays === 181, "date metadata interval days mismatch");
+  assert(dateSnapshot?.intervalBand === "wide", "date metadata interval band mismatch");
+  assert(dateSnapshot?.neverProbability === 12, "date metadata never probability mismatch");
+  assert(dateSnapshot?.neverProbabilityBand === "moderate", "date metadata never probability band mismatch");
+  assert(dateSnapshot?.attemptCount === 3, "date metadata attempt count mismatch");
+
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(resolutionSource.includes("readNumericForecastSnapshot(input.prediction)"), "resolution scoring does not persist numeric distribution metadata");
+  assert(resolutionSource.includes("readDateForecastSnapshot(input.prediction)"), "resolution scoring does not persist date distribution metadata");
+  assert(resolutionSource.includes("byNumericInterval"), "performance report does not group by numeric interval width");
+  assert(resolutionSource.includes("byDateNeverProbability"), "performance report does not group by date never probability");
+  assert(metricsSource.includes("open_superforecaster_numeric_distribution_scores_total"), "metrics missing numeric distribution score counts");
+  assert(metricsSource.includes("open_superforecaster_date_distribution_scores_total"), "metrics missing date distribution score counts");
+  assert(syncSource.includes("numeric_interval_width"), "DuckDB forecast score mart missing numeric interval width");
+  assert(syncSource.includes("numeric_interval_width_band"), "DuckDB forecast score mart missing numeric interval band");
+  assert(syncSource.includes("date_interval_days"), "DuckDB forecast score mart missing date interval days");
+  assert(syncSource.includes("date_never_probability_band"), "DuckDB forecast score mart missing date never-probability band");
+  assert(dashboardSource.includes("Numeric interval outcomes"), "lab dashboard does not render numeric interval outcomes");
+  assert(dashboardSource.includes("Date never-probability outcomes"), "lab dashboard does not render date never-probability outcomes");
+  return "numeric and date forecast distributions are persisted and visible in resolved score analytics";
 });
 
 await check("binary aggregate quality metadata is visible before resolution", async () => {
