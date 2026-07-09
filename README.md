@@ -266,6 +266,16 @@ bun run forecast:batches -- --batch-id july-smoke
 Batch reports can merge local attention-review records from
 `data/reports/forecast-attention-reviews.json` or a custom `--reviews-file`.
 Use `bun run forecast:review` to update those local review records.
+To pull open and deferred review items across generated batch indexes:
+
+```bash
+bun run forecast:attention
+bun run forecast:attention -- --batch-id july-smoke --status open
+```
+
+The attention backlog writes JSON and Markdown to
+`data/reports/forecast-attention-backlog` and only reads the local
+`batch-index.json` outputs.
 
 To check the local forecast script contracts:
 

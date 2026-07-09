@@ -198,6 +198,81 @@ await check("forecast review helper upserts local attention reviews", async () =
   return "forecast review helper safely upserts local review records";
 });
 
+await check("forecast attention backlog filters batch review status", async () => {
+  const batchIndexRoot = resolve(tempRoot, "attention-backlog", "batches");
+  const outputDir = resolve(tempRoot, "attention-backlog", "out");
+  await mkdir(resolve(batchIndexRoot, "contract-batch"), { recursive: true });
+  await writeJson(resolve(batchIndexRoot, "contract-batch", "batch-index.json"), {
+    reportType: "forecast_batch_index",
+    batchId: "contract-batch",
+    attentionItems: [
+      {
+        id: "poor:task-1:brier",
+        kind: "poor_resolved_forecast",
+        severity: "high",
+        reason: "brier exceeded review threshold",
+        recommendedActions: ["Open the run report."],
+        metric: "brier",
+        score: 0.4,
+        delta: null,
+        taskId: "task-1",
+        taskLabel: "Hard forecast",
+        forecastType: "binary",
+        reviewStatus: "open",
+      },
+      {
+        id: "drift:task-2:log",
+        kind: "forecast_score_regression",
+        severity: "medium",
+        reason: "log score worsened",
+        recommendedActions: ["Compare the previous report."],
+        metric: "logScore",
+        score: 0.8,
+        delta: 0.2,
+        taskId: "task-2",
+        taskLabel: "Drifting forecast",
+        forecastType: "numeric",
+        reviewStatus: "deferred",
+        reviewNote: "Waiting for more resolved samples.",
+      },
+      {
+        id: "poor:task-3:brier",
+        kind: "poor_resolved_forecast",
+        severity: "low",
+        reason: "minor calibration issue",
+        recommendedActions: ["No immediate action."],
+        metric: "brier",
+        score: 0.2,
+        delta: null,
+        taskId: "task-3",
+        taskLabel: "Reviewed forecast",
+        forecastType: "binary",
+        reviewStatus: "reviewed",
+      },
+    ],
+  });
+  await runScript("scripts/forecast-attention-backlog.ts", [
+    "--batch-index-dir",
+    batchIndexRoot,
+    "--out-dir",
+    outputDir,
+    "--status",
+    "deferred",
+  ]);
+  const report = readRecord(await readJson(resolve(outputDir, "attention-backlog.json")));
+  const counts = readRecord(report, "counts");
+  const items = readArray(report, "items");
+  assert(report, "backlog report is not an object");
+  assert(readString(report, "reportType") === "forecast_attention_backlog", "report type mismatch");
+  assert(counts, "backlog counts missing");
+  assert(readNumber(counts, "items") === 1, "filtered item count mismatch");
+  assert(readNumber(counts, "deferred") === 1, "deferred item count mismatch");
+  assert(items.length === 1, `expected 1 backlog item, got ${items.length}`);
+  assert(readString(items[0], "id") === "drift:task-2:log", "wrong backlog item selected");
+  assert(readString(items[0], "reviewStatus") === "deferred", "wrong backlog status selected");
+  return "attention backlog reads batch indexes and filters review status";
+});
+
 const failed = checks.filter((result) => !result.ok);
 for (const result of checks) {
   console.log(`${result.ok ? "PASS" : "FAIL"} ${result.name}: ${result.detail}`);

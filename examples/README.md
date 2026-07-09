@@ -130,6 +130,17 @@ bun run forecast:review -- --id poor:task-id:brier --status reviewed --note "Res
 bun run forecast:batches -- --batch-id july-smoke
 ```
 
+To review outstanding attention work across generated batch indexes:
+
+```bash
+bun run forecast:attention
+bun run forecast:attention -- --batch-id july-smoke --status deferred
+```
+
+By default, the backlog includes `open` and `deferred` items and writes
+`attention-backlog.json` plus `attention-backlog.md` under
+`data/reports/forecast-attention-backlog`.
+
 Run the script contract checks before changing these tools:
 
 ```bash
