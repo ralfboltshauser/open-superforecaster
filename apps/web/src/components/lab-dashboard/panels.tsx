@@ -145,12 +145,15 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
   const promotionGate = isRecord(run.promotionGate) ? run.promotionGate : null
   const baselineSanity = isRecord(run.baselineSanityFindings) ? run.baselineSanityFindings : null
   const componentDisagreement = isRecord(run.componentDisagreementFindings) ? run.componentDisagreementFindings : null
+  const forecastError = isRecord(run.forecastErrorFindings) ? run.forecastErrorFindings : null
   const blockers = readArray(promotionGate, "blockers").filter((blocker): blocker is string => typeof blocker === "string")
   const recommendationStatus = typeof promotionGate?.recommendationStatus === "string" ? promotionGate.recommendationStatus : null
   const missingBaselineSanity = typeof baselineSanity?.missingBaselineSanityCases === "number" ? baselineSanity.missingBaselineSanityCases : null
   const casesWithBaseline = typeof baselineSanity?.casesWithBaseline === "number" ? baselineSanity.casesWithBaseline : null
   const highDisagreementCases = typeof componentDisagreement?.highDisagreementCases === "number" ? componentDisagreement.highDisagreementCases : null
   const unexplainedHighDisagreement = typeof componentDisagreement?.unexplainedHighDisagreementCases === "number" ? componentDisagreement.unexplainedHighDisagreementCases : null
+  const largeMissCases = typeof forecastError?.largeProbabilityMissCases === "number" ? forecastError.largeProbabilityMissCases : null
+  const worseThanBaselineCases = typeof forecastError?.worseThanBaselineCases === "number" ? forecastError.worseThanBaselineCases : null
   return (
     <div className="rounded-md border p-3 text-sm">
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -175,6 +178,11 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
       {componentDisagreement ? (
         <p className="mt-2 truncate text-xs text-muted-foreground">
           component spread {String(highDisagreementCases ?? 0)} high · {String(unexplainedHighDisagreement ?? 0)} unexplained
+        </p>
+      ) : null}
+      {forecastError ? (
+        <p className="mt-2 truncate text-xs text-muted-foreground">
+          forecast error {String(largeMissCases ?? 0)} large miss · {String(worseThanBaselineCases ?? 0)} worse baseline
         </p>
       ) : null}
       {blockers.length ? (

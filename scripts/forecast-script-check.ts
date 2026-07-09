@@ -527,6 +527,16 @@ await check("benchmark analysis summarizes component disagreement", async () => 
   return "benchmark analysis and lab dashboard expose component disagreement findings";
 });
 
+await check("benchmark analysis summarizes forecast error findings", async () => {
+  const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(backendSource.includes("forecastErrorFindingsForRun"), "benchmark analysis does not summarize forecast error findings");
+  assert(backendSource.includes("largeProbabilityMissCases"), "large probability miss count missing");
+  assert(backendSource.includes("worseThanBaselineCases"), "worse-than-baseline count missing");
+  assert(dashboardSource.includes("forecast error"), "lab dashboard does not surface forecast error findings");
+  return "benchmark analysis and lab dashboard expose forecast error findings";
+});
+
 const failed = checks.filter((result) => !result.ok);
 for (const result of checks) {
   console.log(`${result.ok ? "PASS" : "FAIL"} ${result.name}: ${result.detail}`);

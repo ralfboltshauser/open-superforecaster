@@ -565,6 +565,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
       comparison: comparisonReportRow?.rowJson ?? null,
       baselineSanityFindings: readRecord(analysisReportRow, "baselineSanityFindings", "baseline_sanity_findings") ?? null,
       componentDisagreementFindings: readRecord(analysisReportRow, "componentDisagreementFindings", "component_disagreement_findings") ?? null,
+      forecastErrorFindings: readRecord(analysisReportRow, "forecastErrorFindings", "forecast_error_findings") ?? null,
       promotionGate: summarizeBenchmarkPromotionGateEvidence({
         runStatus: row.status,
         resultCount: results.length,
@@ -1688,6 +1689,7 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
       sourceQualityFindings: sourceQualityFindingsForRun(results, caseAnalyses, isFixedEvidence),
       baselineSanityFindings: baselineSanityFindingsForRun(caseAnalyses),
       componentDisagreementFindings: componentDisagreementFindingsForRun(caseAnalyses),
+      forecastErrorFindings: forecastErrorFindingsForRun(caseAnalyses),
       costLatencyFindings: {
         note: "V1 records Smithers run IDs, trace bundles, agent-call counts, and token totals parsed from durable Smithers logs.",
         runnableLoopSignal: "Use task_id, smithers_run_id, benchmark_run_id, and workflow_variant_id labels to correlate benchmark quality with runtime cost proxies.",
@@ -2383,6 +2385,32 @@ function componentDisagreementFindingsForRun(caseAnalyses: BenchmarkCaseAnalysis
     maxComponentProbabilitySpread: spreads.length ? Math.max(...spreads) : null,
     gateCounts: countBy(caseAnalyses.map((analysis) => analysis.qualityGates.componentAgreement ?? "unknown")),
     note: "Large component probability spread should be explicitly reconciled before treating an aggregate as stable forecast evidence.",
+  };
+}
+
+function forecastErrorFindingsForRun(caseAnalyses: BenchmarkCaseAnalysis[]) {
+  const probabilityErrors = caseAnalyses
+    .map((analysis) => analysis.metricSummary.probabilityErrorPercentagePoints)
+    .filter((error): error is number => typeof error === "number" && Number.isFinite(error));
+  const largeMissCases = caseAnalyses
+    .filter((analysis) => analysis.primaryFailureMode === "large_probability_miss")
+    .map((analysis) => analysis.benchmarkCaseId);
+  const worseThanBaselineCases = caseAnalyses
+    .filter((analysis) => analysis.primaryFailureMode === "worse_than_baseline")
+    .map((analysis) => analysis.benchmarkCaseId);
+  const maxProbabilityError = probabilityErrors.length ? Math.max(...probabilityErrors) : null;
+  const meanProbabilityError = probabilityErrors.length
+    ? Math.round((probabilityErrors.reduce((sum, error) => sum + error, 0) / probabilityErrors.length) * 10) / 10
+    : null;
+  return {
+    scoredCases: probabilityErrors.length,
+    largeProbabilityMissCases: largeMissCases.length,
+    largeProbabilityMissCaseIds: largeMissCases.slice(0, 10),
+    worseThanBaselineCases: worseThanBaselineCases.length,
+    worseThanBaselineCaseIds: worseThanBaselineCases.slice(0, 10),
+    meanProbabilityError,
+    maxProbabilityError,
+    note: "Large probability misses and worse-than-baseline cases are judgment-quality signals; inspect base-rate movement, component disagreement, and calibration notes before changing defaults.",
   };
 }
 

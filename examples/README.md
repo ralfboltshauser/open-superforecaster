@@ -28,6 +28,9 @@ benchmark list shows that summary when it is available.
 Benchmark analysis also summarizes component probability spread and flags high
 unexplained disagreement, so aggregates with internally conflicting rollouts
 are easier to review before promotion.
+It also summarizes large probability misses and worse-than-baseline cases, so
+judgment-quality failures are visible separately from trace or infrastructure
+failures.
 
 ## Forecast And Research Prompts
 
