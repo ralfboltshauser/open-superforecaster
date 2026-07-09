@@ -274,7 +274,8 @@ workflow orchestration. Final binary aggregates include a structured
 `calibrationGuard` block with applied rule ids and point adjustments, and run
 reports surface those guard rules for review. Future binary score rows persist
 the same guard metadata in score config so performance snapshots can compare
-guarded forecasts against outcomes and summarize guard-rule score groups.
+guarded forecasts against outcomes, summarize guard-rule score groups, and
+report guarded-vs-unguarded Brier impact.
 
 To consolidate those local artifacts into one audit file:
 

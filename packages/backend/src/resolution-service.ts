@@ -82,6 +82,17 @@ type PerformanceTrend = {
   direction: "improved" | "worse" | "flat" | "insufficient_data";
 };
 
+type CalibrationGuardImpact = {
+  guardedRows: number;
+  unguardedRows: number;
+  guardedResolvedTasks: number;
+  unguardedResolvedTasks: number;
+  guardedMeanBrier: number | null;
+  unguardedMeanBrier: number | null;
+  brierDelta: number | null;
+  status: "no_guarded_rows" | "needs_unguarded_baseline" | "improved" | "worse" | "flat";
+};
+
 type PerformanceAttentionItem = {
   id: string;
   kind: "poor_resolved_forecast" | "worsening_trend" | "calibration_mismatch";
@@ -339,6 +350,7 @@ export async function getForecastPerformanceReport(db: Db) {
     return `${forecastType}:${target}`;
   });
   const byCalibrationGuard = groupScores(aggregateScores, calibrationGuardGroupKey);
+  const calibrationGuardImpact = buildCalibrationGuardImpact(aggregateBrierScores);
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
   const worstResolvedForecasts = [...rankedAggregateCases].reverse().slice(0, 8);
@@ -367,6 +379,7 @@ export async function getForecastPerformanceReport(db: Db) {
     calibrationSummary: calibrationReport.calibrationSummary,
     calibrationDiagnostics: calibrationReport.calibrationDiagnostics,
     candidateCalibrationGuardRules: calibrationReport.candidateCalibrationGuardRules,
+    calibrationGuardImpact,
     calibrationReplayRows: calibrationReplayRows(aggregateBrierScores),
     groups: {
       byForecastType,
@@ -408,6 +421,7 @@ export async function getForecastPerformanceReport(db: Db) {
       calibrationBuckets: calibrationReport.calibrationBuckets,
       calibrationSummary: calibrationReport.calibrationSummary,
       candidateCalibrationGuardRules: calibrationReport.candidateCalibrationGuardRules,
+      calibrationGuardImpact,
     }),
   };
 }
@@ -1021,6 +1035,56 @@ function calibrationGuardGroupKey(score: typeof forecastScores.$inferSelect) {
   return `guard:${guard.appliedRules.map((rule) => rule.id).sort().join("+")}`;
 }
 
+function buildCalibrationGuardImpact(rows: Array<typeof forecastScores.$inferSelect>): CalibrationGuardImpact {
+  const guardedRows = rows.filter((row) => {
+    const guard = readCalibrationGuardSnapshot(row.scoreConfig);
+    return Boolean(guard && guard.appliedRules.length > 0);
+  });
+  const unguardedRows = rows.filter((row) => {
+    const guard = readCalibrationGuardSnapshot(row.scoreConfig);
+    return !guard || guard.appliedRules.length === 0;
+  });
+  const guardedMeanBrier = meanScore(guardedRows);
+  const unguardedMeanBrier = meanScore(unguardedRows);
+  const brierDelta = guardedMeanBrier === null || unguardedMeanBrier === null
+    ? null
+    : roundMetric(guardedMeanBrier - unguardedMeanBrier);
+  return {
+    guardedRows: guardedRows.length,
+    unguardedRows: unguardedRows.length,
+    guardedResolvedTasks: uniqueResolvedTaskCount(guardedRows),
+    unguardedResolvedTasks: uniqueResolvedTaskCount(unguardedRows),
+    guardedMeanBrier,
+    unguardedMeanBrier,
+    brierDelta,
+    status: calibrationGuardImpactStatus(guardedRows.length, unguardedRows.length, brierDelta),
+  };
+}
+
+function calibrationGuardImpactStatus(
+  guardedRows: number,
+  unguardedRows: number,
+  brierDelta: number | null,
+): CalibrationGuardImpact["status"] {
+  if (guardedRows === 0) {
+    return "no_guarded_rows";
+  }
+  if (unguardedRows === 0 || brierDelta === null) {
+    return "needs_unguarded_baseline";
+  }
+  if (brierDelta < 0) {
+    return "improved";
+  }
+  if (brierDelta > 0) {
+    return "worse";
+  }
+  return "flat";
+}
+
+function uniqueResolvedTaskCount(rows: Array<typeof forecastScores.$inferSelect>) {
+  return new Set(rows.map((row) => readScoreTaskId(row.scoreConfig)).filter(Boolean)).size;
+}
+
 function rankAggregateCases(
   rows: Array<typeof forecastScores.$inferSelect>,
   taskMeta: Map<string, { id: string; label: string; operationSubmode: string | null }>,
@@ -1309,6 +1373,7 @@ function renderPerformanceMarkdown(input: {
   calibrationBuckets: BinaryCalibrationReport["calibrationBuckets"];
   calibrationSummary: BinaryCalibrationReport["calibrationSummary"];
   candidateCalibrationGuardRules: BinaryCalibrationReport["candidateCalibrationGuardRules"];
+  calibrationGuardImpact: CalibrationGuardImpact;
 }) {
   const lines = [
     "# Forecast performance report",
@@ -1327,6 +1392,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Calibration guard groups",
     ...renderGroupTable(input.byCalibrationGuard),
+    "",
+    "## Calibration guard impact",
+    ...renderCalibrationGuardImpact(input.calibrationGuardImpact),
     "",
     "## Best resolved forecasts",
     ...renderCaseTable(input.bestResolvedForecasts),
@@ -1348,6 +1416,17 @@ function renderPerformanceMarkdown(input: {
     "",
   ];
   return `${lines.join("\n")}\n`;
+}
+
+function renderCalibrationGuardImpact(impact: CalibrationGuardImpact) {
+  return [
+    `Status: ${impact.status}`,
+    `Guarded aggregate Brier rows: ${impact.guardedRows}`,
+    `Unguarded aggregate Brier rows: ${impact.unguardedRows}`,
+    `Guarded mean Brier: ${formatNullableMetric(impact.guardedMeanBrier)}`,
+    `Unguarded mean Brier: ${formatNullableMetric(impact.unguardedMeanBrier)}`,
+    `Guarded minus unguarded Brier: ${impact.brierDelta === null ? "unknown" : formatSignedMetric(impact.brierDelta)}`,
+  ];
 }
 
 function renderCandidateCalibrationGuardTable(

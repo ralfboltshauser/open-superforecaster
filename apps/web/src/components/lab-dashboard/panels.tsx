@@ -478,6 +478,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const calibrationBuckets = readArray(performance, "calibrationBuckets").filter(isRecord)
   const candidateCalibrationGuardRules = readArray(performance, "candidateCalibrationGuardRules").filter(isRecord)
   const calibrationSummary = isRecord(performance?.calibrationSummary) ? performance.calibrationSummary : null
+  const calibrationGuardImpact = isRecord(performance?.calibrationGuardImpact) ? performance.calibrationGuardImpact : null
   return (
     <Card id="performance">
       <CardHeader>
@@ -514,6 +515,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
           </div>
         ) : null}
         {scoreTrends.length ? <PerformanceTrendList trends={scoreTrends} /> : null}
+        {calibrationGuardImpact ? <PerformanceGuardImpact impact={calibrationGuardImpact} /> : null}
         {byCalibrationGuard.length ? <PerformanceGuardGroupList groups={byCalibrationGuard} /> : null}
         {calibrationBuckets.length ? <PerformanceCalibrationList buckets={calibrationBuckets} summary={calibrationSummary} /> : null}
         {candidateCalibrationGuardRules.length ? <PerformanceCandidateGuardList rules={candidateCalibrationGuardRules} /> : null}
@@ -573,6 +575,14 @@ function formatMetric(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? String(Math.round(value * 10000) / 10000) : ""
 }
 
+function formatSignedMetric(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return ""
+  }
+  const rounded = Math.round(value * 10000) / 10000
+  return `${rounded >= 0 ? "+" : ""}${rounded}`
+}
+
 function PerformanceCaseList({ title, cases }: { title: string; cases: JsonRecord[] }) {
   return (
     <div className="min-w-0">
@@ -620,6 +630,34 @@ function PerformanceTrendList({ trends }: { trends: JsonRecord[] }) {
             </span>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+function PerformanceGuardImpact({ impact }: { impact: JsonRecord }) {
+  return (
+    <div className="border-t pt-3">
+      <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Calibration guard impact</p>
+      <div className="grid gap-2 md:grid-cols-3">
+        <div className="rounded-md border px-3 py-2 text-sm">
+          <span className="block truncate font-medium">{String(impact.status ?? "unknown")}</span>
+          <span className="mt-1 block truncate text-xs text-muted-foreground">
+            {String(impact.guardedResolvedTasks ?? 0)} guarded tasks · {String(impact.unguardedResolvedTasks ?? 0)} unguarded
+          </span>
+        </div>
+        <div className="rounded-md border px-3 py-2 text-sm">
+          <span className="block truncate font-medium">guarded {formatMetric(impact.guardedMeanBrier) || "unknown"}</span>
+          <span className="mt-1 block truncate text-xs text-muted-foreground">
+            mean Brier · {String(impact.guardedRows ?? 0)} rows
+          </span>
+        </div>
+        <div className="rounded-md border px-3 py-2 text-sm">
+          <span className="block truncate font-medium">delta {formatSignedMetric(impact.brierDelta) || "unknown"}</span>
+          <span className="mt-1 block truncate text-xs text-muted-foreground">
+            versus unguarded {formatMetric(impact.unguardedMeanBrier) || "unknown"}
+          </span>
+        </div>
       </div>
     </div>
   )

@@ -182,7 +182,7 @@ defaults have one place to land. Final aggregates include structured
 `calibrationGuard` metadata visible in run reports, so future calibration
 changes are deliberate and auditable. Future binary score rows keep the same
 guard metadata for performance review, including guarded-vs-unguarded score
-groups.
+groups and a dedicated calibration guard impact summary.
 
 To generate a local batch audit from those manifests:
 
