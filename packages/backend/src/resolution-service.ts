@@ -79,6 +79,19 @@ type PerformanceTrend = {
   direction: "improved" | "worse" | "flat" | "insufficient_data";
 };
 
+type PerformanceAttentionItem = {
+  id: string;
+  kind: "poor_resolved_forecast" | "worsening_trend";
+  severity: "high" | "medium";
+  reason: string;
+  metric: string;
+  score: number | null;
+  delta: number | null;
+  taskId: string | null;
+  taskLabel: string | null;
+  forecastType: string | null;
+};
+
 export async function resolveBinaryForecastTask(db: Db, input: BinaryResolutionInput) {
   return resolveForecastTask(db, {
     taskId: input.taskId,
@@ -324,6 +337,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
   const worstResolvedForecasts = [...rankedAggregateCases].reverse().slice(0, 8);
   const scoreTrends = buildScoreTrends(aggregateScores);
+  const needsAttention = buildNeedsAttentionQueue(worstResolvedForecasts, scoreTrends);
 
   return {
     reportType: "forecast_performance_report",
@@ -347,6 +361,7 @@ export async function getForecastPerformanceReport(db: Db) {
     bestResolvedForecasts,
     worstResolvedForecasts,
     scoreTrends,
+    needsAttention,
     recentResolvedTasks: resolutionRows.slice(0, 12).map((resolution) => {
       const taskId = readScoreTaskIdFromResolution(resolution.resolvedValue);
       const task = taskId ? taskMeta.get(taskId) : null;
@@ -371,6 +386,7 @@ export async function getForecastPerformanceReport(db: Db) {
       bestResolvedForecasts,
       worstResolvedForecasts,
       scoreTrends,
+      needsAttention,
     }),
   };
 }
@@ -1042,6 +1058,86 @@ function trendDirection(delta: number | null): PerformanceTrend["direction"] {
   return delta < 0 ? "improved" : "worse";
 }
 
+function buildNeedsAttentionQueue(
+  worstCases: PerformanceCase[],
+  trends: PerformanceTrend[],
+): PerformanceAttentionItem[] {
+  const caseItems = worstCases.slice(0, 5).map((item, index) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const exceedsThreshold = threshold !== null && item.primaryScore >= threshold;
+    return {
+      id: `poor:${item.taskId}:${item.primaryMetric}`,
+      kind: "poor_resolved_forecast" as const,
+      severity: exceedsThreshold ? "high" as const : "medium" as const,
+      reason: exceedsThreshold
+        ? `${item.primaryMetric} ${roundMetric(item.primaryScore)} exceeds review threshold ${threshold}`
+        : `Among the worst resolved aggregate forecasts by ${item.primaryMetric}`,
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: null,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: index,
+    };
+  });
+
+  const trendItems = trends
+    .filter((trend) => trend.direction === "worse" && trend.delta !== null && trend.recentCount > 0 && trend.baselineCount > 0)
+    .map((trend) => ({
+      id: `trend:${trend.key}`,
+      kind: "worsening_trend" as const,
+      severity: Math.abs(trend.delta ?? 0) >= trendDeltaHighThreshold(trend.metric) ? "high" as const : "medium" as const,
+      reason: `${trend.metric} worsened over ${trend.label}: recent ${formatNullableMetric(trend.recentMean)}, baseline ${formatNullableMetric(trend.baselineMean)}`,
+      metric: trend.metric,
+      score: trend.recentMean,
+      delta: trend.delta,
+      taskId: null,
+      taskLabel: null,
+      forecastType: null,
+      rank: 100 + trend.recentDays,
+    }));
+
+  return [...caseItems, ...trendItems]
+    .sort((left, right) => {
+      const severityDelta = severityRank(right.severity) - severityRank(left.severity);
+      if (severityDelta !== 0) {
+        return severityDelta;
+      }
+      return left.rank - right.rank;
+    })
+    .slice(0, 10)
+    .map(({ rank: _rank, ...item }) => item);
+}
+
+function poorScoreThreshold(metric: string) {
+  if (metric === "brier" || metric === "categorical_brier" || metric === "thresholded_brier" || metric === "conditional_brier") {
+    return 0.25;
+  }
+  if (metric === "log" || metric === "categorical_log" || metric === "thresholded_log" || metric === "conditional_log") {
+    return 0.69;
+  }
+  if (metric === "absolute_percentage_error") {
+    return 0.25;
+  }
+  if (metric === "absolute_days_error") {
+    return 30;
+  }
+  return null;
+}
+
+function trendDeltaHighThreshold(metric: string) {
+  return poorScoreThreshold(metric) ? (poorScoreThreshold(metric) ?? 0) / 2 : 0.1;
+}
+
+function severityRank(severity: PerformanceAttentionItem["severity"]) {
+  return severity === "high" ? 2 : 1;
+}
+
+function formatNullableMetric(value: number | null) {
+  return value === null ? "unknown" : String(roundMetric(value));
+}
+
 function selectPrimaryMetric(meanScores: Record<string, number>) {
   const preference = [
     "brier",
@@ -1071,6 +1167,7 @@ function renderPerformanceMarkdown(input: {
   bestResolvedForecasts: PerformanceCase[];
   worstResolvedForecasts: PerformanceCase[];
   scoreTrends: PerformanceTrend[];
+  needsAttention: PerformanceAttentionItem[];
 }) {
   const lines = [
     "# Forecast performance report",
@@ -1095,6 +1192,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Score trends",
     ...renderTrendTable(input.scoreTrends),
+    "",
+    "## Needs attention",
+    ...renderAttentionTable(input.needsAttention),
     "",
   ];
   return `${lines.join("\n")}\n`;
@@ -1141,6 +1241,21 @@ function renderTrendTable(trends: PerformanceTrend[]) {
       } | ${trend.baselineMean === null ? "" : roundMetric(trend.baselineMean)} | ${
         trend.delta === null ? "" : roundMetric(trend.delta)
       } | ${trend.direction} |`,
+    ),
+  ];
+}
+
+function renderAttentionTable(items: PerformanceAttentionItem[]) {
+  if (items.length === 0) {
+    return ["No attention items yet."];
+  }
+  return [
+    "| Severity | Kind | Metric | Score | Delta | Task | Reason |",
+    "| --- | --- | --- | ---: | ---: | --- | --- |",
+    ...items.map((item) =>
+      `| ${item.severity} | ${item.kind} | ${item.metric} | ${item.score === null ? "" : roundMetric(item.score)} | ${
+        item.delta === null ? "" : roundMetric(item.delta)
+      } | ${escapeMarkdownCell(item.taskLabel ?? item.taskId ?? "")} | ${escapeMarkdownCell(item.reason)} |`,
     ),
   ];
 }

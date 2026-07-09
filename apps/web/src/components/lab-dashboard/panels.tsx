@@ -151,6 +151,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const bestForecasts = readArray(performance, "bestResolvedForecasts").filter(isRecord)
   const worstForecasts = readArray(performance, "worstResolvedForecasts").filter(isRecord)
   const scoreTrends = readArray(performance, "scoreTrends").filter(isRecord)
+  const needsAttention = readArray(performance, "needsAttention").filter(isRecord)
   return (
     <Card id="performance">
       <CardHeader>
@@ -187,6 +188,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
           </div>
         ) : null}
         {scoreTrends.length ? <PerformanceTrendList trends={scoreTrends} /> : null}
+        {needsAttention.length ? <PerformanceAttentionList items={needsAttention} /> : null}
       </CardContent>
     </Card>
   )
@@ -279,6 +281,36 @@ function PerformanceTrendList({ trends }: { trends: JsonRecord[] }) {
             </span>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+function PerformanceAttentionList({ items }: { items: JsonRecord[] }) {
+  return (
+    <div className="border-t pt-3">
+      <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Needs attention</p>
+      <div className="flex flex-col gap-2">
+        {items.slice(0, 4).map((item) => {
+          const taskId = typeof item.taskId === "string" ? item.taskId : null
+          const content = (
+            <>
+              <span className="block truncate font-medium">{String(item.taskLabel ?? item.kind ?? "attention item")}</span>
+              <span className="mt-1 block truncate text-xs text-muted-foreground">
+                {String(item.severity ?? "medium")} · {String(item.metric ?? "metric")} {formatMetric(item.score)}
+              </span>
+            </>
+          )
+          return taskId ? (
+            <Link className="rounded-md border px-3 py-2 text-sm hover:bg-muted/50" href={`/runs/${taskId}`} key={String(item.id ?? taskId)}>
+              {content}
+            </Link>
+          ) : (
+            <div className="rounded-md border px-3 py-2 text-sm" key={String(item.id ?? item.reason)}>
+              {content}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
