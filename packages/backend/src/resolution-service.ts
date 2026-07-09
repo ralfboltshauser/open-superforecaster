@@ -414,6 +414,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byThresholdedRepair = groupScores(aggregateScores, thresholdedRepairGroupKey);
   const byThresholdedCurveSpread = groupScores(aggregateScores, thresholdedCurveSpreadGroupKey);
   const byThresholdedComponentDisagreement = groupScores(aggregateScores, thresholdedComponentDisagreementGroupKey);
+  const byThresholdedResolvedBand = groupScores(aggregateScores, thresholdedResolvedBandGroupKey);
   const byNumericInterval = groupScores(aggregateScores, numericIntervalGroupKey);
   const byNumericUnit = groupScores(aggregateScores, numericUnitGroupKey);
   const byNumericP50Disagreement = groupScores(aggregateScores, numericP50DisagreementGroupKey);
@@ -500,6 +501,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byThresholdedRepair,
       byThresholdedCurveSpread,
       byThresholdedComponentDisagreement,
+      byThresholdedResolvedBand,
       byNumericInterval,
       byNumericUnit,
       byNumericP50Disagreement,
@@ -576,6 +578,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byThresholdedRepair,
       byThresholdedCurveSpread,
       byThresholdedComponentDisagreement,
+      byThresholdedResolvedBand,
       byNumericInterval,
       byNumericUnit,
       byNumericP50Disagreement,
@@ -903,7 +906,7 @@ function scoreForecastPrediction(input: {
     if (actual === null) {
       return [];
     }
-    const thresholdedForecast = readThresholdedForecastSnapshot(input.prediction);
+    const thresholdedForecast = readThresholdedForecastSnapshot({ ...input.prediction, actualValue: actual });
     const direction = readString(input.prediction, "thresholdDirection", "threshold_direction") === "at_most"
       ? "at_most"
       : "at_least";
@@ -1408,6 +1411,14 @@ function thresholdedComponentDisagreementGroupKey(score: typeof forecastScores.$
   }
   const thresholdedForecast = readThresholdedForecastSnapshot(score.scoreConfig);
   return `thresholded_component_disagreement:${thresholdedForecast?.componentDisagreementBand ?? "unrecorded"}`;
+}
+
+function thresholdedResolvedBandGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "thresholded") {
+    return "thresholded_resolved_band:not_thresholded";
+  }
+  const thresholdedForecast = readThresholdedForecastSnapshot(score.scoreConfig);
+  return `thresholded_resolved_band:${thresholdedForecast?.resolvedThresholdBand ?? "unrecorded"}`;
 }
 
 function numericIntervalGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2185,6 +2196,19 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
   if (
     item.forecastType === "thresholded" &&
     item.thresholdedForecast !== null &&
+    (item.thresholdedForecast.resolvedThresholdBand === "below_range" || item.thresholdedForecast.resolvedThresholdBand === "above_range")
+  ) {
+    return {
+      reason:
+        `resolved value ${formatNullableMetric(item.thresholdedForecast.actualValue)} was ${item.thresholdedForecast.resolvedThresholdBand.replace(/_/g, " ")} for the threshold curve`,
+      delta: item.thresholdedForecast.nearestThresholdDistance,
+      severity: "high",
+    };
+  }
+
+  if (
+    item.forecastType === "thresholded" &&
+    item.thresholdedForecast !== null &&
     ["moderate", "wide"].includes(item.thresholdedForecast.componentDisagreementBand)
   ) {
     return {
@@ -2591,6 +2615,7 @@ function renderPerformanceMarkdown(input: {
   byThresholdedRepair: PerformanceGroup[];
   byThresholdedCurveSpread: PerformanceGroup[];
   byThresholdedComponentDisagreement: PerformanceGroup[];
+  byThresholdedResolvedBand: PerformanceGroup[];
   byNumericInterval: PerformanceGroup[];
   byNumericUnit: PerformanceGroup[];
   byNumericP50Disagreement: PerformanceGroup[];
@@ -2708,6 +2733,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Thresholded component-disagreement groups",
     ...renderGroupTable(input.byThresholdedComponentDisagreement),
+    "",
+    "## Thresholded resolved-band groups",
+    ...renderGroupTable(input.byThresholdedResolvedBand),
     "",
     "## Numeric interval groups",
     ...renderGroupTable(input.byNumericInterval),

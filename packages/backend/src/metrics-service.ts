@@ -904,6 +904,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       monotonicity_repaired: "unknown",
       probability_spread_band: "unknown",
       component_disagreement_band: "unknown",
+      resolved_threshold_band: "unknown",
     };
     metrics.gauge(
       "open_superforecaster_thresholded_scores_total",
@@ -927,6 +928,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       monotonicity_repaired: String(thresholdedForecast?.monotonicityRepaired ?? "unknown"),
       probability_spread_band: thresholdedForecast?.probabilitySpreadBand ?? "unknown",
       component_disagreement_band: thresholdedForecast?.componentDisagreementBand ?? "unknown",
+      resolved_threshold_band: thresholdedForecast?.resolvedThresholdBand ?? "unknown",
     });
   })) {
     const labels = parseLabelKey(key);

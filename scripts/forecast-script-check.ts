@@ -986,6 +986,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Thresholded source groups"), "performance Markdown missing thresholded source group section");
   assert(resolutionSource.includes("## Thresholded monotonicity groups"), "performance Markdown missing thresholded monotonicity group section");
   assert(resolutionSource.includes("## Thresholded curve-spread groups"), "performance Markdown missing thresholded curve-spread group section");
+  assert(resolutionSource.includes("## Thresholded resolved-band groups"), "performance Markdown missing thresholded resolved-band group section");
   assert(resolutionSource.includes("## Numeric interval groups"), "performance Markdown missing numeric interval group section");
   assert(resolutionSource.includes("## Numeric unit groups"), "performance Markdown missing numeric unit group section");
   assert(resolutionSource.includes("## Numeric resolved-position groups"), "performance Markdown missing numeric resolved-position group section");
@@ -1042,6 +1043,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Threshold monotonicity outcomes"), "lab dashboard does not render thresholded repair performance groups");
   assert(dashboardSource.includes("byThresholdedCurveSpread"), "lab dashboard does not read threshold curve-spread performance groups");
   assert(dashboardSource.includes("Threshold curve-spread outcomes"), "lab dashboard does not render threshold curve-spread performance groups");
+  assert(dashboardSource.includes("byThresholdedResolvedBand"), "lab dashboard does not read threshold resolved-band performance groups");
+  assert(dashboardSource.includes("Threshold resolved-band outcomes"), "lab dashboard does not render threshold resolved-band performance groups");
   assert(dashboardSource.includes("byNumericInterval"), "lab dashboard does not read numeric interval performance groups");
   assert(dashboardSource.includes("Numeric interval outcomes"), "lab dashboard does not render numeric interval performance groups");
   assert(dashboardSource.includes("byNumericUnit"), "lab dashboard does not read numeric unit performance groups");
@@ -1726,12 +1729,16 @@ await check("thresholded forecast metadata reaches resolved score analytics", as
         },
       ],
     },
+    actualValue: 35,
   });
   assert(snapshot?.thresholdDirection === "at_least", "thresholded metadata direction mismatch");
   assert(snapshot?.thresholdSource === "caller", "thresholded metadata source mismatch");
   assert(snapshot?.thresholdCount === 3, "thresholded metadata threshold count mismatch");
   assert(snapshot?.probabilitySpread === 60, "thresholded metadata probability spread mismatch");
   assert(snapshot?.probabilitySpreadBand === "steep", "thresholded metadata probability spread band mismatch");
+  assert(snapshot?.actualValue === 35, "thresholded metadata actual value mismatch");
+  assert(snapshot?.nearestThresholdDistance === 5, "thresholded metadata nearest threshold distance mismatch");
+  assert(snapshot?.resolvedThresholdBand === "above_range", "thresholded metadata resolved threshold band mismatch");
   assert(snapshot?.monotonicityRepaired === false, "thresholded metadata monotonicity flag mismatch");
   assert(snapshot?.componentCurveCount === 3, "thresholded metadata component curve count mismatch");
   assert(snapshot?.componentProbabilityDisagreement === 45, "thresholded metadata component disagreement mismatch");
@@ -1740,19 +1747,26 @@ await check("thresholded forecast metadata reaches resolved score analytics", as
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
-  assert(resolutionSource.includes("readThresholdedForecastSnapshot(input.prediction)"), "resolution scoring does not persist thresholded metadata");
+  assert(resolutionSource.includes("readThresholdedForecastSnapshot({ ...input.prediction, actualValue: actual })"), "resolution scoring does not persist thresholded metadata with resolved value");
   assert(resolutionSource.includes("byThresholdedDirection"), "performance report does not group by threshold direction");
   assert(resolutionSource.includes("byThresholdedRepair"), "performance report does not group by threshold repair status");
   assert(resolutionSource.includes("byThresholdedCurveSpread"), "performance report does not group by threshold curve spread");
   assert(resolutionSource.includes("byThresholdedComponentDisagreement"), "performance report does not group by threshold component disagreement");
+  assert(resolutionSource.includes("byThresholdedResolvedBand"), "performance report does not group by threshold resolved band");
+  assert(resolutionSource.includes("thresholdedForecast.resolvedThresholdBand"), "attention queue does not use threshold resolved band");
   assert(metricsSource.includes("open_superforecaster_thresholded_scores_total"), "metrics missing thresholded score counts");
   assert(metricsSource.includes("probability_spread_band"), "metrics missing threshold probability spread labels");
   assert(metricsSource.includes("thresholdedForecast?.componentDisagreementBand"), "metrics missing threshold component disagreement labels");
+  assert(metricsSource.includes("thresholdedForecast?.resolvedThresholdBand"), "metrics missing threshold resolved-band labels");
   assert(syncSource.includes("threshold_probability_spread"), "DuckDB forecast score mart missing threshold probability spread");
   assert(syncSource.includes("threshold_probability_spread_band"), "DuckDB forecast score mart missing threshold probability spread band");
+  assert(syncSource.includes("threshold_actual_value"), "DuckDB forecast score mart missing threshold actual value");
+  assert(syncSource.includes("threshold_nearest_distance"), "DuckDB forecast score mart missing nearest threshold distance");
+  assert(syncSource.includes("threshold_resolved_band"), "DuckDB forecast score mart missing threshold resolved band");
   assert(syncSource.includes("thresholded_component_probability_disagreement"), "DuckDB forecast score mart missing threshold component disagreement");
   assert(dashboardSource.includes("Threshold monotonicity outcomes"), "lab dashboard does not render threshold monotonicity outcomes");
   assert(dashboardSource.includes("Threshold curve-spread outcomes"), "lab dashboard does not render threshold curve spread outcomes");
+  assert(dashboardSource.includes("Threshold resolved-band outcomes"), "lab dashboard does not render threshold resolved-band outcomes");
   assert(dashboardSource.includes("Threshold component-disagreement outcomes"), "lab dashboard does not render threshold component disagreement outcomes");
   return "thresholded forecast metadata is persisted and visible in resolved score analytics";
 });

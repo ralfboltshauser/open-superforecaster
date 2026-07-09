@@ -5,6 +5,9 @@ export type ThresholdedForecastSnapshot = {
   monotonicityRepaired: boolean | null;
   probabilitySpread: number | null;
   probabilitySpreadBand: "flat" | "moderate" | "steep" | "extreme" | "unknown";
+  actualValue: number | null;
+  nearestThresholdDistance: number | null;
+  resolvedThresholdBand: "below_range" | "near_threshold" | "between_thresholds" | "above_range" | "unknown";
   attemptCount: number | null;
   componentCurveCount: number | null;
   componentProbabilityDisagreement: number | null;
@@ -25,8 +28,12 @@ export function readThresholdedForecastSnapshot(value: unknown): ThresholdedFore
   const thresholdDirection = readThresholdDirection(thresholded);
   const thresholdSource = readThresholdSource(thresholded);
   const monotonicityRepaired = readBoolean(thresholded, "monotonicityRepaired", "monotonicity_repaired");
+  const actualValue = readNumber(thresholded, "actualValue", "actual_value", "actual", "resolvedNumeric", "resolved_numeric")
+    ?? readNumber(record, "actualValue", "actual_value", "actual", "resolvedNumeric", "resolved_numeric");
   const attemptCount = readNumber(thresholded, "attemptCount", "attempt_count");
   const thresholdCount = thresholds.length || probabilities.length;
+  const thresholdValues = readThresholdValues({ thresholds, probabilities });
+  const nearestThresholdDistance = nearestDistance(actualValue, thresholdValues);
   const componentStats = readComponentCurveStats(thresholded, thresholds);
   const spread = probabilitySpread(probabilityValues);
   if (
@@ -46,9 +53,45 @@ export function readThresholdedForecastSnapshot(value: unknown): ThresholdedFore
     monotonicityRepaired,
     probabilitySpread: spread,
     probabilitySpreadBand: probabilitySpreadBand(spread),
+    actualValue,
+    nearestThresholdDistance,
+    resolvedThresholdBand: resolvedThresholdBand({ actualValue, thresholdValues, nearestThresholdDistance }),
     attemptCount,
     ...componentStats,
   };
+}
+
+export function resolvedThresholdBand(input: {
+  actualValue: number | null;
+  thresholdValues: number[];
+  nearestThresholdDistance: number | null;
+}): ThresholdedForecastSnapshot["resolvedThresholdBand"] {
+  if (
+    input.actualValue === null ||
+    !Number.isFinite(input.actualValue) ||
+    input.thresholdValues.length === 0
+  ) {
+    return "unknown";
+  }
+  const values = [...input.thresholdValues].sort((left, right) => left - right);
+  const min = values[0];
+  const max = values.at(-1);
+  if (min === undefined || max === undefined) {
+    return "unknown";
+  }
+  if (input.nearestThresholdDistance !== null) {
+    const range = max - min;
+    if (input.nearestThresholdDistance === 0 || (range > 0 && input.nearestThresholdDistance / range <= 0.05)) {
+      return "near_threshold";
+    }
+  }
+  if (input.actualValue < min) {
+    return "below_range";
+  }
+  if (input.actualValue > max) {
+    return "above_range";
+  }
+  return "between_thresholds";
 }
 
 function readThresholdDirection(value: unknown): ThresholdedForecastSnapshot["thresholdDirection"] {
@@ -142,8 +185,41 @@ function readComponentDisagreementBand(value: unknown): ThresholdedForecastSnaps
   return raw === "tight" || raw === "moderate" || raw === "wide" || raw === "unknown" ? raw : null;
 }
 
+function readThresholdValues(input: { thresholds: string[]; probabilities: Record<string, unknown>[] }) {
+  const rawValues = input.thresholds.length
+    ? input.thresholds
+    : input.probabilities.flatMap((item) => {
+        const threshold = readString(item, "threshold");
+        return threshold ? [threshold] : [];
+      });
+  return uniqueNumbers(rawValues.flatMap((value) => {
+    const parsed = parseFirstNumber(value);
+    return parsed === null ? [] : [parsed];
+  }));
+}
+
+function nearestDistance(actualValue: number | null, thresholdValues: number[]) {
+  if (actualValue === null || !Number.isFinite(actualValue) || thresholdValues.length === 0) {
+    return null;
+  }
+  return roundMetric(Math.min(...thresholdValues.map((threshold) => Math.abs(actualValue - threshold))));
+}
+
+function uniqueNumbers(values: number[]) {
+  return [...new Set(values)].sort((left, right) => left - right);
+}
+
+function parseFirstNumber(value: string) {
+  const match = value.replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : null;
+}
+
 function uniqueStrings(values: string[]) {
   return [...new Set(values)];
+}
+
+function roundMetric(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function readRecordArray(value: unknown, ...keys: string[]) {
