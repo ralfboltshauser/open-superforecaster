@@ -956,12 +956,16 @@ function PerformanceAttentionList({ items }: { items: JsonRecord[] }) {
         {items.slice(0, 4).map((item) => {
           const taskId = typeof item.taskId === "string" ? item.taskId : null
           const recommendedActions = readArray(item, "recommendedActions").filter((value): value is string => typeof value === "string")
+          const reason = typeof item.reason === "string" ? item.reason : null
           const content = (
             <>
               <span className="block truncate font-medium">{String(item.taskLabel ?? item.kind ?? "attention item")}</span>
               <span className="mt-1 block truncate text-xs text-muted-foreground">
                 {String(item.severity ?? "medium")} · {String(item.metric ?? "metric")} {formatMetric(item.score)}
               </span>
+              {reason ? (
+                <span className="mt-1 block truncate text-xs text-muted-foreground">{reason}</span>
+              ) : null}
               {recommendedActions[0] ? (
                 <span className="mt-1 block truncate text-xs text-muted-foreground">{recommendedActions[0]}</span>
               ) : null}

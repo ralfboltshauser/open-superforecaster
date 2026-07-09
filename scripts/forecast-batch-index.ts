@@ -452,12 +452,12 @@ function renderAttentionTable(items: ReviewedAttentionItem[]) {
     return ["No attention items found."];
   }
   return [
-    "| Status | Severity | Kind | Metric | Score | Delta | Task | Recommended action | Note |",
-    "| --- | --- | --- | --- | ---: | ---: | --- | --- | --- |",
+    "| Status | Severity | Kind | Metric | Score | Delta | Task | Reason | Recommended action | Note |",
+    "| --- | --- | --- | --- | ---: | ---: | --- | --- | --- | --- |",
     ...items.map((item) =>
       `| ${item.reviewStatus} | ${item.severity} | ${item.kind} | ${item.metric} | ${formatNumber(item.score)} | ${formatNumber(item.delta)} | ${
         escapeMarkdownCell(item.taskLabel ?? item.taskId ?? "")
-      } | ${escapeMarkdownCell(item.recommendedActions[0] ?? "")} | ${escapeMarkdownCell(item.reviewNote ?? "")} |`,
+      } | ${escapeMarkdownCell(item.reason)} | ${escapeMarkdownCell(item.recommendedActions[0] ?? "")} | ${escapeMarkdownCell(item.reviewNote ?? "")} |`,
     ),
   ];
 }

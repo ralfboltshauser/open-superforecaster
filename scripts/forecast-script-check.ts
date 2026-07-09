@@ -207,8 +207,11 @@ await check("forecast batch index joins all batch phases", async () => {
   assert(readNumber(counts, "deferredCandidateCalibrationGuardRules") === 1, "candidate calibration guard review status mismatch");
   const attentionItems = readArray(audit, "attentionItems");
   const candidateGuardRules = readArray(audit, "candidateCalibrationGuardRules");
+  const markdown = await readFile(resolve(outputDir, "contract-batch", "batch-index.md"), "utf8");
   assert(attentionItems.length === 1, "attention item was not copied into audit");
   assert(readString(attentionItems[0], "reviewStatus") === "reviewed", "review status was not merged");
+  assert(markdown.includes("Reason | Recommended action"), "batch index markdown missing attention reason column");
+  assert(markdown.includes("brier exceeded review threshold"), "batch index markdown does not render attention reason");
   assert(candidateGuardRules.length === 1, "candidate calibration guard was not copied into audit");
   assert(readString(candidateGuardRules[0], "reviewStatus") === "deferred", "candidate calibration guard review status was not merged");
   return "batch index joins ops, resolution, and performance phases";
@@ -599,6 +602,7 @@ await check("forecast attention backlog filters batch review status", async () =
     "deferred",
   ]);
   const report = readRecord(await readJson(resolve(outputDir, "attention-backlog.json")));
+  const markdown = await readFile(resolve(outputDir, "attention-backlog.md"), "utf8");
   const counts = readRecord(report, "counts");
   const items = readArray(report, "items");
   assert(report, "backlog report is not an object");
@@ -606,6 +610,8 @@ await check("forecast attention backlog filters batch review status", async () =
   assert(counts, "backlog counts missing");
   assert(readNumber(counts, "items") === 3, "filtered item count mismatch");
   assert(readNumber(counts, "deferred") === 3, "deferred item count mismatch");
+  assert(markdown.includes("Reason | Recommended action"), "attention backlog markdown missing reason column");
+  assert(markdown.includes("log score worsened"), "attention backlog markdown does not render attention reason");
   assert(items.length === 3, `expected 3 backlog items, got ${items.length}`);
   assert(items.some((item) => readString(item, "id") === "drift:task-2:log"), "deferred attention item missing");
   const guardItem = items.find((item) => readString(item, "id") === "candidate-guard:80-100%");
@@ -880,6 +886,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Panel size outcomes"), "lab dashboard does not render panel size performance groups");
   assert(dashboardSource.includes("byComplexityScore"), "lab dashboard does not read complexity score performance groups");
   assert(dashboardSource.includes("Complexity score outcomes"), "lab dashboard does not render complexity score performance groups");
+  assert(dashboardSource.includes("typeof item.reason === \"string\""), "lab dashboard does not read attention item reasons");
   assert(dashboardSource.includes("byConditionalBranch"), "lab dashboard does not read conditional branch performance groups");
   assert(dashboardSource.includes("Conditional branch outcomes"), "lab dashboard does not render conditional branch performance groups");
   assert(dashboardSource.includes("byConditionalEffect"), "lab dashboard does not read conditional effect performance groups");
