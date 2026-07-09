@@ -221,6 +221,11 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
   const baselineProbability = readNumberAny(baselineSanity, "baselineProbability", "baseline_probability")
   const baselineDelta = readNumberAny(baselineSanity, "baselineDelta", "baseline_delta")
   const baselineDisagreement = readNumberAny(baselineSanity, "componentBaseRateDisagreement", "component_base_rate_disagreement")
+  const marketAnchor = readRecordAny(output, "marketAnchor", "market_anchor")
+  const marketPrice = readNumberAny(marketAnchor, "marketPrice", "market_price")
+  const marketDelta = readNumberAny(marketAnchor, "marketDelta", "market_delta")
+  const marketPlatform = readStringAny(marketAnchor, "marketPlatform", "market_platform")
+  const marketPriceAsOf = readStringAny(marketAnchor, "marketPriceAsOf", "market_price_as_of")
   const aggregateQuality = readAggregateQualityRecord(output)
   const convergenceStatus = readStringAny(aggregateQuality, "convergenceStatus", "convergence_status")
   const qualityApproved = readBooleanAny(aggregateQuality, "qualityApproved", "quality_approved")
@@ -289,6 +294,18 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
             />
           </div>
           <p className="mt-2 text-xs text-muted-foreground">{String(baselineSanity.note ?? "")}</p>
+        </ReportSection>
+      ) : null}
+      {Object.keys(marketAnchor).length ? (
+        <ReportSection label="market anchor">
+          <div className="grid gap-2 md:grid-cols-4">
+            <MiniMetric label="status" value={String(marketAnchor.status ?? "unknown").replace(/_/g, " ")} />
+            <MiniMetric label="market" value={marketPrice === null ? "n/a" : formatProbabilityPercent(marketPrice)} />
+            <MiniMetric label="delta" value={formatSignedPoints(marketDelta) ?? "n/a"} />
+            <MiniMetric label="source" value={marketPlatform ?? "n/a"} />
+          </div>
+          {marketPriceAsOf ? <p className="mt-2 text-xs text-muted-foreground">as of {marketPriceAsOf}</p> : null}
+          <p className="mt-2 text-xs text-muted-foreground">{String(marketAnchor.note ?? "")}</p>
         </ReportSection>
       ) : null}
       {Object.keys(aggregateQuality).length ? (

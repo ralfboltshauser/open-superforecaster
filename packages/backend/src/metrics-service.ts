@@ -26,6 +26,7 @@ import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
 import { readForecastInputContextSnapshot } from "./forecast-input-context-metadata";
 import { readForecastRunSnapshot } from "./forecast-run-metadata";
+import { readMarketAnchorSnapshot } from "./market-anchor-metadata";
 import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport } from "./performance-calibration";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
@@ -461,6 +462,48 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge(
       "open_superforecaster_baseline_sanity_score_mean",
       "Mean product aggregate forecast score by baseline sanity status.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
+    );
+  }
+  const marketAnchorScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readMarketAnchorSnapshot(row.scoreConfig) !== null
+  );
+  if (marketAnchorScoreRows.length === 0) {
+    const labels = { market_anchor_status: "none", market_platform: "unknown", score_type: "all" };
+    metrics.gauge(
+      "open_superforecaster_market_anchor_scores_total",
+      "Product aggregate forecast score rows by market-anchor divergence status.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_market_anchor_score_mean",
+      "Mean product aggregate forecast score by market-anchor divergence status.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(marketAnchorScoreRows, (row) => {
+    const marketAnchor = readMarketAnchorSnapshot(row.scoreConfig);
+    return labelKey({
+      score_type: row.scoreType,
+      market_anchor_status: marketAnchor?.status ?? "unknown",
+      market_platform: marketAnchor?.marketPlatform ?? "unknown",
+    });
+  })) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_market_anchor_scores_total",
+      "Product aggregate forecast score rows by market-anchor divergence status.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_market_anchor_score_mean",
+      "Mean product aggregate forecast score by market-anchor divergence status.",
       mean(rows.map((row) => row.scoreValue)),
       labels,
     );

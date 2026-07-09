@@ -8,6 +8,7 @@ import {
 import { codexResearchAgent, codexStructuredAgent } from "./agents";
 import { buildBinaryBaselineSanityAudit } from "./binary-baseline-sanity";
 import { applyBinaryCalibrationGuard } from "./binary-calibration-guard";
+import { buildBinaryMarketAnchorAudit } from "./binary-market-anchor";
 
 const roleIdValues = [
   "base-rate",
@@ -238,12 +239,25 @@ const baselineSanity = z.object({
   note: z.string(),
 });
 
+const marketAnchor = z.object({
+  status: z.enum(["missing_market_price", "near_market", "moderate_delta", "large_delta"]),
+  marketPrice: z.number().min(0).max(100).nullable(),
+  finalProbability: z.number().min(0).max(100),
+  marketDelta: z.number().nullable(),
+  marketPriceAsOf: z.string().nullable(),
+  marketCreationDate: z.string().nullable(),
+  marketPlatform: z.string().nullable(),
+  marketUrl: z.string().nullable(),
+  note: z.string(),
+});
+
 const binaryAggregate = aggregateCore.extend({
   calibrationGuard: z.object({
     adjustment: z.number(),
     appliedRules: z.array(calibrationGuardRule).default([]),
   }),
   baselineSanity,
+  marketAnchor,
   convergenceStatus: z.enum(["approved", "max_iterations_return_last"]),
   roundsUsed: z.number().int().min(1),
   qualityApproved: z.boolean(),
@@ -450,6 +464,10 @@ export default smithers((ctx) => {
     finalProbability: finalCalibration.probability,
     components: finalComponentProbabilities,
   });
+  const finalMarketAnchor = buildBinaryMarketAnchorAudit({
+    finalProbability: finalCalibration.probability,
+    market: forecastInput.market,
+  });
 
   return (
     <Workflow name="binary-forecast">
@@ -474,6 +492,7 @@ Selection rules:
 9. Central-bank, rates, inflation, or macro-policy timing questions with market debate or pricing in the evidence should usually include incentives-timing and market-consensus. Market debate is still evidence even when exact market-implied percentages are absent.
 10. For timing questions, distinguish a near-deadline cutoff from a broad cutoff with many decision opportunities. Qualitative market-pricing, policymaker-projection, polling, or expert-consensus evidence included in the fixed packet is direct evidence; do not discount it solely because exact numeric odds are absent.
 11. If structured market metadata is provided, treat it as dated consensus evidence. Do not invent missing markets, do not assume liquidity, and do not double-count the same market price through background commentary.
+12. When a structured market price is provided, require the panel to either stay near it or explicitly justify why this question's evidence warrants a material divergence.
 
 Question:
 ${question}
@@ -669,6 +688,7 @@ Review rules:
 8. Reject if the aggregate mechanically treats skeptic or resolution-boundary audit roles as equal votes when they found no concrete defect.
 9. Reject if a market-threshold or macro-policy timing question ignores a provided catalyst, market-debate signal, threshold-touch dynamic, or timing trigger that could materially move probability.
 10. Reject if a timing aggregate fails to distinguish a broad cutoff horizon from a near-deadline cutoff, especially when the fixed evidence includes policymaker projections, market-pricing, polling, or expert-consensus signals for the broader window.
+11. Reject if a structured market price is provided and the aggregate differs materially from it without naming the evidence or resolution mechanics that justify the difference.
 
 Return round ${round}, approved, confidenceScore, disagreementExplained, issues, requiredNextFocus, missingRoleIds, shouldStopReasoning, and rationale.`}
               </Task>
@@ -705,6 +725,7 @@ Return round ${round}, approved, confidenceScore, disagreementExplained, issues,
                 appliedRules: finalCalibration.appliedRules,
               },
               baselineSanity: finalBaselineSanity,
+              marketAnchor: finalMarketAnchor,
               convergenceStatus: qualityApproved ? "approved" as const : "max_iterations_return_last" as const,
               roundsUsed,
               qualityApproved,

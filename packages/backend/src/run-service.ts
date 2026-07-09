@@ -22,6 +22,7 @@ import {
 import type { OperationMode } from "@open-superforecaster/workflow-contracts";
 import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
 import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
+import { readMarketAnchorSnapshot } from "./market-anchor-metadata";
 import { inspectSmithersRun, launchSmithersDetached, readSmithersNodeOutput } from "./smithers-launcher";
 
 type Db = ReturnType<typeof createDb>["db"];
@@ -838,6 +839,7 @@ function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited
   const calibrationGuard = readCalibrationGuardSnapshot(output);
   const calibrationGuardRules = calibrationGuard?.appliedRules ?? [];
   const baselineSanity = readRecord(output, "baselineSanity", "baseline_sanity");
+  const marketAnchor = readMarketAnchorSnapshot(output);
   const aggregateQuality = readAggregateQualitySnapshot(output);
   return {
     status: detail.task.status,
@@ -849,6 +851,7 @@ function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited
     calibrationGuardRules,
     calibrationGuardRuleCount: calibrationGuardRules.length,
     baselineSanity: Object.keys(baselineSanity).length ? baselineSanity : null,
+    marketAnchor,
     aggregateQuality,
     sourceCount: detail.sources.length,
     citationCount: detail.citations.length,
@@ -932,6 +935,7 @@ function renderRunReportMarkdown(report: {
     ...markdownList("Wildcards", report.uncertainty.wildcards),
     ...markdownList("Warnings", report.quality.warnings),
     ...markdownList("Baseline sanity", readReportBaselineSanity(report.quality)),
+    ...markdownList("Market anchor", readReportMarketAnchor(report.quality)),
     ...markdownList("Aggregate quality", readReportAggregateQuality(report.quality)),
     ...markdownList("Calibration guard rules", readReportGuardRules(report.quality)),
     "",
@@ -954,6 +958,21 @@ function readReportBaselineSanity(quality: Record<string, unknown>) {
   const note = readString(baselineSanity, "note");
   return [
     `${status}: baseline ${baselineProbability === null ? "n/a" : `${baselineProbability}%`}, delta ${baselineDelta === null ? "n/a" : `${baselineDelta >= 0 ? "+" : ""}${baselineDelta} pts`}${note ? `. ${note}` : ""}`,
+  ];
+}
+
+function readReportMarketAnchor(quality: Record<string, unknown>) {
+  const marketAnchor = readRecord(quality, "marketAnchor", "market_anchor");
+  if (Object.keys(marketAnchor).length === 0) {
+    return [];
+  }
+  const status = readString(marketAnchor, "status") ?? "unknown";
+  const marketPrice = readNumber(marketAnchor, "marketPrice", "market_price");
+  const marketDelta = readNumber(marketAnchor, "marketDelta", "market_delta");
+  const platform = readString(marketAnchor, "marketPlatform", "market_platform");
+  const note = readString(marketAnchor, "note");
+  return [
+    `${status}: market ${marketPrice === null ? "n/a" : `${marketPrice}%`}, delta ${marketDelta === null ? "n/a" : `${marketDelta >= 0 ? "+" : ""}${marketDelta} pts`}${platform ? ` (${platform})` : ""}${note ? `. ${note}` : ""}`,
   ];
 }
 

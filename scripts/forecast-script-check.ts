@@ -17,11 +17,13 @@ import { readDateForecastSnapshot } from "../packages/backend/src/date-forecast-
 import { readEvidenceCoverageSnapshot } from "../packages/backend/src/evidence-coverage-metadata";
 import { readForecastInputContextSnapshot } from "../packages/backend/src/forecast-input-context-metadata";
 import { readForecastRunSnapshot } from "../packages/backend/src/forecast-run-metadata";
+import { readMarketAnchorSnapshot } from "../packages/backend/src/market-anchor-metadata";
 import { readNumericForecastSnapshot } from "../packages/backend/src/numeric-forecast-metadata";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
 import { readThresholdedForecastSnapshot } from "../packages/backend/src/thresholded-forecast-metadata";
 import { buildBinaryBaselineSanityAudit } from "../packages/workflows/src/binary-baseline-sanity";
 import { applyBinaryCalibrationGuard, BINARY_CALIBRATION_GUARD_RULES } from "../packages/workflows/src/binary-calibration-guard";
+import { buildBinaryMarketAnchorAudit } from "../packages/workflows/src/binary-market-anchor";
 import { readJson, readRecord, readString, timestampLabel, writeJson } from "./lib/forecast-script-utils";
 
 type CheckResult = {
@@ -1045,6 +1047,8 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("calibration_guard_rules_json"), "forecast score mart missing calibration guard rules");
   assert(syncSource.includes("baseline_sanity_status"), "forecast score mart missing baseline sanity status");
   assert(syncSource.includes("baseline_delta"), "forecast score mart missing baseline sanity delta");
+  assert(syncSource.includes("market_anchor_status"), "forecast score mart missing market anchor status");
+  assert(syncSource.includes("market_anchor_delta"), "forecast score mart missing market anchor delta");
   assert(syncSource.includes("aggregate_convergence_status"), "forecast score mart missing aggregate convergence status");
   assert(syncSource.includes("aggregate_max_iterations_reached"), "forecast score mart missing aggregate max-iteration flag");
   assert(syncSource.includes("aggregate_component_disagreement"), "forecast score mart missing aggregate component disagreement");
@@ -1127,6 +1131,49 @@ await check("binary forecast aggregates persist baseline sanity audit", async ()
   assert(panelSource.includes("baseline sanity"), "run workspace does not render baseline sanity");
   assert(reportSource.includes("readReportBaselineSanity"), "generated report does not include baseline sanity");
   return "binary aggregate baseline sanity audit is deterministic, persisted, and visible";
+});
+
+await check("binary forecast aggregates persist market anchor audit", async () => {
+  const workflowSource = await readFile(resolve(root, "packages/workflows/src/binary-forecast.workflow.tsx"), "utf8");
+  const panelSource = await readFile(resolve(root, "apps/web/src/components/run-workspace/panels.tsx"), "utf8");
+  const reportSource = await readFile(resolve(root, "packages/backend/src/run-service.ts"), "utf8");
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  const largeDelta = buildBinaryMarketAnchorAudit({
+    finalProbability: 72,
+    market: {
+      marketPrice: 42,
+      marketPriceAsOf: "2026-01-02",
+      marketPlatform: "Kalshi",
+      marketUrl: "https://example.com/market",
+    },
+  });
+  assert(largeDelta.status === "large_delta", "large market delta status mismatch");
+  assert(largeDelta.marketPrice === 42, "market anchor price mismatch");
+  assert(largeDelta.marketDelta === 30, "market anchor delta mismatch");
+  assert(largeDelta.marketPlatform === "Kalshi", "market anchor platform mismatch");
+  const missing = buildBinaryMarketAnchorAudit({ finalProbability: 55, market: {} });
+  assert(missing.status === "missing_market_price", "missing market anchor status mismatch");
+  assert(missing.marketPrice === null, "missing market price should be null");
+  const snapshot = readMarketAnchorSnapshot({ marketAnchor: largeDelta });
+  assert(snapshot?.status === "large_delta", "market anchor snapshot status mismatch");
+  assert(snapshot?.marketDelta === 30, "market anchor snapshot delta mismatch");
+  assert(workflowSource.includes("marketAnchor"), "binary aggregate schema missing market anchor");
+  assert(workflowSource.includes("buildBinaryMarketAnchorAudit"), "binary workflow does not use shared market anchor builder");
+  assert(workflowSource.includes("structured market price is provided"), "binary workflow does not require market divergence justification");
+  assert(resolutionSource.includes("readMarketAnchorSnapshot(input.prediction)"), "resolution scoring does not persist market anchor");
+  assert(resolutionSource.includes("byMarketAnchor"), "performance report does not group by market anchor");
+  assert(resolutionSource.includes("market_anchor_miss"), "performance report does not turn poor market divergence into attention");
+  assert(metricsSource.includes("open_superforecaster_market_anchor_scores_total"), "metrics missing market anchor score counts");
+  assert(syncSource.includes("market_anchor_status"), "DuckDB forecast score mart missing market anchor status");
+  assert(syncSource.includes("market_anchor_delta"), "DuckDB forecast score mart missing market anchor delta");
+  assert(panelSource.includes("market anchor"), "run workspace does not render market anchor");
+  assert(reportSource.includes("readReportMarketAnchor"), "generated report does not include market anchor");
+  assert(dashboardSource.includes("byMarketAnchor"), "lab dashboard does not read market anchor performance groups");
+  assert(dashboardSource.includes("Market-anchor outcomes"), "lab dashboard does not render market anchor performance groups");
+  return "binary aggregate market anchor audit is deterministic, persisted, and visible";
 });
 
 await check("binary aggregate quality metadata reaches resolved score analytics", async () => {

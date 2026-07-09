@@ -21,6 +21,7 @@ import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
 import { readForecastInputContextSnapshot } from "./forecast-input-context-metadata";
 import { readForecastRunSnapshot } from "./forecast-run-metadata";
+import { readMarketAnchorSnapshot, type MarketAnchorSnapshot } from "./market-anchor-metadata";
 import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
 import { readThresholdedForecastSnapshot } from "./thresholded-forecast-metadata";
@@ -77,6 +78,7 @@ type PerformanceCase = {
   resolved: boolean | null;
   calibrationGuard: CalibrationGuardSnapshot | null;
   baselineSanity: BaselineSanitySnapshot | null;
+  marketAnchor: MarketAnchorSnapshot | null;
   aggregateQuality: AggregateQualitySnapshot | null;
   aggregateStats: AggregateStatsSnapshot | null;
   resolutionId: string | null;
@@ -105,6 +107,7 @@ type PerformanceAttentionItem = {
     | "calibration_mismatch"
     | "calibration_guard_regression"
     | "baseline_sanity_miss"
+    | "market_anchor_miss"
     | "aggregate_quality_miss"
     | "component_disagreement_miss";
   severity: "high" | "medium";
@@ -368,6 +371,7 @@ export async function getForecastPerformanceReport(db: Db) {
   });
   const byCalibrationGuard = groupScores(aggregateScores, calibrationGuardGroupKey);
   const byBaselineSanity = groupScores(aggregateScores, baselineSanityGroupKey);
+  const byMarketAnchor = groupScores(aggregateScores, marketAnchorGroupKey);
   const byAggregateQuality = groupScores(aggregateScores, aggregateQualityGroupKey);
   const byAggregateDisagreement = groupScores(aggregateScores, aggregateDisagreementGroupKey);
   const byAggregationAnchor = groupScores(aggregateScores, aggregationAnchorGroupKey);
@@ -432,6 +436,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byForecastTypeAndTarget,
       byCalibrationGuard,
       byBaselineSanity,
+      byMarketAnchor,
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregationAnchor,
@@ -486,6 +491,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byForecaster,
       byCalibrationGuard,
       byBaselineSanity,
+      byMarketAnchor,
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregationAnchor,
@@ -680,6 +686,7 @@ function scoreForecastPrediction(input: {
     }
     const calibrationGuard = readCalibrationGuardSnapshot(input.prediction);
     const baselineSanity = readBaselineSanitySnapshot(input.prediction);
+    const marketAnchor = readMarketAnchorSnapshot(input.prediction);
     const aggregateQuality = readAggregateQualitySnapshot(input.prediction);
     const aggregateStats = readAggregateStatsSnapshot(input.prediction);
     return Object.entries(scoreBinaryForecast({ probability, resolved })).map(([scoreType, scoreValue]) => ({
@@ -690,6 +697,7 @@ function scoreForecastPrediction(input: {
         resolved,
         ...(calibrationGuard ? { calibrationGuard } : {}),
         ...(baselineSanity ? { baselineSanity } : {}),
+        ...(marketAnchor ? { marketAnchor } : {}),
         ...(aggregateQuality ? { aggregateQuality } : {}),
         ...(aggregateStats ? { aggregateStats } : {}),
         ...evidenceConfig,
@@ -1166,6 +1174,11 @@ function baselineSanityGroupKey(score: typeof forecastScores.$inferSelect) {
   return baselineSanity ? `baseline:${baselineSanity.status}` : "baseline:unrecorded";
 }
 
+function marketAnchorGroupKey(score: typeof forecastScores.$inferSelect) {
+  const marketAnchor = readMarketAnchorSnapshot(score.scoreConfig);
+  return marketAnchor ? `market_anchor:${marketAnchor.status}` : "market_anchor:unrecorded";
+}
+
 function aggregateQualityGroupKey(score: typeof forecastScores.$inferSelect) {
   const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
   if (!aggregateQuality) {
@@ -1387,6 +1400,7 @@ function rankAggregateCases(
         resolved: readResolved(latest.scoreConfig),
         calibrationGuard: readCalibrationGuardSnapshot(latest.scoreConfig),
         baselineSanity: readBaselineSanitySnapshot(latest.scoreConfig),
+        marketAnchor: readMarketAnchorSnapshot(latest.scoreConfig),
         aggregateQuality: readAggregateQualitySnapshot(latest.scoreConfig),
         aggregateStats: readAggregateStatsSnapshot(latest.scoreConfig),
         resolutionId: latest.resolutionId,
@@ -1536,6 +1550,42 @@ function buildNeedsAttentionQueue(
       rank: 50 + index,
     }));
 
+  const marketAnchorCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    if (
+      item.forecastType !== "binary" ||
+      item.marketAnchor === null ||
+      !["moderate_delta", "large_delta"].includes(item.marketAnchor.status) ||
+      threshold === null ||
+      item.primaryScore < threshold
+    ) {
+      return [];
+    }
+    return [{ item, marketAnchor: item.marketAnchor }];
+  });
+  const marketAnchorItems = marketAnchorCandidates
+    .slice(0, 5)
+    .map(({ item, marketAnchor }, index) => ({
+      id: `market-anchor:${item.taskId}:${item.primaryMetric}`,
+      kind: "market_anchor_miss" as const,
+      severity: marketAnchor.status === "large_delta" ? "high" as const : "medium" as const,
+      reason:
+        `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed a ${marketAnchor.status.replace(/_/g, " ")} of ${formatSignedMetric(marketAnchor.marketDelta ?? 0)} points from the structured market-price anchor.`,
+      recommendedActions: recommendAttentionActions({
+        kind: "market_anchor_miss",
+        metric: item.primaryMetric,
+        severity: marketAnchor.status === "large_delta" ? "high" : "medium",
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: marketAnchor.marketDelta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 55 + index,
+    }));
+
   const aggregateQualityCandidates = worstCases.flatMap((item) => {
     const threshold = poorScoreThreshold(item.primaryMetric);
     if (
@@ -1672,6 +1722,7 @@ function buildNeedsAttentionQueue(
   return [
     ...caseItems,
     ...baselineSanityItems,
+    ...marketAnchorItems,
     ...aggregateQualityItems,
     ...componentDisagreementItems,
     ...trendItems,
@@ -1703,6 +1754,9 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "baseline_sanity_miss") {
     actions.add("Audit why the aggregate moved away from the component base-rate anchor before changing prompts or calibration defaults.");
     actions.add("Compare the component base-rate estimates, inside-view deltas, and final rationale against the resolved outcome.");
+  } else if (input.kind === "market_anchor_miss") {
+    actions.add("Audit whether the forecast had a valid evidence or resolution-boundary reason to diverge from the structured market-price anchor.");
+    actions.add("Compare resolved outcomes for similar market-anchor divergence bands before turning this into a deterministic adjustment.");
   } else if (input.kind === "aggregate_quality_miss") {
     actions.add("Review the final quality issues and review rationale before changing prompts or defaults.");
     actions.add("Compare max-iteration cases against approved cases to decide whether the review loop needs another round or sharper rejection criteria.");
@@ -1809,6 +1863,7 @@ function renderPerformanceMarkdown(input: {
   byForecaster: PerformanceGroup[];
   byCalibrationGuard: PerformanceGroup[];
   byBaselineSanity: PerformanceGroup[];
+  byMarketAnchor: PerformanceGroup[];
   byAggregateQuality: PerformanceGroup[];
   byAggregateDisagreement: PerformanceGroup[];
   byAggregationAnchor: PerformanceGroup[];
@@ -1864,6 +1919,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Baseline sanity groups",
     ...renderGroupTable(input.byBaselineSanity),
+    "",
+    "## Market-anchor groups",
+    ...renderGroupTable(input.byMarketAnchor),
     "",
     "## Aggregate quality groups",
     ...renderGroupTable(input.byAggregateQuality),

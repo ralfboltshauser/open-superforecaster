@@ -271,6 +271,12 @@ misses for postmortem review.
 The metrics endpoint exports baseline-sanity score counts and means as
 Prometheus series so large base-rate departures can be monitored outside the
 lab dashboard.
+Binary aggregates with structured market prices also persist a deterministic
+`marketAnchor` audit with the market price, final probability, signed delta,
+market platform, and divergence band. This is diagnostic, not an automatic
+calibration rule: it lets resolved-score analytics separate useful
+market-disagreement from avoidable drift before any default adjustment is
+considered.
 
 Binary forecast generation also applies a deterministic final calibration guard
 for known threshold, timing, and production-ramp failure modes. The guard is an
@@ -279,13 +285,14 @@ so measured calibration rules can be reviewed, tested, and added outside the
 workflow orchestration. Final binary aggregates include a structured
 `calibrationGuard` block with applied rule ids and point adjustments plus a
 deterministic `baselineSanity` audit comparing the final probability with the
-mean component base-rate anchor. Run reports surface those guard rules and
-baseline deltas for review. Future binary score rows persist
-the same guard, baseline-sanity, aggregate-quality, aggregate-stat, and
+mean component base-rate anchor and a `marketAnchor` audit for structured
+market-price divergence. Run reports surface those guard rules, baseline
+deltas, and market-anchor deltas for review. Future binary score rows persist
+the same guard, baseline-sanity, market-anchor, aggregate-quality, aggregate-stat, and
 selected plan-shape metadata in score config so performance snapshots can
 compare guarded forecasts, large baseline movements, high component
-disagreement, aggregation anchors, research depth, panel size, and complexity
-against outcomes, summarize score groups, and report guarded-vs-unguarded
+market divergences, disagreement, aggregation anchors, research depth, panel
+size, and complexity against outcomes, summarize score groups, and report guarded-vs-unguarded
 Brier impact overall and by applied rule id. Worse overall or rule-level
 guarded impact is also queued as a high-severity attention item
 before more default guard rules are promoted.

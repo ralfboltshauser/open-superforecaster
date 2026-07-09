@@ -380,6 +380,7 @@ async function runSmokeChecks() {
       "open_superforecaster_binary_calibration_status",
       "open_superforecaster_binary_calibration_candidate_guard_rules_total",
       "open_superforecaster_baseline_sanity_scores_total",
+      "open_superforecaster_market_anchor_scores_total",
       "open_superforecaster_aggregate_quality_scores_total",
       "open_superforecaster_aggregate_stats_scores_total",
       "open_superforecaster_aggregate_plan_scores_total",

@@ -472,6 +472,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byForecastType = readArray(groups, "byForecastType").filter(isRecord)
   const byCalibrationGuard = readArray(groups, "byCalibrationGuard").filter(isRecord)
   const byBaselineSanity = readArray(groups, "byBaselineSanity").filter(isRecord)
+  const byMarketAnchor = readArray(groups, "byMarketAnchor").filter(isRecord)
   const byAggregateQuality = readArray(groups, "byAggregateQuality").filter(isRecord)
   const byAggregateDisagreement = readArray(groups, "byAggregateDisagreement").filter(isRecord)
   const byAggregationAnchor = readArray(groups, "byAggregationAnchor").filter(isRecord)
@@ -545,6 +546,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {calibrationGuardImpact ? <PerformanceGuardImpact impact={calibrationGuardImpact} /> : null}
         {byCalibrationGuard.length ? <PerformanceGuardGroupList groups={byCalibrationGuard} /> : null}
         {byBaselineSanity.length ? <PerformanceBaselineSanityGroupList groups={byBaselineSanity} /> : null}
+        {byMarketAnchor.length ? <PerformancePlanShapeGroupList groups={byMarketAnchor} title="Market-anchor outcomes" skipKey="market_anchor:unrecorded" fallback="market anchor" /> : null}
         {byAggregateQuality.length ? <PerformanceAggregateQualityGroupList groups={byAggregateQuality} /> : null}
         {byAggregateDisagreement.length ? <PerformanceComponentDisagreementGroupList groups={byAggregateDisagreement} /> : null}
         {byAggregationAnchor.length ? <PerformanceAggregationAnchorGroupList groups={byAggregationAnchor} /> : null}
