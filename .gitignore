@@ -17,6 +17,7 @@ data/smithers/
 data/artifacts/
 data/exports/
 data/evals/
+data/claude/
 .smithers/executions/
 .smithers/runs/
 .smithers/state/

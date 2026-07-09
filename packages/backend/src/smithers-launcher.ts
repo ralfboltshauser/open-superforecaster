@@ -82,6 +82,14 @@ async function runCommand(args: string[], cwd = process.cwd()) {
   const smithersStateDir = process.env.SMITHERS_STATE_DIR ?? resolve(cwd, "data/smithers");
   const codexHome = process.env.CODEX_HOME;
   const codexModel = process.env.CODEX_MODEL;
+  const agentEngine = process.env.AGENT_ENGINE;
+  const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  const claudeModel = process.env.CLAUDE_MODEL;
+  const claudeWebSearch = process.env.CLAUDE_WEB_SEARCH;
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+  const firecrawlApiKey = process.env.FIRECRAWL_API_KEY;
+  const firecrawlBaseUrl = process.env.FIRECRAWL_BASE_URL;
+  const forecastResearch = process.env.FORECAST_RESEARCH;
   const proc = spawn("bunx", args, {
     cwd,
     env: {
@@ -89,6 +97,14 @@ async function runCommand(args: string[], cwd = process.cwd()) {
       SMITHERS_STATE_DIR: smithersStateDir,
       ...(codexHome ? { CODEX_HOME: codexHome } : {}),
       ...(codexModel ? { CODEX_MODEL: codexModel } : {}),
+      ...(agentEngine ? { AGENT_ENGINE: agentEngine } : {}),
+      ...(claudeConfigDir ? { CLAUDE_CONFIG_DIR: claudeConfigDir } : {}),
+      ...(claudeModel ? { CLAUDE_MODEL: claudeModel } : {}),
+      ...(claudeWebSearch ? { CLAUDE_WEB_SEARCH: claudeWebSearch } : {}),
+      ...(anthropicApiKey ? { ANTHROPIC_API_KEY: anthropicApiKey } : {}),
+      ...(firecrawlApiKey ? { FIRECRAWL_API_KEY: firecrawlApiKey } : {}),
+      ...(firecrawlBaseUrl ? { FIRECRAWL_BASE_URL: firecrawlBaseUrl } : {}),
+      ...(forecastResearch ? { FORECAST_RESEARCH: forecastResearch } : {}),
     },
   });
 

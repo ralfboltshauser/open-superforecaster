@@ -2,6 +2,13 @@
 import { createSmithers, Loop, Parallel, Sequence, Task } from "smithers-orchestrator";
 import { z } from "zod";
 import { codexResearchAgent, codexStructuredAgent } from "./agents";
+import {
+  buildEvidenceBank,
+  emptyEvidenceBank,
+  evidenceBankSchema,
+  renderEvidenceSection,
+  type EvidenceBank,
+} from "./research";
 
 const roleIdValues = [
   "base-rate",
@@ -93,6 +100,8 @@ const citedSource = z.object({
   title: z.string().optional(),
   url: z.string().optional(),
   claim: z.string(),
+  publishedAt: z.string().optional(),
+  sourceType: z.string().optional(),
 });
 
 const qualityThresholds = z.object({
@@ -124,6 +133,7 @@ const forecastPlan = z.object({
   resolutionRisks: z.array(z.string()).default([]),
   decisionRule: z.string(),
   qualityThresholds,
+  researchQueries: z.array(z.string()).default([]),
   plannerNotes: z.string().default(""),
 });
 
@@ -236,6 +246,7 @@ type BinaryQualityReview = z.infer<typeof binaryQualityReview>;
 
 const { Workflow, smithers, outputs } = createSmithers({
   forecastPlan,
+  evidenceBank: evidenceBankSchema,
   binaryAttempt,
   binaryCandidateAggregate,
   binaryQualityReview,
@@ -321,6 +332,19 @@ function selectMaxIterations(plan: ForecastPlan | undefined) {
 
 function summarizeJson(value: unknown) {
   return JSON.stringify(value, null, 2);
+}
+
+function researchEnabled(fixedEvidence: string, plan: ForecastPlan | undefined) {
+  if (process.env.FORECAST_RESEARCH === "off") {
+    return false;
+  }
+  if (fixedEvidence.trim().length > 0) {
+    return false;
+  }
+  if (plan?.useFixedEvidenceOnly) {
+    return false;
+  }
+  return true;
 }
 
 function includesAny(value: string, patterns: RegExp[]) {
@@ -428,6 +452,9 @@ export default smithers((ctx) => {
     : `${cutoffHorizonDays} days from present date to cutoff`;
 
   const plan = ctx.latest(outputs.forecastPlan, "plan") as ForecastPlan | undefined;
+  const evidenceBank = ctx.latest(outputs.evidenceBank, "research") as EvidenceBank | undefined;
+  const evidenceSection = renderEvidenceSection(evidenceBank);
+  const researchIsEnabled = researchEnabled(fixedEvidence, plan);
   const latestQualityReview = ctx.latest(outputs.binaryQualityReview, "quality-review") as BinaryQualityReview | undefined;
   const latestCandidate = ctx.latest(
     outputs.binaryCandidateAggregate,
@@ -523,6 +550,7 @@ Selection rules:
 8. Market-price threshold questions with explicit volatility, ETF/flow, momentum, halving, pricing, or reflexivity evidence should usually include market-consensus and adversarial-tail, because the question is often about whether an upside/downside tail touches a threshold before cutoff.
 9. Central-bank, rates, inflation, or macro-policy timing questions with market debate or pricing in the evidence should usually include incentives-timing and market-consensus. Market debate is still evidence even when exact market-implied percentages are absent.
 10. For timing questions, distinguish a near-deadline cutoff from a broad cutoff with many decision opportunities. Qualitative market-pricing, policymaker-projection, polling, or expert-consensus evidence included in the fixed packet is direct evidence; do not discount it solely because exact numeric odds are absent.
+11. Unless a fixed evidence packet is provided, produce researchQueries: 4 to 8 focused web-search queries that a downstream retrieval step will run to gather current, dated evidence before the panel forecasts. Make them diverse and high-yield: (a) the latest news/status on the exact event, (b) the historical base rate or reference class, (c) prediction-market or expert-forecast/poll signals (e.g. Metaculus, Polymarket, Kalshi, consensus forecasts), and (d) the key entities, mechanisms, or thresholds in the question. Prefer specific, current phrasing with named entities and years over vague queries. If useFixedEvidenceOnly is true, return an empty researchQueries array.
 
 Question:
 ${question}
@@ -541,16 +569,40 @@ ${background || "No extra background provided."}
 ${fixedEvidence ? `Fixed evidence packet:
 ${fixedEvidence}` : "No fixed evidence packet was provided."}
 
-Return a plan with questionType, complexityScore, complexityRationale, forecasterCount, roleIds, maxIterations, researchDepth, useFixedEvidenceOnly, expectedDisagreement, resolutionRisks, decisionRule, qualityThresholds, and plannerNotes.`}
+Return a plan with questionType, complexityScore, complexityRationale, forecasterCount, roleIds, maxIterations, researchDepth, useFixedEvidenceOnly, expectedDisagreement, resolutionRisks, decisionRule, qualityThresholds, researchQueries, and plannerNotes.`}
         </Task>
 
         {plan ? (
-          <Loop
-            id="adaptive-forecast-review-loop"
-            until={latestQualityReview?.approved === true}
-            maxIterations={maxIterations}
-            onMaxReached="return-last"
-          >
+          <Sequence>
+            <Task id="research" output={outputs.evidenceBank}>
+              {async () => {
+                if (!researchIsEnabled) {
+                  return emptyEvidenceBank(
+                    question,
+                    "Live research disabled (fixed-evidence mode or FORECAST_RESEARCH=off).",
+                  );
+                }
+                try {
+                  return await buildEvidenceBank({
+                    question,
+                    queries: plan.researchQueries,
+                    sources: ["web", "news"],
+                    maxResultsPerQuery: 6,
+                    maxScrape: plan.complexityScore >= 4 ? 12 : 8,
+                  });
+                } catch (error) {
+                  // Never let a research failure break the forecast.
+                  return emptyEvidenceBank(question, `Live research failed: ${(error as Error).message}`);
+                }
+              }}
+            </Task>
+
+            <Loop
+              id="adaptive-forecast-review-loop"
+              until={latestQualityReview?.approved === true}
+              maxIterations={maxIterations}
+              onMaxReached="return-last"
+            >
             <Sequence>
               <Parallel maxConcurrency={selectedRoles.length}>
                 {selectedRoles.map((role) => (
@@ -576,8 +628,8 @@ Forecasting process:
 1. Restate the resolution boundary before judging probability.
 2. For timing questions, compare the cutoff horizon to the stated evidence window and number of plausible decision opportunities.
 3. Pick concrete reference classes and estimate a base-rate probability.
-4. Update from that base rate using case-specific evidence.
-5. Treat qualitative market-pricing, policymaker-projection, polling, expert-consensus, or revealed-behavior evidence in the fixed packet as real evidence. Do not invent exact odds, but do not discard the signal merely because it is qualitative.
+4. Update from that base rate using case-specific evidence. When a live research evidence bank is provided, treat it as your primary current evidence: prefer the most recent dated items, weight higher-quality sources more, and record the sources you actually rely on in citedSources (with url and publication date). Do not fabricate sources or figures that are not present in the evidence bank or fixed packet.
+5. Treat qualitative market-pricing, policymaker-projection, polling, expert-consensus, or revealed-behavior evidence (from the live research evidence bank or the fixed packet) as real evidence. Do not invent exact odds, but do not discard the signal merely because it is qualitative.
 6. List the strongest yes and no arguments, then run a premortem.
 7. Give a precise final probability from 0 to 100. Round sensibly; do not hide uncertainty at 50.
 8. Flag overconfidence, missing base rates, weak evidence, disallowed evidence, correlated assumptions, or numeric inconsistency in calibrationWarnings.
@@ -601,7 +653,9 @@ ${fixedEvidence}
 
 Use only the fixed evidence packet, background, question, resolution criteria, planner output, and prior quality review. Do not use web search, file reads, shell commands, memory, or external information. If you rely on anything outside this packet, set usedDisallowedEvidence true.` : ""}
 
-Role focus:
+${evidenceSection ? `${evidenceSection}
+
+` : ""}Role focus:
 ${role.focus}
 
 Return a binary forecast. Set roleId to "${role.id}", round to ${round}, and forecasterLabel to "${role.label}". Provide probability, baseRateProbability, insideViewProbability, probabilityRange, referenceClass, resolutionBoundary, evidenceFor, evidenceAgainst, strongest yes/no arguments, key uncertainties, premortem, wildcards, feedbackAddressed, calibrationWarnings, usedDisallowedEvidence, and cited sources when available.`}
@@ -638,7 +692,9 @@ ${fixedEvidence}
 
 Use only the fixed evidence packet, background, question, resolution criteria, planner output, prior quality review, and component forecasts. Do not use web search, file reads, shell commands, memory, or external information.` : ""}
 
-Planner output:
+${evidenceSection ? `${evidenceSection}
+
+` : ""}Planner output:
 ${planSummary}
 
 Previous quality review:
@@ -712,7 +768,8 @@ Review rules:
 Return round ${round}, approved, confidenceScore, disagreementExplained, issues, requiredNextFocus, missingRoleIds, shouldStopReasoning, and rationale.`}
               </Task>
             </Sequence>
-          </Loop>
+            </Loop>
+          </Sequence>
         ) : null}
 
         {plan && latestCandidate ? (

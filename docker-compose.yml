@@ -38,6 +38,10 @@ services:
       EVALS_DIR: /data/evals
       SMITHERS_STATE_DIR: /data/smithers
       CODEX_HOME: ${CODEX_CONTAINER_HOME:-/home/bun/.codex}
+      CLAUDE_CONFIG_DIR: ${CLAUDE_CONTAINER_HOME:-/home/bun/.claude}
+      # The container is an isolated sandbox; this lets the Claude Code CLI run
+      # headless (`--dangerously-skip-permissions`) as root. No effect for Codex.
+      IS_SANDBOX: "1"
     ports:
       - "127.0.0.1:3000:3000"
     volumes:
@@ -50,6 +54,7 @@ services:
       - ./data/evals:/data/evals
       - ./data/smithers:/data/smithers
       - ${CODEX_HOST_HOME:-${HOME}/.codex}:${CODEX_CONTAINER_HOME:-/home/bun/.codex}
+      - ${CLAUDE_HOST_HOME:-./data/claude}:${CLAUDE_CONTAINER_HOME:-/home/bun/.claude}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -107,6 +112,10 @@ services:
       EVALS_DIR: /data/evals
       SMITHERS_STATE_DIR: /data/smithers
       CODEX_HOME: ${CODEX_CONTAINER_HOME:-/home/bun/.codex}
+      CLAUDE_CONFIG_DIR: ${CLAUDE_CONTAINER_HOME:-/home/bun/.claude}
+      # The container is an isolated sandbox; this lets the Claude Code CLI run
+      # headless (`--dangerously-skip-permissions`) as root. No effect for Codex.
+      IS_SANDBOX: "1"
     ports:
       - "127.0.0.1:3010:3010"
     volumes:
@@ -119,6 +128,7 @@ services:
       - ./data/evals:/data/evals
       - ./data/smithers:/data/smithers
       - ${CODEX_HOST_HOME:-${HOME}/.codex}:${CODEX_CONTAINER_HOME:-/home/bun/.codex}
+      - ${CLAUDE_HOST_HOME:-./data/claude}:${CLAUDE_CONTAINER_HOME:-/home/bun/.claude}
     depends_on:
       migrate:
         condition: service_completed_successfully
