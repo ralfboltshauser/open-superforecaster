@@ -251,6 +251,26 @@ try {
   `;
   await replaceTable(duck, "osf_benchmark_case_results", benchmarkCaseColumns, benchmarkCases);
 
+  const workflowChangeProposals = await pg<WorkflowChangeProposalMartRow[]>`
+    select
+      id::text as workflow_change_proposal_id,
+      source_benchmark_run_id::text as source_benchmark_run_id,
+      target_workflow_id,
+      problem_statement,
+      evidence_case_ids::text as evidence_case_ids_json,
+      proposed_change,
+      expected_metric_effect,
+      expected_cost_latency_effect,
+      overfit_risk,
+      validation_plan,
+      status,
+      created_at::text as created_at,
+      updated_at::text as updated_at
+    from workflow_change_proposals
+    order by created_at
+  `;
+  await replaceTable(duck, "osf_workflow_change_proposals", workflowChangeProposalColumns, workflowChangeProposals);
+
   const sources = await pg<SourceMartRow[]>`
     select
       id::text as source_id,
@@ -275,6 +295,7 @@ try {
     osf_artifact_rows: artifactRows.length,
     osf_benchmark_runs: benchmarkRuns.length,
     osf_benchmark_case_results: benchmarkCases.length,
+    osf_workflow_change_proposals: workflowChangeProposals.length,
     osf_source_bank_entries: sources.length,
   };
   console.log(JSON.stringify({
@@ -286,6 +307,7 @@ try {
       "select * from osf_benchmark_runs order by created_at desc limit 5;",
       "select benchmark_run_id, paired_mean_brier_delta, paired_brier_ci_lower, paired_brier_ci_upper, recommendation_status from osf_benchmark_runs where comparison_report_artifact_id is not null;",
       "select benchmark_run_id, promotion_gate_status, promotion_gate_blockers from osf_benchmark_runs order by created_at desc limit 5;",
+      "select source_benchmark_run_id, target_workflow_id, status, overfit_risk from osf_workflow_change_proposals order by created_at desc limit 5;",
       "select operation_mode, operation_submode, status, count(*) from osf_tasks group by 1,2,3 order by 4 desc;",
     ],
   }, null, 2));
@@ -407,6 +429,22 @@ const benchmarkCaseColumns = [
   { name: "updated_at", type: "VARCHAR" },
 ] satisfies DuckColumn[];
 
+const workflowChangeProposalColumns = [
+  { name: "workflow_change_proposal_id", type: "VARCHAR" },
+  { name: "source_benchmark_run_id", type: "VARCHAR" },
+  { name: "target_workflow_id", type: "VARCHAR" },
+  { name: "problem_statement", type: "VARCHAR" },
+  { name: "evidence_case_ids_json", type: "VARCHAR" },
+  { name: "proposed_change", type: "VARCHAR" },
+  { name: "expected_metric_effect", type: "VARCHAR" },
+  { name: "expected_cost_latency_effect", type: "VARCHAR" },
+  { name: "overfit_risk", type: "VARCHAR" },
+  { name: "validation_plan", type: "VARCHAR" },
+  { name: "status", type: "VARCHAR" },
+  { name: "created_at", type: "VARCHAR" },
+  { name: "updated_at", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
 const sourceColumns = [
   { name: "source_id", type: "VARCHAR" },
   { name: "task_id", type: "VARCHAR" },
@@ -426,6 +464,7 @@ type TaskMartRow = RowFor<typeof taskColumns>;
 type ArtifactRowMartRow = RowFor<typeof artifactRowColumns>;
 type BenchmarkRunMartRow = RowFor<typeof benchmarkRunColumns>;
 type BenchmarkCaseMartRow = RowFor<typeof benchmarkCaseColumns>;
+type WorkflowChangeProposalMartRow = RowFor<typeof workflowChangeProposalColumns>;
 type SourceMartRow = RowFor<typeof sourceColumns>;
 type RowFor<T extends readonly DuckColumn[]> = Record<T[number]["name"], unknown>;
 

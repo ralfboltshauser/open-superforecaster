@@ -679,6 +679,21 @@ await check("benchmark promotion gate blockers are exported to DuckDB", async ()
   return "promotion gate blockers are visible in local DuckDB analytics";
 });
 
+await check("workflow change proposals are exported to DuckDB", async () => {
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  assert(syncSource.includes("from workflow_change_proposals"), "DuckDB sync does not query workflow change proposals");
+  assert(syncSource.includes("osf_workflow_change_proposals"), "DuckDB sync missing workflow change proposal mart");
+  assert(syncSource.includes("source_benchmark_run_id"), "workflow proposal mart missing source benchmark run id");
+  assert(syncSource.includes("target_workflow_id"), "workflow proposal mart missing target workflow id");
+  assert(syncSource.includes("proposed_change"), "workflow proposal mart missing proposed change");
+  assert(syncSource.includes("expected_metric_effect"), "workflow proposal mart missing expected metric effect");
+  assert(syncSource.includes("expected_cost_latency_effect"), "workflow proposal mart missing cost/latency effect");
+  assert(syncSource.includes("overfit_risk"), "workflow proposal mart missing overfit risk");
+  assert(syncSource.includes("validation_plan"), "workflow proposal mart missing validation plan");
+  assert(syncSource.includes("evidence_case_ids_json"), "workflow proposal mart missing evidence case ids");
+  return "benchmark-derived workflow proposals are visible in local DuckDB analytics";
+});
+
 const failed = checks.filter((result) => !result.ok);
 for (const result of checks) {
   console.log(`${result.ok ? "PASS" : "FAIL"} ${result.name}: ${result.detail}`);

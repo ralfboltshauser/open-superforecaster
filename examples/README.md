@@ -55,6 +55,10 @@ lab dashboard.
 `scripts/sync-duckdb.ts` also exports those gate statuses, blocker strings,
 holdout evidence counts, source-quality counts, trace/schema counts, and
 analysis-finding counts into `osf_benchmark_runs` for local analytics.
+Benchmark-derived workflow change proposals are exported to
+`osf_workflow_change_proposals`, including source benchmark run, evidence case
+ids, proposed change, expected metric and cost/latency effects, overfit risk,
+and validation plan.
 
 ## Forecast And Research Prompts
 
