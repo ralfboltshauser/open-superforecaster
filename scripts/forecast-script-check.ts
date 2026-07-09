@@ -359,8 +359,11 @@ await check("forecast calibration guard validation replays proposal impact", asy
 
 await check("forecast attention backlog filters batch review status", async () => {
   const batchIndexRoot = resolve(tempRoot, "attention-backlog", "batches");
+  const validationRoot = resolve(tempRoot, "attention-backlog", "validations");
   const outputDir = resolve(tempRoot, "attention-backlog", "out");
+  const reviewsFile = resolve(tempRoot, "attention-backlog", "reviews.json");
   await mkdir(resolve(batchIndexRoot, "contract-batch"), { recursive: true });
+  await mkdir(validationRoot, { recursive: true });
   await writeJson(resolve(batchIndexRoot, "contract-batch", "batch-index.json"), {
     reportType: "forecast_batch_index",
     batchId: "contract-batch",
@@ -426,9 +429,49 @@ await check("forecast attention backlog filters batch review status", async () =
       },
     ],
   });
+  await writeJson(resolve(validationRoot, "calibration-guard-validation.json"), {
+    reportType: "forecast_calibration_guard_validation",
+    validations: [
+      {
+        proposalId: "calibration-guard-proposal:contract-batch:candidate-guard:80-100%",
+        sourceCandidateGuardId: "candidate-guard:80-100%",
+        bucketLabel: "80-100%",
+        suggestedAdjustment: -15,
+        matchedRows: 3,
+        brierDelta: -0.12,
+        calibrationErrorDelta: -15,
+        recommendation: "promote_for_holdout",
+      },
+      {
+        proposalId: "calibration-guard-proposal:contract-batch:candidate-guard:20-40%",
+        sourceCandidateGuardId: "candidate-guard:20-40%",
+        bucketLabel: "20-40%",
+        suggestedAdjustment: 5,
+        matchedRows: 4,
+        brierDelta: 0.02,
+        calibrationErrorDelta: 5,
+        recommendation: "reject",
+      },
+    ],
+  });
+  await writeJson(reviewsFile, {
+    reviews: [
+      {
+        attentionItemId: "calibration-validation:calibration-guard-proposal:contract-batch:candidate-guard:80-100%",
+        status: "deferred",
+        note: "Need a held-out batch first.",
+        reviewer: "contract-check",
+        updatedAt: "2026-07-09T00:08:00.000Z",
+      },
+    ],
+  });
   await runScript("scripts/forecast-attention-backlog.ts", [
     "--batch-index-dir",
     batchIndexRoot,
+    "--validation-report-dir",
+    validationRoot,
+    "--reviews-file",
+    reviewsFile,
     "--out-dir",
     outputDir,
     "--status",
@@ -440,14 +483,36 @@ await check("forecast attention backlog filters batch review status", async () =
   assert(report, "backlog report is not an object");
   assert(readString(report, "reportType") === "forecast_attention_backlog", "report type mismatch");
   assert(counts, "backlog counts missing");
-  assert(readNumber(counts, "items") === 2, "filtered item count mismatch");
-  assert(readNumber(counts, "deferred") === 2, "deferred item count mismatch");
-  assert(items.length === 2, `expected 2 backlog items, got ${items.length}`);
+  assert(readNumber(counts, "items") === 3, "filtered item count mismatch");
+  assert(readNumber(counts, "deferred") === 3, "deferred item count mismatch");
+  assert(items.length === 3, `expected 3 backlog items, got ${items.length}`);
   assert(items.some((item) => readString(item, "id") === "drift:task-2:log"), "deferred attention item missing");
   const guardItem = items.find((item) => readString(item, "id") === "candidate-guard:80-100%");
   assert(guardItem, "candidate calibration guard backlog item missing");
   assert(readString(guardItem, "kind") === "candidate_calibration_guard", "candidate calibration guard kind mismatch");
   assert(readString(guardItem, "reviewStatus") === "deferred", "wrong candidate calibration guard status selected");
+  const deferredValidationItem = items.find((item) => readString(item, "kind") === "calibration_guard_holdout_candidate");
+  assert(deferredValidationItem, "reviewed calibration validation item missing from deferred filter");
+  assert(readString(deferredValidationItem, "reviewStatus") === "deferred", "validation review status was not merged");
+  await runScript("scripts/forecast-attention-backlog.ts", [
+    "--batch-index-dir",
+    batchIndexRoot,
+    "--validation-report-dir",
+    validationRoot,
+    "--reviews-file",
+    resolve(tempRoot, "attention-backlog", "empty-reviews.json"),
+    "--out-dir",
+    outputDir,
+    "--status",
+    "open",
+  ]);
+  const openReport = readRecord(await readJson(resolve(outputDir, "attention-backlog.json")));
+  const openItems = readArray(openReport, "items");
+  const validationItem = openItems.find((item) => readString(item, "kind") === "calibration_guard_holdout_candidate");
+  assert(validationItem, "calibration guard validation backlog item missing");
+  assert(readString(validationItem, "batchId") === "contract-batch", "validation backlog batch id mismatch");
+  assert(readString(validationItem, "reviewStatus") === "open", "validation backlog item should start open");
+  assert(!openItems.some((item) => readString(item, "id")?.includes("candidate-guard:20-40%")), "rejected validation should not enter backlog");
   return "attention backlog reads batch indexes and filters review status";
 });
 

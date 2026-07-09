@@ -216,7 +216,11 @@ bun run forecast:attention -- --batch-id july-smoke --status deferred
 
 By default, the backlog includes `open` and `deferred` items from both lanes and writes
 `attention-backlog.json` plus `attention-backlog.md` under
-`data/reports/forecast-attention-backlog`.
+`data/reports/forecast-attention-backlog`. It also reads calibration guard
+validation reports and adds open follow-up items for candidates that need held-out
+validation or more resolved evidence. Pass `--reviews-file path/to/reviews.json`
+to apply local review statuses to validation follow-ups as well as batch-indexed
+attention items.
 
 To summarize the latest indexed batch health in the terminal:
 

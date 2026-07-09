@@ -13,6 +13,14 @@ import {
 
 type ReviewStatus = "open" | "reviewed" | "deferred";
 
+type AttentionReview = {
+  attentionItemId: string;
+  status: ReviewStatus;
+  note?: string;
+  reviewer?: string;
+  updatedAt?: string;
+};
+
 type BacklogItem = {
   batchId: string;
   id: string;
@@ -54,12 +62,16 @@ type BacklogReport = {
     json: string;
     markdown: string;
     batchIndexDir: string;
+    validationReportDir: string;
+    reviews: string;
   };
 };
 
 const root = resolve(import.meta.dir, "..");
 const args = Bun.argv.slice(2);
 const batchIndexDir = resolve(root, readArgValue(args, "--batch-index-dir") ?? "data/reports/forecast-batches");
+const validationReportDir = resolve(root, readArgValue(args, "--validation-report-dir") ?? "data/reports/forecast-calibration-guard-validation");
+const reviewsFile = resolve(root, readArgValue(args, "--reviews-file") ?? "data/reports/forecast-attention-reviews.json");
 const outputDir = resolve(root, readArgValue(args, "--out-dir") ?? "data/reports/forecast-attention-backlog");
 const requestedStatuses = readArgValues(args, "--status");
 const statusFilters = requestedStatuses.length > 0 ? requestedStatuses : ["open", "deferred"];
@@ -73,8 +85,9 @@ const statuses = statusFilters.map((status) => {
 
 const jsonPath = resolve(outputDir, "attention-backlog.json");
 const markdownPath = resolve(outputDir, "attention-backlog.md");
-const items = await readBacklogItems(batchIndexDir, statuses, new Set(batchFilters));
-const report = buildReport(items, statuses, batchFilters, jsonPath, markdownPath, batchIndexDir);
+const reviewsByItemId = await loadReviews(reviewsFile);
+const items = await readBacklogItems(batchIndexDir, validationReportDir, statuses, new Set(batchFilters), reviewsByItemId);
+const report = buildReport(items, statuses, batchFilters, jsonPath, markdownPath, batchIndexDir, validationReportDir, reviewsFile);
 
 await mkdir(outputDir, { recursive: true });
 await writeJson(jsonPath, report);
@@ -93,7 +106,13 @@ if (report.items.length > 20) {
   console.log(`... ${report.items.length - 20} more item(s)`);
 }
 
-async function readBacklogItems(batchRoot: string, statuses: ReviewStatus[], batchIds: Set<string>) {
+async function readBacklogItems(
+  batchRoot: string,
+  validationRoot: string,
+  statuses: ReviewStatus[],
+  batchIds: Set<string>,
+  reviewsByItemId: Map<string, AttentionReview>,
+) {
   const paths = await listFilesNamed(batchRoot, "batch-index.json");
   const items: BacklogItem[] = [];
   for (const path of paths) {
@@ -106,14 +125,30 @@ async function readBacklogItems(batchRoot: string, statuses: ReviewStatus[], bat
       continue;
     }
     for (const item of readRecordArray(payload, "attentionItems")) {
-      const backlogItem = readBacklogItem(item, batchId, path);
+      const rawBacklogItem = readBacklogItem(item, batchId, path);
+      const backlogItem = rawBacklogItem ? withReview(rawBacklogItem, reviewsByItemId.get(rawBacklogItem.id)) : null;
       if (backlogItem && statuses.includes(backlogItem.reviewStatus)) {
         items.push(backlogItem);
       }
     }
     for (const rule of readRecordArray(payload, "candidateCalibrationGuardRules")) {
-      const backlogItem = readCandidateCalibrationGuardBacklogItem(rule, batchId, path);
+      const rawBacklogItem = readCandidateCalibrationGuardBacklogItem(rule, batchId, path);
+      const backlogItem = rawBacklogItem ? withReview(rawBacklogItem, reviewsByItemId.get(rawBacklogItem.id)) : null;
       if (backlogItem && statuses.includes(backlogItem.reviewStatus)) {
+        items.push(backlogItem);
+      }
+    }
+  }
+  const validationPaths = await listFilesNamed(validationRoot, "calibration-guard-validation.json");
+  for (const path of validationPaths) {
+    const payload = readRecord(await readJson(path));
+    if (!payload) {
+      continue;
+    }
+    for (const validation of readRecordArray(payload, "validations")) {
+      const rawBacklogItem = readCalibrationGuardValidationBacklogItem(validation, path);
+      const backlogItem = rawBacklogItem ? withReview(rawBacklogItem, reviewsByItemId.get(rawBacklogItem.id)) : null;
+      if (backlogItem && statuses.includes(backlogItem.reviewStatus) && (batchIds.size === 0 || batchIds.has(backlogItem.batchId))) {
         items.push(backlogItem);
       }
     }
@@ -145,6 +180,45 @@ function readBacklogItem(item: JsonRecord, batchId: string, sourcePath: string):
     reviewer: readString(item, "reviewer") ?? undefined,
     reviewedAt: readString(item, "reviewedAt") ?? undefined,
     sourcePath,
+  };
+}
+
+async function loadReviews(path: string) {
+  const reviewsByItemId = new Map<string, AttentionReview>();
+  let payload: unknown;
+  try {
+    payload = await readJson(path);
+  } catch {
+    return reviewsByItemId;
+  }
+  const reviewRows = Array.isArray(payload) ? payload : readRecordArray(payload, "reviews");
+  for (const row of reviewRows) {
+    const attentionItemId = readString(row, "attentionItemId") ?? readString(row, "id");
+    const status = readString(row, "status");
+    if (!attentionItemId || !isReviewStatus(status)) {
+      continue;
+    }
+    reviewsByItemId.set(attentionItemId, {
+      attentionItemId,
+      status,
+      note: readString(row, "note") ?? undefined,
+      reviewer: readString(row, "reviewer") ?? readString(row, "reviewedBy") ?? undefined,
+      updatedAt: readString(row, "updatedAt") ?? readString(row, "reviewedAt") ?? undefined,
+    });
+  }
+  return reviewsByItemId;
+}
+
+function withReview(item: BacklogItem, review: AttentionReview | undefined): BacklogItem {
+  if (!review) {
+    return item;
+  }
+  return {
+    ...item,
+    reviewStatus: review.status,
+    reviewNote: review.note,
+    reviewer: review.reviewer,
+    reviewedAt: review.updatedAt,
   };
 }
 
@@ -181,6 +255,41 @@ function readCandidateCalibrationGuardBacklogItem(item: JsonRecord, batchId: str
   };
 }
 
+function readCalibrationGuardValidationBacklogItem(item: JsonRecord, sourcePath: string): BacklogItem | null {
+  const proposalId = readString(item, "proposalId");
+  const recommendation = readString(item, "recommendation");
+  if (!proposalId || recommendation === "reject") {
+    return null;
+  }
+  const batchId = batchIdFromProposalId(proposalId) ?? "unknown-batch";
+  const bucketLabel = readString(item, "bucketLabel") ?? "calibration bucket";
+  const brierDelta = readNumber(item, "brierDelta");
+  const calibrationErrorDelta = readNumber(item, "calibrationErrorDelta");
+  const matchedRows = readNumber(item, "matchedRows");
+  return {
+    batchId,
+    id: `calibration-validation:${proposalId}`,
+    reviewStatus: "open",
+    severity: recommendation === "promote_for_holdout" ? "high" : "medium",
+    kind: recommendation === "promote_for_holdout" ? "calibration_guard_holdout_candidate" : "calibration_guard_needs_more_evidence",
+    reason: `${bucketLabel} calibration guard validation recommendation: ${recommendation}.`,
+    recommendedActions: recommendation === "promote_for_holdout"
+      ? [
+        `Run a held-out resolved batch before enabling this ${bucketLabel} calibration guard candidate.`,
+      ]
+      : [
+        `Collect more resolved binary forecasts before acting on this ${bucketLabel} calibration guard candidate.`,
+      ],
+    metric: "validation_brier_delta",
+    score: brierDelta,
+    delta: calibrationErrorDelta,
+    taskId: null,
+    taskLabel: `${bucketLabel} validation (${matchedRows === null ? "unknown" : String(matchedRows)} rows)`,
+    forecastType: "binary",
+    sourcePath,
+  };
+}
+
 function buildReport(
   items: BacklogItem[],
   statuses: ReviewStatus[],
@@ -188,6 +297,8 @@ function buildReport(
   jsonPath: string,
   markdownPath: string,
   sourceDir: string,
+  validationDir: string,
+  reviewPath: string,
 ): BacklogReport {
   return {
     reportType: "forecast_attention_backlog",
@@ -210,6 +321,8 @@ function buildReport(
       json: jsonPath,
       markdown: markdownPath,
       batchIndexDir: sourceDir,
+      validationReportDir: validationDir,
+      reviews: reviewPath,
     },
   };
 }
@@ -282,6 +395,11 @@ function readStringArray(value: unknown, key: string) {
 function readNumber(value: unknown, key: string) {
   const raw = readRecord(value)?.[key];
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
+function batchIdFromProposalId(proposalId: string) {
+  const match = /^calibration-guard-proposal:([^:]+):/.exec(proposalId);
+  return match?.[1] ?? null;
 }
 
 function countStatus(items: BacklogItem[], status: ReviewStatus) {
