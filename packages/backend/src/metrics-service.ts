@@ -65,6 +65,21 @@ type CalibrationGuardDefaultPlanMetricRow = {
   implementationStatus: string | null;
 };
 
+type ForecastAttentionMetricRow = {
+  reportPath: string;
+  batchId: string | null;
+  generatedAt: string | null;
+  attentionItemId: string | null;
+  reviewStatus: string | null;
+  severity: string | null;
+  kind: string | null;
+  metric: string | null;
+  score: number | null;
+  delta: number | null;
+  forecastType: string | null;
+  taskId: string | null;
+};
+
 export async function renderPrometheusMetrics(db: Db, options: { root?: string } = {}) {
   const [
     taskRows,
@@ -1285,8 +1300,53 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
   if (options.root) {
     const validationRows = await readCalibrationGuardValidationMetricRows(options.root);
     const defaultPlanRows = await readCalibrationGuardDefaultPlanMetricRows(options.root);
+    const attentionRows = await readForecastAttentionMetricRows(options.root);
     const validationReportPaths = uniqueStrings(validationRows.map((row) => row.reportPath));
     const defaultPlanReportPaths = uniqueStrings(defaultPlanRows.map((row) => row.reportPath));
+    const attentionReportPaths = uniqueStrings(attentionRows.map((row) => row.reportPath));
+    metrics.gauge(
+      "open_superforecaster_forecast_attention_reports_total",
+      "Local forecast batch index report count containing forecast attention items.",
+      attentionReportPaths.length,
+    );
+    metrics.gauge(
+      "open_superforecaster_forecast_attention_items_total",
+      "Local forecast attention item count by review status, severity, and kind.",
+      attentionRows.length,
+    );
+    for (const [key, count] of countBy(attentionRows, (row) =>
+      labelKey({
+        review_status: row.reviewStatus ?? "unknown",
+        severity: row.severity ?? "unknown",
+        kind: row.kind ?? "unknown",
+      }),
+    )) {
+      metrics.gauge(
+        "open_superforecaster_forecast_attention_items_total",
+        "Local forecast attention item count by review status, severity, and kind.",
+        count,
+        parseLabelKey(key),
+      );
+    }
+    for (const item of attentionRows.slice(-50)) {
+      const labels = {
+        batch_id: item.batchId ?? "unknown",
+        attention_item_id: item.attentionItemId ?? "unknown",
+        review_status: item.reviewStatus ?? "unknown",
+        severity: item.severity ?? "unknown",
+        kind: item.kind ?? "unknown",
+        metric: item.metric ?? "unknown",
+        forecast_type: item.forecastType ?? "unknown",
+        task_id: item.taskId ?? "none",
+      };
+      metrics.gauge("open_superforecaster_forecast_attention_item_info", "Recent forecast attention item metadata.", 1, labels);
+      if (item.score !== null) {
+        metrics.gauge("open_superforecaster_forecast_attention_item_score", "Recent forecast attention item score.", item.score, labels);
+      }
+      if (item.delta !== null) {
+        metrics.gauge("open_superforecaster_forecast_attention_item_delta", "Recent forecast attention item delta.", item.delta, labels);
+      }
+    }
     metrics.gauge(
       "open_superforecaster_calibration_guard_validation_reports_total",
       "Local calibration guard validation report count.",
@@ -1540,6 +1600,47 @@ async function readCalibrationGuardDefaultPlanMetricRows(root: string): Promise<
   return rows.sort((left, right) =>
     String(left.generatedAt ?? "").localeCompare(String(right.generatedAt ?? ""))
     || String(left.proposalId ?? "").localeCompare(String(right.proposalId ?? ""))
+    || left.reportPath.localeCompare(right.reportPath)
+  );
+}
+
+async function readForecastAttentionMetricRows(root: string): Promise<ForecastAttentionMetricRow[]> {
+  const reportPaths = await listFilesNamed(resolve(root, "data/reports/forecast-batches"), "batch-index.json");
+  const rowsByKey = new Map<string, ForecastAttentionMetricRow>();
+  for (const reportPath of reportPaths) {
+    let payload: Record<string, unknown> | null;
+    try {
+      payload = asRecord(JSON.parse(await readFile(reportPath, "utf8")));
+    } catch {
+      continue;
+    }
+    const batchId = readString(payload, "batchId");
+    const generatedAt = readString(payload, "generatedAt");
+    for (const item of readRecordArray(payload, "attentionItems")) {
+      const attentionItemId = readString(item, "id");
+      if (!batchId || !attentionItemId) {
+        continue;
+      }
+      rowsByKey.set(`${batchId}:${attentionItemId}`, {
+        reportPath,
+        batchId,
+        generatedAt,
+        attentionItemId,
+        reviewStatus: readString(item, "reviewStatus"),
+        severity: readString(item, "severity"),
+        kind: readString(item, "kind"),
+        metric: readString(item, "metric"),
+        score: readNumber(item, "score"),
+        delta: readNumber(item, "delta"),
+        forecastType: readString(item, "forecastType"),
+        taskId: readString(item, "taskId"),
+      });
+    }
+  }
+  return [...rowsByKey.values()].sort((left, right) =>
+    String(left.generatedAt ?? "").localeCompare(String(right.generatedAt ?? ""))
+    || String(left.batchId ?? "").localeCompare(String(right.batchId ?? ""))
+    || String(left.attentionItemId ?? "").localeCompare(String(right.attentionItemId ?? ""))
     || left.reportPath.localeCompare(right.reportPath)
   );
 }
