@@ -694,6 +694,17 @@ await check("workflow change proposals are exported to DuckDB", async () => {
   return "benchmark-derived workflow proposals are visible in local DuckDB analytics";
 });
 
+await check("workflow change proposals are visible in the lab dashboard", async () => {
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(dashboardSource.includes("workflowChangeProposals"), "lab dashboard does not read workflow change proposals");
+  assert(dashboardSource.includes("Workflow proposals"), "lab dashboard does not render a workflow proposal section");
+  assert(dashboardSource.includes("targetWorkflowId"), "lab dashboard proposal section missing target workflow id");
+  assert(dashboardSource.includes("proposedChange"), "lab dashboard proposal section missing proposed change");
+  assert(dashboardSource.includes("overfitRisk"), "lab dashboard proposal section missing overfit risk");
+  assert(dashboardSource.includes("validationPlan"), "lab dashboard proposal section missing validation plan");
+  return "benchmark-derived workflow proposals are visible where promotion blockers are reviewed";
+});
+
 const failed = checks.filter((result) => !result.ok);
 for (const result of checks) {
   console.log(`${result.ok ? "PASS" : "FAIL"} ${result.name}: ${result.detail}`);

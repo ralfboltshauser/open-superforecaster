@@ -59,6 +59,8 @@ Benchmark-derived workflow change proposals are exported to
 `osf_workflow_change_proposals`, including source benchmark run, evidence case
 ids, proposed change, expected metric and cost/latency effects, overfit risk,
 and validation plan.
+The lab benchmark list also shows the latest proposals beside promotion
+blockers, so review can connect observed failures to concrete workflow changes.
 
 ## Forecast And Research Prompts
 

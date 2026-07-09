@@ -151,6 +151,7 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
   const traceQuality = isRecord(run.traceQualityFindings) ? run.traceQualityFindings : null
   const comparison = isRecord(run.comparison) ? run.comparison : null
   const recommendation = isRecord(comparison?.recommendation) ? comparison.recommendation : null
+  const workflowChangeProposals = readArray(run, "workflowChangeProposals").filter(isRecord)
   const blockers = readArray(promotionGate, "blockers").filter((blocker): blocker is string => typeof blocker === "string")
   const recommendationStatus = typeof promotionGate?.recommendationStatus === "string" ? promotionGate.recommendationStatus : null
   const primaryBaselineBenchmarkRunId = typeof recommendation?.primaryBaselineBenchmarkRunId === "string" ? recommendation.primaryBaselineBenchmarkRunId : null
@@ -224,6 +225,32 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
               {blocker}
             </Badge>
           ))}
+        </div>
+      ) : null}
+      {workflowChangeProposals.length ? (
+        <div className="mt-3 border-t pt-3">
+          <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Workflow proposals</p>
+          <div className="flex flex-col gap-2">
+            {workflowChangeProposals.slice(0, 2).map((proposal) => (
+              <div className="rounded-md border px-3 py-2" key={String(proposal.id ?? proposal.proposedChange)}>
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="min-w-0 truncate text-xs font-medium">
+                    {String(proposal.targetWorkflowId ?? "workflow")}
+                  </span>
+                  <Badge variant="secondary">{String(proposal.status ?? "candidate")}</Badge>
+                  <Badge variant="outline">risk {String(proposal.overfitRisk ?? "unknown")}</Badge>
+                </div>
+                <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+                  {String(proposal.proposedChange ?? proposal.problemStatement ?? "No proposed change recorded.")}
+                </p>
+                {proposal.validationPlan ? (
+                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                    validation {String(proposal.validationPlan)}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
     </div>
