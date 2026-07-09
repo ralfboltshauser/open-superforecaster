@@ -84,7 +84,9 @@ never-probability bands. Categorical forecast score rows include top-choice
 confidence, normalized entropy, category source, category count, and closed-set
 status. All product forecast score rows include evidence-coverage fields for
 source count, source-domain count, uncertainty count, rationale length, and
-method. Binary
+method, plus input-context fields for resolution criteria/date, market price,
+question length, option/threshold counts, condition/unit flags, and context
+completeness. Binary
 aggregate calibration buckets are exported to `osf_binary_calibration_buckets`
 with bucket error, diagnostic direction, and candidate guard adjustment fields.
 Those bucket rows are generated from the same shared calibration report builder
@@ -193,9 +195,10 @@ anchors, adds binary aggregate calibration buckets with expected calibration
 error, turns large calibration bucket gaps into attention items, emits
 candidate calibration guard rules for review, and writes JSON plus Markdown
 snapshots. Numeric/date interval groups, date never-probability groups,
-categorical confidence/entropy/source groups, and evidence-coverage groups are
-included alongside the binary, conditional, and thresholded groups. The lab
-dashboard renders the same outcome groups for quick scan review.
+categorical confidence/entropy/source groups, evidence-coverage groups, and
+input-context groups are included alongside the binary, conditional, and
+thresholded groups. The lab dashboard renders the same outcome groups for quick
+scan review.
 
 Use the same `--batch-id` across forecast ops, resolution, and performance
 commands to keep their manifests tied to the same operational batch.

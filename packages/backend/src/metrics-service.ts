@@ -24,6 +24,7 @@ import { readCategoricalForecastSnapshot } from "./categorical-forecast-metadata
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
+import { readForecastInputContextSnapshot } from "./forecast-input-context-metadata";
 import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport } from "./performance-calibration";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
@@ -884,6 +885,54 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge(
       "open_superforecaster_evidence_coverage_score_mean",
       "Mean product aggregate forecast score by evidence coverage bands.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
+    );
+  }
+  const inputContextScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readForecastInputContextSnapshot(row.scoreConfig) !== null
+  );
+  if (inputContextScoreRows.length === 0) {
+    const labels = {
+      score_type: "all",
+      context_completeness_band: "none",
+      market_price_band: "unknown",
+      question_length_band: "unknown",
+    };
+    metrics.gauge(
+      "open_superforecaster_input_context_scores_total",
+      "Product aggregate forecast score rows by input context bands.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_input_context_score_mean",
+      "Mean product aggregate forecast score by input context bands.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(inputContextScoreRows, (row) => {
+    const inputContext = readForecastInputContextSnapshot(row.scoreConfig);
+    return labelKey({
+      score_type: row.scoreType,
+      context_completeness_band: inputContext?.contextCompletenessBand ?? "unknown",
+      market_price_band: inputContext?.hasMarketPrice ? inputContext.marketPriceBand : "none",
+      question_length_band: inputContext?.questionLengthBand ?? "unknown",
+    });
+  })) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_input_context_scores_total",
+      "Product aggregate forecast score rows by input context bands.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_input_context_score_mean",
+      "Mean product aggregate forecast score by input context bands.",
       mean(rows.map((row) => row.scoreValue)),
       labels,
     );

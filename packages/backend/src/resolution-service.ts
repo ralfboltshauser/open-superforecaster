@@ -19,6 +19,7 @@ import { readCategoricalForecastSnapshot } from "./categorical-forecast-metadata
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
+import { readForecastInputContextSnapshot } from "./forecast-input-context-metadata";
 import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
 import { readThresholdedForecastSnapshot } from "./thresholded-forecast-metadata";
@@ -151,6 +152,7 @@ export async function resolveForecastTask(db: Db, input: ForecastResolutionInput
   const forecastType = forecastTypeFromSubmode(task.operationSubmode);
   validateResolvedValue(forecastType, input.resolvedValue);
   const resolutionSource = input.resolutionSource?.trim() || "manual";
+  const inputContext = readForecastInputContextSnapshot(task.configJson);
   const existing = input.forceNew
     ? null
     : await findExistingResolution(db, {
@@ -223,6 +225,7 @@ export async function resolveForecastTask(db: Db, input: ForecastResolutionInput
           target: "aggregate",
           forecastType,
           resolutionSource,
+          ...(inputContext ? { inputContext } : {}),
         },
       })),
     );
@@ -252,6 +255,7 @@ export async function resolveForecastTask(db: Db, input: ForecastResolutionInput
           forecastType,
           forecasterLabel: attempt.forecasterLabel,
           resolutionSource,
+          ...(inputContext ? { inputContext } : {}),
         },
       })),
     );
@@ -381,6 +385,9 @@ export async function getForecastPerformanceReport(db: Db) {
   const byEvidenceSourceCount = groupScores(aggregateScores, evidenceSourceCountGroupKey);
   const byEvidenceUncertaintyCount = groupScores(aggregateScores, evidenceUncertaintyCountGroupKey);
   const byEvidenceRationaleLength = groupScores(aggregateScores, evidenceRationaleLengthGroupKey);
+  const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
+  const byInputMarketContext = groupScores(aggregateScores, inputMarketContextGroupKey);
+  const byInputQuestionLength = groupScores(aggregateScores, inputQuestionLengthGroupKey);
   const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
@@ -440,6 +447,9 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceSourceCount,
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
+      byInputContextCompleteness,
+      byInputMarketContext,
+      byInputQuestionLength,
     },
     bestResolvedForecasts,
     worstResolvedForecasts,
@@ -489,6 +499,9 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceSourceCount,
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
+      byInputContextCompleteness,
+      byInputMarketContext,
+      byInputQuestionLength,
       bestResolvedForecasts,
       worstResolvedForecasts,
       scoreTrends,
@@ -1293,6 +1306,27 @@ function evidenceRationaleLengthGroupKey(score: typeof forecastScores.$inferSele
   return `evidence_rationale:${evidenceCoverage?.rationaleLengthBand ?? "unrecorded"}`;
 }
 
+function inputContextCompletenessGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_context:${inputContext?.contextCompletenessBand ?? "unrecorded"}`;
+}
+
+function inputMarketContextGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  if (!inputContext) {
+    return "input_market:unrecorded";
+  }
+  if (!inputContext.hasMarketPrice) {
+    return "input_market:none";
+  }
+  return `input_market:${inputContext.marketPriceBand}`;
+}
+
+function inputQuestionLengthGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_question:${inputContext?.questionLengthBand ?? "unrecorded"}`;
+}
+
 function rankAggregateCases(
   rows: Array<typeof forecastScores.$inferSelect>,
   taskMeta: Map<string, { id: string; label: string; operationSubmode: string | null }>,
@@ -1776,6 +1810,9 @@ function renderPerformanceMarkdown(input: {
   byEvidenceSourceCount: PerformanceGroup[];
   byEvidenceUncertaintyCount: PerformanceGroup[];
   byEvidenceRationaleLength: PerformanceGroup[];
+  byInputContextCompleteness: PerformanceGroup[];
+  byInputMarketContext: PerformanceGroup[];
+  byInputQuestionLength: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
   worstResolvedForecasts: PerformanceCase[];
   scoreTrends: PerformanceTrend[];
@@ -1868,6 +1905,15 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Evidence rationale-length groups",
     ...renderGroupTable(input.byEvidenceRationaleLength),
+    "",
+    "## Input context-completeness groups",
+    ...renderGroupTable(input.byInputContextCompleteness),
+    "",
+    "## Input market-context groups",
+    ...renderGroupTable(input.byInputMarketContext),
+    "",
+    "## Input question-length groups",
+    ...renderGroupTable(input.byInputQuestionLength),
     "",
     "## Calibration guard impact",
     ...renderCalibrationGuardImpact(input.calibrationGuardImpact),

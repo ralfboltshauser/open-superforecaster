@@ -493,6 +493,9 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byEvidenceSourceCount = readArray(groups, "byEvidenceSourceCount").filter(isRecord)
   const byEvidenceUncertaintyCount = readArray(groups, "byEvidenceUncertaintyCount").filter(isRecord)
   const byEvidenceRationaleLength = readArray(groups, "byEvidenceRationaleLength").filter(isRecord)
+  const byInputContextCompleteness = readArray(groups, "byInputContextCompleteness").filter(isRecord)
+  const byInputMarketContext = readArray(groups, "byInputMarketContext").filter(isRecord)
+  const byInputQuestionLength = readArray(groups, "byInputQuestionLength").filter(isRecord)
   const bestForecasts = readArray(performance, "bestResolvedForecasts").filter(isRecord)
   const worstForecasts = readArray(performance, "worstResolvedForecasts").filter(isRecord)
   const scoreTrends = readArray(performance, "scoreTrends").filter(isRecord)
@@ -561,6 +564,9 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byEvidenceSourceCount.length ? <PerformancePlanShapeGroupList groups={byEvidenceSourceCount} title="Evidence source outcomes" skipKey="evidence_sources:unrecorded" fallback="evidence sources" /> : null}
         {byEvidenceUncertaintyCount.length ? <PerformancePlanShapeGroupList groups={byEvidenceUncertaintyCount} title="Evidence uncertainty outcomes" skipKey="evidence_uncertainties:unrecorded" fallback="evidence uncertainties" /> : null}
         {byEvidenceRationaleLength.length ? <PerformancePlanShapeGroupList groups={byEvidenceRationaleLength} title="Evidence rationale outcomes" skipKey="evidence_rationale:unrecorded" fallback="evidence rationale" /> : null}
+        {byInputContextCompleteness.length ? <PerformancePlanShapeGroupList groups={byInputContextCompleteness} title="Input context outcomes" skipKey="input_context:unrecorded" fallback="input context" /> : null}
+        {byInputMarketContext.length ? <PerformancePlanShapeGroupList groups={byInputMarketContext} title="Input market outcomes" skipKey="input_market:unrecorded" fallback="input market" /> : null}
+        {byInputQuestionLength.length ? <PerformancePlanShapeGroupList groups={byInputQuestionLength} title="Input question outcomes" skipKey="input_question:unrecorded" fallback="input question" /> : null}
         {calibrationBuckets.length ? <PerformanceCalibrationList buckets={calibrationBuckets} summary={calibrationSummary} /> : null}
         {candidateCalibrationGuardRules.length ? <PerformanceCandidateGuardList rules={candidateCalibrationGuardRules} /> : null}
         {needsAttention.length ? <PerformanceAttentionList items={needsAttention} /> : null}

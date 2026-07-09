@@ -15,6 +15,7 @@ import { readCategoricalForecastSnapshot } from "../packages/backend/src/categor
 import { readConditionalForecastSnapshot } from "../packages/backend/src/conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "../packages/backend/src/date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "../packages/backend/src/evidence-coverage-metadata";
+import { readForecastInputContextSnapshot } from "../packages/backend/src/forecast-input-context-metadata";
 import { readNumericForecastSnapshot } from "../packages/backend/src/numeric-forecast-metadata";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
 import { readThresholdedForecastSnapshot } from "../packages/backend/src/thresholded-forecast-metadata";
@@ -847,6 +848,9 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Evidence source-count groups"), "performance Markdown missing evidence source-count group section");
   assert(resolutionSource.includes("## Evidence uncertainty-count groups"), "performance Markdown missing evidence uncertainty-count group section");
   assert(resolutionSource.includes("## Evidence rationale-length groups"), "performance Markdown missing evidence rationale-length group section");
+  assert(resolutionSource.includes("## Input context-completeness groups"), "performance Markdown missing input context-completeness group section");
+  assert(resolutionSource.includes("## Input market-context groups"), "performance Markdown missing input market-context group section");
+  assert(resolutionSource.includes("## Input question-length groups"), "performance Markdown missing input question-length group section");
   assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");
   assert(dashboardSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not read candidate calibration guard rules");
   assert(dashboardSource.includes("Candidate calibration guards"), "lab dashboard does not render candidate calibration guard rules");
@@ -896,6 +900,12 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Evidence uncertainty outcomes"), "lab dashboard does not render evidence uncertainty performance groups");
   assert(dashboardSource.includes("byEvidenceRationaleLength"), "lab dashboard does not read evidence rationale performance groups");
   assert(dashboardSource.includes("Evidence rationale outcomes"), "lab dashboard does not render evidence rationale performance groups");
+  assert(dashboardSource.includes("byInputContextCompleteness"), "lab dashboard does not read input context performance groups");
+  assert(dashboardSource.includes("Input context outcomes"), "lab dashboard does not render input context performance groups");
+  assert(dashboardSource.includes("byInputMarketContext"), "lab dashboard does not read input market performance groups");
+  assert(dashboardSource.includes("Input market outcomes"), "lab dashboard does not render input market performance groups");
+  assert(dashboardSource.includes("byInputQuestionLength"), "lab dashboard does not read input question performance groups");
+  assert(dashboardSource.includes("Input question outcomes"), "lab dashboard does not render input question performance groups");
   return "candidate calibration guard rules are visible in report artifacts and the lab dashboard";
 });
 
@@ -976,6 +986,8 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_categorical_distribution_score_mean"), "categorical distribution score mean metric missing");
   assert(metricsSource.includes("open_superforecaster_evidence_coverage_scores_total"), "evidence coverage score count metric missing");
   assert(metricsSource.includes("open_superforecaster_evidence_coverage_score_mean"), "evidence coverage score mean metric missing");
+  assert(metricsSource.includes("open_superforecaster_input_context_scores_total"), "input context score count metric missing");
+  assert(metricsSource.includes("open_superforecaster_input_context_score_mean"), "input context score mean metric missing");
   assert(metricsSource.includes("buildCalibrationGuardImpact"), "metrics exporter does not use shared calibration guard impact builder");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_status"), "calibration guard impact status metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_brier_delta"), "calibration guard impact Brier delta metric missing");
@@ -999,6 +1011,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(smokeSource.includes("open_superforecaster_date_distribution_scores_total"), "smoke check does not require date distribution metric");
   assert(smokeSource.includes("open_superforecaster_categorical_distribution_scores_total"), "smoke check does not require categorical distribution metric");
   assert(smokeSource.includes("open_superforecaster_evidence_coverage_scores_total"), "smoke check does not require evidence coverage metric");
+  assert(smokeSource.includes("open_superforecaster_input_context_scores_total"), "smoke check does not require input context metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
   assert(metricsRouteSource.includes("renderPrometheusMetrics"), "metrics route does not render Prometheus metrics");
   assert(metricsRouteSource.includes("text/plain; version=0.0.4"), "metrics route missing Prometheus content type");
@@ -1043,6 +1056,9 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("evidence_source_count_band"), "forecast score mart missing evidence source count band");
   assert(syncSource.includes("evidence_uncertainty_count_band"), "forecast score mart missing evidence uncertainty count band");
   assert(syncSource.includes("evidence_rationale_length_band"), "forecast score mart missing evidence rationale length band");
+  assert(syncSource.includes("input_context_completeness_band"), "forecast score mart missing input context completeness band");
+  assert(syncSource.includes("input_market_price_band"), "forecast score mart missing input market price band");
+  assert(syncSource.includes("input_question_length_band"), "forecast score mart missing input question length band");
   assert(syncSource.includes("candidate_guard_suggested_adjustment"), "binary calibration bucket mart missing candidate guard adjustment");
   assert(syncSource.includes("candidate_guard_activation_status"), "binary calibration bucket mart missing candidate guard activation status");
   assert(syncSource.includes("readCalibrationGuardValidationRows"), "DuckDB sync does not read calibration guard validation reports");
@@ -1408,6 +1424,65 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
   assert(dashboardSource.includes("Evidence source outcomes"), "lab dashboard does not render evidence source outcomes");
   assert(dashboardSource.includes("Evidence rationale outcomes"), "lab dashboard does not render evidence rationale outcomes");
   return "forecast evidence coverage is persisted and visible in resolved score analytics";
+});
+
+await check("forecast input context metadata reaches resolved score analytics", async () => {
+  const snapshot = readForecastInputContextSnapshot({
+    forecastInput: {
+      question: "Will ACME deliver at least 1000 units before January 1, 2028?",
+      resolutionCriteria: "Resolve from audited delivery totals.",
+      resolutionDate: "2028-01-01",
+      background: "The company has guided to a production ramp.",
+      marketPrice: 72,
+      marketPlatform: "Kalshi",
+      categories: ["Yes", "No", "Other"],
+      thresholds: [
+        { label: "at least 500", value: 500 },
+        { label: "at least 1000", value: 1000 },
+      ],
+      unit: "units",
+    },
+  });
+  assert(snapshot?.questionLength === 11, "input context question length mismatch");
+  assert(snapshot?.questionLengthBand === "short", "input context question length band mismatch");
+  assert(snapshot?.hasResolutionCriteria === true, "input context resolution criteria flag mismatch");
+  assert(snapshot?.hasResolutionDate === true, "input context resolution date flag mismatch");
+  assert(snapshot?.hasBackground === true, "input context background flag mismatch");
+  assert(snapshot?.hasMarketPrice === true, "input context market flag mismatch");
+  assert(snapshot?.marketPriceBand === "high", "input context market price band mismatch");
+  assert(snapshot?.marketPlatform === "Kalshi", "input context market platform mismatch");
+  assert(snapshot?.categoryCount === 3, "input context category count mismatch");
+  assert(snapshot?.categoryCountBand === "few", "input context category count band mismatch");
+  assert(snapshot?.thresholdCount === 2, "input context threshold count mismatch");
+  assert(snapshot?.thresholdCountBand === "curve", "input context threshold band mismatch");
+  assert(snapshot?.hasUnit === true, "input context unit flag mismatch");
+  assert(snapshot?.contextCompleteness === 7, "input context completeness mismatch");
+  assert(snapshot?.contextCompletenessBand === "rich", "input context completeness band mismatch");
+
+  const fallbackSnapshot = readForecastInputContextSnapshot({
+    prompt: "Will this launch happen?",
+  });
+  assert(fallbackSnapshot?.questionLength === 4, "legacy prompt input context fallback mismatch");
+  assert(fallbackSnapshot?.contextCompletenessBand === "sparse", "legacy prompt context completeness mismatch");
+  const persistedSnapshot = readForecastInputContextSnapshot({ inputContext: snapshot });
+  assert(persistedSnapshot?.contextCompletenessBand === "rich", "persisted input context snapshot was not readable");
+  assert(persistedSnapshot?.marketPriceBand === "high", "persisted input context market band mismatch");
+
+  const runPlanSource = await readFile(resolve(root, "apps/web/src/app/api/runs/run-request.ts"), "utf8");
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(runPlanSource.includes("forecastInput: smithersInput"), "run planner does not persist forecast input in task config");
+  assert(resolutionSource.includes("readForecastInputContextSnapshot(task.configJson)"), "resolution scoring does not read input context from task config");
+  assert(resolutionSource.includes("byInputContextCompleteness"), "performance report does not group by input context completeness");
+  assert(resolutionSource.includes("byInputMarketContext"), "performance report does not group by input market context");
+  assert(metricsSource.includes("open_superforecaster_input_context_scores_total"), "metrics missing input context score counts");
+  assert(syncSource.includes("input_context_completeness_band"), "DuckDB forecast score mart missing input context completeness band");
+  assert(syncSource.includes("input_has_resolution_criteria"), "DuckDB forecast score mart missing resolution criteria flag");
+  assert(dashboardSource.includes("Input context outcomes"), "lab dashboard does not render input context outcomes");
+  assert(dashboardSource.includes("Input market outcomes"), "lab dashboard does not render input market outcomes");
+  return "forecast input context is persisted and visible in resolved score analytics";
 });
 
 await check("binary aggregate quality metadata is visible before resolution", async () => {

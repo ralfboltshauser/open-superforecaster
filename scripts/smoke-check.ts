@@ -389,6 +389,7 @@ async function runSmokeChecks() {
       "open_superforecaster_date_distribution_scores_total",
       "open_superforecaster_categorical_distribution_scores_total",
       "open_superforecaster_evidence_coverage_scores_total",
+      "open_superforecaster_input_context_scores_total",
       "open_superforecaster_calibration_guard_impact_status",
       "open_superforecaster_calibration_guard_validation_reports_total",
     ];

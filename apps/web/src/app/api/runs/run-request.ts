@@ -34,12 +34,30 @@ export function createRunPlan(body: RunRequestBody) {
   const independentTableRows = isAgentMap ? rows : isRank ? rankRows : [];
   const thresholds = extractThresholds(body);
   const prompt = String(body.prompt ?? "");
+  const smithersInput = smithersInputFor({
+    body,
+    classification,
+    isAgentMap,
+    isDeepResearch,
+    isDedupe,
+    isForecast,
+    isMerge,
+    isRank,
+    leftRows,
+    objectRows,
+    prompt,
+    rankRows,
+    rightRows,
+    rows,
+    thresholds,
+  });
 
   return {
     classification,
     configJson: {
       prompt: body.prompt,
       classification,
+      ...(isForecast ? { forecastInput: smithersInput } : {}),
       ...(isAgentMap ? { rows } : {}),
       ...(isRank ? { rows: rankRows } : {}),
       ...(isMerge ? { leftRows, rightRows } : {}),
@@ -76,23 +94,7 @@ export function createRunPlan(body: RunRequestBody) {
       isMerge,
       isRank,
     }),
-    smithersInput: smithersInputFor({
-      body,
-      classification,
-      isAgentMap,
-      isDeepResearch,
-      isDedupe,
-      isForecast,
-      isMerge,
-      isRank,
-      leftRows,
-      objectRows,
-      prompt,
-      rankRows,
-      rightRows,
-      rows,
-      thresholds,
-    }),
+    smithersInput,
     workflow,
     workflowPath,
   };

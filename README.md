@@ -304,7 +304,11 @@ status, and category count so diffuse or model-generated option sets can be
 reviewed separately. All forecast score rows also preserve evidence-coverage
 metadata, including source count, source-domain count, uncertainty count,
 rationale length, and method, so weakly sourced or thinly explained forecasts
-can be compared against resolved outcomes.
+can be compared against resolved outcomes. New forecast runs also preserve
+structured input context in score rows, including resolution criteria/date,
+market price, background, option/threshold counts, condition/unit flags, and
+question length, so market-anchored or richly specified questions can be
+measured separately from sparse prompts.
 
 To consolidate those local artifacts into one audit file:
 
