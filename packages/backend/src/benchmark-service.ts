@@ -30,9 +30,15 @@ import { exportTraceBundle } from "./trace-bundle";
 type Db = ReturnType<typeof createDb>["db"];
 type BenchmarkRunRow = typeof benchmarkRuns.$inferSelect;
 type BenchmarkCaseResultRow = typeof benchmarkCaseResults.$inferSelect;
+type BenchmarkCaseSplitRow = {
+  id: string;
+  cutoffMetadataJson: Record<string, unknown>;
+  lineageJson: Record<string, unknown>;
+};
 type PairedMetricDeltaKey = "brierDelta" | "logDelta";
 type PairedDeltaRow = {
   benchmarkCaseId: string;
+  split: string;
   candidateBenchmarkCaseResultId: string;
   baselineBenchmarkCaseResultId: string;
   candidateStatus: string;
@@ -65,6 +71,7 @@ type BenchmarkPromotionComparisonStatus =
   | "needs_baseline"
   | "needs_more_cases"
   | "needs_paired_cases"
+  | "needs_holdout_evidence"
   | "wait_for_completion"
   | string;
 
@@ -78,6 +85,7 @@ export const benchmarkPromotionGateBlockerIds = [
   "unexplained_component_disagreement",
   "large_probability_misses",
   "worse_than_baseline_cases",
+  "insufficient_holdout_evidence",
 ] as const;
 
 const [
@@ -90,7 +98,11 @@ const [
   blockerUnexplainedComponentDisagreement,
   blockerLargeProbabilityMisses,
   blockerWorseThanBaselineCases,
+  blockerInsufficientHoldoutEvidence,
 ] = benchmarkPromotionGateBlockerIds;
+
+export const benchmarkHoldoutSplitIds = ["holdout", "test", "validation", "eval", "evaluation"] as const;
+const minimumPromotionHoldoutCases = 10;
 
 export type BenchmarkPromotionGateEvidenceInput = {
   runStatus: string;
@@ -101,6 +113,7 @@ export type BenchmarkPromotionGateEvidenceInput = {
   baselineSanityFindings?: Record<string, unknown> | null;
   componentDisagreementFindings?: Record<string, unknown> | null;
   forecastErrorFindings?: Record<string, unknown> | null;
+  splitFindings?: Record<string, unknown> | null;
 };
 
 export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotionGateEvidenceInput) {
@@ -133,6 +146,9 @@ export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotio
   }
   if (readFindingCount(input.forecastErrorFindings, "worseThanBaselineCases", "worse_than_baseline_cases") > 0) {
     blockers.push(blockerWorseThanBaselineCases);
+  }
+  if (readFindingCount(input.splitFindings, "holdoutCaseResults", "holdout_case_results") < minimumPromotionHoldoutCases) {
+    blockers.push(blockerInsufficientHoldoutEvidence);
   }
   return {
     status: blockers.length === 0 ? "review_for_promotion" : "needs_more_evidence",
@@ -171,6 +187,78 @@ function readFindingCount(findings: Record<string, unknown> | null | undefined, 
     }
   }
   return 0;
+}
+
+function benchmarkSplitSummaryForResults(input: {
+  results: Array<{ benchmarkCaseId: string }>;
+  casesById: Map<string, BenchmarkCaseSplitRow>;
+}) {
+  const splitCounts: Record<string, number> = {};
+  for (const result of input.results) {
+    const benchmarkCase = input.casesById.get(result.benchmarkCaseId);
+    const split = normalizeBenchmarkSplit(readCaseSplit(benchmarkCase));
+    splitCounts[split] = (splitCounts[split] ?? 0) + 1;
+  }
+  const holdoutCaseResults = Object.entries(splitCounts)
+    .filter(([split]) => isBenchmarkHoldoutSplit(split))
+    .reduce((sum, [, count]) => sum + count, 0);
+  const unspecifiedCaseResults = splitCounts.unspecified ?? 0;
+  return {
+    totalCaseResults: input.results.length,
+    splitCounts,
+    holdoutSplitIds: Object.keys(splitCounts).filter(isBenchmarkHoldoutSplit),
+    holdoutCaseResults,
+    nonHoldoutCaseResults: input.results.length - holdoutCaseResults - unspecifiedCaseResults,
+    unspecifiedCaseResults,
+    requiredHoldoutCaseResults: minimumPromotionHoldoutCases,
+    status: holdoutCaseResults >= minimumPromotionHoldoutCases ? "sufficient_holdout_evidence" : "insufficient_holdout_evidence",
+    note:
+      holdoutCaseResults >= minimumPromotionHoldoutCases
+        ? "This benchmark run includes enough held-out case results for promotion review."
+        : "Promotion review requires enough held-out case results so workflow changes are not promoted from tuned smoke evidence.",
+  };
+}
+
+async function loadBenchmarkCaseSplitRows(db: Db, results: Array<{ benchmarkCaseId: string }>) {
+  const caseIds = uniqueStrings(results.map((result) => result.benchmarkCaseId));
+  if (caseIds.length === 0) {
+    return [];
+  }
+  return await db
+    .select({
+      id: benchmarkCases.id,
+      cutoffMetadataJson: benchmarkCases.cutoffMetadataJson,
+      lineageJson: benchmarkCases.lineageJson,
+    })
+    .from(benchmarkCases)
+    .where(inArray(benchmarkCases.id, caseIds));
+}
+
+function splitRowsById(rows: BenchmarkCaseSplitRow[]) {
+  return new Map(rows.map((benchmarkCase) => [benchmarkCase.id, benchmarkCase]));
+}
+
+function readCaseSplit(benchmarkCase?: BenchmarkCaseSplitRow) {
+  if (!benchmarkCase) {
+    return null;
+  }
+  const cutoffSplit = readString(benchmarkCase.cutoffMetadataJson, "split", "caseSplit", "case_split");
+  if (cutoffSplit) {
+    return cutoffSplit;
+  }
+  return readString(benchmarkCase.lineageJson, "split", "caseSplit", "case_split");
+}
+
+function normalizeBenchmarkSplit(raw: string | null) {
+  if (!raw) {
+    return "unspecified";
+  }
+  const normalized = raw.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return normalized || "unspecified";
+}
+
+function isBenchmarkHoldoutSplit(split: string) {
+  return benchmarkHoldoutSplitIds.some((holdoutSplit) => split === holdoutSplit || split.startsWith(`${holdoutSplit}_`));
 }
 
 const benchmarkSuitesByMode: Record<BenchmarkEvalMode, {
@@ -222,6 +310,7 @@ const fixedEvidenceSeedCases = [
     cutoffMetadataJson: {
       cutoff: "2024-01-01",
       mode: "fixed_evidence",
+      split: "smoke",
     },
   },
   {
@@ -245,6 +334,7 @@ const fixedEvidenceSeedCases = [
     cutoffMetadataJson: {
       cutoff: "2024-01-01",
       mode: "fixed_evidence",
+      split: "smoke",
     },
   },
   {
@@ -268,6 +358,7 @@ const fixedEvidenceSeedCases = [
     cutoffMetadataJson: {
       cutoff: "2025-01-01",
       mode: "fixed_evidence",
+      split: "smoke",
     },
   },
 ];
@@ -290,6 +381,7 @@ const liveWebSmokeSeedCases = [
     cutoffMetadataJson: {
       cutoff: "2024-01-01",
       mode: "weak_live_web_pastcast",
+      split: "smoke",
     },
   },
   {
@@ -309,6 +401,7 @@ const liveWebSmokeSeedCases = [
     cutoffMetadataJson: {
       cutoff: "2024-01-01",
       mode: "weak_live_web_pastcast",
+      split: "smoke",
     },
   },
   {
@@ -328,6 +421,7 @@ const liveWebSmokeSeedCases = [
     cutoffMetadataJson: {
       cutoff: "2025-01-01",
       mode: "weak_live_web_pastcast",
+      split: "smoke",
     },
   },
 ];
@@ -558,6 +652,11 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
       })
       .from(benchmarkCaseResults)
       .where(eq(benchmarkCaseResults.benchmarkRunId, row.id));
+    const caseRows = await loadBenchmarkCaseSplitRows(db, results);
+    const splitFindings = benchmarkSplitSummaryForResults({
+      results,
+      casesById: splitRowsById(caseRows),
+    });
     const [analysis] = await db
       .select({
         id: benchmarkAnalyses.id,
@@ -636,6 +735,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
       baselineSanityFindings,
       componentDisagreementFindings,
       forecastErrorFindings,
+      splitFindings,
       promotionGate: summarizeBenchmarkPromotionGateEvidence({
         runStatus: row.status,
         resultCount: results.length,
@@ -645,6 +745,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
         baselineSanityFindings,
         componentDisagreementFindings,
         forecastErrorFindings,
+        splitFindings,
       }),
       completedCases: results.filter((result) => result.status === "completed").length,
       failedCases: results.filter((result) => result.status === "failed").length,
@@ -712,6 +813,7 @@ export async function getBenchmarkRunDetail(db: Db, benchmarkRunId: string) {
   const casesById = new Map(caseRows.map((benchmarkCase) => [benchmarkCase.id, benchmarkCase]));
   const tasksById = new Map(taskRows.map((task) => [task.id, task]));
   const artifactsById = new Map(artifactRowsById.map((artifact) => [artifact.id, artifact]));
+  const splitFindings = benchmarkSplitSummaryForResults({ results, casesById });
   const detailedCases = results.map((result) => {
     const benchmarkCase = casesById.get(result.benchmarkCaseId);
     const task = result.taskId ? tasksById.get(result.taskId) : null;
@@ -778,6 +880,7 @@ export async function getBenchmarkRunDetail(db: Db, benchmarkRunId: string) {
       statusCounts: countBy(results.map((result) => result.status)),
       failureLabelCounts: countBy(results.flatMap((result) => result.failureLabels)),
       leakageFlagCounts: countBy(results.flatMap((result) => result.leakageFlags)),
+      splitFindings,
       traceBundlesWritten: results.filter((result) => Boolean(result.traceBundleUri)).length,
       sourceBundlesWritten: results.filter((result) => Boolean(result.sourceBundleUri)).length,
       casesWithAnalystNotes: results.filter((result) => Boolean(result.analystNotesArtifactId)).length,
@@ -788,6 +891,7 @@ export async function getBenchmarkRunDetail(db: Db, benchmarkRunId: string) {
         results,
         comparison: comparisonReportRow,
         analysisReport: analysisReportRow,
+        splitFindings,
       }),
     },
     cases: detailedCases,
@@ -890,6 +994,11 @@ export async function createBenchmarkComparisonReport(
     .select()
     .from(benchmarkCaseResults)
     .where(eq(benchmarkCaseResults.benchmarkRunId, candidateRun.id));
+  const candidateCasesById = splitRowsById(await loadBenchmarkCaseSplitRows(db, candidateResults));
+  const candidateSplitFindings = benchmarkSplitSummaryForResults({
+    results: candidateResults,
+    casesById: candidateCasesById,
+  });
   const candidateVariant = await loadWorkflowVariantSummary(db, candidateRun.workflowVariantId);
   const explicitBaselineIds = (input.baselineBenchmarkRunIds ?? []).filter((id) => id && id !== candidateRun.id);
   const baselineRuns = explicitBaselineIds.length
@@ -907,6 +1016,7 @@ export async function createBenchmarkComparisonReport(
       buildBaselineComparison({
         candidateRun,
         candidateResults,
+        candidateCasesById,
         candidateVariant,
         baselineRun,
         baselineResults,
@@ -935,6 +1045,7 @@ export async function createBenchmarkComparisonReport(
       workflowId: candidateVariant.workflowId,
       workflowSourceHash: candidateVariant.workflowSourceHash,
       workflowPromotionState: candidateVariant.promotionState,
+      splitFindings: candidateSplitFindings,
     },
     baselines: baselineComparisons,
     recommendation,
@@ -1069,6 +1180,7 @@ async function findDefaultBaselineRuns(db: Db, candidateRun: BenchmarkRunRow) {
 function buildBaselineComparison(input: {
   candidateRun: BenchmarkRunRow;
   candidateResults: BenchmarkCaseResultRow[];
+  candidateCasesById: Map<string, BenchmarkCaseSplitRow>;
   candidateVariant: Awaited<ReturnType<typeof loadWorkflowVariantSummary>>;
   baselineRun: BenchmarkRunRow;
   baselineResults: BenchmarkCaseResultRow[];
@@ -1076,7 +1188,8 @@ function buildBaselineComparison(input: {
 }) {
   const candidateMetrics = benchmarkRunMetrics(input.candidateResults);
   const baselineMetrics = benchmarkRunMetrics(input.baselineResults);
-  const paired = pairedBenchmarkCaseDeltas(input.candidateResults, input.baselineResults);
+  const paired = pairedBenchmarkCaseDeltas(input.candidateResults, input.baselineResults, input.candidateCasesById);
+  const pairedHoldoutCaseCount = paired.caseDeltas.filter((row) => isBenchmarkHoldoutSplit(row.split)).length;
   const pairedUncertainty = pairedBootstrapUncertainty({
     caseDeltas: paired.caseDeltas,
     seedKey: `${input.candidateRun.id}:${input.baselineRun.id}`,
@@ -1100,6 +1213,7 @@ function buildBaselineComparison(input: {
       reviewCases: candidateMetrics.reviewCases - baselineMetrics.reviewCases,
     },
     pairedCaseCount: paired.caseDeltas.length,
+    pairedHoldoutCaseCount,
     pairedMeanBrierDelta: paired.pairedMeanBrierDelta,
     pairedMeanLogDelta: paired.pairedMeanLogDelta,
     pairedUncertainty,
@@ -1124,7 +1238,11 @@ function benchmarkRunMetrics(results: BenchmarkCaseResultRow[]) {
   };
 }
 
-function pairedBenchmarkCaseDeltas(candidateResults: BenchmarkCaseResultRow[], baselineResults: BenchmarkCaseResultRow[]) {
+function pairedBenchmarkCaseDeltas(
+  candidateResults: BenchmarkCaseResultRow[],
+  baselineResults: BenchmarkCaseResultRow[],
+  candidateCasesById: Map<string, BenchmarkCaseSplitRow>,
+) {
   const baselineByCase = new Map(baselineResults.map((result) => [result.benchmarkCaseId, result]));
   const caseDeltas: PairedDeltaRow[] = [];
   for (const candidate of candidateResults) {
@@ -1141,6 +1259,7 @@ function pairedBenchmarkCaseDeltas(candidateResults: BenchmarkCaseResultRow[], b
     }
     caseDeltas.push({
       benchmarkCaseId: candidate.benchmarkCaseId,
+      split: normalizeBenchmarkSplit(readCaseSplit(candidateCasesById.get(candidate.benchmarkCaseId))),
       candidateBenchmarkCaseResultId: candidate.id,
       baselineBenchmarkCaseResultId: baseline.id,
       candidateStatus: candidate.status,
@@ -1264,6 +1383,12 @@ function comparisonRecommendation(input: {
     return {
       status: "needs_more_cases",
       summary: `Only ${bestPaired.pairedCaseCount} paired case(s) are available. Use this as debugging evidence, not a promotion gate.`,
+    };
+  }
+  if (bestPaired.pairedHoldoutCaseCount < minimumPromotionHoldoutCases) {
+    return {
+      status: "needs_holdout_evidence",
+      summary: `Only ${bestPaired.pairedHoldoutCaseCount} paired held-out case(s) are available. Run paired holdout cases before promotion review.`,
     };
   }
   const brierInterval = bestPaired.pairedUncertainty.brierDelta;
@@ -1690,6 +1815,10 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
       results,
     });
     const [suite] = await db.select().from(benchmarkSuites).where(eq(benchmarkSuites.id, run.suiteId)).limit(1);
+    const splitFindings = benchmarkSplitSummaryForResults({
+      results,
+      casesById: splitRowsById(await loadBenchmarkCaseSplitRows(db, results)),
+    });
     const isBtf2Suite = suite?.name.includes("BTF-2") === true;
     await persistCaseAnalysisArtifacts(db, {
       benchmarkRunId: run.id,
@@ -1705,6 +1834,7 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
       meanLog,
       meanBaselineBrier,
       meanBrierDelta,
+      splitFindings,
       generatedAt: new Date().toISOString(),
       caseAnalyses,
       caseResults: results.map((result) => ({
@@ -1768,6 +1898,7 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
       baselineSanityFindings: baselineSanityFindingsForRun(caseAnalyses),
       componentDisagreementFindings: componentDisagreementFindingsForRun(caseAnalyses),
       forecastErrorFindings: forecastErrorFindingsForRun(caseAnalyses),
+      splitFindings,
       costLatencyFindings: {
         note: "V1 records Smithers run IDs, trace bundles, agent-call counts, and token totals parsed from durable Smithers logs.",
         runnableLoopSignal: "Use task_id, smithers_run_id, benchmark_run_id, and workflow_variant_id labels to correlate benchmark quality with runtime cost proxies.",
@@ -2835,6 +2966,7 @@ function benchmarkPromotionGateSummary(input: {
   results: BenchmarkCaseResultRow[];
   comparison: Record<string, unknown> | null;
   analysisReport: Record<string, unknown> | null;
+  splitFindings?: Record<string, unknown> | null;
 }) {
   const traceMissing = input.results.filter((result) => !result.traceBundleUri).length;
   const reviewOrFailed = input.metrics.failedCases + input.metrics.reviewCases;
@@ -2847,6 +2979,7 @@ function benchmarkPromotionGateSummary(input: {
     baselineSanityFindings: readRecord(input.analysisReport, "baselineSanityFindings", "baseline_sanity_findings"),
     componentDisagreementFindings: readRecord(input.analysisReport, "componentDisagreementFindings", "component_disagreement_findings"),
     forecastErrorFindings: readRecord(input.analysisReport, "forecastErrorFindings", "forecast_error_findings"),
+    splitFindings: input.splitFindings ?? readRecord(input.analysisReport, "splitFindings", "split_findings"),
   });
 }
 
@@ -2865,6 +2998,10 @@ async function benchmarkPromotionGateForRun(db: Db, run: BenchmarkRunRow) {
     results,
     comparison: comparisonReport,
     analysisReport,
+    splitFindings: benchmarkSplitSummaryForResults({
+      results,
+      casesById: splitRowsById(await loadBenchmarkCaseSplitRows(db, results)),
+    }),
   });
 }
 

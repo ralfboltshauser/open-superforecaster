@@ -40,8 +40,8 @@ take open forecasting infrastructure.
 - Fan out multiple CodexAgent researchers, then inspect their component
   forecasts, aggregate answer, rationale, and citations.
 - Run local benchmark and pastcasting loops before trusting workflow changes;
-  promotion review requires enough paired cases and a comparison showing the
-  candidate beat the baseline, not merely matched it.
+  promotion review requires enough paired held-out cases and a comparison
+  showing the candidate beat the baseline, not merely matched it.
 - Export artifacts, trace bundles, CSV, Parquet, and local analytics tables for
   deeper review.
 - Keep the full trust chain local: questions, sources, traces, scores,

@@ -252,6 +252,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       baselineSanityFindings: readRecord(analysisReport, "baselineSanityFindings", "baseline_sanity_findings"),
       componentDisagreementFindings: readRecord(analysisReport, "componentDisagreementFindings", "component_disagreement_findings"),
       forecastErrorFindings: readRecord(analysisReport, "forecastErrorFindings", "forecast_error_findings"),
+      splitFindings: readRecord(analysisReport, "splitFindings", "split_findings"),
     });
     metrics.gauge("open_superforecaster_benchmark_promotion_gate_status", "Recent benchmark promotion gate status.", 1, {
       ...labels,

@@ -146,6 +146,7 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
   const baselineSanity = isRecord(run.baselineSanityFindings) ? run.baselineSanityFindings : null
   const componentDisagreement = isRecord(run.componentDisagreementFindings) ? run.componentDisagreementFindings : null
   const forecastError = isRecord(run.forecastErrorFindings) ? run.forecastErrorFindings : null
+  const splitFindings = isRecord(run.splitFindings) ? run.splitFindings : null
   const blockers = readArray(promotionGate, "blockers").filter((blocker): blocker is string => typeof blocker === "string")
   const recommendationStatus = typeof promotionGate?.recommendationStatus === "string" ? promotionGate.recommendationStatus : null
   const missingBaselineSanity = typeof baselineSanity?.missingBaselineSanityCases === "number" ? baselineSanity.missingBaselineSanityCases : null
@@ -154,6 +155,8 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
   const unexplainedHighDisagreement = typeof componentDisagreement?.unexplainedHighDisagreementCases === "number" ? componentDisagreement.unexplainedHighDisagreementCases : null
   const largeMissCases = typeof forecastError?.largeProbabilityMissCases === "number" ? forecastError.largeProbabilityMissCases : null
   const worseThanBaselineCases = typeof forecastError?.worseThanBaselineCases === "number" ? forecastError.worseThanBaselineCases : null
+  const holdoutCaseResults = typeof splitFindings?.holdoutCaseResults === "number" ? splitFindings.holdoutCaseResults : null
+  const requiredHoldoutCaseResults = typeof splitFindings?.requiredHoldoutCaseResults === "number" ? splitFindings.requiredHoldoutCaseResults : null
   return (
     <div className="rounded-md border p-3 text-sm">
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -183,6 +186,11 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
       {forecastError ? (
         <p className="mt-2 truncate text-xs text-muted-foreground">
           forecast error {String(largeMissCases ?? 0)} large miss · {String(worseThanBaselineCases ?? 0)} worse baseline
+        </p>
+      ) : null}
+      {splitFindings ? (
+        <p className="mt-2 truncate text-xs text-muted-foreground">
+          holdout evidence {String(holdoutCaseResults ?? 0)}/{String(requiredHoldoutCaseResults ?? 0)} cases
         </p>
       ) : null}
       {blockers.length ? (

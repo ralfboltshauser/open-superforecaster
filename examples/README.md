@@ -17,8 +17,8 @@ work, waits for terminal status, and verifies persisted artifacts, forecast
 ledgers, table row ledgers, benchmark scorecards, and replay links.
 Benchmark promotion gates treat indistinguishable candidate-vs-baseline scores
 as iteration evidence only. A run becomes ready for promotion review only after
-the paired comparison shows candidate improvement and the trace/review blockers
-are clear.
+the paired comparison shows candidate improvement on enough held-out cases and
+the trace/review blockers are clear.
 Fixed-evidence benchmark aggregates also persist baseline-sanity fields: the
 provided baseline probability, final delta, base-rate anchor, inside-view
 movement, skeptical adjustment, and aggregation rule. Those fields make
@@ -33,15 +33,18 @@ judgment-quality failures are visible separately from trace or infrastructure
 failures.
 Promotion gates treat those analysis findings as blockers: missing baseline
 sanity, unexplained component disagreement, large misses, and worse-than-baseline
-cases must be cleared before a run is ready for promotion review.
+cases must be cleared before a run is ready for promotion review. Smoke cases
+remain useful for debugging, but promotion also requires enough cases labeled as
+held-out split evidence.
 The promotion decision API enforces the same gate for promoted states; use
 `needs_more_cases`, `candidate`, or `rejected` when recording non-promoting
 review outcomes with blockers still present.
 The metrics endpoint exports promotion-gate status and blocker series for
 recent benchmark runs, so blocked promotion reasons can be monitored outside the
 lab dashboard.
-`scripts/sync-duckdb.ts` also exports those gate statuses, blocker strings, and
-analysis-finding counts into `osf_benchmark_runs` for local analytics.
+`scripts/sync-duckdb.ts` also exports those gate statuses, blocker strings,
+holdout evidence counts, and analysis-finding counts into `osf_benchmark_runs`
+for local analytics.
 
 ## Forecast And Research Prompts
 

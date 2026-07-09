@@ -349,11 +349,13 @@ function normalizeBtf2Row(
       contaminationCaveat:
         "BTF-2 questions were asked in October 2025 and resolved in December 2025; models with later cutoffs may have seen resolution-relevant information.",
       evidenceSource: "research_summary",
+      split: "test",
     },
     lineageJson: {
       source: "huggingface-datasets-server",
       dataset: DATASET_ID,
       datasetUrl: DATASET_PAGE_URL,
+      split: "test",
       datasetSha: context.datasetSha,
       suiteRevision: context.suiteRevision,
       rawSnapshotUri: context.snapshotUri,

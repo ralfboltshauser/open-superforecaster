@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   assertBenchmarkPromotionDecisionAllowed,
+  benchmarkHoldoutSplitIds,
   benchmarkPromotionGateBlockerIds,
   summarizeBenchmarkPromotionGateEvidence,
 } from "../packages/backend/src/benchmark-service";
@@ -475,6 +476,7 @@ await check("benchmark promotion gate requires paired improvement", async () => 
     traceMissing: 0,
     reviewOrFailed: 0,
     comparisonStatus: "indistinguishable",
+    splitFindings: { holdoutCaseResults: 10 },
   });
   assert(indistinguishable.status === "needs_more_evidence", "indistinguishable comparison should block promotion review");
   assert(indistinguishable.blockers.includes("comparison_indistinguishable"), "indistinguishable blocker missing");
@@ -485,6 +487,7 @@ await check("benchmark promotion gate requires paired improvement", async () => 
     traceMissing: 0,
     reviewOrFailed: 0,
     comparisonStatus: null,
+    splitFindings: { holdoutCaseResults: 10 },
   });
   assert(needsBaseline.blockers.includes("missing_comparison_report"), "missing comparison blocker missing");
 
@@ -494,9 +497,20 @@ await check("benchmark promotion gate requires paired improvement", async () => 
     traceMissing: 0,
     reviewOrFailed: 0,
     comparisonStatus: "candidate_better",
+    splitFindings: { holdoutCaseResults: 10 },
   });
   assert(candidateBetter.status === "review_for_promotion", "candidate improvement should be reviewable");
   assert(candidateBetter.blockers.length === 0, "candidate improvement should not have blockers");
+  const missingHoldout = summarizeBenchmarkPromotionGateEvidence({
+    runStatus: "completed",
+    resultCount: 24,
+    traceMissing: 0,
+    reviewOrFailed: 0,
+    comparisonStatus: "candidate_better",
+    splitFindings: { holdoutCaseResults: 0 },
+  });
+  assert(missingHoldout.status === "needs_more_evidence", "missing holdout evidence should block promotion review");
+  assert(missingHoldout.blockers.includes("insufficient_holdout_evidence"), "holdout evidence blocker missing");
   const qualityBlocked = summarizeBenchmarkPromotionGateEvidence({
     runStatus: "completed",
     resultCount: 24,
@@ -506,6 +520,7 @@ await check("benchmark promotion gate requires paired improvement", async () => 
     baselineSanityFindings: { missingBaselineSanityCases: 1 },
     componentDisagreementFindings: { unexplainedHighDisagreementCases: 1 },
     forecastErrorFindings: { largeProbabilityMissCases: 1, worseThanBaselineCases: 1 },
+    splitFindings: { holdoutCaseResults: 10 },
   });
   assert(qualityBlocked.status === "needs_more_evidence", "analysis quality findings should block promotion review");
   assert(qualityBlocked.blockers.includes("missing_baseline_sanity"), "baseline sanity blocker missing");
@@ -560,6 +575,21 @@ await check("benchmark analysis summarizes forecast error findings", async () =>
   return "benchmark analysis and lab dashboard expose forecast error findings";
 });
 
+await check("benchmark promotion requires held-out case evidence", async () => {
+  const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
+  const importerSource = await readFile(resolve(root, "packages/backend/src/btf2-importer.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(backendSource.includes("benchmarkSplitSummaryForResults"), "benchmark split summary helper missing");
+  assert(backendSource.includes("pairedHoldoutCaseCount"), "paired comparison does not count held-out cases");
+  assert(backendSource.includes("needs_holdout_evidence"), "comparison recommendation does not require holdout evidence");
+  assert(importerSource.includes('split: "test"'), "BTF import does not persist dataset split metadata");
+  assert(dashboardSource.includes("holdout evidence"), "lab dashboard does not surface holdout evidence");
+  for (const splitId of benchmarkHoldoutSplitIds) {
+    assert(backendSource.includes(splitId), `benchmark holdout split ${splitId} missing from backend contract`);
+  }
+  return "promotion review requires held-out benchmark evidence";
+});
+
 await check("benchmark promotion gate blockers are exported as metrics", async () => {
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const smokeSource = await readFile(resolve(root, "scripts/smoke-check.ts"), "utf8");
@@ -578,6 +608,8 @@ await check("benchmark promotion gate blockers are exported to DuckDB", async ()
   assert(syncSource.includes("unexplained_component_disagreement_cases"), "DuckDB benchmark run mart missing component disagreement count");
   assert(syncSource.includes("large_probability_miss_cases"), "DuckDB benchmark run mart missing large miss count");
   assert(syncSource.includes("worse_than_baseline_cases"), "DuckDB benchmark run mart missing worse-than-baseline count");
+  assert(syncSource.includes("holdout_case_results"), "DuckDB benchmark run mart missing holdout evidence count");
+  assert(syncSource.includes("required_holdout_case_results"), "DuckDB benchmark run mart missing required holdout evidence count");
   for (const blockerId of benchmarkPromotionGateBlockerIds) {
     assert(syncSource.includes(blockerId), `DuckDB promotion gate export missing blocker ${blockerId}`);
   }

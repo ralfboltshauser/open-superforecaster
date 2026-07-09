@@ -86,6 +86,9 @@ try {
       gate.unexplained_component_disagreement_cases,
       gate.large_probability_miss_cases,
       gate.worse_than_baseline_cases,
+      gate.holdout_case_results,
+      gate.required_holdout_case_results,
+      gate.unspecified_case_results,
       gate.promotion_gate_status,
       gate.promotion_gate_blockers,
       cr.row_json #>> '{baselines,0,baselineBenchmarkRunId}' as baseline_benchmark_run_id,
@@ -117,7 +120,10 @@ try {
           coalesce(nullif(ar.row_json #>> '{baselineSanityFindings,missingBaselineSanityCases}', '')::integer, 0) as missing_baseline_sanity_cases,
           coalesce(nullif(ar.row_json #>> '{componentDisagreementFindings,unexplainedHighDisagreementCases}', '')::integer, 0) as unexplained_component_disagreement_cases,
           coalesce(nullif(ar.row_json #>> '{forecastErrorFindings,largeProbabilityMissCases}', '')::integer, 0) as large_probability_miss_cases,
-          coalesce(nullif(ar.row_json #>> '{forecastErrorFindings,worseThanBaselineCases}', '')::integer, 0) as worse_than_baseline_cases
+          coalesce(nullif(ar.row_json #>> '{forecastErrorFindings,worseThanBaselineCases}', '')::integer, 0) as worse_than_baseline_cases,
+          coalesce(nullif(ar.row_json #>> '{splitFindings,holdoutCaseResults}', '')::integer, 0) as holdout_case_results,
+          coalesce(nullif(ar.row_json #>> '{splitFindings,requiredHoldoutCaseResults}', '')::integer, 10) as required_holdout_case_results,
+          coalesce(nullif(ar.row_json #>> '{splitFindings,unspecifiedCaseResults}', '')::integer, 0) as unspecified_case_results
       ),
       blockers as (
         select
@@ -133,7 +139,8 @@ try {
             case when findings.missing_baseline_sanity_cases > 0 then 'missing_baseline_sanity' end,
             case when findings.unexplained_component_disagreement_cases > 0 then 'unexplained_component_disagreement' end,
             case when findings.large_probability_miss_cases > 0 then 'large_probability_misses' end,
-            case when findings.worse_than_baseline_cases > 0 then 'worse_than_baseline_cases' end
+            case when findings.worse_than_baseline_cases > 0 then 'worse_than_baseline_cases' end,
+            case when findings.holdout_case_results < findings.required_holdout_case_results then 'insufficient_holdout_evidence' end
           ]::text[], null) as blocker_values
         from counts, findings
       )
@@ -145,6 +152,9 @@ try {
         unexplained_component_disagreement_cases,
         large_probability_miss_cases,
         worse_than_baseline_cases,
+        holdout_case_results,
+        required_holdout_case_results,
+        unspecified_case_results,
         case when cardinality(blocker_values) = 0 then 'review_for_promotion' else 'needs_more_evidence' end as promotion_gate_status,
         array_to_string(blocker_values, ',') as promotion_gate_blockers
       from blockers
@@ -309,6 +319,9 @@ const benchmarkRunColumns = [
   { name: "unexplained_component_disagreement_cases", type: "INTEGER" },
   { name: "large_probability_miss_cases", type: "INTEGER" },
   { name: "worse_than_baseline_cases", type: "INTEGER" },
+  { name: "holdout_case_results", type: "INTEGER" },
+  { name: "required_holdout_case_results", type: "INTEGER" },
+  { name: "unspecified_case_results", type: "INTEGER" },
   { name: "promotion_gate_status", type: "VARCHAR" },
   { name: "promotion_gate_blockers", type: "VARCHAR" },
   { name: "baseline_benchmark_run_id", type: "VARCHAR" },
