@@ -331,9 +331,9 @@ bands, and component median-date disagreement so wide, split-component,
 split-timing, or unit-specific forecasts can be compared against resolved
 errors. Categorical score rows
 preserve top-choice confidence, normalized entropy, category source, closed-set
-status, category count, top-category component agreement, and winner-probability
-spread so diffuse, model-generated, or internally split option sets can be
-reviewed separately. All forecast score rows also preserve evidence-coverage
+status, coverage band, category count, top-category component agreement, and
+winner-probability spread so diffuse, open-set, model-generated, or internally
+split option sets can be reviewed separately. All forecast score rows also preserve evidence-coverage
 metadata, including source count, source-domain count, dated/undated source
 counts, source-diversity band, newest/oldest published source dates, evidence
 as-of date, newest-source age, freshness band, post-as-of source count, timing

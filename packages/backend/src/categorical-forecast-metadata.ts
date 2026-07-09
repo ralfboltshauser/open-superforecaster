@@ -5,6 +5,7 @@ export type CategoricalForecastSnapshot = {
   categoryCount: number | null;
   categorySource: string | null;
   categoriesExhaustive: boolean | null;
+  categoryCoverageBand: "closed_set" | "open_set" | "unknown";
   entropy: number | null;
   entropyBand: "concentrated" | "mixed" | "diffuse" | "unknown";
   attemptCount: number | null;
@@ -52,6 +53,7 @@ export function readCategoricalForecastSnapshot(value: unknown): CategoricalFore
     categoryCount,
     categorySource,
     categoriesExhaustive,
+    categoryCoverageBand: categoryCoverageBand(categoriesExhaustive),
     entropy,
     entropyBand: entropyBand(entropy),
     attemptCount,
@@ -83,6 +85,13 @@ export function entropyBand(entropy: number | null): CategoricalForecastSnapshot
     return "mixed";
   }
   return "concentrated";
+}
+
+export function categoryCoverageBand(categoriesExhaustive: boolean | null): CategoricalForecastSnapshot["categoryCoverageBand"] {
+  if (categoriesExhaustive === null) {
+    return "unknown";
+  }
+  return categoriesExhaustive ? "closed_set" : "open_set";
 }
 
 function readProbabilityDistribution(value: Record<string, unknown>) {

@@ -1050,6 +1050,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       top_probability_band: "none",
       entropy_band: "unknown",
       category_source: "unknown",
+      category_coverage_band: "unknown",
       top_category_agreement_band: "unknown",
     };
     metrics.gauge(
@@ -1072,6 +1073,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       top_probability_band: categoricalForecast?.topProbabilityBand ?? "unknown",
       entropy_band: categoricalForecast?.entropyBand ?? "unknown",
       category_source: categoricalForecast?.categorySource ?? "unknown",
+      category_coverage_band: categoricalForecast?.categoryCoverageBand ?? "unknown",
       top_category_agreement_band: categoricalForecast?.topCategoryAgreementBand ?? "unknown",
     });
   })) {

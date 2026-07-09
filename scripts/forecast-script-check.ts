@@ -993,6 +993,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Categorical confidence groups"), "performance Markdown missing categorical confidence group section");
   assert(resolutionSource.includes("## Categorical entropy groups"), "performance Markdown missing categorical entropy group section");
   assert(resolutionSource.includes("## Categorical source groups"), "performance Markdown missing categorical source group section");
+  assert(resolutionSource.includes("## Categorical coverage groups"), "performance Markdown missing categorical coverage group section");
   assert(resolutionSource.includes("## Evidence source-count groups"), "performance Markdown missing evidence source-count group section");
   assert(resolutionSource.includes("## Evidence source-diversity groups"), "performance Markdown missing evidence source-diversity group section");
   assert(resolutionSource.includes("## Evidence source-freshness groups"), "performance Markdown missing evidence source-freshness group section");
@@ -1050,6 +1051,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Categorical entropy outcomes"), "lab dashboard does not render categorical entropy performance groups");
   assert(dashboardSource.includes("byCategoricalSource"), "lab dashboard does not read categorical source performance groups");
   assert(dashboardSource.includes("Categorical source outcomes"), "lab dashboard does not render categorical source performance groups");
+  assert(dashboardSource.includes("byCategoricalCoverage"), "lab dashboard does not read categorical coverage performance groups");
+  assert(dashboardSource.includes("Categorical coverage outcomes"), "lab dashboard does not render categorical coverage performance groups");
   assert(dashboardSource.includes("byBinaryConfidence"), "lab dashboard does not read binary confidence performance groups");
   assert(dashboardSource.includes("Binary confidence outcomes"), "lab dashboard does not render binary confidence performance groups");
   assert(dashboardSource.includes("byBinaryForecastSide"), "lab dashboard does not read binary side performance groups");
@@ -1892,6 +1895,7 @@ await check("categorical forecast distribution metadata reaches resolved score a
   assert(snapshot?.categoryCount === 3, "categorical metadata category count mismatch");
   assert(snapshot?.categorySource === "caller_with_other", "categorical metadata category source mismatch");
   assert(snapshot?.categoriesExhaustive === false, "categorical metadata exhaustive flag mismatch");
+  assert(snapshot?.categoryCoverageBand === "open_set", "categorical metadata coverage band mismatch");
   assert(snapshot?.entropy === 0.78, "categorical metadata entropy mismatch");
   assert(snapshot?.entropyBand === "diffuse", "categorical metadata entropy band mismatch");
   assert(snapshot?.attemptCount === 3, "categorical metadata attempt count mismatch");
@@ -1909,14 +1913,18 @@ await check("categorical forecast distribution metadata reaches resolved score a
   assert(resolutionSource.includes("byCategoricalConfidence"), "performance report does not group by categorical confidence");
   assert(resolutionSource.includes("byCategoricalEntropy"), "performance report does not group by categorical entropy");
   assert(resolutionSource.includes("byCategoricalSource"), "performance report does not group by categorical source");
+  assert(resolutionSource.includes("byCategoricalCoverage"), "performance report does not group by categorical coverage");
   assert(resolutionSource.includes("byCategoricalTopAgreement"), "performance report does not group by categorical top agreement");
   assert(metricsSource.includes("open_superforecaster_categorical_distribution_scores_total"), "metrics missing categorical distribution score counts");
+  assert(metricsSource.includes("category_coverage_band"), "metrics missing categorical coverage labels");
   assert(metricsSource.includes("top_category_agreement_band"), "metrics missing categorical top agreement labels");
   assert(syncSource.includes("categorical_top_probability"), "DuckDB forecast score mart missing categorical top probability");
+  assert(syncSource.includes("categorical_category_coverage_band"), "DuckDB forecast score mart missing categorical coverage band");
   assert(syncSource.includes("categorical_entropy_band"), "DuckDB forecast score mart missing categorical entropy band");
   assert(syncSource.includes("categorical_top_category_vote_share"), "DuckDB forecast score mart missing categorical top category vote share");
   assert(dashboardSource.includes("Categorical confidence outcomes"), "lab dashboard does not render categorical confidence outcomes");
   assert(dashboardSource.includes("Categorical entropy outcomes"), "lab dashboard does not render categorical entropy outcomes");
+  assert(dashboardSource.includes("Categorical coverage outcomes"), "lab dashboard does not render categorical coverage outcomes");
   assert(dashboardSource.includes("Categorical top-agreement outcomes"), "lab dashboard does not render categorical top agreement outcomes");
   return "categorical forecast distributions are persisted and visible in resolved score analytics";
 });

@@ -646,6 +646,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byCategoricalConfidence = readArray(groups, "byCategoricalConfidence").filter(isRecord)
   const byCategoricalEntropy = readArray(groups, "byCategoricalEntropy").filter(isRecord)
   const byCategoricalSource = readArray(groups, "byCategoricalSource").filter(isRecord)
+  const byCategoricalCoverage = readArray(groups, "byCategoricalCoverage").filter(isRecord)
   const byCategoricalTopAgreement = readArray(groups, "byCategoricalTopAgreement").filter(isRecord)
   const byEvidenceSourceCount = readArray(groups, "byEvidenceSourceCount").filter(isRecord)
   const byEvidenceSourceDiversity = readArray(groups, "byEvidenceSourceDiversity").filter(isRecord)
@@ -735,6 +736,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byCategoricalConfidence.length ? <PerformancePlanShapeGroupList groups={byCategoricalConfidence} title="Categorical confidence outcomes" skipKey="categorical_confidence:not_categorical" fallback="categorical confidence" /> : null}
         {byCategoricalEntropy.length ? <PerformancePlanShapeGroupList groups={byCategoricalEntropy} title="Categorical entropy outcomes" skipKey="categorical_entropy:not_categorical" fallback="categorical entropy" /> : null}
         {byCategoricalSource.length ? <PerformancePlanShapeGroupList groups={byCategoricalSource} title="Categorical source outcomes" skipKey="categorical_source:not_categorical" fallback="categorical source" /> : null}
+        {byCategoricalCoverage.length ? <PerformancePlanShapeGroupList groups={byCategoricalCoverage} title="Categorical coverage outcomes" skipKey="categorical_coverage:not_categorical" fallback="categorical coverage" /> : null}
         {byCategoricalTopAgreement.length ? <PerformancePlanShapeGroupList groups={byCategoricalTopAgreement} title="Categorical top-agreement outcomes" skipKey="categorical_top_agreement:not_categorical" fallback="categorical top agreement" /> : null}
         {byEvidenceSourceCount.length ? <PerformancePlanShapeGroupList groups={byEvidenceSourceCount} title="Evidence source outcomes" skipKey="evidence_sources:unrecorded" fallback="evidence sources" /> : null}
         {byEvidenceSourceDiversity.length ? <PerformancePlanShapeGroupList groups={byEvidenceSourceDiversity} title="Evidence source-diversity outcomes" skipKey="evidence_source_diversity:unrecorded" fallback="evidence source diversity" /> : null}

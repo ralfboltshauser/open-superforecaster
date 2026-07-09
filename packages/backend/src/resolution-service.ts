@@ -423,6 +423,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byCategoricalConfidence = groupScores(aggregateScores, categoricalConfidenceGroupKey);
   const byCategoricalEntropy = groupScores(aggregateScores, categoricalEntropyGroupKey);
   const byCategoricalSource = groupScores(aggregateScores, categoricalSourceGroupKey);
+  const byCategoricalCoverage = groupScores(aggregateScores, categoricalCoverageGroupKey);
   const byCategoricalTopAgreement = groupScores(aggregateScores, categoricalTopAgreementGroupKey);
   const byEvidenceSourceCount = groupScores(aggregateScores, evidenceSourceCountGroupKey);
   const byEvidenceSourceDiversity = groupScores(aggregateScores, evidenceSourceDiversityGroupKey);
@@ -503,6 +504,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byCategoricalConfidence,
       byCategoricalEntropy,
       byCategoricalSource,
+      byCategoricalCoverage,
       byCategoricalTopAgreement,
       byEvidenceSourceCount,
       byEvidenceSourceDiversity,
@@ -573,6 +575,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byCategoricalConfidence,
       byCategoricalEntropy,
       byCategoricalSource,
+      byCategoricalCoverage,
       byCategoricalTopAgreement,
       byEvidenceSourceCount,
       byEvidenceSourceDiversity,
@@ -1461,6 +1464,14 @@ function categoricalSourceGroupKey(score: typeof forecastScores.$inferSelect) {
   }
   const categoricalForecast = readCategoricalForecastSnapshot(score.scoreConfig);
   return `categorical_source:${categoricalForecast?.categorySource ?? "unrecorded"}`;
+}
+
+function categoricalCoverageGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "categorical") {
+    return "categorical_coverage:not_categorical";
+  }
+  const categoricalForecast = readCategoricalForecastSnapshot(score.scoreConfig);
+  return `categorical_coverage:${categoricalForecast?.categoryCoverageBand ?? "unrecorded"}`;
 }
 
 function categoricalTopAgreementGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2509,6 +2520,7 @@ function renderPerformanceMarkdown(input: {
   byCategoricalConfidence: PerformanceGroup[];
   byCategoricalEntropy: PerformanceGroup[];
   byCategoricalSource: PerformanceGroup[];
+  byCategoricalCoverage: PerformanceGroup[];
   byCategoricalTopAgreement: PerformanceGroup[];
   byEvidenceSourceCount: PerformanceGroup[];
   byEvidenceSourceDiversity: PerformanceGroup[];
@@ -2638,6 +2650,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Categorical source groups",
     ...renderGroupTable(input.byCategoricalSource),
+    "",
+    "## Categorical coverage groups",
+    ...renderGroupTable(input.byCategoricalCoverage),
     "",
     "## Categorical top-agreement groups",
     ...renderGroupTable(input.byCategoricalTopAgreement),
