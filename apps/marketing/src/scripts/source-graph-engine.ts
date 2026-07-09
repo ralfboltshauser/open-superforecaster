@@ -54,7 +54,6 @@ export class SourceGraphEngine {
   private readonly domains: string[]
   private readonly nodes: GraphNode[] = []
   private readonly pointer: PointerState = { active: false, x: 0, y: 0, tx: 0, ty: 0 }
-  private readonly reducedMotion: boolean
   private readonly resizeObserver: ResizeObserver
   private readonly settings: GraphSettings
   private readonly sprites: SpriteSet
@@ -80,7 +79,6 @@ export class SourceGraphEngine {
     this.variant = options.variant
     this.settings = settingsForVariant(options.variant)
     this.sprites = createSprites(this.settings)
-    this.reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
     this.bounds = canvas.getBoundingClientRect()
     this.resizeObserver = new ResizeObserver(this.resize)
   }
@@ -92,10 +90,7 @@ export class SourceGraphEngine {
     document.addEventListener("visibilitychange", this.onVisibilityChange)
     this.observeVisibility()
     this.resize()
-
-    if (!this.reducedMotion) {
-      this.animationFrame = window.requestAnimationFrame(this.animate)
-    }
+    this.animationFrame = window.requestAnimationFrame(this.animate)
   }
 
   destroy() {
