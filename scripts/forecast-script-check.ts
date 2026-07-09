@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   assertBenchmarkPromotionDecisionAllowed,
+  benchmarkPromotionGateBlockerIds,
   summarizeBenchmarkPromotionGateEvidence,
 } from "../packages/backend/src/benchmark-service";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
@@ -577,6 +578,9 @@ await check("benchmark promotion gate blockers are exported to DuckDB", async ()
   assert(syncSource.includes("unexplained_component_disagreement_cases"), "DuckDB benchmark run mart missing component disagreement count");
   assert(syncSource.includes("large_probability_miss_cases"), "DuckDB benchmark run mart missing large miss count");
   assert(syncSource.includes("worse_than_baseline_cases"), "DuckDB benchmark run mart missing worse-than-baseline count");
+  for (const blockerId of benchmarkPromotionGateBlockerIds) {
+    assert(syncSource.includes(blockerId), `DuckDB promotion gate export missing blocker ${blockerId}`);
+  }
   return "promotion gate blockers are visible in local DuckDB analytics";
 });
 

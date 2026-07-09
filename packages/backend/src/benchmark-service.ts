@@ -68,6 +68,30 @@ type BenchmarkPromotionComparisonStatus =
   | "wait_for_completion"
   | string;
 
+export const benchmarkPromotionGateBlockerIds = [
+  "benchmark_still_running",
+  "too_few_cases_for_promotion",
+  "missing_trace_bundles",
+  "failed_or_review_cases_present",
+  "missing_comparison_report",
+  "missing_baseline_sanity",
+  "unexplained_component_disagreement",
+  "large_probability_misses",
+  "worse_than_baseline_cases",
+] as const;
+
+const [
+  blockerBenchmarkStillRunning,
+  blockerTooFewCasesForPromotion,
+  blockerMissingTraceBundles,
+  blockerFailedOrReviewCasesPresent,
+  blockerMissingComparisonReport,
+  blockerMissingBaselineSanity,
+  blockerUnexplainedComponentDisagreement,
+  blockerLargeProbabilityMisses,
+  blockerWorseThanBaselineCases,
+] = benchmarkPromotionGateBlockerIds;
+
 export type BenchmarkPromotionGateEvidenceInput = {
   runStatus: string;
   resultCount: number;
@@ -82,33 +106,33 @@ export type BenchmarkPromotionGateEvidenceInput = {
 export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotionGateEvidenceInput) {
   const blockers = [];
   if (input.runStatus === "running" || input.runStatus === "queued") {
-    blockers.push("benchmark_still_running");
+    blockers.push(blockerBenchmarkStillRunning);
   }
   if (input.resultCount < 10) {
-    blockers.push("too_few_cases_for_promotion");
+    blockers.push(blockerTooFewCasesForPromotion);
   }
   if (input.traceMissing > 0) {
-    blockers.push("missing_trace_bundles");
+    blockers.push(blockerMissingTraceBundles);
   }
   if (input.reviewOrFailed > 0) {
-    blockers.push("failed_or_review_cases_present");
+    blockers.push(blockerFailedOrReviewCasesPresent);
   }
   if (!input.comparisonStatus) {
-    blockers.push("missing_comparison_report");
+    blockers.push(blockerMissingComparisonReport);
   } else if (input.comparisonStatus !== "candidate_better") {
     blockers.push(`comparison_${input.comparisonStatus}`);
   }
   if (readFindingCount(input.baselineSanityFindings, "missingBaselineSanityCases", "missing_baseline_sanity_cases") > 0) {
-    blockers.push("missing_baseline_sanity");
+    blockers.push(blockerMissingBaselineSanity);
   }
   if (readFindingCount(input.componentDisagreementFindings, "unexplainedHighDisagreementCases", "unexplained_high_disagreement_cases") > 0) {
-    blockers.push("unexplained_component_disagreement");
+    blockers.push(blockerUnexplainedComponentDisagreement);
   }
   if (readFindingCount(input.forecastErrorFindings, "largeProbabilityMissCases", "large_probability_miss_cases") > 0) {
-    blockers.push("large_probability_misses");
+    blockers.push(blockerLargeProbabilityMisses);
   }
   if (readFindingCount(input.forecastErrorFindings, "worseThanBaselineCases", "worse_than_baseline_cases") > 0) {
-    blockers.push("worse_than_baseline_cases");
+    blockers.push(blockerWorseThanBaselineCases);
   }
   return {
     status: blockers.length === 0 ? "review_for_promotion" : "needs_more_evidence",
