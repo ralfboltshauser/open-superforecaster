@@ -377,6 +377,8 @@ async function runSmokeChecks() {
       "open_superforecaster_benchmark_promotion_gate_status",
       "open_superforecaster_workflow_change_proposals_total",
       "open_superforecaster_workflow_variant_info",
+      "open_superforecaster_binary_calibration_status",
+      "open_superforecaster_binary_calibration_candidate_guard_rules_total",
     ];
     const missing = required.filter((metric) => !metrics.includes(metric));
     if (missing.length) {

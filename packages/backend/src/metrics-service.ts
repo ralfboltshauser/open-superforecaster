@@ -13,6 +13,7 @@ import {
   type createDb,
 } from "@open-superforecaster/db";
 import { summarizeBenchmarkPromotionGateEvidence } from "./benchmark-service";
+import { buildBinaryCalibrationReport } from "./performance-calibration";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
 
 type Db = ReturnType<typeof createDb>["db"];
@@ -90,6 +91,8 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
         scoreType: forecastScores.scoreType,
         scoreValue: forecastScores.scoreValue,
         scoreConfig: forecastScores.scoreConfig,
+        forecastAggregateId: forecastScores.forecastAggregateId,
+        resolutionId: forecastScores.resolutionId,
         createdAt: forecastScores.createdAt,
       })
       .from(forecastScores),
@@ -379,6 +382,89 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       parseLabelKey(key),
     );
   }
+  const productAggregateBrierRows = scoreRows.filter((row) =>
+    row.scoreType === "brier" &&
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig)
+  );
+  const productResolutionIds = uniqueStrings(
+    scoreRows
+      .filter((row) => isProductScoreConfig(row.scoreConfig))
+      .map((row) => row.resolutionId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const calibrationReport = buildBinaryCalibrationReport(
+    productAggregateBrierRows.map((row) => ({
+      probability: readCalibrationProbability(row.scoreConfig),
+      resolved: readCalibrationResolved(row.scoreConfig),
+      score: row.scoreValue,
+    })),
+    productResolutionIds.length,
+  );
+  metrics.gauge("open_superforecaster_binary_calibration_status", "Binary aggregate calibration fitting status.", 1, {
+    status: calibrationReport.calibrationSummary.status,
+  });
+  metrics.gauge(
+    "open_superforecaster_binary_calibration_sample_size",
+    "Binary aggregate calibration sample size.",
+    calibrationReport.calibrationSummary.sampleSize,
+  );
+  metrics.gauge(
+    "open_superforecaster_binary_calibration_resolved_forecasts",
+    "Resolved product forecast count used to decide calibration fitting readiness.",
+    calibrationReport.calibrationSummary.resolvedForecastCount,
+  );
+  metrics.gauge(
+    "open_superforecaster_binary_calibration_minimum_for_fitting",
+    "Minimum resolved product forecast count before candidate calibration fitting is considered ready.",
+    calibrationReport.calibrationSummary.minimumForFitting,
+  );
+  if (calibrationReport.calibrationSummary.expectedCalibrationError !== null) {
+    metrics.gauge(
+      "open_superforecaster_binary_calibration_expected_error",
+      "Expected calibration error for binary aggregate forecasts, in percentage points.",
+      calibrationReport.calibrationSummary.expectedCalibrationError,
+    );
+  }
+  if (calibrationReport.calibrationSummary.maxBucketCalibrationError !== null) {
+    metrics.gauge(
+      "open_superforecaster_binary_calibration_max_bucket_error",
+      "Largest binary aggregate calibration bucket error, in percentage points.",
+      calibrationReport.calibrationSummary.maxBucketCalibrationError,
+    );
+  }
+  for (const bucket of calibrationReport.calibrationBuckets) {
+    const labels = { bucket: bucket.label };
+    metrics.gauge("open_superforecaster_binary_calibration_bucket_count", "Binary aggregate calibration bucket row count.", bucket.count, labels);
+    if (bucket.meanForecast !== null) {
+      metrics.gauge("open_superforecaster_binary_calibration_bucket_mean_forecast", "Binary aggregate calibration bucket mean forecast.", bucket.meanForecast, labels);
+    }
+    if (bucket.observedRate !== null) {
+      metrics.gauge("open_superforecaster_binary_calibration_bucket_observed_rate", "Binary aggregate calibration bucket observed rate.", bucket.observedRate, labels);
+    }
+    if (bucket.calibrationError !== null) {
+      metrics.gauge("open_superforecaster_binary_calibration_bucket_error", "Binary aggregate calibration bucket error.", bucket.calibrationError, labels);
+    }
+  }
+  for (const diagnostic of calibrationReport.calibrationDiagnostics) {
+    metrics.gauge("open_superforecaster_binary_calibration_diagnostic", "Binary aggregate calibration diagnostic requiring review.", 1, {
+      bucket: diagnostic.bucketLabel,
+      severity: diagnostic.severity,
+      direction: diagnostic.direction,
+    });
+  }
+  metrics.gauge(
+    "open_superforecaster_binary_calibration_candidate_guard_rules_total",
+    "Candidate binary calibration guard rule count derived from resolved forecast calibration.",
+    calibrationReport.candidateCalibrationGuardRules.length,
+  );
+  for (const rule of calibrationReport.candidateCalibrationGuardRules) {
+    metrics.gauge("open_superforecaster_binary_calibration_candidate_guard_rule", "Candidate binary calibration guard rule requiring review.", 1, {
+      bucket: rule.bucketLabel,
+      direction: rule.direction,
+      activation_status: rule.activationStatus,
+    });
+  }
 
   metrics.gauge("open_superforecaster_resolutions_total", "Forecast resolution count.", resolutionRows.length);
   metrics.gauge("open_superforecaster_resolutions_total", "Forecast resolution count.", resolutionRows.filter((row) => !row.annulled).length, {
@@ -473,6 +559,33 @@ function readComparisonRecommendationStatus(comparison: Record<string, unknown> 
   const recommendation = readRecord(comparison, "recommendation");
   const status = recommendation?.status;
   return typeof status === "string" ? status : null;
+}
+
+function isProductScoreConfig(value: unknown) {
+  const config = asRecord(value);
+  return config?.source === "manual_resolution" && typeof config.taskId === "string" && !("benchmarkRunId" in config);
+}
+
+function readCalibrationProbability(value: unknown) {
+  const config = asRecord(value);
+  const raw = config?.probability ?? config?.probability_pct ?? config?.probabilityPct;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw;
+  }
+  if (typeof raw === "string") {
+    const parsed = Number.parseFloat(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function readCalibrationResolved(value: unknown) {
+  const config = asRecord(value);
+  return typeof config?.resolved === "boolean" ? config.resolved : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
 function formatLabels(labels?: Record<string, string>) {

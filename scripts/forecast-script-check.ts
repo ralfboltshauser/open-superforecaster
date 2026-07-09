@@ -507,6 +507,19 @@ await check("forecast performance reports surface candidate calibration guards",
   return "candidate calibration guard rules are visible in report artifacts and the lab dashboard";
 });
 
+await check("forecast calibration health is exported as metrics", async () => {
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const smokeSource = await readFile(resolve(root, "scripts/smoke-check.ts"), "utf8");
+  assert(metricsSource.includes("buildBinaryCalibrationReport"), "metrics exporter does not use shared calibration report builder");
+  assert(metricsSource.includes("open_superforecaster_binary_calibration_status"), "calibration status metric missing");
+  assert(metricsSource.includes("open_superforecaster_binary_calibration_expected_error"), "calibration expected error metric missing");
+  assert(metricsSource.includes("open_superforecaster_binary_calibration_bucket_error"), "calibration bucket error metric missing");
+  assert(metricsSource.includes("open_superforecaster_binary_calibration_diagnostic"), "calibration diagnostic metric missing");
+  assert(metricsSource.includes("open_superforecaster_binary_calibration_candidate_guard_rules_total"), "candidate calibration guard metric missing");
+  assert(smokeSource.includes("open_superforecaster_binary_calibration_status"), "smoke check does not require calibration status metric");
+  return "binary calibration health and candidate guard rules are visible in Prometheus metrics";
+});
+
 await check("binary forecast calibration guard preserves deterministic adjustments", async () => {
   const productionRamp = applyBinaryCalibrationGuard({
     probability: 25,
