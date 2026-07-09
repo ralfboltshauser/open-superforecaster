@@ -50,6 +50,20 @@ The report artifact is written back into the artifact ledger. It includes a
 versioned decision report payload plus a Markdown snapshot for review, export,
 or downstream automation.
 
+## Forecast Ops Runner
+
+Use the forecast ops runner for cron-style batches. It uses the public run API,
+not internal database calls:
+
+```bash
+bun run forecast:ops
+bun run forecast:ops -- --execute --case binary-foldable-iphone
+bun run forecast:ops -- --execute --input examples/questions.jsonl --out-dir data/forecast-ops/manual-smoke
+```
+
+Plan mode writes `manifest.json` only. Execute mode writes one folder per case
+with `result.json`, `report.json`, and `report.md`.
+
 ## Table Workflows
 
 Use the CSV files in the web composer by selecting the relevant mode and

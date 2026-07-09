@@ -233,6 +233,16 @@ You can also plan sample workflows without launching agent work:
 bun run workflow:samples
 ```
 
+For scheduled or cron-style forecast operations, use the forecast ops runner.
+It reads forecast requests, starts each run through the HTTP API, polls the
+status endpoint, fetches the result, materializes a report artifact, and writes
+a local manifest plus JSON/Markdown snapshots:
+
+```bash
+bun run forecast:ops
+bun run forecast:ops -- --execute --case binary-foldable-iphone
+```
+
 ### Host Development
 
 For direct host development, keep the backing services in Docker and run the web

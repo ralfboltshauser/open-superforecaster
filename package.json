@@ -24,6 +24,7 @@
     "docker:down": "docker compose down",
     "smoke:local": "bun scripts/smoke-check.ts",
     "workflow:samples": "bun scripts/run-sample-workflows.ts",
+    "forecast:ops": "bun scripts/forecast-ops-runner.ts",
     "onboarding:check": "bun scripts/onboarding-check.ts",
     "object-storage:smoke": "bun scripts/object-storage-smoke.ts",
     "workflow:coverage": "bun scripts/workflow-coverage.ts",
