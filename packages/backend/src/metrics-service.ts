@@ -1,5 +1,6 @@
-import { desc } from "drizzle-orm";
+import { desc, inArray } from "drizzle-orm";
 import {
+  artifactRows,
   benchmarkCaseResults,
   benchmarkRuns,
   forecastResolutions,
@@ -10,6 +11,7 @@ import {
   workflowVariants,
   type createDb,
 } from "@open-superforecaster/db";
+import { summarizeBenchmarkPromotionGateEvidence } from "./benchmark-service";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
 
 type Db = ReturnType<typeof createDb>["db"];
@@ -57,6 +59,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
         workflowVariantId: benchmarkRuns.workflowVariantId,
         caseCount: benchmarkRuns.caseCount,
         comparisonReportArtifactId: benchmarkRuns.comparisonReportArtifactId,
+        analysisReportArtifactId: benchmarkRuns.analysisReportArtifactId,
         promotionDecisionId: benchmarkRuns.promotionDecisionId,
         startedAt: benchmarkRuns.startedAt,
         completedAt: benchmarkRuns.completedAt,
@@ -108,6 +111,32 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       .from(workflowPromotionDecisions),
   ]);
   const workflowVariantById = new Map(workflowVariantRows.map((variant) => [variant.id, variant]));
+  const benchmarkRunIds = benchmarkRunRows.map((run) => run.id);
+  const recentRunCaseRows = benchmarkRunIds.length
+    ? await db
+        .select({
+          benchmarkRunId: benchmarkCaseResults.benchmarkRunId,
+          status: benchmarkCaseResults.status,
+          traceBundleUri: benchmarkCaseResults.traceBundleUri,
+        })
+        .from(benchmarkCaseResults)
+        .where(inArray(benchmarkCaseResults.benchmarkRunId, benchmarkRunIds))
+    : [];
+  const reportArtifactIds = uniqueStrings(benchmarkRunRows.flatMap((run) => [
+    run.comparisonReportArtifactId,
+    run.analysisReportArtifactId,
+  ].filter((id): id is string => Boolean(id))));
+  const reportRows = reportArtifactIds.length
+    ? await db
+        .select({
+          artifactId: artifactRows.artifactId,
+          rowJson: artifactRows.rowJson,
+        })
+        .from(artifactRows)
+        .where(inArray(artifactRows.artifactId, reportArtifactIds))
+    : [];
+  const reportRowsByArtifactId = new Map(reportRows.map((row) => [row.artifactId, row.rowJson]));
+  const recentCasesByRunId = groupBy(recentRunCaseRows, (row) => row.benchmarkRunId);
 
   const metrics = new MetricsBuilder();
   metrics.gauge("open_superforecaster_up", "Open Superforecaster metrics endpoint health.", 1);
@@ -211,6 +240,30 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     };
     metrics.gauge("open_superforecaster_benchmark_run_info", "Recent benchmark run metadata.", 1, labels);
     metrics.gauge("open_superforecaster_benchmark_cases_expected", "Expected case count per recent benchmark run.", run.caseCount, labels);
+    const caseRows = recentCasesByRunId.get(run.id) ?? [];
+    const comparisonReport = run.comparisonReportArtifactId ? reportRowsByArtifactId.get(run.comparisonReportArtifactId) ?? null : null;
+    const analysisReport = run.analysisReportArtifactId ? reportRowsByArtifactId.get(run.analysisReportArtifactId) ?? null : null;
+    const promotionGate = summarizeBenchmarkPromotionGateEvidence({
+      runStatus: run.status,
+      resultCount: caseRows.length,
+      traceMissing: caseRows.filter((row) => !row.traceBundleUri).length,
+      reviewOrFailed: caseRows.filter((row) => row.status === "failed" || row.status === "needs_review").length,
+      comparisonStatus: readComparisonRecommendationStatus(comparisonReport),
+      baselineSanityFindings: readRecord(analysisReport, "baselineSanityFindings", "baseline_sanity_findings"),
+      componentDisagreementFindings: readRecord(analysisReport, "componentDisagreementFindings", "component_disagreement_findings"),
+      forecastErrorFindings: readRecord(analysisReport, "forecastErrorFindings", "forecast_error_findings"),
+    });
+    metrics.gauge("open_superforecaster_benchmark_promotion_gate_status", "Recent benchmark promotion gate status.", 1, {
+      ...labels,
+      gate_status: promotionGate.status,
+      recommendation_status: promotionGate.recommendationStatus ?? "none",
+    });
+    for (const blocker of promotionGate.blockers) {
+      metrics.gauge("open_superforecaster_benchmark_promotion_gate_blocker", "Recent benchmark promotion gate blockers.", 1, {
+        ...labels,
+        blocker,
+      });
+    }
     const duration = durationSeconds(run.startedAt ?? run.createdAt, run.completedAt);
     if (duration !== null) {
       metrics.gauge("open_superforecaster_benchmark_run_duration_seconds", "Recent benchmark run duration in seconds.", duration, labels);
@@ -340,6 +393,29 @@ function parseLabelKey(key: string) {
       return [entry.slice(0, index), entry.slice(index + 1)];
     }),
   );
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function readRecord(value: Record<string, unknown> | null | undefined, ...keys: string[]) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  for (const key of keys) {
+    const raw = value[key];
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      return raw as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
+function readComparisonRecommendationStatus(comparison: Record<string, unknown> | null) {
+  const recommendation = readRecord(comparison, "recommendation");
+  const status = recommendation?.status;
+  return typeof status === "string" ? status : null;
 }
 
 function formatLabels(labels?: Record<string, string>) {

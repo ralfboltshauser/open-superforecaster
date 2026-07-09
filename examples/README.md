@@ -37,6 +37,9 @@ cases must be cleared before a run is ready for promotion review.
 The promotion decision API enforces the same gate for promoted states; use
 `needs_more_cases`, `candidate`, or `rejected` when recording non-promoting
 review outcomes with blockers still present.
+The metrics endpoint exports promotion-gate status and blocker series for
+recent benchmark runs, so blocked promotion reasons can be monitored outside the
+lab dashboard.
 
 ## Forecast And Research Prompts
 

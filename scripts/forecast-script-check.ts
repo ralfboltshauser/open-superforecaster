@@ -559,6 +559,16 @@ await check("benchmark analysis summarizes forecast error findings", async () =>
   return "benchmark analysis and lab dashboard expose forecast error findings";
 });
 
+await check("benchmark promotion gate blockers are exported as metrics", async () => {
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const smokeSource = await readFile(resolve(root, "scripts/smoke-check.ts"), "utf8");
+  assert(metricsSource.includes("open_superforecaster_benchmark_promotion_gate_status"), "promotion gate status metric missing");
+  assert(metricsSource.includes("open_superforecaster_benchmark_promotion_gate_blocker"), "promotion gate blocker metric missing");
+  assert(metricsSource.includes("summarizeBenchmarkPromotionGateEvidence"), "metrics exporter does not use shared promotion gate helper");
+  assert(smokeSource.includes("open_superforecaster_benchmark_promotion_gate_status"), "smoke check does not require promotion gate status metric");
+  return "promotion gate blockers are visible in Prometheus metrics";
+});
+
 const failed = checks.filter((result) => !result.ok);
 for (const result of checks) {
   console.log(`${result.ok ? "PASS" : "FAIL"} ${result.name}: ${result.detail}`);
