@@ -159,6 +159,45 @@ await check("forecast batch index joins all batch phases", async () => {
   return "batch index joins ops, resolution, and performance phases";
 });
 
+await check("forecast review helper upserts local attention reviews", async () => {
+  const reviewsFile = resolve(tempRoot, "review-helper", "reviews.json");
+  await runScript("scripts/forecast-review.ts", [
+    "--id",
+    "poor:task-2:brier",
+    "--status",
+    "deferred",
+    "--note",
+    "Waiting for more resolved samples.",
+    "--reviewer",
+    "contract-check",
+    "--updated-at",
+    "2026-07-09T00:04:00.000Z",
+    "--reviews-file",
+    reviewsFile,
+  ]);
+  await runScript("scripts/forecast-review.ts", [
+    "--id",
+    "poor:task-2:brier",
+    "--status",
+    "reviewed",
+    "--note",
+    "Reviewed after more samples resolved.",
+    "--reviewer",
+    "contract-check",
+    "--updated-at",
+    "2026-07-09T00:05:00.000Z",
+    "--reviews-file",
+    reviewsFile,
+  ]);
+  const payload = readRecord(await readJson(reviewsFile));
+  const reviews = readArray(payload, "reviews");
+  assert(reviews.length === 1, `expected 1 upserted review, got ${reviews.length}`);
+  assert(readString(reviews[0], "attentionItemId") === "poor:task-2:brier", "attention item id mismatch");
+  assert(readString(reviews[0], "status") === "reviewed", "review status was not updated");
+  assert(readString(reviews[0], "note") === "Reviewed after more samples resolved.", "review note was not updated");
+  return "forecast review helper safely upserts local review records";
+});
+
 const failed = checks.filter((result) => !result.ok);
 for (const result of checks) {
   console.log(`${result.ok ? "PASS" : "FAIL"} ${result.name}: ${result.detail}`);

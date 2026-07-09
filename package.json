@@ -28,6 +28,7 @@
     "forecast:resolve": "bun scripts/forecast-resolution-runner.ts",
     "forecast:performance": "bun scripts/forecast-performance-report.ts",
     "forecast:batches": "bun scripts/forecast-batch-index.ts",
+    "forecast:review": "bun scripts/forecast-review.ts",
     "forecast:scripts:check": "bun scripts/forecast-script-check.ts",
     "onboarding:check": "bun scripts/onboarding-check.ts",
     "object-storage:smoke": "bun scripts/object-storage-smoke.ts",

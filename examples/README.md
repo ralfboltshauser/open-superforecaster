@@ -123,6 +123,12 @@ ledger, add local review records to `data/reports/forecast-attention-reviews.jso
 ```
 
 Pass `--reviews-file path/to/reviews.json` to use a different local review file.
+Use the helper command to avoid hand-editing the JSON:
+
+```bash
+bun run forecast:review -- --id poor:task-id:brier --status reviewed --note "Resolution criteria were ambiguous."
+bun run forecast:batches -- --batch-id july-smoke
+```
 
 Run the script contract checks before changing these tools:
 
