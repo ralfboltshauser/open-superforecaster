@@ -352,12 +352,12 @@ persistence, so repeated citations are deduped before source-count analytics and
 attempt-level key uncertainties are preserved on aggregate forecasts. New forecast runs also preserve
 structured input context in score rows, including resolution criteria/date,
 resolution horizon, market price and market-price recency, background,
-background depth, option counts and coverage, threshold counts and bands,
-condition/unit flags, unit specificity, condition-criteria coverage, and
+background depth, option counts and coverage, threshold counts, direction and
+bands, condition/unit flags, unit specificity, condition-criteria coverage, and
 question length, so short-horizon, thin-background, stale-market,
-market-anchored, option-heavy, open-category, threshold-curve, generic-unit,
-condition-underspecified, or richly specified questions can be measured
-separately from sparse prompts.
+market-anchored, option-heavy, open-category, missing-threshold-direction,
+threshold-curve, generic-unit, condition-underspecified, or richly specified
+questions can be measured separately from sparse prompts.
 Score rows also keep workflow version,
 workflow variant, experiment label, and run duration bands so quality changes
 can be compared against runtime and variant changes.

@@ -1182,6 +1182,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       category_count_band: "unknown",
       category_coverage_band: "unknown",
       threshold_count_band: "unknown",
+      threshold_direction_band: "unknown",
       condition_criteria_band: "unknown",
       unit_specificity_band: "unknown",
     };
@@ -1211,6 +1212,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       category_count_band: inputContext?.categoryCountBand ?? "unknown",
       category_coverage_band: inputContext?.categoryCoverageBand ?? "unknown",
       threshold_count_band: inputContext?.thresholdCountBand ?? "unknown",
+      threshold_direction_band: inputContext?.thresholdDirectionBand ?? "unknown",
       condition_criteria_band: inputContext?.conditionCriteriaBand ?? "unknown",
       unit_specificity_band: inputContext?.unitSpecificityBand ?? "unknown",
     });

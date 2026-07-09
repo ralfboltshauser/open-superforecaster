@@ -449,6 +449,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byInputCategoryCount = groupScores(aggregateScores, inputCategoryCountGroupKey);
   const byInputCategoryCoverage = groupScores(aggregateScores, inputCategoryCoverageGroupKey);
   const byInputThresholdCount = groupScores(aggregateScores, inputThresholdCountGroupKey);
+  const byInputThresholdDirection = groupScores(aggregateScores, inputThresholdDirectionGroupKey);
   const byInputConditionCriteria = groupScores(aggregateScores, inputConditionCriteriaGroupKey);
   const byInputUnitSpecificity = groupScores(aggregateScores, inputUnitSpecificityGroupKey);
   const byRunDuration = groupScores(aggregateScores, runDurationGroupKey);
@@ -546,6 +547,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputCategoryCount,
       byInputCategoryCoverage,
       byInputThresholdCount,
+      byInputThresholdDirection,
       byInputConditionCriteria,
       byInputUnitSpecificity,
       byRunDuration,
@@ -633,6 +635,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputCategoryCount,
       byInputCategoryCoverage,
       byInputThresholdCount,
+      byInputThresholdDirection,
       byInputConditionCriteria,
       byInputUnitSpecificity,
       byRunDuration,
@@ -1686,6 +1689,11 @@ function inputThresholdCountGroupKey(score: typeof forecastScores.$inferSelect) 
   return `input_thresholds:${inputContext?.thresholdCountBand ?? "unrecorded"}`;
 }
 
+function inputThresholdDirectionGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_threshold_direction:${inputContext?.thresholdDirectionBand ?? "unrecorded"}`;
+}
+
 function inputConditionCriteriaGroupKey(score: typeof forecastScores.$inferSelect) {
   const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
   return `input_condition_criteria:${inputContext?.conditionCriteriaBand ?? "unrecorded"}`;
@@ -2625,6 +2633,13 @@ function inputContextMissSignal(item: PerformanceCase): { reason: string; delta:
       severity: "medium",
     };
   }
+  if (item.forecastType === "thresholded" && (context.thresholdDirectionBand === "missing" || context.thresholdDirectionBand === "mixed")) {
+    return {
+      reason: `${context.thresholdDirectionBand} input threshold direction across ${context.thresholdCount ?? 0} threshold(s)`,
+      delta: context.thresholdCount,
+      severity: context.thresholdDirectionBand === "missing" ? "high" : "medium",
+    };
+  }
   if (context.questionLengthBand === "short" || context.questionLengthBand === "long") {
     return {
       reason: `${context.questionLengthBand} question text (${context.questionLength ?? 0} words)`,
@@ -2852,6 +2867,7 @@ function renderPerformanceMarkdown(input: {
   byInputCategoryCount: PerformanceGroup[];
   byInputCategoryCoverage: PerformanceGroup[];
   byInputThresholdCount: PerformanceGroup[];
+  byInputThresholdDirection: PerformanceGroup[];
   byInputConditionCriteria: PerformanceGroup[];
   byInputUnitSpecificity: PerformanceGroup[];
   byRunDuration: PerformanceGroup[];
@@ -3050,6 +3066,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input threshold-count groups",
     ...renderGroupTable(input.byInputThresholdCount),
+    "",
+    "## Input threshold-direction groups",
+    ...renderGroupTable(input.byInputThresholdDirection),
     "",
     "## Input condition-criteria groups",
     ...renderGroupTable(input.byInputConditionCriteria),

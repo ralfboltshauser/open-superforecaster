@@ -24,6 +24,8 @@ export type ForecastInputContextSnapshot = {
   categoryCoverageBand: "none" | "open_set" | "closed_set" | "unknown";
   thresholdCount: number | null;
   thresholdCountBand: "none" | "single" | "curve" | "unknown";
+  thresholdDirection: "at_least" | "at_most" | "mixed" | null;
+  thresholdDirectionBand: "none" | "missing" | "at_least" | "at_most" | "mixed" | "unknown";
   hasCondition: boolean;
   hasConditionResolutionCriteria: boolean;
   conditionCriteriaBand: "none" | "condition_only" | "condition_with_criteria" | "unknown";
@@ -52,6 +54,7 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   const categoryCount = normalized.categories.length;
   const categoriesExhaustive = categoryCount > 0 ? normalized.categoriesExhaustive : null;
   const thresholdCount = normalized.thresholds.length;
+  const thresholdDirection = readInputThresholdDirection(normalized);
   const marketPlatform = normalized.market.marketPlatform?.trim() || null;
   const hasResolutionCriteria = Boolean(normalized.resolutionCriteria?.trim());
   const hasResolutionDate = Boolean(normalized.resolutionDate?.trim());
@@ -104,6 +107,8 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     categoryCoverageBand: inputCategoryCoverageBand({ categoryCount, categoriesExhaustive }),
     thresholdCount,
     thresholdCountBand: thresholdCountBand(thresholdCount),
+    thresholdDirection,
+    thresholdDirectionBand: inputThresholdDirectionBand({ thresholdCount, thresholdDirection }),
     hasCondition,
     hasConditionResolutionCriteria,
     conditionCriteriaBand: conditionCriteriaBand({ hasCondition, hasConditionResolutionCriteria }),
@@ -124,6 +129,7 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   const categoryCount = readNumber(value, "categoryCount");
   const categoriesExhaustive = readBoolean(value, "categoriesExhaustive");
   const thresholdCount = readNumber(value, "thresholdCount");
+  const thresholdDirection = readInputThresholdDirectionValue(value);
   const resolutionHorizonDays = readNumber(value, "resolutionHorizonDays");
   const marketPriceAgeDays = readNumber(value, "marketPriceAgeDays");
   const backgroundLength = readNumber(value, "backgroundLength");
@@ -135,6 +141,7 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   const unit = readString(value, "unit");
   const unitSpecificityBandValue = readString(value, "unitSpecificityBand");
   const categoryCoverageBandValue = readString(value, "categoryCoverageBand");
+  const thresholdDirectionBandValue = readString(value, "thresholdDirectionBand");
   return {
     questionLength,
     questionLengthBand: readQuestionLengthBand(value) ?? questionLengthBand(questionLength),
@@ -167,6 +174,10 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
       : inputCategoryCoverageBand({ categoryCount, categoriesExhaustive }),
     thresholdCount,
     thresholdCountBand: readThresholdCountBand(value) ?? thresholdCountBand(thresholdCount),
+    thresholdDirection,
+    thresholdDirectionBand: isInputThresholdDirectionBand(thresholdDirectionBandValue)
+      ? thresholdDirectionBandValue
+      : inputThresholdDirectionBand({ thresholdCount, thresholdDirection }),
     hasCondition: readBoolean(value, "hasCondition") ?? false,
     hasConditionResolutionCriteria: readBoolean(value, "hasConditionResolutionCriteria") ?? false,
     conditionCriteriaBand: readConditionCriteriaBand(value) ?? conditionCriteriaBand({
@@ -266,6 +277,19 @@ export function thresholdCountBand(count: number | null): ForecastInputContextSn
   return "curve";
 }
 
+export function inputThresholdDirectionBand(input: {
+  thresholdCount: number | null;
+  thresholdDirection: ForecastInputContextSnapshot["thresholdDirection"];
+}): ForecastInputContextSnapshot["thresholdDirectionBand"] {
+  if (input.thresholdCount === null || !Number.isFinite(input.thresholdCount)) {
+    return "unknown";
+  }
+  if (input.thresholdCount <= 0) {
+    return "none";
+  }
+  return input.thresholdDirection ?? "missing";
+}
+
 export function conditionCriteriaBand(input: {
   hasCondition: boolean;
   hasConditionResolutionCriteria: boolean;
@@ -339,6 +363,28 @@ function wordCount(value: string) {
   return value.trim().split(/\s+/).filter(Boolean).length;
 }
 
+function readInputThresholdDirection(input: {
+  thresholdDirection?: "at_least" | "at_most";
+  thresholds: Array<{ direction?: "at_least" | "at_most" }>;
+}): ForecastInputContextSnapshot["thresholdDirection"] {
+  const directions = new Set<"at_least" | "at_most">();
+  if (input.thresholdDirection) {
+    directions.add(input.thresholdDirection);
+  }
+  for (const threshold of input.thresholds) {
+    if (threshold.direction) {
+      directions.add(threshold.direction);
+    }
+  }
+  if (directions.size === 0) {
+    return null;
+  }
+  if (directions.size > 1) {
+    return "mixed";
+  }
+  return directions.values().next().value ?? null;
+}
+
 function horizonDays(evidenceAsOfDate: string | null, resolutionDate: string | null) {
   const asOf = dateTime(evidenceAsOfDate);
   const resolution = dateTime(resolutionDate);
@@ -393,6 +439,15 @@ function isInputCategoryCoverageBand(value: string | null): value is ForecastInp
 function readThresholdCountBand(value: Record<string, unknown>) {
   const raw = readString(value, "thresholdCountBand");
   return raw === "none" || raw === "single" || raw === "curve" || raw === "unknown" ? raw : null;
+}
+
+function readInputThresholdDirectionValue(value: Record<string, unknown>): ForecastInputContextSnapshot["thresholdDirection"] {
+  const raw = readString(value, "thresholdDirection");
+  return raw === "at_least" || raw === "at_most" || raw === "mixed" ? raw : null;
+}
+
+function isInputThresholdDirectionBand(value: string | null): value is ForecastInputContextSnapshot["thresholdDirectionBand"] {
+  return value === "none" || value === "missing" || value === "at_least" || value === "at_most" || value === "mixed" || value === "unknown";
 }
 
 function readConditionCriteriaBand(value: Record<string, unknown>) {

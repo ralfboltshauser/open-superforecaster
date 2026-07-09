@@ -1017,6 +1017,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Input category-count groups"), "performance Markdown missing input category-count group section");
   assert(resolutionSource.includes("## Input category-coverage groups"), "performance Markdown missing input category-coverage group section");
   assert(resolutionSource.includes("## Input threshold-count groups"), "performance Markdown missing input threshold-count group section");
+  assert(resolutionSource.includes("## Input threshold-direction groups"), "performance Markdown missing input threshold-direction group section");
   assert(resolutionSource.includes("## Input condition-criteria groups"), "performance Markdown missing input condition-criteria group section");
   assert(resolutionSource.includes("## Input unit-specificity groups"), "performance Markdown missing input unit-specificity group section");
   assert(resolutionSource.includes("## Run duration groups"), "performance Markdown missing run duration group section");
@@ -1115,6 +1116,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Input question outcomes"), "lab dashboard does not render input question performance groups");
   assert(dashboardSource.includes("byInputCategoryCoverage"), "lab dashboard does not read input category-coverage performance groups");
   assert(dashboardSource.includes("Input category-coverage outcomes"), "lab dashboard does not render input category-coverage performance groups");
+  assert(dashboardSource.includes("byInputThresholdDirection"), "lab dashboard does not read input threshold-direction performance groups");
+  assert(dashboardSource.includes("Input threshold-direction outcomes"), "lab dashboard does not render input threshold-direction performance groups");
   assert(dashboardSource.includes("byInputConditionCriteria"), "lab dashboard does not read input condition-criteria performance groups");
   assert(dashboardSource.includes("Input condition-criteria outcomes"), "lab dashboard does not render input condition-criteria performance groups");
   assert(dashboardSource.includes("byInputUnitSpecificity"), "lab dashboard does not read input unit performance groups");
@@ -1337,6 +1340,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("input_condition_criteria_band"), "forecast score mart missing input condition criteria band");
   assert(syncSource.includes("input_unit_specificity_band"), "forecast score mart missing input unit specificity band");
   assert(syncSource.includes("input_category_coverage_band"), "forecast score mart missing input category coverage band");
+  assert(syncSource.includes("input_threshold_direction_band"), "forecast score mart missing input threshold direction band");
   assert(syncSource.includes("input_question_length_band"), "forecast score mart missing input question length band");
   assert(syncSource.includes("run_workflow_version"), "forecast score mart missing run workflow version");
   assert(syncSource.includes("run_experiment_label"), "forecast score mart missing run experiment label");
@@ -2254,6 +2258,8 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(snapshot?.categoryCoverageBand === "open_set", "input context category coverage band mismatch");
   assert(snapshot?.thresholdCount === 2, "input context threshold count mismatch");
   assert(snapshot?.thresholdCountBand === "curve", "input context threshold band mismatch");
+  assert(snapshot?.thresholdDirection === null, "input context threshold direction mismatch");
+  assert(snapshot?.thresholdDirectionBand === "missing", "input context threshold direction band mismatch");
   assert(snapshot?.hasCondition === true, "input context condition flag mismatch");
   assert(snapshot?.hasConditionResolutionCriteria === true, "input context condition criteria flag mismatch");
   assert(snapshot?.conditionCriteriaBand === "condition_with_criteria", "input context condition criteria band mismatch");
@@ -2279,6 +2285,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(persistedSnapshot?.marketPriceBand === "high", "persisted input context market band mismatch");
   assert(persistedSnapshot?.marketPriceAgeBand === "old", "persisted input context market age band mismatch");
   assert(persistedSnapshot?.categoryCoverageBand === "open_set", "persisted input context category coverage band mismatch");
+  assert(persistedSnapshot?.thresholdDirectionBand === "missing", "persisted input context threshold direction band mismatch");
   assert(persistedSnapshot?.conditionCriteriaBand === "condition_with_criteria", "persisted input context condition criteria band mismatch");
   assert(persistedSnapshot?.unitSpecificityBand === "generic", "persisted input context unit specificity band mismatch");
   assert(persistedSnapshot?.resolutionHorizonBand === "medium", "persisted input context horizon band mismatch");
@@ -2302,6 +2309,8 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(resolutionSource.includes("byInputCategoryCoverage"), "performance report does not group by input category coverage");
   assert(resolutionSource.includes("context.categoryCoverageBand"), "attention queue does not use input category coverage");
   assert(resolutionSource.includes("byInputThresholdCount"), "performance report does not group by input threshold count");
+  assert(resolutionSource.includes("byInputThresholdDirection"), "performance report does not group by input threshold direction");
+  assert(resolutionSource.includes("context.thresholdDirectionBand"), "attention queue does not use input threshold direction");
   assert(resolutionSource.includes("byInputConditionCriteria"), "performance report does not group by input condition criteria");
   assert(resolutionSource.includes("context.conditionCriteriaBand"), "attention queue does not use input condition criteria");
   assert(resolutionSource.includes("byInputUnitSpecificity"), "performance report does not group by input unit specificity");
@@ -2313,6 +2322,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(metricsSource.includes("category_count_band"), "metrics missing input category-count labels");
   assert(metricsSource.includes("category_coverage_band"), "metrics missing input category-coverage labels");
   assert(metricsSource.includes("threshold_count_band"), "metrics missing input threshold-count labels");
+  assert(metricsSource.includes("threshold_direction_band"), "metrics missing input threshold-direction labels");
   assert(metricsSource.includes("condition_criteria_band"), "metrics missing input condition-criteria labels");
   assert(metricsSource.includes("unit_specificity_band"), "metrics missing input unit-specificity labels");
   assert(syncSource.includes("input_context_completeness_band"), "DuckDB forecast score mart missing input context completeness band");
@@ -2326,6 +2336,8 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(syncSource.includes("input_categories_exhaustive"), "DuckDB forecast score mart missing input categories exhaustive flag");
   assert(syncSource.includes("input_category_coverage_band"), "DuckDB forecast score mart missing input category coverage band");
   assert(syncSource.includes("input_threshold_count_band"), "DuckDB forecast score mart missing input threshold count band");
+  assert(syncSource.includes("input_threshold_direction"), "DuckDB forecast score mart missing input threshold direction");
+  assert(syncSource.includes("input_threshold_direction_band"), "DuckDB forecast score mart missing input threshold direction band");
   assert(syncSource.includes("input_condition_criteria_band"), "DuckDB forecast score mart missing input condition criteria band");
   assert(syncSource.includes("input_unit"), "DuckDB forecast score mart missing input unit");
   assert(syncSource.includes("input_unit_specificity_band"), "DuckDB forecast score mart missing input unit specificity band");
@@ -2338,6 +2350,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(dashboardSource.includes("Input category outcomes"), "lab dashboard does not render input category outcomes");
   assert(dashboardSource.includes("Input category-coverage outcomes"), "lab dashboard does not render input category coverage outcomes");
   assert(dashboardSource.includes("Input threshold outcomes"), "lab dashboard does not render input threshold outcomes");
+  assert(dashboardSource.includes("Input threshold-direction outcomes"), "lab dashboard does not render input threshold direction outcomes");
   assert(dashboardSource.includes("Input condition-criteria outcomes"), "lab dashboard does not render input condition-criteria outcomes");
   assert(dashboardSource.includes("Input unit outcomes"), "lab dashboard does not render input unit outcomes");
   return "forecast input context is persisted and visible in resolved score analytics";
