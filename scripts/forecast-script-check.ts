@@ -700,14 +700,22 @@ await check("forecast performance reports surface candidate calibration guards",
 await check("forecast calibration health is exported as metrics", async () => {
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const smokeSource = await readFile(resolve(root, "scripts/smoke-check.ts"), "utf8");
+  const metricsRouteSource = await readFile(resolve(root, "apps/web/src/app/metrics/route.ts"), "utf8");
   assert(metricsSource.includes("buildBinaryCalibrationReport"), "metrics exporter does not use shared calibration report builder");
   assert(metricsSource.includes("open_superforecaster_binary_calibration_status"), "calibration status metric missing");
   assert(metricsSource.includes("open_superforecaster_binary_calibration_expected_error"), "calibration expected error metric missing");
   assert(metricsSource.includes("open_superforecaster_binary_calibration_bucket_error"), "calibration bucket error metric missing");
   assert(metricsSource.includes("open_superforecaster_binary_calibration_diagnostic"), "calibration diagnostic metric missing");
   assert(metricsSource.includes("open_superforecaster_binary_calibration_candidate_guard_rules_total"), "candidate calibration guard metric missing");
+  assert(metricsSource.includes("readCalibrationGuardValidationMetricRows"), "metrics exporter does not read calibration guard validation reports");
+  assert(metricsSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "calibration validation report metric missing");
+  assert(metricsSource.includes("open_superforecaster_calibration_guard_validation_brier_delta"), "calibration validation Brier delta metric missing");
+  assert(metricsSource.includes("open_superforecaster_calibration_guard_validation_calibration_error_delta"), "calibration validation calibration error delta metric missing");
   assert(smokeSource.includes("open_superforecaster_binary_calibration_status"), "smoke check does not require calibration status metric");
-  return "binary calibration health and candidate guard rules are visible in Prometheus metrics";
+  assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
+  assert(metricsRouteSource.includes("renderPrometheusMetrics"), "metrics route does not render Prometheus metrics");
+  assert(metricsRouteSource.includes("text/plain; version=0.0.4"), "metrics route missing Prometheus content type");
+  return "binary calibration health, candidate guard rules, and validation outcomes are visible in Prometheus metrics";
 });
 
 await check("forecast calibration health is exported to DuckDB", async () => {

@@ -379,6 +379,7 @@ async function runSmokeChecks() {
       "open_superforecaster_workflow_variant_info",
       "open_superforecaster_binary_calibration_status",
       "open_superforecaster_binary_calibration_candidate_guard_rules_total",
+      "open_superforecaster_calibration_guard_validation_reports_total",
     ];
     const missing = required.filter((metric) => !metrics.includes(metric));
     if (missing.length) {

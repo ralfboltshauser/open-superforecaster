@@ -1,3 +1,5 @@
+import { readdir, readFile, stat } from "node:fs/promises";
+import { resolve } from "node:path";
 import { desc, eq, inArray } from "drizzle-orm";
 import {
   artifactRows,
@@ -17,6 +19,18 @@ import { buildBinaryCalibrationReport } from "./performance-calibration";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
 
 type Db = ReturnType<typeof createDb>["db"];
+
+type CalibrationGuardValidationMetricRow = {
+  reportPath: string;
+  generatedAt: string | null;
+  proposalId: string | null;
+  sourceCandidateGuardId: string | null;
+  bucketLabel: string | null;
+  matchedRows: number | null;
+  brierDelta: number | null;
+  calibrationErrorDelta: number | null;
+  recommendation: string | null;
+};
 
 export async function renderPrometheusMetrics(db: Db, options: { root?: string } = {}) {
   const [
@@ -466,6 +480,56 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     });
   }
 
+  if (options.root) {
+    const validationRows = await readCalibrationGuardValidationMetricRows(options.root);
+    const validationReportPaths = uniqueStrings(validationRows.map((row) => row.reportPath));
+    metrics.gauge(
+      "open_superforecaster_calibration_guard_validation_reports_total",
+      "Local calibration guard validation report count.",
+      validationReportPaths.length,
+    );
+    metrics.gauge(
+      "open_superforecaster_calibration_guard_validations_total",
+      "Local calibration guard validation row count by recommendation.",
+      validationRows.length,
+    );
+    for (const [key, count] of countBy(validationRows, (row) =>
+      labelKey({
+        recommendation: row.recommendation ?? "unknown",
+      }),
+    )) {
+      metrics.gauge(
+        "open_superforecaster_calibration_guard_validations_total",
+        "Local calibration guard validation row count by recommendation.",
+        count,
+        parseLabelKey(key),
+      );
+    }
+    for (const validation of validationRows.slice(-50)) {
+      const labels = {
+        proposal_id: validation.proposalId ?? "unknown",
+        source_candidate_guard_id: validation.sourceCandidateGuardId ?? "unknown",
+        bucket: validation.bucketLabel ?? "unknown",
+        recommendation: validation.recommendation ?? "unknown",
+      };
+      metrics.gauge("open_superforecaster_calibration_guard_validation_info", "Recent calibration guard validation metadata.", 1, labels);
+      if (validation.matchedRows !== null) {
+        metrics.gauge("open_superforecaster_calibration_guard_validation_matched_rows", "Rows matched by a calibration guard validation.", validation.matchedRows, labels);
+      }
+      if (validation.brierDelta !== null) {
+        metrics.gauge("open_superforecaster_calibration_guard_validation_brier_delta", "Candidate minus baseline mean Brier in calibration guard validation.", validation.brierDelta, labels);
+      }
+      if (validation.calibrationErrorDelta !== null) {
+        metrics.gauge(
+          "open_superforecaster_calibration_guard_validation_calibration_error_delta",
+          "Candidate minus baseline bucket calibration error in calibration guard validation.",
+          validation.calibrationErrorDelta,
+          labels,
+        );
+      }
+    }
+  }
+
   metrics.gauge("open_superforecaster_resolutions_total", "Forecast resolution count.", resolutionRows.length);
   metrics.gauge("open_superforecaster_resolutions_total", "Forecast resolution count.", resolutionRows.filter((row) => !row.annulled).length, {
     annulled: "false",
@@ -553,6 +617,80 @@ function readRecord(value: Record<string, unknown> | null | undefined, ...keys: 
     }
   }
   return null;
+}
+
+async function readCalibrationGuardValidationMetricRows(root: string): Promise<CalibrationGuardValidationMetricRow[]> {
+  const reportPaths = await listFilesNamed(resolve(root, "data/reports/forecast-calibration-guard-validation"), "calibration-guard-validation.json");
+  const rows: CalibrationGuardValidationMetricRow[] = [];
+  for (const reportPath of reportPaths) {
+    let payload: Record<string, unknown> | null;
+    try {
+      payload = asRecord(JSON.parse(await readFile(reportPath, "utf8")));
+    } catch {
+      continue;
+    }
+    const generatedAt = readString(payload, "generatedAt");
+    for (const validation of readRecordArray(payload, "validations")) {
+      rows.push({
+        reportPath,
+        generatedAt,
+        proposalId: readString(validation, "proposalId"),
+        sourceCandidateGuardId: readString(validation, "sourceCandidateGuardId"),
+        bucketLabel: readString(validation, "bucketLabel"),
+        matchedRows: readNumber(validation, "matchedRows"),
+        brierDelta: readNumber(validation, "brierDelta"),
+        calibrationErrorDelta: readNumber(validation, "calibrationErrorDelta"),
+        recommendation: readString(validation, "recommendation"),
+      });
+    }
+  }
+  return rows.sort((left, right) =>
+    String(left.generatedAt ?? "").localeCompare(String(right.generatedAt ?? ""))
+    || String(left.proposalId ?? "").localeCompare(String(right.proposalId ?? ""))
+    || left.reportPath.localeCompare(right.reportPath)
+  );
+}
+
+async function listFilesNamed(path: string, name: string): Promise<string[]> {
+  try {
+    const info = await stat(path);
+    if (info.isFile()) {
+      return path.endsWith(name) ? [path] : [];
+    }
+    if (!info.isDirectory()) {
+      return [];
+    }
+  } catch {
+    return [];
+  }
+
+  const children = await readdir(path, { withFileTypes: true });
+  const nested = await Promise.all(
+    children.map((child) => {
+      const childPath = resolve(path, child.name);
+      return child.isDirectory()
+        ? listFilesNamed(childPath, name)
+        : child.name === name
+          ? Promise.resolve([childPath])
+          : Promise.resolve([]);
+    }),
+  );
+  return nested.flat();
+}
+
+function readRecordArray(value: Record<string, unknown> | null | undefined, key: string) {
+  const raw = value?.[key];
+  return Array.isArray(raw) ? raw.filter((item): item is Record<string, unknown> => Boolean(asRecord(item))) : [];
+}
+
+function readString(value: Record<string, unknown> | null | undefined, key: string) {
+  const raw = value?.[key];
+  return typeof raw === "string" ? raw : null;
+}
+
+function readNumber(value: Record<string, unknown> | null | undefined, key: string) {
+  const raw = value?.[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
 
 function readComparisonRecommendationStatus(comparison: Record<string, unknown> | null) {
