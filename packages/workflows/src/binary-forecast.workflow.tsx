@@ -11,6 +11,7 @@ import { applyBinaryCalibrationGuard } from "./binary-calibration-guard";
 import { buildBinaryMarketAnchorAudit } from "./binary-market-anchor";
 import { buildBinaryResolutionBoundaryAudit } from "./binary-resolution-boundary";
 import { buildBinaryUncertaintyRangeAudit } from "./binary-uncertainty-range";
+import { collectCitedSources, collectKeyUncertainties } from "./forecast-evidence";
 import { readForecastTiming } from "./forecast-timing";
 
 const roleIdValues = [
@@ -197,6 +198,7 @@ const aggregateCore = z.object({
   componentProbabilities: z.array(componentProbability),
   componentAudits: z.array(componentAudit).default([]),
   citedSources: z.array(citedSource).default([]),
+  keyUncertainties: z.array(z.string()).default([]),
   evidenceAsOfDate: z.string().optional(),
 });
 
@@ -430,6 +432,10 @@ export default smithers((ctx) => {
     .map((role) => ctx.latest(outputs.binaryAttempt, `attempt-${role.id}`))
     .filter((attempt): attempt is NonNullable<typeof attempt> => Boolean(attempt))
     .filter((attempt) => attempt.round === round);
+  const latestCandidateAttempts = selectedRoles
+    .map((role) => ctx.latest(outputs.binaryAttempt, `attempt-${role.id}`))
+    .filter((attempt): attempt is NonNullable<typeof attempt> => Boolean(attempt))
+    .filter((attempt) => attempt.round === latestCandidate?.round);
   const probabilities = currentAttempts
     .map((attempt) => attempt.probability)
     .filter((probability) => Number.isFinite(probability));
@@ -757,6 +763,8 @@ Return round ${round}, approved, confidenceScore, disagreementExplained, issues,
               calibrationWarnings: finalCalibration.notes.length
                 ? [...latestCandidate.calibrationWarnings, ...finalCalibration.notes]
                 : latestCandidate.calibrationWarnings,
+              citedSources: collectCitedSources(latestCandidateAttempts),
+              keyUncertainties: collectKeyUncertainties(latestCandidateAttempts),
               ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
               calibrationGuard: {
                 adjustment: finalCalibration.adjustment,

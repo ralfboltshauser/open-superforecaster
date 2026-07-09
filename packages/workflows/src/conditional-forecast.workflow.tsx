@@ -2,6 +2,7 @@
 import { createSmithers, Parallel, Sequence, Task } from "smithers-orchestrator";
 import { z } from "zod";
 import { codexResearchAgent } from "./agents";
+import { collectCitedSources, collectKeyUncertainties } from "./forecast-evidence";
 import { readForecastTiming } from "./forecast-timing";
 
 const citedSource = z.object({
@@ -52,6 +53,7 @@ const conditionalAggregate = z.object({
     probabilityGivenNotCondition: z.number(),
   })),
   citedSources: z.array(citedSource).default([]),
+  keyUncertainties: z.array(z.string()).default([]),
   evidenceAsOfDate: z.string().optional(),
 });
 
@@ -108,7 +110,8 @@ export default smithers((ctx) => {
     probabilityGivenCondition: attempt.probabilityGivenCondition,
     probabilityGivenNotCondition: attempt.probabilityGivenNotCondition,
   }));
-  const citedSources = attempts.flatMap((attempt) => attempt.citedSources ?? []);
+  const citedSources = collectCitedSources(attempts);
+  const keyUncertainties = collectKeyUncertainties(attempts);
 
   return (
     <Workflow name="conditional-forecast">
@@ -184,6 +187,7 @@ Explain why the condition changes, or does not change, the outcome. Include bran
             attemptCount: attempts.length,
             componentBranches,
             citedSources,
+            keyUncertainties,
             ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
           }}
         </Task>

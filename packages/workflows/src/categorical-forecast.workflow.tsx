@@ -6,6 +6,7 @@ import {
   normalizeForecastInputRow,
 } from "@open-superforecaster/workflow-contracts";
 import { codexResearchAgent } from "./agents";
+import { collectCitedSources, collectKeyUncertainties } from "./forecast-evidence";
 import { readForecastTiming } from "./forecast-timing";
 
 const citedSource = z.object({
@@ -44,6 +45,7 @@ const categoricalAggregate = z.object({
     probabilities: z.array(categoryProbability).default([]),
   })),
   citedSources: z.array(citedSource).default([]),
+  keyUncertainties: z.array(z.string()).default([]),
   evidenceAsOfDate: z.string().optional(),
   rationale: z.string(),
 });
@@ -109,7 +111,8 @@ export default smithers((ctx) => {
     topCategory: canonicalCategory(attempt.topCategory, categoryContract.categories),
     probabilities: normalizeComponentProbabilities(attempt, categoryContract.categories),
   }));
-  const citedSources = attempts.flatMap((attempt) => attempt.citedSources ?? []);
+  const citedSources = collectCitedSources(attempts);
+  const keyUncertainties = collectKeyUncertainties(attempts);
 
   return (
     <Workflow name="categorical-forecast">
@@ -162,6 +165,7 @@ Return a categorical forecast. Include topCategory and a probability distributio
             attemptCount: attempts.length,
             componentCategories,
             citedSources,
+            keyUncertainties,
             ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
             rationale:
               attempts.length === 0

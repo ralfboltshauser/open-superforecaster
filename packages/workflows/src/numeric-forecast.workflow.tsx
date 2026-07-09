@@ -7,6 +7,7 @@ import {
   numericQuantileDistributionSchema,
 } from "@open-superforecaster/workflow-contracts";
 import { codexResearchAgent } from "./agents";
+import { collectCitedSources, collectKeyUncertainties } from "./forecast-evidence";
 import { readForecastTiming } from "./forecast-timing";
 
 const citedSource = z.object({
@@ -43,6 +44,7 @@ const numericAggregate = z.object({
     value: z.number(),
   })),
   citedSources: z.array(citedSource).default([]),
+  keyUncertainties: z.array(z.string()).default([]),
   evidenceAsOfDate: z.string().optional(),
   rationale: z.string(),
 });
@@ -96,7 +98,8 @@ export default smithers((ctx) => {
     quantiles: attempt.quantiles,
     value: attempt.quantiles.p50,
   }));
-  const citedSources = attempts.flatMap((attempt) => attempt.citedSources ?? []);
+  const citedSources = collectCitedSources(attempts);
+  const keyUncertainties = collectKeyUncertainties(attempts);
 
   return (
     <Workflow name="numeric-forecast">
@@ -149,6 +152,7 @@ Return a numeric forecast as a calibrated distribution, not only a point estimat
             attemptCount: attempts.length,
             componentValues,
             citedSources,
+            keyUncertainties,
             ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
             rationale:
               attempts.length === 0

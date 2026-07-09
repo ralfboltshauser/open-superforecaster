@@ -6,6 +6,7 @@ import {
   normalizeForecastInputRow,
 } from "@open-superforecaster/workflow-contracts";
 import { codexResearchAgent } from "./agents";
+import { collectCitedSources, collectKeyUncertainties } from "./forecast-evidence";
 import { readForecastTiming } from "./forecast-timing";
 
 const citedSource = z.object({
@@ -53,6 +54,7 @@ const thresholdedAggregate = z.object({
     probabilities: z.array(thresholdProbability),
   })),
   citedSources: z.array(citedSource).default([]),
+  keyUncertainties: z.array(z.string()).default([]),
   evidenceAsOfDate: z.string().optional(),
 });
 
@@ -109,7 +111,8 @@ export default smithers((ctx) => {
   const repairedAggregate = repairMonotonic(rawAggregate, thresholdDirection);
   const monotonicityRepaired = rawAggregate.some((item, index) => item.probability !== repairedAggregate[index]?.probability);
   const probabilityMap = Object.fromEntries(repairedAggregate.map((item) => [item.threshold, item.probability]));
-  const citedSources = attempts.flatMap((attempt) => attempt.citedSources ?? []);
+  const citedSources = collectCitedSources(attempts);
+  const keyUncertainties = collectKeyUncertainties(attempts);
 
   return (
     <Workflow name="thresholded-forecast">
@@ -172,6 +175,7 @@ Return one probability for every threshold label. If no valid thresholds are lis
               : "Median curve satisfied monotonicity in caller order.",
             componentCurves,
             citedSources,
+            keyUncertainties,
             ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
             rationale:
               attempts.length === 0

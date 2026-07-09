@@ -30,6 +30,7 @@ import { applyBinaryCalibrationGuard, BINARY_CALIBRATION_GUARD_RULES } from "../
 import { buildBinaryMarketAnchorAudit } from "../packages/workflows/src/binary-market-anchor";
 import { buildBinaryResolutionBoundaryAudit } from "../packages/workflows/src/binary-resolution-boundary";
 import { buildBinaryUncertaintyRangeAudit } from "../packages/workflows/src/binary-uncertainty-range";
+import { collectCitedSources, collectKeyUncertainties } from "../packages/workflows/src/forecast-evidence";
 import { readForecastTiming } from "../packages/workflows/src/forecast-timing";
 import { readJson, readRecord, readString, timestampLabel, writeJson } from "./lib/forecast-script-utils";
 
@@ -1906,6 +1907,22 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
   assert(timing.evidenceAsOfDate === "2026-07-09", "forecast timing did not normalize present date");
   assert(timing.cutoffDate === "2026-07-01", "forecast timing did not normalize cutoff date");
   assert(timing.promptBlock.includes("Timing context:"), "forecast timing prompt block missing heading");
+  const aggregatedUncertainties = collectKeyUncertainties([
+    { keyUncertainties: ["base rate", " timing "] },
+    { keyUncertainties: ["timing", "measurement"] },
+  ]);
+  assert(aggregatedUncertainties.join("|") === "base rate|timing|measurement", "forecast uncertainty aggregation is not stable");
+  const aggregatedSources = collectCitedSources([
+    {
+      citedSources: [
+        { title: "A", url: "https://example.com/a", publishedAt: "2026-01-02", claim: "first" },
+        { title: "A duplicate", url: "https://example.com/a", claim: "duplicate" },
+      ],
+    },
+    { citedSources: [{ title: "B", claim: "second" }] },
+  ]);
+  assert(aggregatedSources.length === 2, "forecast cited-source aggregation did not dedupe repeated URLs");
+  assert(aggregatedSources[0]?.publishedAt === "2026-01-02", "forecast cited-source aggregation did not preserve first source detail");
 
   const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
@@ -1927,6 +1944,9 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
     assert(source.includes("publishedAt: z.string().optional()"), `${file} cited-source schema does not accept publishedAt`);
     assert(source.includes("publishedAt as an ISO date"), `${file} prompts do not request source publication dates`);
     assert(source.includes("evidenceAsOfDate: z.string().optional()"), `${file} aggregate schema does not persist evidence as-of date`);
+    assert(source.includes("keyUncertainties: z.array(z.string()).default([])"), `${file} aggregate schema does not persist key uncertainties`);
+    assert(source.includes("collectCitedSources"), `${file} does not use shared cited-source aggregation`);
+    assert(source.includes("collectKeyUncertainties"), `${file} does not use shared uncertainty aggregation`);
   }
   for (const { file, source } of workflowSources.filter((item) => item.file !== "binary-forecast.workflow.tsx")) {
     assert(source.includes("timing.promptBlock"), `${file} prompt does not include timing context`);

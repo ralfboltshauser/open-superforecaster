@@ -7,6 +7,7 @@ import {
   normalizeForecastInputRow,
 } from "@open-superforecaster/workflow-contracts";
 import { codexResearchAgent } from "./agents";
+import { collectCitedSources, collectKeyUncertainties } from "./forecast-evidence";
 import { readForecastTiming } from "./forecast-timing";
 
 const citedSource = z.object({
@@ -39,6 +40,7 @@ const dateAggregate = z.object({
     neverProbability: z.number().optional(),
   })),
   citedSources: z.array(citedSource).default([]),
+  keyUncertainties: z.array(z.string()).default([]),
   evidenceAsOfDate: z.string().optional(),
   rationale: z.string(),
 });
@@ -93,7 +95,8 @@ export default smithers((ctx) => {
     dateDistribution: attempt.dateDistribution,
     neverProbability: attempt.neverProbability,
   }));
-  const citedSources = attempts.flatMap((attempt) => attempt.citedSources ?? []);
+  const citedSources = collectCitedSources(attempts);
+  const keyUncertainties = collectKeyUncertainties(attempts);
 
   return (
     <Workflow name="date-forecast">
@@ -139,6 +142,7 @@ Return a date forecast as a calibrated date distribution. Provide dateDistributi
             attemptCount: attempts.length,
             componentDates,
             citedSources,
+            keyUncertainties,
             ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
             rationale:
               attempts.length === 0
