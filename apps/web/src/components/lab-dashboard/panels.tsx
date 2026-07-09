@@ -149,8 +149,11 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
   const splitFindings = isRecord(run.splitFindings) ? run.splitFindings : null
   const sourceQuality = isRecord(run.sourceQualityFindings) ? run.sourceQualityFindings : null
   const traceQuality = isRecord(run.traceQualityFindings) ? run.traceQualityFindings : null
+  const comparison = isRecord(run.comparison) ? run.comparison : null
+  const recommendation = isRecord(comparison?.recommendation) ? comparison.recommendation : null
   const blockers = readArray(promotionGate, "blockers").filter((blocker): blocker is string => typeof blocker === "string")
   const recommendationStatus = typeof promotionGate?.recommendationStatus === "string" ? promotionGate.recommendationStatus : null
+  const primaryBaselineBenchmarkRunId = typeof recommendation?.primaryBaselineBenchmarkRunId === "string" ? recommendation.primaryBaselineBenchmarkRunId : null
   const missingBaselineSanity = typeof baselineSanity?.missingBaselineSanityCases === "number" ? baselineSanity.missingBaselineSanityCases : null
   const casesWithBaseline = typeof baselineSanity?.casesWithBaseline === "number" ? baselineSanity.casesWithBaseline : null
   const highDisagreementCases = typeof componentDisagreement?.highDisagreementCases === "number" ? componentDisagreement.highDisagreementCases : null
@@ -180,7 +183,9 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
         </Badge>
       </div>
       {recommendationStatus ? (
-        <p className="mt-2 truncate text-xs text-muted-foreground">comparison {recommendationStatus}</p>
+        <p className="mt-2 truncate text-xs text-muted-foreground">
+          comparison {recommendationStatus}{primaryBaselineBenchmarkRunId ? ` · primary ${primaryBaselineBenchmarkRunId}` : ""}
+        </p>
       ) : null}
       {baselineSanity ? (
         <p className="mt-2 truncate text-xs text-muted-foreground">
