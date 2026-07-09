@@ -622,6 +622,17 @@ await check("benchmark promotion requires held-out case evidence", async () => {
   return "promotion review requires held-out benchmark evidence";
 });
 
+await check("benchmark comparison selects primary baseline by evidence", async () => {
+  const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
+  assert(backendSource.includes("selectPrimaryBaselineComparison"), "benchmark comparison does not use a primary-baseline selector");
+  assert(backendSource.includes("pairedHoldoutCaseCount - left.pairedHoldoutCaseCount"), "primary-baseline selector does not prioritize held-out overlap");
+  assert(backendSource.includes("pairedCaseCount - left.pairedCaseCount"), "primary-baseline selector does not prioritize paired overlap");
+  assert(backendSource.includes("promotionStateRank"), "primary-baseline selector does not use promotion state as a tie-breaker");
+  assert(backendSource.includes("baselineBenchmarkRunId.localeCompare"), "primary-baseline selector does not have a deterministic final tie-breaker");
+  assert(backendSource.includes("primaryBaselineBenchmarkRunId"), "comparison recommendation does not report the primary baseline");
+  return "comparison recommendation uses the strongest paired baseline evidence";
+});
+
 await check("benchmark promotion gate blockers are exported as metrics", async () => {
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const smokeSource = await readFile(resolve(root, "scripts/smoke-check.ts"), "utf8");

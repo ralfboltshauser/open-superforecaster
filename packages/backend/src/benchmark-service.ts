@@ -1414,52 +1414,87 @@ function comparisonRecommendation(input: {
       summary: "No completed baseline run exists for this suite/eval mode. Run the current default workflow on the same suite before promotion.",
     };
   }
-  const bestPaired = input.baselineComparisons.find((comparison) => comparison.pairedCaseCount > 0);
-  if (!bestPaired) {
+  const primaryComparison = selectPrimaryBaselineComparison(input.baselineComparisons);
+  if (!primaryComparison) {
     return {
       status: "needs_paired_cases",
       summary: "Baselines exist but share no case IDs with the candidate. Run paired candidate/baseline suites before interpreting score differences.",
+      primaryBaselineBenchmarkRunId: null,
     };
   }
-  if (bestPaired.pairedCaseCount < 10) {
+  if (primaryComparison.pairedCaseCount < 10) {
     return {
       status: "needs_more_cases",
-      summary: `Only ${bestPaired.pairedCaseCount} paired case(s) are available. Use this as debugging evidence, not a promotion gate.`,
+      summary: `Only ${primaryComparison.pairedCaseCount} paired case(s) are available against the primary baseline. Use this as debugging evidence, not a promotion gate.`,
+      primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
     };
   }
-  if (bestPaired.pairedHoldoutCaseCount < minimumPromotionHoldoutCases) {
+  if (primaryComparison.pairedHoldoutCaseCount < minimumPromotionHoldoutCases) {
     return {
       status: "needs_holdout_evidence",
-      summary: `Only ${bestPaired.pairedHoldoutCaseCount} paired held-out case(s) are available. Run paired holdout cases before promotion review.`,
+      summary: `Only ${primaryComparison.pairedHoldoutCaseCount} paired held-out case(s) are available against the primary baseline. Run paired holdout cases before promotion review.`,
+      primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
     };
   }
-  const brierInterval = bestPaired.pairedUncertainty.brierDelta;
+  const brierInterval = primaryComparison.pairedUncertainty.brierDelta;
   if (
-    typeof bestPaired.pairedMeanBrierDelta === "number" &&
+    typeof primaryComparison.pairedMeanBrierDelta === "number" &&
     typeof brierInterval.upper === "number" &&
-    bestPaired.pairedMeanBrierDelta < -0.01 &&
+    primaryComparison.pairedMeanBrierDelta < -0.01 &&
     brierInterval.upper < 0
   ) {
     return {
       status: "candidate_better",
-      summary: `Candidate improved paired mean Brier by ${Math.abs(bestPaired.pairedMeanBrierDelta).toFixed(4)} and the 95% bootstrap interval stays below zero. Check trace/source regressions before promotion.`,
+      summary: `Candidate improved paired mean Brier by ${Math.abs(primaryComparison.pairedMeanBrierDelta).toFixed(4)} against the primary baseline and the 95% bootstrap interval stays below zero. Check trace/source regressions before promotion.`,
+      primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
     };
   }
   if (
-    typeof bestPaired.pairedMeanBrierDelta === "number" &&
+    typeof primaryComparison.pairedMeanBrierDelta === "number" &&
     typeof brierInterval.lower === "number" &&
-    bestPaired.pairedMeanBrierDelta > 0.01 &&
+    primaryComparison.pairedMeanBrierDelta > 0.01 &&
     brierInterval.lower > 0
   ) {
     return {
       status: "candidate_worse",
-      summary: `Candidate worsened paired mean Brier by ${bestPaired.pairedMeanBrierDelta.toFixed(4)} and the 95% bootstrap interval stays above zero. Reject or revise the workflow.`,
+      summary: `Candidate worsened paired mean Brier by ${primaryComparison.pairedMeanBrierDelta.toFixed(4)} against the primary baseline and the 95% bootstrap interval stays above zero. Reject or revise the workflow.`,
+      primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
     };
   }
   return {
     status: "indistinguishable",
-    summary: "Candidate and baseline are too close or the bootstrap interval crosses zero. Add cases or inspect secondary trace/cost metrics.",
+    summary: "Candidate and primary baseline are too close or the bootstrap interval crosses zero. Add cases or inspect secondary trace/cost metrics.",
+    primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
   };
+}
+
+function selectPrimaryBaselineComparison<T extends {
+  baselineBenchmarkRunId: string;
+  pairedCaseCount: number;
+  pairedHoldoutCaseCount: number;
+  baselinePromotionState: string;
+}>(comparisons: T[]) {
+  return comparisons
+    .filter((comparison) => comparison.pairedCaseCount > 0)
+    .sort((left, right) =>
+      right.pairedHoldoutCaseCount - left.pairedHoldoutCaseCount ||
+      right.pairedCaseCount - left.pairedCaseCount ||
+      promotionStateRank(right.baselinePromotionState) - promotionStateRank(left.baselinePromotionState) ||
+      left.baselineBenchmarkRunId.localeCompare(right.baselineBenchmarkRunId),
+    )[0] ?? null;
+}
+
+function promotionStateRank(state: string) {
+  if (state === "promoted_for_local_default") {
+    return 3;
+  }
+  if (state === "promoted_for_eval_only") {
+    return 2;
+  }
+  if (state === "candidate") {
+    return 1;
+  }
+  return 0;
 }
 
 function diffNullable(candidate: number | null, baseline: number | null) {
