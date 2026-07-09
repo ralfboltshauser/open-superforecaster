@@ -1,0 +1,30 @@
+---
+const {
+  src,
+  alt,
+  url = "localhost:3000",
+  width = 1440,
+  height = 900,
+  crop = false,
+  eager = false,
+} = Astro.props
+---
+
+<figure class:list={["browser", { "browser-crop": crop }]}>
+  <div class="browser-bar">
+    <span class="browser-dots" aria-hidden="true">
+      <i></i><i></i><i></i>
+    </span>
+    <span class="browser-url">{url}</span>
+  </div>
+  <div class="browser-view">
+    <img
+      src={src}
+      alt={alt}
+      width={width}
+      height={height}
+      loading={eager ? "eager" : "lazy"}
+      decoding="async"
+    />
+  </div>
+</figure>

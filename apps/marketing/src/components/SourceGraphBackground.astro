@@ -1,0 +1,25 @@
+---
+const { variant = "hero" } = Astro.props
+const domains = ["benchlm.ai", "llm-stats.com", "morphllm.com", "swebench.com", "openrouter.ai", "vals.ai"]
+---
+
+<div class="source-graph-background" data-source-graph data-variant={variant} data-domains={JSON.stringify(domains)} aria-hidden="true">
+  <canvas class="source-graph-canvas"></canvas>
+  <div class="fs-graph-sheen source-graph-layer"></div>
+  <div class="fs-vignette source-graph-layer"></div>
+</div>
+
+<script>
+  import { SourceGraphEngine } from "../scripts/source-graph-engine"
+
+  for (const root of document.querySelectorAll<HTMLElement>("[data-source-graph]")) {
+    const canvas = root.querySelector<HTMLCanvasElement>("canvas")
+    if (!canvas || root.dataset.initialized === "true") continue
+
+    root.dataset.initialized = "true"
+    const domains = JSON.parse(root.dataset.domains ?? "[]") as string[]
+    const variant = root.dataset.variant === "workspace" ? "workspace" : "hero"
+    const engine = new SourceGraphEngine(canvas, { domains, variant })
+    engine.start()
+  }
+</script>

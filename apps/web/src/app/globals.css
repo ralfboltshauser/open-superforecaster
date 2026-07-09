@@ -130,6 +130,7 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-atkinson-sans), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
   html {
     @apply font-sans;

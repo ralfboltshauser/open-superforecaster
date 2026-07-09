@@ -1,5 +1,6 @@
 ---
-const command = "cp .env.example .env\ndocker compose up --build"
+const command =
+  "git clone https://github.com/ralfboltshauser/open-superforecaster.git\ncd open-superforecaster\ncp .env.example .env\ndocker compose up --build"
 ---
 
 <div class="code-panel fs-panel" id="run-it-locally">

@@ -2,152 +2,302 @@
 import ArchitectureDiagram from "../components/ArchitectureDiagram.astro"
 import CopyBlock from "../components/CopyBlock.astro"
 import LogoMark from "../components/LogoMark.astro"
-import MiniDiagram from "../components/MiniDiagram.astro"
 import Plate from "../components/Plate.astro"
+import Screenshot from "../components/Screenshot.astro"
+import SiteHeader from "../components/SiteHeader.astro"
+import SourceGraphBackground from "../components/SourceGraphBackground.astro"
 import Base from "../layouts/Base.astro"
 
-const deliverables = [
-  ["1.1", "Source-backed probability", "Parallel researchers produce probabilities with rationale and citations.", "probability", "primary"],
-  ["1.2", "Forecast artifact", "Each run leaves structured output that can be inspected, exported, and compared.", "artifact", "forecast"],
-  ["1.3", "Trace bundle", "The question, evidence, attempts, aggregate, and workflow events stay replayable.", "trace", "primary"],
-  ["1.4", "Benchmark evidence", "Local benchmark and pastcasting loops make workflow changes harder to hand-wave.", "score", "success"],
+const repo = "https://github.com/ralfboltshauser/open-superforecaster"
+
+const metrics = [
+  ["06", "Forecast modes"],
+  ["03×", "Parallel researchers"],
+  ["04", "Local start steps"],
+  ["100%", "Local trust chain"],
 ]
 
-const useCases = [
-  ["Forecast modes", "Binary, date, numeric, categorical, thresholded, and conditional questions.", "Will a named model beat a benchmark by Q4?", "probability", "/screenshots/forecast-renderer-binary.png"],
-  ["Deep research fan-out", "Run parallel CodexAgent researchers and synthesize disagreements.", "What evidence changes the outlook for this market?", "fanout", "/screenshots/composer-home.png"],
-  ["Table workflows", "Agent-map, classify, rank, merge, and dedupe rows with repeatable artifacts.", "Rank these companies by likely enterprise adoption.", "table", ""],
-  ["Benchmark lab", "Score fixed-evidence and pastcasting runs before trusting a workflow variant.", "Did the new prompt improve Brier score?", "score", "/screenshots/benchmark-detail.png"],
-  ["Decision briefs", "Turn evidence, distributions, and caveats into a reviewable local record.", "What should be re-run before acting?", "artifact", ""],
-  ["Resolution loop", "Manually resolve product forecasts and watch calibration evidence accumulate.", "Was the event resolved and how did we score?", "trace", ""],
+const proofChain = [
+  [
+    "01",
+    "Ask",
+    "Pose a binary, numeric, date, categorical, thresholded, or conditional question with an explicit resolution rule.",
+  ],
+  [
+    "02",
+    "Fan out",
+    "Three parallel CodexAgent researchers gather evidence independently, so disagreement stays visible instead of averaged away.",
+  ],
+  [
+    "03",
+    "Synthesize",
+    "Findings aggregate into a probability or distribution with rationale, caveats, and inline source citations.",
+  ],
+  [
+    "04",
+    "Audit",
+    "Sources, attempts, trace bundles, and benchmark scores persist as inspectable local records you can replay.",
+  ],
 ]
 
-const trustQuestions = [
-  "What was the exact question and resolution criterion?",
-  "What evidence did the agents use?",
-  "How did individual researchers disagree?",
-  "What probability or distribution was emitted?",
-  "Which artifacts, traces, and benchmarks support the result?",
-  "What should be re-run before using this in a real decision?",
+const modes = [
+  ["Binary", "P(event) as a calibrated yes/no probability."],
+  ["Numeric", "A point estimate with a percentile range over a continuous quantity."],
+  ["Date", "When an event resolves, expressed as a distribution over time."],
+  ["Categorical", "Probabilities across a set of mutually exclusive outcomes."],
+  ["Thresholded", "The odds a tracked metric crosses a specific threshold."],
+  ["Conditional", "How one event shifts the probability of another."],
+]
+
+const trustChecks = [
+  ["Question", "What exactly was forecast, and how does it resolve?"],
+  ["Sources", "Which evidence moved the probability, and where did it come from?"],
+  ["Disagreement", "Where did individual researchers diverge before synthesis?"],
+  ["Trace", "Can the run be replayed from prompt to artifact bundle?"],
+  ["Score", "Did the workflow survive local benchmark and pastcasting checks?"],
+  ["Action", "What should be re-run before anyone trusts this in a real decision?"],
+]
+
+const exports = ["CSV", "Parquet", "Trace bundles", "Artifacts", "DuckDB tables"]
+
+const stack = [
+  ["Next.js", "Local cockpit UI"],
+  ["Postgres", "Product ledger"],
+  ["MinIO", "Artifact + trace storage"],
+  ["DuckDB", "Local analytics"],
+  ["Smithers", "Durable workflows"],
+  ["CodexAgent", "Research fan-out"],
 ]
 ---
 
 <Base>
+  <SiteHeader />
   <main id="main">
     <section class="hero">
       <div class="hero-background">
-        <div class="fs-vignette" style="position:absolute;inset:0"></div>
+        <SourceGraphBackground />
       </div>
       <div class="container hero-inner">
         <div class="hero-content">
-          <LogoMark class="hero-logo" />
-          <p class="fs-eyebrow" style="margin-top:1.6rem">search the future</p>
+          <div class="hero-logo-wrap">
+            <span class="hero-logo-sparkles" aria-hidden="true"></span>
+            <LogoMark class="hero-logo" />
+          </div>
+          <p class="fs-eyebrow" style="margin-top:1.4rem">search the future</p>
           <h1 class="fs-wordmark"><span>Open</span><span>Superforecaster</span></h1>
-          <p class="hero-kicker">local forecasting appliance</p>
+          <p class="hero-lede">Turn a hard question into cited probabilities you can audit.</p>
           <div class="fs-blueprint-line" style="margin:1.35rem auto 0;max-width:16rem"></div>
           <p class="hero-subtitle">
-            An open-source, self-runnable forecasting appliance that turns a question about the future into parallel agent research,
-            source-backed probabilities, artifacts, and trace bundles you can inspect locally.
+            A self-hosted forecasting appliance. It fans your question out to parallel research agents, aggregates their findings into a
+            calibrated probability, and keeps every source, attempt, trace, and benchmark score on your own machine.
           </p>
           <div class="hero-actions">
-            <a class="button primary" href="https://github.com/ralfboltshauser/open-superforecaster">View on GitHub</a>
-            <a class="button secondary" href="#where-this-goes">Run it locally</a>
+            <a class="button primary" href={repo}>View on GitHub</a>
+            <a class="button secondary" href="#run-locally">Run it locally</a>
           </div>
-          <div class="metric-strip" aria-label="Core principles">
-            <div class="metric"><span class="metric-number">01</span><span class="metric-label">Evidence</span></div>
-            <div class="metric"><span class="metric-number">02</span><span class="metric-label">Foresight</span></div>
-            <div class="metric"><span class="metric-number">03</span><span class="metric-label">Trace</span></div>
+          <div class="metric-strip" aria-label="At a glance">
+            {
+              metrics.map(([number, label]) => (
+                <div class="metric">
+                  <span class="metric-number">{number}</span>
+                  <span class="metric-label">{label}</span>
+                </div>
+              ))
+            }
           </div>
         </div>
       </div>
     </section>
 
     <div class="container plates">
-      <Plate number="01" label="What It Is" description="A local cockpit for asking forecast questions and inspecting the full trust chain.">
-        <div class="module-grid">
+      <Plate
+        number="01"
+        label="Trust Chain"
+        description="Don't trust a score — inspect the chain that produced it. Every run keeps its work."
+      >
+        <div class="chain-layout">
           {
-            deliverables.map(([index, title, body, kind, accent]) => (
-              <article class="module-card fs-panel">
+            proofChain.map(([index, title, body]) => (
+              <article class="chain-card">
                 <span class="module-index">{index}</span>
-                <MiniDiagram kind={kind} accent={accent} />
-                <h3 class="module-title">{title}</h3>
-                <p>{body}</p>
-              </article>
-            ))
-          }
-        </div>
-      </Plate>
-
-      <Plate number="02" label="Why Now" description="Forecasting is becoming a product surface, but trust still has to be earned run by run.">
-        <p class="section-copy">
-          Dynamic forecasting benchmarks and live markets make the gap visible: LLM forecasters are improving, scaffolded systems are getting
-          closer to expert baselines, and market consensus remains a hard comparison. Open Superforecaster exists to keep that capability open,
-          inspectable, and runnable on your own machine instead of hidden behind a black-box score.
-        </p>
-        <div class="citation-row" aria-label="Landscape references">
-          <a class="citation-chip" href="https://arxiv.org/abs/2409.19839">ForecastBench</a>
-          <a class="citation-chip" href="https://arxiv.org/abs/2511.07678">AIA Forecaster</a>
-          <a class="citation-chip" href="https://evals.futuresearch.ai/">FutureSearch Evals</a>
-          <span class="citation-chip">Prediction markets</span>
-        </div>
-        <p class="quote-line">Keep the capability open, inspectable, and runnable.</p>
-      </Plate>
-
-      <Plate number="03" label="Architecture" description="The appliance keeps forecasts, sources, traces, artifacts, and benchmarks inspectable locally.">
-        <ArchitectureDiagram />
-      </Plate>
-
-      <Plate number="04" label="Use Cases" description="The same runtime can forecast questions, research decisions, process tables, and evaluate itself.">
-        <div class="use-case-grid">
-          {
-            useCases.map(([title, body, prompt, kind, image]) => (
-              <article class="demo-card fs-panel">
-                <div class="demo-frame">
-                  {image ? <img src={image} alt={`${title} screenshot`} loading="lazy" /> : <MiniDiagram kind={kind} />}
-                </div>
+                <div class="chain-node" aria-hidden="true" />
                 <h3>{title}</h3>
                 <p>{body}</p>
-                <p><span class="module-index">Demo:</span> {prompt}</p>
               </article>
             ))
           }
         </div>
       </Plate>
 
-      <Plate number="05" label="Trust Model" description="Forecasting systems fail when assumptions, sources, or evaluation setup are hidden.">
-        <div class="trust-list">
+      <Plate
+        number="02"
+        label="Architecture"
+        description="One local pipeline: question in, cited probability out, with every intermediate step persisted."
+      >
+        <ArchitectureDiagram />
+        <div class="arch-legend">
+          <article>
+            <span class="module-index">01 · Input</span>
+            <p>A question fans out to parallel agents that research sources, then synthesis emits a probability and forecast artifacts.</p>
+          </article>
+          <article>
+            <span class="module-index">02 · Research</span>
+            <p>Agents pull from the open web, arXiv, GitHub, reference data, and more — every citation is captured in the source bank.</p>
+          </article>
+          <article>
+            <span class="module-index">03 · Trust chain</span>
+            <p>Traces, benchmark cases, and a local store back the answer so any run can be replayed and re-scored.</p>
+          </article>
+        </div>
+      </Plate>
+
+      <Plate
+        number="03"
+        label="Cockpit"
+        description="The real product surface: compose a question, launch a source-backed run, inspect the record."
+      >
+        <div class="surface-feature">
+          <div class="surface-copy">
+            <span class="fs-eyebrow">local appliance</span>
+            <h3>Forecasts are records, not chat replies.</h3>
+            <p>
+              Ask a question and watch researchers gather evidence in real time. Every run becomes a local object: the question, its sources,
+              individual attempts, the aggregate answer, artifacts, and the full workflow trace.
+            </p>
+          </div>
+          <Screenshot
+            src="/screenshots/composer-home.png"
+            alt="Open Superforecaster composer: a forecast question ready to launch"
+            url="localhost:3000"
+            width="1440"
+            height="980"
+            eager={true}
+          />
+        </div>
+
+        <div class="surface-record">
+          <Screenshot
+            src="/screenshots/forecast-renderer-binary.png"
+            alt="Run detail: a binary forecast output with outcome bar, artifact rows, sources, and a scored forecast ledger"
+            url="localhost:3000/runs/osf-resolution-smoke"
+            width="1290"
+            height="1330"
+            crop={true}
+          />
+          <div class="surface-copy">
+            <span class="fs-eyebrow">run detail</span>
+            <h4>Every answer opens up.</h4>
+            <p>
+              Each run detail page surfaces the emitted probability, the artifact rows behind it, the source bank, and a forecast ledger of
+              attempts, aggregates, and Brier + log scores. Export the trace bundle, CSV, or Parquet for deeper review.
+            </p>
+            <div class="chip-row">
+              {exports.map((item) => <span class="chip">{item}</span>)}
+            </div>
+          </div>
+        </div>
+      </Plate>
+
+      <Plate
+        number="04"
+        label="Forecast Modes"
+        description="Six typed forecast modes, each with a dedicated renderer instead of a wall of freeform text."
+      >
+        <div class="mode-grid">
           {
-            trustQuestions.map((question, index) => (
-              <div class="trust-row">
-                <span>{String(index + 1).padStart(2, "0")}</span>
-                <p>{question}</p>
-              </div>
+            modes.map(([title, body], index) => (
+              <article class="mode-card">
+                <span class="module-index">{String(index + 1).padStart(2, "0")}</span>
+                <h3>{title}</h3>
+                <p>{body}</p>
+              </article>
             ))
           }
         </div>
       </Plate>
 
-      <Plate number="06" label="Where This Goes" description="Open superforecasting should be usable by anyone with the Codex subscription they already own.">
-        <p class="section-copy">
-          This is not presented as a benchmark-grade oracle. The direction is practical open forecasting infrastructure: larger paired runs,
-          clearer contamination checks, better calibration visibility, and a local workflow where research, evidence, and scores travel with every
-          forecast. The goal is simple: ask a hard question, run durable agent work, and keep enough evidence to reason for yourself.
-        </p>
-        <CopyBlock />
-        <p class="section-copy" style="margin-top:1.5rem">
-          If you build on it or find a useful decision workflow, write to <a href="mailto:ralf@boltshauser.com">ralf@boltshauser.com</a>.
-        </p>
+      <Plate
+        number="05"
+        label="Evaluation"
+        description="Forecasting systems fail when their assumptions, evidence, or scoring setup stay hidden. This one makes them boringly visible."
+      >
+        <div class="surface-feature reverse">
+          <div class="surface-copy">
+            <span class="fs-eyebrow">benchmark lab</span>
+            <h3>Score the workflow before you trust it.</h3>
+            <p>
+              Run benchmark and pastcasting loops against fixed evidence from the same operational lab that tracks diagnostics, recent runs,
+              pending resolutions, and workflow health before a forecast workflow gets trusted.
+            </p>
+          </div>
+          <Screenshot
+            src="/screenshots/benchmark-detail.png"
+            alt="Benchmark Lab dashboard with workflow launcher, diagnostics, recent runs, and benchmark status"
+            url="localhost:3000/lab"
+            width="1406"
+            height="1400"
+            crop={true}
+          />
+        </div>
+
+        <div class="audit-grid">
+          {
+            trustChecks.map(([title, body], index) => (
+              <article class="audit-row">
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <div>
+                  <h3>{title}</h3>
+                  <p>{body}</p>
+                </div>
+              </article>
+            ))
+          }
+        </div>
+      </Plate>
+
+      <Plate
+        number="06"
+        label="Run Locally"
+        description="Open forecasting infrastructure should be inspectable, forkable, and runnable by default."
+      >
+        <div class="run-panel">
+          <div>
+            <span class="fs-eyebrow">clone and start</span>
+            <h3>Bring up the appliance on your machine.</h3>
+            <p>
+              Postgres, object storage, the web cockpit, and the worker come up from the repo with Docker Compose, so the full trust chain stays
+              local and inspectable.
+            </p>
+            <div class="stack-strip" aria-label="Technology stack">
+              {
+                stack.map(([name, role]) => (
+                  <span class="stack-chip">
+                    <strong>{name}</strong>
+                    {role}
+                  </span>
+                ))
+              }
+            </div>
+          </div>
+          <CopyBlock />
+        </div>
       </Plate>
     </div>
   </main>
 
   <footer class="site-footer">
-    <div class="container footer-keywords">
-      <span>science.</span>
-      <span>evidence.</span>
-      <span>foresight.</span>
-      <span class="open">open.</span>
-      <span>superforecaster.openexp.dev</span>
+    <div class="container footer-inner">
+      <div class="footer-keywords">
+        <span>science.</span>
+        <span>evidence.</span>
+        <span>foresight.</span>
+        <span class="open">open.</span>
+      </div>
+      <div class="footer-links">
+        <a href={repo}>GitHub</a>
+        <a href="mailto:ralf@boltshauser.com">Contact</a>
+        <span>superforecaster.openexp.dev</span>
+      </div>
     </div>
   </footer>
 </Base>
