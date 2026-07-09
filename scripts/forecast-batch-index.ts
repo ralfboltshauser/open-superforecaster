@@ -21,6 +21,7 @@ type BatchEntry = {
   createdAt?: string;
   summary: JsonRecord;
   attentionItems: AttentionItem[];
+  candidateCalibrationGuardRules: CandidateCalibrationGuardRule[];
 };
 
 type AttentionItem = {
@@ -52,6 +53,26 @@ type ReviewedAttentionItem = AttentionItem & {
   reviewedAt?: string;
 };
 
+type CandidateCalibrationGuardRule = {
+  id: string;
+  bucketLabel: string;
+  direction: string;
+  suggestedAdjustment: number | null;
+  sampleSize: number | null;
+  meanForecast: number | null;
+  observedRate: number | null;
+  calibrationError: number | null;
+  activationStatus: string;
+  rationale: string;
+};
+
+type ReviewedCandidateCalibrationGuardRule = CandidateCalibrationGuardRule & {
+  reviewStatus: AttentionReview["status"];
+  reviewNote?: string;
+  reviewer?: string;
+  reviewedAt?: string;
+};
+
 type BatchAudit = {
   batchId: string;
   generatedAt: string;
@@ -72,8 +93,13 @@ type BatchAudit = {
     openAttentionItems: number;
     reviewedAttentionItems: number;
     deferredAttentionItems: number;
+    candidateCalibrationGuardRules: number;
+    openCandidateCalibrationGuardRules: number;
+    reviewedCandidateCalibrationGuardRules: number;
+    deferredCandidateCalibrationGuardRules: number;
   };
   attentionItems: ReviewedAttentionItem[];
+  candidateCalibrationGuardRules: ReviewedCandidateCalibrationGuardRule[];
   paths: {
     json: string;
     markdown: string;
@@ -180,6 +206,7 @@ async function readBatchEntry(path: string): Promise<BatchEntry | null> {
     createdAt: readString(payload, "createdAt") ?? readString(payload, "generatedAt") ?? undefined,
     summary: summarizePayload(phase, payload),
     attentionItems: phase === "forecast_performance" ? readAttentionItems(payload) : [],
+    candidateCalibrationGuardRules: phase === "forecast_performance" ? readCandidateCalibrationGuardRules(payload) : [],
   };
 }
 
@@ -246,6 +273,9 @@ function buildAudit(
   const attentionItems = sortedEntries
     .flatMap((entry) => entry.attentionItems)
     .map((item) => withReview(item, reviewsByItemId.get(item.id)));
+  const candidateCalibrationGuardRules = sortedEntries
+    .flatMap((entry) => entry.candidateCalibrationGuardRules)
+    .map((rule) => withCandidateRuleReview(rule, reviewsByItemId.get(rule.id)));
   return {
     batchId,
     generatedAt: new Date().toISOString(),
@@ -266,8 +296,13 @@ function buildAudit(
       openAttentionItems: attentionItems.filter((item) => item.reviewStatus === "open").length,
       reviewedAttentionItems: attentionItems.filter((item) => item.reviewStatus === "reviewed").length,
       deferredAttentionItems: attentionItems.filter((item) => item.reviewStatus === "deferred").length,
+      candidateCalibrationGuardRules: candidateCalibrationGuardRules.length,
+      openCandidateCalibrationGuardRules: candidateCalibrationGuardRules.filter((rule) => rule.reviewStatus === "open").length,
+      reviewedCandidateCalibrationGuardRules: candidateCalibrationGuardRules.filter((rule) => rule.reviewStatus === "reviewed").length,
+      deferredCandidateCalibrationGuardRules: candidateCalibrationGuardRules.filter((rule) => rule.reviewStatus === "deferred").length,
     },
     attentionItems,
+    candidateCalibrationGuardRules,
     paths: {
       json: jsonPath,
       markdown: markdownPath,
@@ -295,6 +330,8 @@ function renderMarkdown(audit: BatchAudit) {
     `- Open attention items: ${audit.counts.openAttentionItems}`,
     `- Reviewed attention items: ${audit.counts.reviewedAttentionItems}`,
     `- Deferred attention items: ${audit.counts.deferredAttentionItems}`,
+    `- Candidate calibration guard rules: ${audit.counts.candidateCalibrationGuardRules}`,
+    `- Open candidate calibration guard rules: ${audit.counts.openCandidateCalibrationGuardRules}`,
     "",
     "## Entries",
     "",
@@ -307,6 +344,10 @@ function renderMarkdown(audit: BatchAudit) {
     "## Attention Items",
     "",
     ...renderAttentionTable(audit.attentionItems),
+    "",
+    "## Candidate Calibration Guard Rules",
+    "",
+    ...renderCandidateCalibrationGuardTable(audit.candidateCalibrationGuardRules),
     "",
   ];
   return `${lines.join("\n")}\n`;
@@ -362,9 +403,43 @@ function readAttentionItems(payload: JsonRecord): AttentionItem[] {
   });
 }
 
+function readCandidateCalibrationGuardRules(payload: JsonRecord): CandidateCalibrationGuardRule[] {
+  return readRecordArray(payload, "candidateCalibrationGuardRules").flatMap((rule) => {
+    const id = readString(rule, "id");
+    if (!id) {
+      return [];
+    }
+    return [{
+      id,
+      bucketLabel: readString(rule, "bucketLabel") ?? "bucket",
+      direction: readString(rule, "direction") ?? "calibration_drift",
+      suggestedAdjustment: readNumber(rule, "suggestedAdjustment"),
+      sampleSize: readNumber(rule, "sampleSize"),
+      meanForecast: readNumber(rule, "meanForecast"),
+      observedRate: readNumber(rule, "observedRate"),
+      calibrationError: readNumber(rule, "calibrationError"),
+      activationStatus: readString(rule, "activationStatus") ?? "needs_review",
+      rationale: readString(rule, "rationale") ?? "",
+    }];
+  });
+}
+
 function withReview(item: AttentionItem, review: AttentionReview | undefined): ReviewedAttentionItem {
   return {
     ...item,
+    reviewStatus: review?.status ?? "open",
+    reviewNote: review?.note,
+    reviewer: review?.reviewer,
+    reviewedAt: review?.updatedAt,
+  };
+}
+
+function withCandidateRuleReview(
+  rule: CandidateCalibrationGuardRule,
+  review: AttentionReview | undefined,
+): ReviewedCandidateCalibrationGuardRule {
+  return {
+    ...rule,
     reviewStatus: review?.status ?? "open",
     reviewNote: review?.note,
     reviewer: review?.reviewer,
@@ -383,6 +458,23 @@ function renderAttentionTable(items: ReviewedAttentionItem[]) {
       `| ${item.reviewStatus} | ${item.severity} | ${item.kind} | ${item.metric} | ${formatNumber(item.score)} | ${formatNumber(item.delta)} | ${
         escapeMarkdownCell(item.taskLabel ?? item.taskId ?? "")
       } | ${escapeMarkdownCell(item.recommendedActions[0] ?? "")} | ${escapeMarkdownCell(item.reviewNote ?? "")} |`,
+    ),
+  ];
+}
+
+function renderCandidateCalibrationGuardTable(items: ReviewedCandidateCalibrationGuardRule[]) {
+  if (items.length === 0) {
+    return ["No candidate calibration guard rules found."];
+  }
+  return [
+    "| Status | Bucket | Direction | Adjustment | Sample size | Forecast | Observed | Error | Activation | Note |",
+    "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+    ...items.map((item) =>
+      `| ${item.reviewStatus} | ${escapeMarkdownCell(item.bucketLabel)} | ${item.direction} | ${formatNumber(item.suggestedAdjustment)} | ${
+        formatNumber(item.sampleSize)
+      } | ${formatNumber(item.meanForecast)} | ${formatNumber(item.observedRate)} | ${formatNumber(item.calibrationError)} | ${
+        escapeMarkdownCell(item.activationStatus)
+      } | ${escapeMarkdownCell(item.reviewNote ?? "")} |`,
     ),
   ];
 }

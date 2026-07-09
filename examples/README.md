@@ -175,8 +175,9 @@ The batch index scans `data/forecast-ops`, `data/resolutions`, and
 `data/reports/forecast-performance`, then writes JSON and Markdown summaries
 under `data/reports/forecast-batches`.
 
-To mark attention items reviewed or deferred without changing the scoring
-ledger, add local review records to `data/reports/forecast-attention-reviews.json`:
+To mark attention items or candidate calibration guard rules reviewed or
+deferred without changing the scoring ledger, add local review records to
+`data/reports/forecast-attention-reviews.json`:
 
 ```json
 {
@@ -220,7 +221,8 @@ bun run forecast:health -- --batch-id july-smoke
 
 The health report is generated from batch indexes, so it should be run after
 `forecast:batches`. It highlights missing phases, failed run or resolution
-steps, unresolved attention items, and score-regression attention signals.
+steps, unresolved attention items, open candidate calibration guard reviews, and
+score-regression attention signals.
 
 Run the script contract checks before changing these tools:
 

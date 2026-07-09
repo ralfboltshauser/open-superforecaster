@@ -282,7 +282,7 @@ To consolidate those local artifacts into one audit file:
 bun run forecast:batches -- --batch-id july-smoke
 ```
 
-Batch reports can merge local attention-review records from
+Batch reports can merge local attention and candidate calibration guard review records from
 `data/reports/forecast-attention-reviews.json` or a custom `--reviews-file`.
 Use `bun run forecast:review` to update those local review records.
 To pull open and deferred review items across generated batch indexes:
@@ -303,7 +303,8 @@ bun run forecast:health -- --batch-id july-smoke
 ```
 
 The health report flags missing artifact phases, failed forecast or resolution
-steps, unresolved attention items, and score-regression attention signals.
+steps, unresolved attention items, open candidate calibration guard reviews, and
+score-regression attention signals.
 
 To check the local forecast script contracts:
 

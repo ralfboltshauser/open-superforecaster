@@ -42,10 +42,16 @@ type HealthReport = {
     reviewedAttentionItems: number;
     unresolvedAttentionItems: number;
     scoreRegressionItems: number;
+    candidateCalibrationGuardRules: number;
+    openCandidateCalibrationGuardRules: number;
+    deferredCandidateCalibrationGuardRules: number;
+    reviewedCandidateCalibrationGuardRules: number;
+    unresolvedCandidateCalibrationGuardRules: number;
   };
   missingPhases: BatchPhase[];
   issues: HealthIssue[];
   attentionItems: HealthAttentionItem[];
+  candidateCalibrationGuardRules: HealthCandidateCalibrationGuardRule[];
   paths: {
     json: string;
     markdown: string;
@@ -66,6 +72,20 @@ type HealthAttentionItem = {
   delta: number | null;
   taskId: string | null;
   taskLabel: string | null;
+};
+
+type HealthCandidateCalibrationGuardRule = {
+  id: string;
+  reviewStatus: ReviewStatus;
+  bucketLabel: string;
+  direction: string;
+  suggestedAdjustment: number | null;
+  sampleSize: number | null;
+  meanForecast: number | null;
+  observedRate: number | null;
+  calibrationError: number | null;
+  activationStatus: string;
+  rationale: string;
 };
 
 const expectedPhases: BatchPhase[] = ["forecast_ops", "forecast_resolution", "forecast_performance"];
@@ -134,6 +154,7 @@ function buildHealthReport(
   const batchId = readString(batchIndex, "batchId");
   const counts = readRecord(batchIndex, "counts") ?? {};
   const attentionItems = readRecordArray(batchIndex, "attentionItems").flatMap(readHealthAttentionItem);
+  const candidateCalibrationGuardRules = readRecordArray(batchIndex, "candidateCalibrationGuardRules").flatMap(readHealthCandidateCalibrationGuardRule);
   const summary = {
     entries: readNumber(counts, "entries") ?? 0,
     forecastOps: readNumber(counts, "forecastOps") ?? 0,
@@ -150,8 +171,14 @@ function buildHealthReport(
     reviewedAttentionItems: readNumber(counts, "reviewedAttentionItems") ?? countStatus(attentionItems, "reviewed"),
     unresolvedAttentionItems: 0,
     scoreRegressionItems: countScoreRegressions(attentionItems),
+    candidateCalibrationGuardRules: readNumber(counts, "candidateCalibrationGuardRules") ?? candidateCalibrationGuardRules.length,
+    openCandidateCalibrationGuardRules: readNumber(counts, "openCandidateCalibrationGuardRules") ?? countCandidateRuleStatus(candidateCalibrationGuardRules, "open"),
+    deferredCandidateCalibrationGuardRules: readNumber(counts, "deferredCandidateCalibrationGuardRules") ?? countCandidateRuleStatus(candidateCalibrationGuardRules, "deferred"),
+    reviewedCandidateCalibrationGuardRules: readNumber(counts, "reviewedCandidateCalibrationGuardRules") ?? countCandidateRuleStatus(candidateCalibrationGuardRules, "reviewed"),
+    unresolvedCandidateCalibrationGuardRules: 0,
   };
   summary.unresolvedAttentionItems = summary.openAttentionItems + summary.deferredAttentionItems;
+  summary.unresolvedCandidateCalibrationGuardRules = summary.openCandidateCalibrationGuardRules + summary.deferredCandidateCalibrationGuardRules;
   const missingPhases = expectedPhases.filter((phase) => countPhase(summary, phase) === 0);
   const issues = buildIssues(summary, missingPhases);
   return {
@@ -163,6 +190,7 @@ function buildHealthReport(
     missingPhases,
     issues,
     attentionItems: sortAttentionItems(attentionItems),
+    candidateCalibrationGuardRules: sortCandidateCalibrationGuardRules(candidateCalibrationGuardRules),
     paths: {
       json: reportJsonPath,
       markdown: reportMarkdownPath,
@@ -202,10 +230,16 @@ function buildEmptyReport(
       reviewedAttentionItems: 0,
       unresolvedAttentionItems: 0,
       scoreRegressionItems: 0,
+      candidateCalibrationGuardRules: 0,
+      openCandidateCalibrationGuardRules: 0,
+      deferredCandidateCalibrationGuardRules: 0,
+      reviewedCandidateCalibrationGuardRules: 0,
+      unresolvedCandidateCalibrationGuardRules: 0,
     },
     missingPhases: expectedPhases,
     issues: [{ severity: "high", kind: "missing_batch_index", message: issueMessage }],
     attentionItems: [],
+    candidateCalibrationGuardRules: [],
     paths: {
       json: reportJsonPath,
       markdown: reportMarkdownPath,
@@ -240,6 +274,13 @@ function buildIssues(summary: HealthReport["summary"], missingPhases: BatchPhase
       message: `${summary.scoreRegressionItems} attention item(s) indicate worsening score trends.`,
     });
   }
+  if (summary.unresolvedCandidateCalibrationGuardRules > 0) {
+    issues.push({
+      severity: summary.openCandidateCalibrationGuardRules > 0 ? "high" : "medium",
+      kind: "candidate_calibration_guard_review",
+      message: `${summary.unresolvedCandidateCalibrationGuardRules} candidate calibration guard rule(s) remain open or deferred.`,
+    });
+  }
   if (summary.performanceReports > 0 && summary.performanceScoreRows === 0) {
     issues.push({ severity: "medium", kind: "empty_performance_report", message: "Performance report has zero score rows." });
   }
@@ -268,6 +309,27 @@ function readHealthAttentionItem(item: JsonRecord): HealthAttentionItem[] {
   }];
 }
 
+function readHealthCandidateCalibrationGuardRule(item: JsonRecord): HealthCandidateCalibrationGuardRule[] {
+  const id = readString(item, "id");
+  const reviewStatus = readString(item, "reviewStatus");
+  if (!id || !isReviewStatus(reviewStatus)) {
+    return [];
+  }
+  return [{
+    id,
+    reviewStatus,
+    bucketLabel: readString(item, "bucketLabel") ?? "bucket",
+    direction: readString(item, "direction") ?? "calibration_drift",
+    suggestedAdjustment: readNumber(item, "suggestedAdjustment"),
+    sampleSize: readNumber(item, "sampleSize"),
+    meanForecast: readNumber(item, "meanForecast"),
+    observedRate: readNumber(item, "observedRate"),
+    calibrationError: readNumber(item, "calibrationError"),
+    activationStatus: readString(item, "activationStatus") ?? "needs_review",
+    rationale: readString(item, "rationale") ?? "",
+  }];
+}
+
 function renderMarkdown(report: HealthReport) {
   const lines = [
     `# Forecast Batch Health${report.batchId ? `: ${report.batchId}` : ""}`,
@@ -289,6 +351,8 @@ function renderMarkdown(report: HealthReport) {
     `- Performance score rows: ${report.summary.performanceScoreRows ?? "unknown"}`,
     `- Unresolved attention items: ${report.summary.unresolvedAttentionItems}`,
     `- Score regression items: ${report.summary.scoreRegressionItems}`,
+    `- Candidate calibration guard rules: ${report.summary.candidateCalibrationGuardRules}`,
+    `- Unresolved candidate calibration guard rules: ${report.summary.unresolvedCandidateCalibrationGuardRules}`,
     "",
     "## Issues",
     "",
@@ -297,6 +361,10 @@ function renderMarkdown(report: HealthReport) {
     "## Attention Items",
     "",
     ...renderAttentionTable(report.attentionItems),
+    "",
+    "## Candidate Calibration Guard Rules",
+    "",
+    ...renderCandidateCalibrationGuardTable(report.candidateCalibrationGuardRules),
     "",
   ];
   return `${lines.join("\n")}\n`;
@@ -328,10 +396,35 @@ function renderAttentionTable(items: HealthAttentionItem[]) {
   ];
 }
 
+function renderCandidateCalibrationGuardTable(items: HealthCandidateCalibrationGuardRule[]) {
+  if (items.length === 0) {
+    return ["No candidate calibration guard rules found."];
+  }
+  return [
+    "| Status | Bucket | Direction | Adjustment | Sample size | Forecast | Observed | Error | Activation |",
+    "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+    ...items.map((item) =>
+      `| ${item.reviewStatus} | ${escapeMarkdownCell(item.bucketLabel)} | ${item.direction} | ${
+        formatNumber(item.suggestedAdjustment)
+      } | ${formatNumber(item.sampleSize)} | ${formatNumber(item.meanForecast)} | ${formatNumber(item.observedRate)} | ${
+        formatNumber(item.calibrationError)
+      } | ${escapeMarkdownCell(item.activationStatus)} |`,
+    ),
+  ];
+}
+
 function sortAttentionItems(items: HealthAttentionItem[]) {
   return [...items].sort((left, right) =>
     statusRank(left.reviewStatus) - statusRank(right.reviewStatus)
     || severityRank(left.severity) - severityRank(right.severity)
+    || left.id.localeCompare(right.id)
+  );
+}
+
+function sortCandidateCalibrationGuardRules(items: HealthCandidateCalibrationGuardRule[]) {
+  return [...items].sort((left, right) =>
+    statusRank(left.reviewStatus) - statusRank(right.reviewStatus)
+    || severityRank(left.activationStatus === "ready_for_review" ? "high" : "medium") - severityRank(right.activationStatus === "ready_for_review" ? "high" : "medium")
     || left.id.localeCompare(right.id)
   );
 }
@@ -347,6 +440,10 @@ function countPhase(summary: HealthReport["summary"], phase: BatchPhase) {
 }
 
 function countStatus(items: HealthAttentionItem[], status: ReviewStatus) {
+  return items.filter((item) => item.reviewStatus === status).length;
+}
+
+function countCandidateRuleStatus(items: HealthCandidateCalibrationGuardRule[], status: ReviewStatus) {
   return items.filter((item) => item.reviewStatus === status).length;
 }
 

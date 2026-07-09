@@ -124,6 +124,20 @@ await check("forecast batch index joins all batch phases", async () => {
         forecastType: "binary",
       },
     ],
+    candidateCalibrationGuardRules: [
+      {
+        id: "candidate-guard:80-100%",
+        bucketLabel: "80-100%",
+        direction: "overforecast",
+        suggestedAdjustment: -15,
+        sampleSize: 5,
+        meanForecast: 90,
+        observedRate: 0,
+        calibrationError: 90,
+        activationStatus: "ready_for_review",
+        rationale: "80-100% binary aggregates are overforecasting.",
+      },
+    ],
   });
   const reviewsFile = resolve(fixtureRoot, "reviews.json");
   await writeJson(reviewsFile, {
@@ -134,6 +148,13 @@ await check("forecast batch index joins all batch phases", async () => {
         note: "Resolution criteria were ambiguous.",
         reviewer: "contract-check",
         updatedAt: "2026-07-09T00:03:00.000Z",
+      },
+      {
+        attentionItemId: "candidate-guard:80-100%",
+        status: "deferred",
+        note: "Wait for one more weekly report.",
+        reviewer: "contract-check",
+        updatedAt: "2026-07-09T00:04:00.000Z",
       },
     ],
   });
@@ -162,9 +183,14 @@ await check("forecast batch index joins all batch phases", async () => {
   assert(readNumber(counts, "performanceScoreRows") === 4, "performance score row count mismatch");
   assert(readNumber(counts, "attentionItems") === 1, "attention item count mismatch");
   assert(readNumber(counts, "reviewedAttentionItems") === 1, "reviewed attention count mismatch");
+  assert(readNumber(counts, "candidateCalibrationGuardRules") === 1, "candidate calibration guard count mismatch");
+  assert(readNumber(counts, "deferredCandidateCalibrationGuardRules") === 1, "candidate calibration guard review status mismatch");
   const attentionItems = readArray(audit, "attentionItems");
+  const candidateGuardRules = readArray(audit, "candidateCalibrationGuardRules");
   assert(attentionItems.length === 1, "attention item was not copied into audit");
   assert(readString(attentionItems[0], "reviewStatus") === "reviewed", "review status was not merged");
+  assert(candidateGuardRules.length === 1, "candidate calibration guard was not copied into audit");
+  assert(readString(candidateGuardRules[0], "reviewStatus") === "deferred", "candidate calibration guard review status was not merged");
   return "batch index joins ops, resolution, and performance phases";
 });
 
@@ -305,8 +331,13 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
       openAttentionItems: 0,
       reviewedAttentionItems: 0,
       deferredAttentionItems: 0,
+      candidateCalibrationGuardRules: 0,
+      openCandidateCalibrationGuardRules: 0,
+      reviewedCandidateCalibrationGuardRules: 0,
+      deferredCandidateCalibrationGuardRules: 0,
     },
     attentionItems: [],
+    candidateCalibrationGuardRules: [],
   });
   await writeJson(resolve(batchIndexRoot, "latest-batch", "batch-index.json"), {
     reportType: "forecast_batch_index",
@@ -326,6 +357,10 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
       openAttentionItems: 1,
       reviewedAttentionItems: 0,
       deferredAttentionItems: 1,
+      candidateCalibrationGuardRules: 1,
+      openCandidateCalibrationGuardRules: 1,
+      reviewedCandidateCalibrationGuardRules: 0,
+      deferredCandidateCalibrationGuardRules: 0,
     },
     attentionItems: [
       {
@@ -357,6 +392,21 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
         reviewStatus: "deferred",
       },
     ],
+    candidateCalibrationGuardRules: [
+      {
+        id: "candidate-guard:80-100%",
+        reviewStatus: "open",
+        bucketLabel: "80-100%",
+        direction: "overforecast",
+        suggestedAdjustment: -15,
+        sampleSize: 5,
+        meanForecast: 90,
+        observedRate: 0,
+        calibrationError: 90,
+        activationStatus: "ready_for_review",
+        rationale: "80-100% binary aggregates are overforecasting.",
+      },
+    ],
   });
   await runScript("scripts/forecast-batch-health.ts", [
     "--batch-index-dir",
@@ -376,8 +426,10 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   assert(readNumber(summary, "failedForecasts") === 1, "failed forecast summary mismatch");
   assert(readNumber(summary, "unresolvedAttentionItems") === 2, "unresolved attention summary mismatch");
   assert(readNumber(summary, "scoreRegressionItems") === 1, "score regression summary mismatch");
+  assert(readNumber(summary, "unresolvedCandidateCalibrationGuardRules") === 1, "unresolved candidate calibration guard summary mismatch");
   assert(missingPhases.includes("forecast_performance"), "missing performance phase was not reported");
   assert(issues.some((issue) => readString(issue, "kind") === "failed_forecasts"), "failed forecast issue missing");
+  assert(issues.some((issue) => readString(issue, "kind") === "candidate_calibration_guard_review"), "candidate calibration guard issue missing");
   return "batch health summarizes latest indexed batch issues";
 });
 
