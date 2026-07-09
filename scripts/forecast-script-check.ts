@@ -809,6 +809,19 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   return "batch health summarizes latest indexed batch issues";
 });
 
+await check("diagnostics surface latest forecast batch health", async () => {
+  const diagnosticsSource = await readFile(resolve(root, "packages/backend/src/diagnostics-service.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/use-lab-dashboard.ts"), "utf8");
+  assert(diagnosticsSource.includes("readForecastBatchHealth"), "diagnostics does not read local forecast batch health");
+  assert(diagnosticsSource.includes("forecastBatchHealthDiagnostic"), "diagnostics does not turn forecast batch health into a check item");
+  assert(diagnosticsSource.includes("data/reports/forecast-batch-health/batch-health.json"), "diagnostics reads the wrong batch health report path");
+  assert(diagnosticsSource.includes("unresolvedAttentionItems"), "diagnostics does not expose unresolved attention count");
+  assert(diagnosticsSource.includes("unresolvedCandidateCalibrationGuardRules"), "diagnostics does not expose unresolved candidate guard count");
+  assert(diagnosticsSource.includes("items,"), "diagnostics snapshot does not expose structured diagnostic items");
+  assert(dashboardSource.includes("...readArray(diagnostics, \"items\")"), "lab dashboard does not read diagnostics items");
+  return "latest forecast batch health is visible through diagnostics";
+});
+
 await check("forecast performance calibration buckets are stable", async () => {
   const report = buildBinaryCalibrationReport([
     { probability: 10, resolved: false, score: 0.01 },

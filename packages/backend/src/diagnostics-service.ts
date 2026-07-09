@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { desc } from "drizzle-orm";
 import {
   artifacts,
@@ -18,6 +18,14 @@ import { listMaintenanceActions, listMaintenanceJobs } from "./maintenance-servi
 import { createObjectStorageTargets, tryHeadBucket } from "./object-storage";
 
 type Db = ReturnType<typeof createDb>["db"];
+
+type DiagnosticItem = {
+  key: string;
+  label: string;
+  ok: boolean;
+  status: string;
+  detail: string;
+};
 
 export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input: { root: string }) {
   const agentPolicy = loadAgentPolicy(process.env, input.root);
@@ -40,6 +48,20 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
     tryHeadBucket(objectStorage.evals),
     tryHeadBucket(objectStorage.exports),
   ]);
+  const forecastBatchHealth = readForecastBatchHealth(input.root);
+  const items: DiagnosticItem[] = [
+    {
+      key: "service_health",
+      label: "Service health",
+      ok: health.ok,
+      status: health.ok ? "healthy" : "check",
+      detail: health.ok ? "Application health snapshot is healthy." : "Application health snapshot has failing checks.",
+    },
+    bucketDiagnostic("artifacts_bucket", "Artifacts bucket", artifactsBucket),
+    bucketDiagnostic("evals_bucket", "Evals bucket", evalsBucket),
+    bucketDiagnostic("exports_bucket", "Exports bucket", exportsBucket),
+    forecastBatchHealthDiagnostic(forecastBatchHealth),
+  ];
 
   const caseCountBySuiteId = cases.reduce((counts, row) => {
     counts.set(row.suiteId, (counts.get(row.suiteId) ?? 0) + 1);
@@ -94,6 +116,8 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
       evals: evalsBucket,
       exports: exportsBucket,
     },
+    items,
+    forecastBatchHealth,
     evalDatasets: {
       suiteCount: suites.length,
       caseCount: cases.length,
@@ -139,6 +163,68 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
   };
 }
 
+function readForecastBatchHealth(root: string) {
+  const path = `${root}/data/reports/forecast-batch-health/batch-health.json`;
+  try {
+    const payload = asRecord(JSON.parse(readFileSync(path, "utf8")));
+    const summary = asRecord(payload?.summary);
+    return {
+      path,
+      exists: true,
+      batchId: readString(payload, "batchId"),
+      status: readString(payload, "status") ?? "unknown",
+      generatedAt: readString(payload, "generatedAt"),
+      unresolvedAttentionItems: readNumber(summary, "unresolvedAttentionItems"),
+      openAttentionItems: readNumber(summary, "openAttentionItems"),
+      deferredAttentionItems: readNumber(summary, "deferredAttentionItems"),
+      unresolvedCandidateCalibrationGuardRules: readNumber(summary, "unresolvedCandidateCalibrationGuardRules"),
+    };
+  } catch {
+    return {
+      path,
+      exists: false,
+      batchId: null,
+      status: "missing",
+      generatedAt: null,
+      unresolvedAttentionItems: null,
+      openAttentionItems: null,
+      deferredAttentionItems: null,
+      unresolvedCandidateCalibrationGuardRules: null,
+    };
+  }
+}
+
+function bucketDiagnostic(key: string, label: string, bucket: { ok: boolean; status: number | null; error?: string | null }): DiagnosticItem {
+  return {
+    key,
+    label,
+    ok: bucket.ok,
+    status: bucket.ok ? "healthy" : "check",
+    detail: bucket.ok ? String(bucket.status ?? "reachable") : String(bucket.error ?? bucket.status ?? "unreachable"),
+  };
+}
+
+function forecastBatchHealthDiagnostic(health: ReturnType<typeof readForecastBatchHealth>): DiagnosticItem {
+  if (!health.exists) {
+    return {
+      key: "forecast_batch_health",
+      label: "Forecast batch health",
+      ok: false,
+      status: "missing",
+      detail: "No local forecast batch health report has been generated yet.",
+    };
+  }
+  const unresolved = health.unresolvedAttentionItems ?? 0;
+  const candidateRules = health.unresolvedCandidateCalibrationGuardRules ?? 0;
+  return {
+    key: "forecast_batch_health",
+    label: "Forecast batch health",
+    ok: health.status === "healthy",
+    status: health.status,
+    detail: `${health.batchId ?? "latest batch"} has ${unresolved} unresolved attention item(s) and ${candidateRules} unresolved candidate calibration guard rule(s).`,
+  };
+}
+
 function directoryStatus(path: string) {
   return {
     path,
@@ -152,4 +238,16 @@ function readString(value: unknown, key: string) {
   }
   const raw = (value as Record<string, unknown>)[key];
   return typeof raw === "string" ? raw : null;
+}
+
+function readNumber(value: unknown, key: string) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const raw = (value as Record<string, unknown>)[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
+function asRecord(value: unknown) {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
