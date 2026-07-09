@@ -1069,6 +1069,7 @@ export async function updateWorkflowChangeProposalStatus(
   if (!existing) {
     throw new Error(`Workflow change proposal not found for benchmark run: ${input.proposalId}`);
   }
+  assertWorkflowChangeProposalStatusTransitionAllowed(status, existing);
   const implementationStatus = input.implementationStatus
     ? normalizeWorkflowChangeProposalImplementationStatus(input.implementationStatus)
     : implementationStatusForProposalTransition(status, existing.implementationStatus);
@@ -1367,6 +1368,19 @@ function normalizeWorkflowChangeProposalImplementationStatus(raw: string): Workf
     return raw as WorkflowChangeProposalImplementationStatus;
   }
   throw new Error(`Unknown workflow change proposal implementation status: ${raw}`);
+}
+
+function assertWorkflowChangeProposalStatusTransitionAllowed(
+  status: WorkflowChangeProposalStatus,
+  proposal: typeof workflowChangeProposals.$inferSelect,
+) {
+  if (status !== "implemented") {
+    return;
+  }
+  if (proposal.validationResultStatus === "completed") {
+    return;
+  }
+  throw new Error("Cannot mark workflow change proposal implemented until validation result status is completed.");
 }
 
 function implementationStatusForProposalTransition(

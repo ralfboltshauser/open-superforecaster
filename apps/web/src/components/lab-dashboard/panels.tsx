@@ -321,6 +321,7 @@ function WorkflowProposalSummary({
   const reviewedBy = typeof proposal.reviewedBy === "string" ? proposal.reviewedBy : null
   const reviewedAt = typeof proposal.reviewedAt === "string" ? proposal.reviewedAt : null
   const canUpdate = Boolean(benchmarkRunId && proposalId)
+  const canMarkImplemented = validationResultStatus === "completed"
   const updateStatus = (
     nextStatus: WorkflowChangeProposalStatus,
     nextImplementationStatus?: WorkflowChangeProposalImplementationStatus,
@@ -382,7 +383,7 @@ function WorkflowProposalSummary({
         <div className="mt-2 flex flex-wrap gap-1">
           {(["accepted", "rejected", "implemented"] as const).map((nextStatus) => (
             <Button
-              disabled={busy !== null || status === nextStatus}
+              disabled={busy !== null || status === nextStatus || (nextStatus === "implemented" && !canMarkImplemented)}
               key={nextStatus}
               onClick={() => updateStatus(nextStatus, implementationStatusForAction(nextStatus))}
               size="xs"

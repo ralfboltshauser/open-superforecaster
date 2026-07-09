@@ -72,7 +72,8 @@ and mark each proposal accepted, rejected, implemented, or reopened. Accepted
 proposals get a planned implementation task title and deterministic experiment
 label, and the lab can move that implementation into patching before launching a
 validation benchmark under that label. Completed validation runs write their
-evidence summary and gate blockers back onto the proposal for review.
+evidence summary and gate blockers back onto the proposal for review, and a
+proposal cannot be marked implemented until validation has completed.
 
 ## Forecast And Research Prompts
 
