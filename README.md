@@ -263,6 +263,12 @@ To consolidate those local artifacts into one audit file:
 bun run forecast:batches -- --batch-id july-smoke
 ```
 
+To check the local forecast script contracts:
+
+```bash
+bun run forecast:scripts:check
+```
+
 ### Host Development
 
 For direct host development, keep the backing services in Docker and run the web

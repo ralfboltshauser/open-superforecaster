@@ -102,6 +102,12 @@ The batch index scans `data/forecast-ops`, `data/resolutions`, and
 `data/reports/forecast-performance`, then writes JSON and Markdown summaries
 under `data/reports/forecast-batches`.
 
+Run the script contract checks before changing these tools:
+
+```bash
+bun run forecast:scripts:check
+```
+
 ## Table Workflows
 
 Use the CSV files in the web composer by selecting the relevant mode and
