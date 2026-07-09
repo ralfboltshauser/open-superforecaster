@@ -99,13 +99,13 @@ try {
       gate.missing_aggregate_rationale_cases,
       gate.promotion_gate_status,
       gate.promotion_gate_blockers,
-      coalesce(cr.row_json #>> '{recommendation,primaryBaselineBenchmarkRunId}', cr.row_json #>> '{baselines,0,baselineBenchmarkRunId}') as primary_baseline_benchmark_run_id,
-      coalesce(cr.row_json #>> '{recommendation,primaryBaselineBenchmarkRunId}', cr.row_json #>> '{baselines,0,baselineBenchmarkRunId}') as baseline_benchmark_run_id,
-      nullif(cr.row_json #>> '{baselines,0,pairedCaseCount}', '')::integer as paired_case_count,
-      nullif(cr.row_json #>> '{baselines,0,pairedMeanBrierDelta}', '')::double precision as paired_mean_brier_delta,
-      nullif(cr.row_json #>> '{baselines,0,pairedMeanLogDelta}', '')::double precision as paired_mean_log_delta,
-      nullif(cr.row_json #>> '{baselines,0,pairedUncertainty,brierDelta,lower}', '')::double precision as paired_brier_ci_lower,
-      nullif(cr.row_json #>> '{baselines,0,pairedUncertainty,brierDelta,upper}', '')::double precision as paired_brier_ci_upper,
+      primary_baseline.row_json #>> '{baselineBenchmarkRunId}' as primary_baseline_benchmark_run_id,
+      primary_baseline.row_json #>> '{baselineBenchmarkRunId}' as baseline_benchmark_run_id,
+      nullif(primary_baseline.row_json #>> '{pairedCaseCount}', '')::integer as paired_case_count,
+      nullif(primary_baseline.row_json #>> '{pairedMeanBrierDelta}', '')::double precision as paired_mean_brier_delta,
+      nullif(primary_baseline.row_json #>> '{pairedMeanLogDelta}', '')::double precision as paired_mean_log_delta,
+      nullif(primary_baseline.row_json #>> '{pairedUncertainty,brierDelta,lower}', '')::double precision as paired_brier_ci_lower,
+      nullif(primary_baseline.row_json #>> '{pairedUncertainty,brierDelta,upper}', '')::double precision as paired_brier_ci_upper,
       br.created_at::text as created_at,
       br.started_at::text as started_at,
       br.completed_at::text as completed_at
@@ -115,6 +115,17 @@ try {
     left join workflow_promotion_decisions wpd on wpd.id = br.promotion_decision_id
     left join artifact_rows cr on cr.artifact_id = br.comparison_report_artifact_id and cr.row_index = 0
     left join artifact_rows ar on ar.artifact_id = br.analysis_report_artifact_id and ar.row_index = 0
+    left join lateral (
+      select baseline.row_json
+      from jsonb_array_elements(coalesce(cr.row_json #> '{baselines}', '[]'::jsonb)) as baseline(row_json)
+      order by
+        case
+          when baseline.row_json #>> '{baselineBenchmarkRunId}' = coalesce(cr.row_json #>> '{recommendation,primaryBaselineBenchmarkRunId}', cr.row_json #>> '{baselines,0,baselineBenchmarkRunId}') then 0
+          else 1
+        end,
+        baseline.row_json #>> '{baselineBenchmarkRunId}'
+      limit 1
+    ) primary_baseline on true
     left join lateral (
       with counts as (
         select

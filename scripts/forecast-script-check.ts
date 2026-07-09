@@ -636,8 +636,11 @@ await check("benchmark comparison selects primary baseline by evidence", async (
 await check("benchmark primary baseline is exported to DuckDB", async () => {
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
   assert(syncSource.includes("primary_baseline_benchmark_run_id"), "DuckDB benchmark run mart missing primary baseline id");
+  assert(syncSource.includes("primary_baseline.row_json"), "DuckDB benchmark run mart does not select a primary baseline row");
   assert(syncSource.includes("recommendation,primaryBaselineBenchmarkRunId"), "DuckDB benchmark run mart does not read recommendation primary baseline");
   assert(syncSource.includes("baselines,0,baselineBenchmarkRunId"), "DuckDB benchmark run mart missing legacy baseline fallback");
+  assert(syncSource.includes("primary_baseline.row_json #>> '{pairedCaseCount}'"), "DuckDB paired counts do not come from primary baseline");
+  assert(syncSource.includes("primary_baseline.row_json #>> '{pairedMeanBrierDelta}'"), "DuckDB paired deltas do not come from primary baseline");
   return "local analytics use the same primary baseline as benchmark comparison recommendations";
 });
 
