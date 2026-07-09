@@ -223,6 +223,10 @@ curl http://localhost:3000/api/runs/$TASK_ID/result
 curl -X POST http://localhost:3000/api/runs/$TASK_ID/report-artifact
 ```
 
+Report artifacts persist a decision-oriented JSON object with the headline,
+resolution context, answer, distribution, component agreement, uncertainty,
+quality checks, evidence summary, process trace, links, and Markdown snapshot.
+
 You can also plan sample workflows without launching agent work:
 
 ```bash

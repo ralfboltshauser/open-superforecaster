@@ -646,10 +646,22 @@ function buildRunReportPayload(detail: Awaited<ReturnType<typeof getTaskDetail>>
   const config = isRecord(detail.task.configJson) ? detail.task.configJson : {};
   const classification = isRecord(config.classification) ? config.classification : {};
   const prompt = readString(config, "prompt") ?? readString(outputRecord, "question") ?? detail.task.label;
+  const forecastType = readString(aggregateRecord, "forecastType", "forecast_type") ?? readString(classification, "forecastType") ?? null;
+  const answer = summarizeForecastAnswer(aggregateRecord);
+  const resolution = summarizeResolution(config, outputRecord);
+  const distribution = summarizeDistribution(aggregateRecord);
+  const components = summarizeReportComponents(aggregateRecord, detail.forecastAttempts);
+  const uncertainty = summarizeUncertainty(aggregateRecord, detail.forecastAttempts);
+  const quality = summarizeReportQuality(aggregateRecord, detail);
+  const evidence = summarizeReportEvidence(detail);
+  const process = summarizeReportProcess(detail, aggregateRecord);
+  const links = runLinks(detail.task.id);
+  const headline = buildReportHeadline({ question: prompt, answer, forecastType });
 
-  return {
+  const report = {
     reportType: "run_decision_report",
-    version: 1,
+    version: 2,
+    headline,
     task: {
       id: detail.task.id,
       label: detail.task.label,
@@ -661,29 +673,21 @@ function buildRunReportPayload(detail: Awaited<ReturnType<typeof getTaskDetail>>
       completedAt: detail.task.completedAt,
     },
     question: prompt,
-    forecastType: readString(aggregateRecord, "forecastType", "forecast_type") ?? readString(classification, "forecastType") ?? null,
-    answer: summarizeForecastAnswer(aggregateRecord),
+    resolution,
+    forecastType,
+    answer,
+    distribution,
+    components,
+    uncertainty,
+    quality,
     output,
-    evidence: {
-      sourceCount: detail.sources.length,
-      citationCount: detail.citations.length,
-      sources: detail.sources.slice(0, 25).map((source) => ({
-        title: source.title,
-        url: source.url,
-        domain: source.domain,
-        claim: source.contentSummary,
-        sourceType: source.sourceType,
-        publishedAt: source.publishedAt,
-        retrievedAt: source.retrievedAt,
-      })),
-    },
-    process: {
-      attemptCount: detail.forecastAttempts.length,
-      aggregateCount: detail.forecastAggregates.length,
-      recentTraceEventCount: detail.traceEvents.length,
-      method: readString(aggregateRecord, "method") ?? null,
-    },
-    links: runLinks(detail.task.id),
+    evidence,
+    process,
+    links,
+  };
+  return {
+    ...report,
+    markdown: renderRunReportMarkdown(report),
   };
 }
 
@@ -693,16 +697,278 @@ function runReportSchemaJson() {
     properties: {
       reportType: { const: "run_decision_report" },
       version: { type: "number" },
+      headline: { type: "string" },
       task: { type: "object" },
       question: { type: "string" },
+      resolution: { type: "object" },
       forecastType: { type: ["string", "null"] },
       answer: { type: "object" },
+      distribution: { type: "object" },
+      components: { type: "object" },
+      uncertainty: { type: "object" },
+      quality: { type: "object" },
       output: { type: ["object", "null"] },
       evidence: { type: "object" },
       process: { type: "object" },
       links: { type: "object" },
+      markdown: { type: "string" },
     },
   };
+}
+
+function buildReportHeadline(input: { question: string; answer: Record<string, unknown>; forecastType: string | null }) {
+  const kind = readString(input.answer, "kind") ?? input.forecastType ?? "forecast";
+  const value = input.answer.value;
+  if (typeof value === "number") {
+    const unit = readString(input.answer, "unit");
+    return `${input.question} -> ${value}${unit === "percent" ? "%" : unit ? ` ${unit}` : ""}`;
+  }
+  if (typeof value === "string" && value.trim()) {
+    return `${input.question} -> ${value}`;
+  }
+  return `${input.question} -> ${kind} recorded`;
+}
+
+function summarizeResolution(config: Record<string, unknown>, output: Record<string, unknown>) {
+  return {
+    criteria: readString(config, "resolutionCriteria", "resolution_criteria") ?? readString(output, "resolutionCriteria", "resolution_criteria"),
+    date: readString(config, "resolutionDate", "resolution_date") ?? readString(output, "resolutionDate", "resolution_date"),
+    condition:
+      readString(config, "condition") ??
+      readString(output, "condition"),
+    conditionCriteria:
+      readString(config, "conditionResolutionCriteria", "condition_resolution_criteria") ??
+      readString(output, "conditionResolutionCriteria", "condition_resolution_criteria"),
+  };
+}
+
+function summarizeDistribution(output: Record<string, unknown>) {
+  const dateDistribution = readRecord(output, "dateDistribution", "date_distribution");
+  if (Object.keys(dateDistribution).length > 0) {
+    return { kind: "date_quantiles", quantiles: pickKeys(dateDistribution, ["p10", "p25", "p50", "p75", "p90"]) };
+  }
+  const numericDistribution = readRecord(output, "distribution");
+  if (["p10", "p25", "p50", "p75", "p90"].some((key) => numericDistribution[key] !== undefined)) {
+    return { kind: "numeric_quantiles", quantiles: pickKeys(numericDistribution, ["p10", "p25", "p50", "p75", "p90"]), unit: readString(output, "unit") };
+  }
+  const probabilities = readArray(output, "probabilities");
+  if (probabilities.length) {
+    return { kind: "probability_table", probabilities };
+  }
+  const range = readRecord(output, "probabilityRange", "probability_range");
+  if (Object.keys(range).length > 0) {
+    return { kind: "probability_range", range };
+  }
+  return { kind: "none" };
+}
+
+function summarizeReportComponents(output: Record<string, unknown>, attempts: Array<typeof forecastAttempts.$inferSelect>) {
+  const componentRecords = [
+    ...readArray(output, "componentProbabilities", "component_probabilities"),
+    ...readArray(output, "componentValues", "component_values"),
+    ...readArray(output, "componentDates", "component_dates"),
+    ...readArray(output, "componentCategories", "component_categories"),
+    ...readArray(output, "componentBranches", "component_branches"),
+    ...readArray(output, "componentCurves", "component_curves"),
+  ];
+  const attemptComponents = attempts.map((attempt) => ({
+    forecasterLabel: attempt.forecasterLabel,
+    forecastType: attempt.forecastType,
+    rationale: attempt.rationale,
+    premortem: attempt.premortem,
+    wildcards: attempt.wildcards,
+    parsedPrediction: attempt.parsedPrediction,
+  }));
+  return {
+    count: componentRecords.length || attemptComponents.length,
+    records: componentRecords.slice(0, 16),
+    attempts: attemptComponents.slice(0, 16),
+    agreement: summarizeComponentAgreement(output),
+  };
+}
+
+function summarizeComponentAgreement(output: Record<string, unknown>) {
+  const binary = readArray(output, "componentProbabilities", "component_probabilities")
+    .map((component) => readNumber(component, "probability"))
+    .filter((value): value is number => value !== null);
+  if (binary.length >= 2) {
+    return {
+      kind: "binary_spread",
+      count: binary.length,
+      min: Math.min(...binary),
+      max: Math.max(...binary),
+      spread: Math.round((Math.max(...binary) - Math.min(...binary)) * 10) / 10,
+    };
+  }
+  const categorical = readArray(output, "componentCategories", "component_categories")
+    .map((component) => readString(component, "topCategory", "top_category"))
+    .filter((value): value is string => Boolean(value));
+  if (categorical.length >= 2) {
+    const counts = countStrings(categorical);
+    const top = Object.entries(counts).sort((left, right) => right[1] - left[1])[0] ?? null;
+    return { kind: "categorical_votes", count: categorical.length, topCategory: top?.[0] ?? null, topCount: top?.[1] ?? 0, counts };
+  }
+  return { kind: "not_comparable" };
+}
+
+function summarizeUncertainty(output: Record<string, unknown>, attempts: Array<typeof forecastAttempts.$inferSelect>) {
+  return {
+    keyUncertainties: uniqueStrings([
+      ...readStringArray(output, "keyUncertainties", "key_uncertainties"),
+      ...attempts.flatMap((attempt) => readStringArray(attempt.parsedPrediction, "keyUncertainties", "key_uncertainties")),
+    ]).slice(0, 12),
+    premortems: uniqueStrings([
+      readString(output, "premortem"),
+      ...attempts.map((attempt) => attempt.premortem),
+    ]).slice(0, 8),
+    wildcards: uniqueStrings([
+      ...readStringArray(output, "wildcards"),
+      ...attempts.flatMap((attempt) => attempt.wildcards),
+    ]).slice(0, 12),
+    calibrationWarnings: uniqueStrings(readStringArray(output, "calibrationWarnings", "calibration_warnings")).slice(0, 12),
+    unresolvedDisagreement: readString(output, "unresolvedDisagreement", "unresolved_disagreement"),
+    decisiveIssue: readString(output, "decisiveIssue", "decisive_issue"),
+  };
+}
+
+function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited<ReturnType<typeof getTaskDetail>>) {
+  const warnings = readStringArray(output, "calibrationWarnings", "calibration_warnings", "qualityIssues", "quality_issues");
+  return {
+    status: detail.task.status,
+    outputPresent: Object.keys(output).length > 0,
+    rationalePresent: Boolean(readString(output, "rationale", "summary", "answer")),
+    warningCount: warnings.length,
+    warnings: warnings.slice(0, 20),
+    sourceCount: detail.sources.length,
+    citationCount: detail.citations.length,
+    attemptCount: detail.forecastAttempts.length,
+    scoreCount: detail.forecastScores.length,
+  };
+}
+
+function summarizeReportEvidence(detail: Awaited<ReturnType<typeof getTaskDetail>>) {
+  const sources = detail.sources.slice(0, 25).map((source) => ({
+    title: source.title,
+    url: source.url,
+    domain: source.domain,
+    claim: source.contentSummary,
+    sourceType: source.sourceType,
+    publishedAt: source.publishedAt,
+    retrievedAt: source.retrievedAt,
+    usedInFinal: source.usedInFinal,
+    qualityScore: source.qualityScore,
+  }));
+  return {
+    sourceCount: detail.sources.length,
+    citationCount: detail.citations.length,
+    topDomains: Object.entries(countStrings(sources.map((source) => source.domain).filter((domain): domain is string => Boolean(domain))))
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 8)
+      .map(([domain, count]) => ({ domain, count })),
+    sources,
+  };
+}
+
+function summarizeReportProcess(detail: Awaited<ReturnType<typeof getTaskDetail>>, output: Record<string, unknown>) {
+  return {
+    method: readString(output, "method"),
+    attemptCount: detail.forecastAttempts.length,
+    aggregateCount: detail.forecastAggregates.length,
+    recentTraceEventCount: detail.traceEvents.length,
+    traceEvents: detail.traceEvents.slice(-10).map((event) => ({
+      eventType: event.eventType,
+      phase: event.phase,
+      agentLabel: event.agentLabel,
+      sequenceNumber: event.sequenceNumber,
+      createdAt: event.createdAt,
+    })),
+  };
+}
+
+function renderRunReportMarkdown(report: {
+  headline: string;
+  question: string;
+  forecastType: string | null;
+  answer: Record<string, unknown>;
+  resolution: Record<string, unknown>;
+  evidence: { sourceCount: number; citationCount: number; sources: Array<Record<string, unknown>> };
+  components: { count: number; agreement: Record<string, unknown> };
+  uncertainty: Record<string, unknown>;
+  quality: Record<string, unknown>;
+  links: Record<string, string>;
+}) {
+  const lines = [
+    `# ${report.headline}`,
+    "",
+    `Question: ${report.question}`,
+    `Forecast type: ${report.forecastType ?? "unknown"}`,
+    `Answer: ${formatReportAnswer(report.answer)}`,
+    "",
+    "## Resolution",
+    report.resolution.criteria ? `Criteria: ${String(report.resolution.criteria)}` : "Criteria: not recorded",
+    report.resolution.date ? `Date: ${String(report.resolution.date)}` : "Date: not recorded",
+    report.resolution.condition ? `Condition: ${String(report.resolution.condition)}` : "",
+    "",
+    "## Evidence",
+    `${report.evidence.sourceCount} source(s), ${report.evidence.citationCount} citation(s) persisted.`,
+    ...report.evidence.sources.slice(0, 8).map((source) => `- ${source.title ?? source.domain ?? "Source"}: ${source.claim ?? "No claim summary"}`),
+    "",
+    "## Components",
+    `${report.components.count} component record(s). Agreement: ${JSON.stringify(report.components.agreement)}`,
+    "",
+    "## Uncertainty",
+    ...markdownList("Key uncertainties", report.uncertainty.keyUncertainties),
+    ...markdownList("Wildcards", report.uncertainty.wildcards),
+    ...markdownList("Warnings", report.quality.warnings),
+    "",
+    "## Links",
+    `- Result: ${report.links.result}`,
+    `- Trace bundle: ${report.links.traceBundle}`,
+    `- Report page: ${report.links.reportPage}`,
+  ];
+  return `${lines.filter((line) => line !== "").join("\n")}\n`;
+}
+
+function formatReportAnswer(answer: Record<string, unknown>) {
+  const kind = readString(answer, "kind") ?? "answer";
+  const value = answer.value;
+  if (typeof value === "number") {
+    const unit = readString(answer, "unit");
+    return `${value}${unit === "percent" ? "%" : unit ? ` ${unit}` : ""}`;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return `${value.length} ${kind} item(s)`;
+  }
+  return kind;
+}
+
+function markdownList(label: string, raw: unknown) {
+  const values = Array.isArray(raw)
+    ? raw.map((value) => String(value ?? "").trim()).filter(Boolean)
+    : [];
+  if (values.length === 0) {
+    return [`${label}: none recorded`];
+  }
+  return [`${label}:`, ...values.slice(0, 8).map((value) => `- ${value}`)];
+}
+
+function pickKeys(record: Record<string, unknown>, keys: string[]) {
+  return Object.fromEntries(keys.filter((key) => record[key] !== undefined).map((key) => [key, record[key]]));
+}
+
+function countStrings(values: string[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const value of values) {
+    counts[value] = (counts[value] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+  return [...new Set(values.map((value) => value?.trim() ?? "").filter(Boolean))];
 }
 
 function summarizeForecastAnswer(output: unknown) {

@@ -46,6 +46,10 @@ curl http://localhost:3000/api/runs/$TASK_ID/result
 curl -X POST http://localhost:3000/api/runs/$TASK_ID/report-artifact
 ```
 
+The report artifact is written back into the artifact ledger. It includes a
+versioned decision report payload plus a Markdown snapshot for review, export,
+or downstream automation.
+
 ## Table Workflows
 
 Use the CSV files in the web composer by selecting the relevant mode and
