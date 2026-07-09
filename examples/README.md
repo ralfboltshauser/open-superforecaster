@@ -265,6 +265,18 @@ or `reject`. Pass `--holdout-performance-report path/to/forecast-performance.jso
 to replay against held-out resolved forecasts; improving holdout replays are
 marked `promote_for_default`.
 
+To turn held-out default promotions into a concrete implementation review plan:
+
+```bash
+bun run forecast:calibration-default-plan
+bun run forecast:calibration-default-plan -- --validation-report data/reports/forecast-calibration-guard-validation/calibration-guard-validation.json
+```
+
+This does not modify runtime forecast behavior. It writes JSON and Markdown under
+`data/reports/forecast-calibration-guard-default-plan`, skips every non-holdout
+or non-promoted validation row, and records the exact target workflow file plus
+manual acceptance criteria for each default calibration guard candidate.
+
 Run the script contract checks before changing these tools:
 
 ```bash

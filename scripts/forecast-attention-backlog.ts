@@ -296,7 +296,7 @@ function kindForCalibrationValidationRecommendation(recommendation: string) {
 
 function recommendedActionsForCalibrationValidation(recommendation: string, bucketLabel: string) {
   if (recommendation === "promote_for_default") {
-    return [`Review this held-out ${bucketLabel} validation before enabling the calibration guard as a default.`];
+    return [`Run forecast:calibration-default-plan, then review this held-out ${bucketLabel} validation before enabling the calibration guard as a default.`];
   }
   if (recommendation === "promote_for_holdout") {
     return [`Run a held-out resolved batch before enabling this ${bucketLabel} calibration guard candidate.`];

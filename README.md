@@ -307,6 +307,23 @@ The health report flags missing artifact phases, failed forecast or resolution
 steps, unresolved attention items, open candidate calibration guard reviews, and
 score-regression attention signals.
 
+Reviewed candidate calibration guard rules can be promoted through a local
+evidence ladder:
+
+```bash
+bun run forecast:calibration-proposals
+bun run forecast:calibration-validate
+bun run forecast:calibration-validate -- --holdout-performance-report data/reports/forecast-performance/holdout/forecast-performance.json
+bun run forecast:calibration-default-plan
+```
+
+The proposal step only drafts reviewed, ready candidate rules. Validation replays
+the proposal against resolved binary aggregates and requires a held-out replay
+before any row can become a default candidate. The default-plan step still does
+not change runtime behavior; it writes the exact rule candidates, target file,
+and manual acceptance criteria under
+`data/reports/forecast-calibration-guard-default-plan`.
+
 To check the local forecast script contracts:
 
 ```bash

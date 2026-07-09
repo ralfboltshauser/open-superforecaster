@@ -387,6 +387,77 @@ await check("forecast calibration guard validation replays proposal impact", asy
   return "calibration guard proposals are replayed before promotion";
 });
 
+await check("forecast calibration default plan requires held-out promotion", async () => {
+  const fixtureRoot = resolve(tempRoot, "calibration-guard-default-plan");
+  const validationDir = resolve(fixtureRoot, "validation");
+  const outputDir = resolve(fixtureRoot, "out");
+  await mkdir(validationDir, { recursive: true });
+  await writeJson(resolve(validationDir, "calibration-guard-validation.json"), {
+    reportType: "forecast_calibration_guard_validation",
+    generatedAt: "2026-07-09T00:09:00.000Z",
+    validations: [
+      {
+        validationMode: "holdout_replay",
+        proposalId: "calibration-guard-proposal:contract-batch:candidate-guard:80-100%",
+        sourceCandidateGuardId: "candidate-guard:80-100%",
+        bucketLabel: "80-100%",
+        suggestedAdjustment: -15,
+        matchedRows: 3,
+        brierDelta: -0.12,
+        calibrationErrorDelta: -15,
+        recommendation: "promote_for_default",
+      },
+      {
+        validationMode: "source_replay",
+        proposalId: "calibration-guard-proposal:contract-batch:candidate-guard:60-80%",
+        sourceCandidateGuardId: "candidate-guard:60-80%",
+        bucketLabel: "60-80%",
+        suggestedAdjustment: 5,
+        matchedRows: 4,
+        brierDelta: -0.03,
+        calibrationErrorDelta: -5,
+        recommendation: "promote_for_holdout",
+      },
+      {
+        validationMode: "holdout_replay",
+        proposalId: "calibration-guard-proposal:contract-batch:candidate-guard:20-40%",
+        sourceCandidateGuardId: "candidate-guard:20-40%",
+        bucketLabel: "20-40%",
+        suggestedAdjustment: 5,
+        matchedRows: 4,
+        brierDelta: 0.02,
+        calibrationErrorDelta: 5,
+        recommendation: "reject",
+      },
+    ],
+  });
+  await runScript("scripts/forecast-calibration-guard-default-plan.ts", [
+    "--validation-report-dir",
+    validationDir,
+    "--out-dir",
+    outputDir,
+  ]);
+  const report = readRecord(await readJson(resolve(outputDir, "calibration-guard-default-plan.json")));
+  const summary = readRecord(report, "summary");
+  const candidates = readArray(report, "defaultCandidates");
+  const skippedRows = readArray(report, "skippedRows");
+  assert(report, "default plan report missing");
+  assert(readString(report, "reportType") === "forecast_calibration_guard_default_plan", "default plan report type mismatch");
+  assert(summary, "default plan summary missing");
+  assert(readNumber(summary, "validationRows") === 3, "validation row count mismatch");
+  assert(readNumber(summary, "defaultCandidates") === 1, "default candidate count mismatch");
+  assert(readNumber(summary, "skippedNonHoldout") === 1, "non-holdout skip count mismatch");
+  assert(readNumber(summary, "skippedNotPromoted") === 1, "not-promoted skip count mismatch");
+  assert(readString(candidates[0], "targetWorkflowId") === "binary-calibration-guard", "default plan target workflow mismatch");
+  assert(
+    readString(candidates[0], "targetFile") === "packages/workflows/src/binary-calibration-guard.ts",
+    "default plan target file mismatch",
+  );
+  assert(readString(candidates[0], "implementationStatus") === "manual_review_required", "default plan should require manual review");
+  assert(skippedRows.length === 2, `expected 2 skipped rows, got ${skippedRows.length}`);
+  return "held-out default promotions become explicit manual implementation plans";
+});
+
 await check("forecast attention backlog filters batch review status", async () => {
   const batchIndexRoot = resolve(tempRoot, "attention-backlog", "batches");
   const validationRoot = resolve(tempRoot, "attention-backlog", "validations");
