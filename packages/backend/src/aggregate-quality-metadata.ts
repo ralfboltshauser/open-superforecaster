@@ -6,6 +6,7 @@ export type AggregateQualitySnapshot = {
   forecasterCount: number | null;
   complexityScore: number | null;
   researchDepth: string | null;
+  roleIds: string[];
   qualityIssueCount: number;
   finalReviewRationale: string;
 };
@@ -30,6 +31,7 @@ export function readAggregateQualitySnapshot(value: unknown): AggregateQualitySn
     forecasterCount: readNumber(aggregateQuality, "forecasterCount", "forecaster_count"),
     complexityScore: readNumber(aggregateQuality, "complexityScore", "complexity_score"),
     researchDepth: readString(aggregateQuality, "researchDepth", "research_depth"),
+    roleIds: readStringArray(aggregateQuality, "roleIds", "role_ids"),
     qualityIssueCount:
       readNumber(aggregateQuality, "qualityIssueCount", "quality_issue_count") ??
       readStringArray(aggregateQuality, "qualityIssues", "quality_issues").length,

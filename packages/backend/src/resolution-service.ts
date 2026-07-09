@@ -357,6 +357,9 @@ export async function getForecastPerformanceReport(db: Db) {
   const byAggregateQuality = groupScores(aggregateScores, aggregateQualityGroupKey);
   const byAggregateDisagreement = groupScores(aggregateScores, aggregateDisagreementGroupKey);
   const byAggregationAnchor = groupScores(aggregateScores, aggregationAnchorGroupKey);
+  const byResearchDepth = groupScores(aggregateScores, researchDepthGroupKey);
+  const byForecasterPanelSize = groupScores(aggregateScores, forecasterPanelSizeGroupKey);
+  const byComplexityScore = groupScores(aggregateScores, complexityScoreGroupKey);
   const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
@@ -398,6 +401,9 @@ export async function getForecastPerformanceReport(db: Db) {
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregationAnchor,
+      byResearchDepth,
+      byForecasterPanelSize,
+      byComplexityScore,
     },
     bestResolvedForecasts,
     worstResolvedForecasts,
@@ -429,6 +435,9 @@ export async function getForecastPerformanceReport(db: Db) {
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregationAnchor,
+      byResearchDepth,
+      byForecasterPanelSize,
+      byComplexityScore,
       bestResolvedForecasts,
       worstResolvedForecasts,
       scoreTrends,
@@ -1087,6 +1096,25 @@ function aggregationAnchorGroupKey(score: typeof forecastScores.$inferSelect) {
   return aggregateStats?.aggregationAnchor ? `aggregation_anchor:${aggregateStats.aggregationAnchor}` : "aggregation_anchor:unrecorded";
 }
 
+function researchDepthGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
+  return aggregateQuality?.researchDepth ? `research_depth:${aggregateQuality.researchDepth}` : "research_depth:unrecorded";
+}
+
+function forecasterPanelSizeGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
+  return aggregateQuality?.forecasterCount === null || aggregateQuality?.forecasterCount === undefined
+    ? "forecaster_panel:unrecorded"
+    : `forecaster_panel:${aggregateQuality.forecasterCount}`;
+}
+
+function complexityScoreGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
+  return aggregateQuality?.complexityScore === null || aggregateQuality?.complexityScore === undefined
+    ? "complexity:unrecorded"
+    : `complexity:${aggregateQuality.complexityScore}`;
+}
+
 function rankAggregateCases(
   rows: Array<typeof forecastScores.$inferSelect>,
   taskMeta: Map<string, { id: string; label: string; operationSubmode: string | null }>,
@@ -1552,6 +1580,9 @@ function renderPerformanceMarkdown(input: {
   byAggregateQuality: PerformanceGroup[];
   byAggregateDisagreement: PerformanceGroup[];
   byAggregationAnchor: PerformanceGroup[];
+  byResearchDepth: PerformanceGroup[];
+  byForecasterPanelSize: PerformanceGroup[];
+  byComplexityScore: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
   worstResolvedForecasts: PerformanceCase[];
   scoreTrends: PerformanceTrend[];
@@ -1590,6 +1621,15 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Aggregation anchor groups",
     ...renderGroupTable(input.byAggregationAnchor),
+    "",
+    "## Research depth groups",
+    ...renderGroupTable(input.byResearchDepth),
+    "",
+    "## Forecaster panel size groups",
+    ...renderGroupTable(input.byForecasterPanelSize),
+    "",
+    "## Complexity score groups",
+    ...renderGroupTable(input.byComplexityScore),
     "",
     "## Calibration guard impact",
     ...renderCalibrationGuardImpact(input.calibrationGuardImpact),

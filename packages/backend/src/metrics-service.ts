@@ -551,6 +551,54 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       labels,
     );
   }
+  const aggregatePlanScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readAggregateQualitySnapshot(row.scoreConfig) !== null
+  );
+  if (aggregatePlanScoreRows.length === 0) {
+    const labels = {
+      research_depth: "none",
+      forecaster_count: "unknown",
+      complexity_score: "unknown",
+      score_type: "all",
+    };
+    metrics.gauge(
+      "open_superforecaster_aggregate_plan_scores_total",
+      "Product aggregate forecast score rows by selected binary forecast plan shape.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_aggregate_plan_score_mean",
+      "Mean product aggregate forecast score by selected binary forecast plan shape.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(aggregatePlanScoreRows, (row) => {
+    const aggregateQuality = readAggregateQualitySnapshot(row.scoreConfig);
+    return labelKey({
+      score_type: row.scoreType,
+      research_depth: aggregateQuality?.researchDepth ?? "unknown",
+      forecaster_count: String(aggregateQuality?.forecasterCount ?? "unknown"),
+      complexity_score: String(aggregateQuality?.complexityScore ?? "unknown"),
+    });
+  })) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_aggregate_plan_scores_total",
+      "Product aggregate forecast score rows by selected binary forecast plan shape.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_aggregate_plan_score_mean",
+      "Mean product aggregate forecast score by selected binary forecast plan shape.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
+    );
+  }
   const productAggregateBrierRows = scoreRows.filter((row) =>
     row.scoreType === "brier" &&
     row.forecastAggregateId &&

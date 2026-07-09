@@ -823,6 +823,9 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Aggregate quality groups"), "performance Markdown missing aggregate quality group section");
   assert(resolutionSource.includes("## Component disagreement groups"), "performance Markdown missing component disagreement group section");
   assert(resolutionSource.includes("## Aggregation anchor groups"), "performance Markdown missing aggregation anchor group section");
+  assert(resolutionSource.includes("## Research depth groups"), "performance Markdown missing research depth group section");
+  assert(resolutionSource.includes("## Forecaster panel size groups"), "performance Markdown missing forecaster panel size group section");
+  assert(resolutionSource.includes("## Complexity score groups"), "performance Markdown missing complexity score group section");
   assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");
   assert(dashboardSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not read candidate calibration guard rules");
   assert(dashboardSource.includes("Candidate calibration guards"), "lab dashboard does not render candidate calibration guard rules");
@@ -836,6 +839,12 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Component disagreement outcomes"), "lab dashboard does not render component disagreement performance groups");
   assert(dashboardSource.includes("byAggregationAnchor"), "lab dashboard does not read aggregation anchor performance groups");
   assert(dashboardSource.includes("Aggregation anchor outcomes"), "lab dashboard does not render aggregation anchor performance groups");
+  assert(dashboardSource.includes("byResearchDepth"), "lab dashboard does not read research depth performance groups");
+  assert(dashboardSource.includes("Research depth outcomes"), "lab dashboard does not render research depth performance groups");
+  assert(dashboardSource.includes("byForecasterPanelSize"), "lab dashboard does not read panel size performance groups");
+  assert(dashboardSource.includes("Panel size outcomes"), "lab dashboard does not render panel size performance groups");
+  assert(dashboardSource.includes("byComplexityScore"), "lab dashboard does not read complexity score performance groups");
+  assert(dashboardSource.includes("Complexity score outcomes"), "lab dashboard does not render complexity score performance groups");
   return "candidate calibration guard rules are visible in report artifacts and the lab dashboard";
 });
 
@@ -902,6 +911,8 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_aggregate_quality_score_mean"), "aggregate quality score mean metric missing");
   assert(metricsSource.includes("open_superforecaster_aggregate_stats_scores_total"), "aggregate stats score count metric missing");
   assert(metricsSource.includes("open_superforecaster_aggregate_stats_score_mean"), "aggregate stats score mean metric missing");
+  assert(metricsSource.includes("open_superforecaster_aggregate_plan_scores_total"), "aggregate plan score count metric missing");
+  assert(metricsSource.includes("open_superforecaster_aggregate_plan_score_mean"), "aggregate plan score mean metric missing");
   assert(metricsSource.includes("buildCalibrationGuardImpact"), "metrics exporter does not use shared calibration guard impact builder");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_status"), "calibration guard impact status metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_brier_delta"), "calibration guard impact Brier delta metric missing");
@@ -918,6 +929,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(smokeSource.includes("open_superforecaster_calibration_guard_impact_status"), "smoke check does not require calibration guard impact metric");
   assert(smokeSource.includes("open_superforecaster_aggregate_quality_scores_total"), "smoke check does not require aggregate quality metric");
   assert(smokeSource.includes("open_superforecaster_aggregate_stats_scores_total"), "smoke check does not require aggregate stats metric");
+  assert(smokeSource.includes("open_superforecaster_aggregate_plan_scores_total"), "smoke check does not require aggregate plan metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
   assert(metricsRouteSource.includes("renderPrometheusMetrics"), "metrics route does not render Prometheus metrics");
   assert(metricsRouteSource.includes("text/plain; version=0.0.4"), "metrics route missing Prometheus content type");
@@ -945,6 +957,9 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("aggregate_max_iterations_reached"), "forecast score mart missing aggregate max-iteration flag");
   assert(syncSource.includes("aggregate_component_disagreement"), "forecast score mart missing aggregate component disagreement");
   assert(syncSource.includes("aggregation_anchor"), "forecast score mart missing aggregation anchor");
+  assert(syncSource.includes("aggregate_forecaster_count"), "forecast score mart missing forecaster count");
+  assert(syncSource.includes("aggregate_complexity_score"), "forecast score mart missing complexity score");
+  assert(syncSource.includes("aggregate_research_depth"), "forecast score mart missing research depth");
   assert(syncSource.includes("candidate_guard_suggested_adjustment"), "binary calibration bucket mart missing candidate guard adjustment");
   assert(syncSource.includes("candidate_guard_activation_status"), "binary calibration bucket mart missing candidate guard activation status");
   assert(syncSource.includes("readCalibrationGuardValidationRows"), "DuckDB sync does not read calibration guard validation reports");
@@ -1012,6 +1027,7 @@ await check("binary aggregate quality metadata reaches resolved score analytics"
       forecasterCount: 5,
       complexityScore: 4,
       researchDepth: "deep",
+      roleIds: ["base-rate", "skeptic"],
       qualityIssueCount: 2,
       finalReviewRationale: "Still has one unresolved boundary concern.",
     },
@@ -1021,6 +1037,7 @@ await check("binary aggregate quality metadata reaches resolved score analytics"
   assert(snapshot?.maxIterationsReached === true, "aggregate quality max-iteration mismatch");
   assert(snapshot?.roundsUsed === 3, "aggregate quality rounds mismatch");
   assert(snapshot?.qualityIssueCount === 2, "aggregate quality issue count mismatch");
+  assert(snapshot?.roleIds.length === 2, "aggregate quality role ids mismatch");
   const workflowSource = await readFile(resolve(root, "packages/workflows/src/binary-forecast.workflow.tsx"), "utf8");
   const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
@@ -1035,6 +1052,7 @@ await check("binary aggregate quality metadata reaches resolved score analytics"
   assert(metricsSource.includes("open_superforecaster_aggregate_quality_score_mean"), "metrics missing aggregate quality score means");
   assert(syncSource.includes("aggregate_convergence_status"), "DuckDB forecast score mart missing aggregate convergence status");
   assert(syncSource.includes("aggregate_max_iterations_reached"), "DuckDB forecast score mart missing max-iteration flag");
+  assert(syncSource.includes("aggregate_role_ids_json"), "DuckDB forecast score mart missing role ids");
   assert(dashboardSource.includes("byAggregateQuality"), "lab dashboard does not read aggregate quality performance groups");
   assert(dashboardSource.includes("Aggregate quality outcomes"), "lab dashboard does not render aggregate quality performance groups");
   return "binary aggregate quality metadata is persisted and visible in resolved score analytics";
@@ -1070,6 +1088,36 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   assert(dashboardSource.includes("Component disagreement outcomes"), "lab dashboard does not render component disagreement outcomes");
   assert(dashboardSource.includes("Aggregation anchor outcomes"), "lab dashboard does not render aggregation anchor outcomes");
   return "binary aggregate stats are persisted and visible in resolved score analytics";
+});
+
+await check("binary aggregate planning metadata reaches resolved score analytics", async () => {
+  const snapshot = readAggregateQualitySnapshot({
+    aggregateQuality: {
+      convergenceStatus: "approved",
+      qualityApproved: true,
+      maxIterationsReached: false,
+      roundsUsed: 1,
+      forecasterCount: 6,
+      complexityScore: 5,
+      researchDepth: "deep",
+      roleIds: ["base-rate", "skeptic", "market-signal"],
+    },
+  });
+  assert(snapshot?.forecasterCount === 6, "planning metadata forecaster count mismatch");
+  assert(snapshot?.complexityScore === 5, "planning metadata complexity score mismatch");
+  assert(snapshot?.researchDepth === "deep", "planning metadata research depth mismatch");
+  assert(snapshot?.roleIds.includes("market-signal"), "planning metadata role id mismatch");
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(resolutionSource.includes("byResearchDepth"), "performance report does not group by research depth");
+  assert(resolutionSource.includes("byForecasterPanelSize"), "performance report does not group by forecaster panel size");
+  assert(resolutionSource.includes("byComplexityScore"), "performance report does not group by complexity score");
+  assert(metricsSource.includes("open_superforecaster_aggregate_plan_scores_total"), "metrics missing aggregate plan score counts");
+  assert(syncSource.includes("aggregate_role_ids_json"), "DuckDB forecast score mart missing role id export");
+  assert(dashboardSource.includes("PerformancePlanShapeGroupList"), "lab dashboard does not share plan shape group rendering");
+  return "binary aggregate planning metadata is visible in resolved score analytics";
 });
 
 await check("binary aggregate quality metadata is visible before resolution", async () => {

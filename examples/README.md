@@ -73,7 +73,8 @@ baseline-sanity deltas, plus binary aggregate quality-review metadata such as
 convergence status, review approval, max-iteration status, rounds used, and
 quality-issue counts. They also include binary aggregate stats such as mean,
 median, component-disagreement band, aggregation anchor, median adjustment, and
-attempt count. Binary
+attempt count, plus selected plan shape fields like forecaster count, complexity
+score, research depth, and role ids. Binary
 aggregate calibration buckets are exported to `osf_binary_calibration_buckets`
 with bucket error, diagnostic direction, and candidate guard adjustment fields.
 Those bucket rows are generated from the same shared calibration report builder
@@ -198,8 +199,9 @@ are deliberate and auditable.
 Future binary score rows keep the same
 guard, baseline, quality-review, and aggregate-stat metadata for performance
 review, including guarded-vs-unguarded score groups, component-disagreement
-groups, aggregation-anchor groups, and a dedicated calibration guard impact
-summary with per-rule rows.
+groups, aggregation-anchor groups, research-depth groups, panel-size groups,
+complexity-score groups, and a dedicated calibration guard impact summary with
+per-rule rows.
 If guarded aggregate forecasts start scoring worse than unguarded aggregates
 overall or for a specific applied rule, the performance report adds a
 high-severity attention item before more default guard rules are promoted.
