@@ -1057,6 +1057,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("osf_calibration_guard_rule_impact"), "DuckDB sync missing rule-level calibration guard impact mart");
   assert(syncSource.includes("osf_calibration_guard_validations"), "DuckDB sync missing calibration guard validation mart");
   assert(syncSource.includes("osf_calibration_guard_default_plan_candidates"), "DuckDB sync missing calibration guard default plan mart");
+  assert(syncSource.includes("osf_forecast_attention_items"), "DuckDB sync missing forecast attention item mart");
   assert(syncSource.includes("buildBinaryCalibrationReport"), "DuckDB sync does not use shared binary calibration report builder");
   assert(syncSource.includes("buildCalibrationGuardImpact"), "DuckDB sync does not use shared calibration guard impact builder");
   assert(syncSource.includes("buildCalibrationGuardRuleImpactMartRows"), "DuckDB sync missing rule-level calibration guard impact mapper");
@@ -1104,6 +1105,10 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("candidate_guard_activation_status"), "binary calibration bucket mart missing candidate guard activation status");
   assert(syncSource.includes("readCalibrationGuardValidationRows"), "DuckDB sync does not read calibration guard validation reports");
   assert(syncSource.includes("readCalibrationGuardDefaultPlanRows"), "DuckDB sync does not read calibration guard default plan reports");
+  assert(syncSource.includes("readForecastAttentionItemRows"), "DuckDB sync does not read forecast attention batch indexes");
+  assert(syncSource.includes("attention_item_id"), "forecast attention mart missing attention item id");
+  assert(syncSource.includes("review_status"), "forecast attention mart missing review status");
+  assert(syncSource.includes("recommended_actions_json"), "forecast attention mart missing recommended actions");
   assert(syncSource.includes("validation_mode"), "calibration guard validation mart missing validation mode");
   assert(syncSource.includes("brier_delta"), "calibration guard validation mart missing Brier delta");
   assert(syncSource.includes("calibration_error_delta"), "calibration guard validation mart missing calibration error delta");

@@ -514,6 +514,8 @@ try {
   await replaceTable(duck, "osf_calibration_guard_validations", calibrationGuardValidationColumns, calibrationGuardValidations);
   const calibrationGuardDefaultPlanCandidates = await readCalibrationGuardDefaultPlanRows(resolve(root, "data/reports/forecast-calibration-guard-default-plan"));
   await replaceTable(duck, "osf_calibration_guard_default_plan_candidates", calibrationGuardDefaultPlanColumns, calibrationGuardDefaultPlanCandidates);
+  const forecastAttentionItems = await readForecastAttentionItemRows(resolve(root, "data/reports/forecast-batches"));
+  await replaceTable(duck, "osf_forecast_attention_items", forecastAttentionItemColumns, forecastAttentionItems);
 
   const counts = {
     osf_tasks: tasks.length,
@@ -527,6 +529,7 @@ try {
     osf_workflow_change_proposals: workflowChangeProposals.length,
     osf_calibration_guard_validations: calibrationGuardValidations.length,
     osf_calibration_guard_default_plan_candidates: calibrationGuardDefaultPlanCandidates.length,
+    osf_forecast_attention_items: forecastAttentionItems.length,
     osf_source_bank_entries: sources.length,
   };
   console.log(JSON.stringify({
@@ -543,6 +546,7 @@ try {
       "select rule_id, status, guarded_rows, brier_delta from osf_calibration_guard_rule_impact order by rule_id;",
       "select proposal_id, recommendation, brier_delta, calibration_error_delta from osf_calibration_guard_validations order by generated_at desc limit 5;",
       "select proposal_id, bucket_label, suggested_adjustment, brier_delta, calibration_error_delta, implementation_status from osf_calibration_guard_default_plan_candidates order by generated_at desc limit 5;",
+      "select batch_id, review_status, severity, kind, metric, score, task_label from osf_forecast_attention_items order by generated_at desc, severity limit 10;",
       "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label, validation_benchmark_run_id, validation_result_status, validation_recommendation_status, validation_paired_mean_brier_delta, validation_gate_status from osf_workflow_change_proposals order by created_at desc limit 5;",
       "select operation_mode, operation_submode, status, count(*) from osf_tasks group by 1,2,3 order by 4 desc;",
     ],
@@ -963,6 +967,28 @@ const calibrationGuardDefaultPlanColumns = [
   { name: "validation_report_path", type: "VARCHAR" },
 ] satisfies DuckColumn[];
 
+const forecastAttentionItemColumns = [
+  { name: "report_path", type: "VARCHAR" },
+  { name: "batch_id", type: "VARCHAR" },
+  { name: "generated_at", type: "VARCHAR" },
+  { name: "attention_item_id", type: "VARCHAR" },
+  { name: "review_status", type: "VARCHAR" },
+  { name: "severity", type: "VARCHAR" },
+  { name: "kind", type: "VARCHAR" },
+  { name: "metric", type: "VARCHAR" },
+  { name: "score", type: "DOUBLE" },
+  { name: "delta", type: "DOUBLE" },
+  { name: "forecast_type", type: "VARCHAR" },
+  { name: "task_id", type: "VARCHAR" },
+  { name: "task_label", type: "VARCHAR" },
+  { name: "reason", type: "VARCHAR" },
+  { name: "recommended_actions_json", type: "VARCHAR" },
+  { name: "review_note", type: "VARCHAR" },
+  { name: "reviewer", type: "VARCHAR" },
+  { name: "reviewed_at", type: "VARCHAR" },
+  { name: "source_path", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
 type TaskMartRow = RowFor<typeof taskColumns>;
 type ArtifactRowMartRow = RowFor<typeof artifactRowColumns>;
 type BenchmarkRunMartRow = RowFor<typeof benchmarkRunColumns>;
@@ -975,6 +1001,7 @@ type WorkflowChangeProposalMartRow = RowFor<typeof workflowChangeProposalColumns
 type SourceMartRow = RowFor<typeof sourceColumns>;
 type CalibrationGuardValidationMartRow = RowFor<typeof calibrationGuardValidationColumns>;
 type CalibrationGuardDefaultPlanMartRow = RowFor<typeof calibrationGuardDefaultPlanColumns>;
+type ForecastAttentionItemMartRow = RowFor<typeof forecastAttentionItemColumns>;
 type RowFor<T extends readonly DuckColumn[]> = Record<T[number]["name"], unknown>;
 
 async function syncMetadata(duck: DuckDBConnection) {
@@ -1211,6 +1238,53 @@ async function readCalibrationGuardDefaultPlanRows(reportRoot: string): Promise<
   return rows.sort((left, right) =>
     String(left.generated_at ?? "").localeCompare(String(right.generated_at ?? ""))
     || String(left.proposal_id ?? "").localeCompare(String(right.proposal_id ?? ""))
+    || String(left.report_path ?? "").localeCompare(String(right.report_path ?? ""))
+  );
+}
+
+async function readForecastAttentionItemRows(reportRoot: string): Promise<ForecastAttentionItemMartRow[]> {
+  const paths = await listFilesNamed(reportRoot, "batch-index.json");
+  const rowsByKey = new Map<string, ForecastAttentionItemMartRow>();
+  for (const path of paths) {
+    const payload = await readJsonRecord(path);
+    if (!payload) {
+      continue;
+    }
+    const batchId = readString(payload, "batchId");
+    const generatedAt = readString(payload, "generatedAt");
+    for (const item of readRecordArray(payload, "attentionItems")) {
+      const attentionItemId = readString(item, "id");
+      if (!batchId || !attentionItemId) {
+        continue;
+      }
+      const key = `${batchId}:${attentionItemId}`;
+      rowsByKey.set(key, {
+        report_path: path,
+        batch_id: batchId,
+        generated_at: generatedAt,
+        attention_item_id: attentionItemId,
+        review_status: readString(item, "reviewStatus"),
+        severity: readString(item, "severity"),
+        kind: readString(item, "kind"),
+        metric: readString(item, "metric"),
+        score: readNumber(item, "score"),
+        delta: readNumber(item, "delta"),
+        forecast_type: readString(item, "forecastType"),
+        task_id: readString(item, "taskId"),
+        task_label: readString(item, "taskLabel"),
+        reason: readString(item, "reason"),
+        recommended_actions_json: JSON.stringify(readStringArray(item, "recommendedActions")),
+        review_note: readString(item, "reviewNote"),
+        reviewer: readString(item, "reviewer"),
+        reviewed_at: readString(item, "reviewedAt"),
+        source_path: path,
+      });
+    }
+  }
+  return [...rowsByKey.values()].sort((left, right) =>
+    String(left.generated_at ?? "").localeCompare(String(right.generated_at ?? ""))
+    || String(left.batch_id ?? "").localeCompare(String(right.batch_id ?? ""))
+    || String(left.attention_item_id ?? "").localeCompare(String(right.attention_item_id ?? ""))
     || String(left.report_path ?? "").localeCompare(String(right.report_path ?? ""))
   );
 }
