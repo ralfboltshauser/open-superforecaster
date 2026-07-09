@@ -838,6 +838,12 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("guarded-vs-unguarded Brier delta recovers"), "calibration guard regression action missing");
   assert(resolutionSource.includes("calibrationGuardImpact.byRule"), "performance report does not inspect rule-level guard impact");
   assert(resolutionSource.includes("calibrationReplayRows: calibrationReplayRows(aggregateBrierScores)"), "performance report missing calibration replay rows");
+  assert(resolutionSource.includes("evidence_coverage_miss"), "performance report does not turn weak evidence coverage into attention");
+  assert(resolutionSource.includes("input_context_miss"), "performance report does not turn weak input context into attention");
+  assert(resolutionSource.includes("run_metadata_miss"), "performance report does not turn suspicious run metadata into attention");
+  assert(resolutionSource.includes("evidenceCoverage: readEvidenceCoverageSnapshot(latest.scoreConfig)"), "performance cases do not retain evidence coverage snapshots");
+  assert(resolutionSource.includes("inputContext: readForecastInputContextSnapshot(latest.scoreConfig)"), "performance cases do not retain input context snapshots");
+  assert(resolutionSource.includes("runMetadata: readForecastRunSnapshot(latest.scoreConfig)"), "performance cases do not retain run metadata snapshots");
   assert(resolutionSource.includes("## Calibration guard impact"), "performance Markdown missing calibration guard impact section");
   assert(resolutionSource.includes("renderCalibrationGuardRuleImpactTable"), "performance Markdown missing rule-level calibration guard impact table");
   assert(resolutionSource.includes("## Baseline sanity groups"), "performance Markdown missing baseline sanity group section");

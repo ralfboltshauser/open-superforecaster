@@ -19,9 +19,9 @@ import { readCategoricalForecastSnapshot, type CategoricalForecastSnapshot } fro
 import { readComponentWeightingSnapshot, type ComponentWeightingSnapshot } from "./component-weighting-metadata";
 import { readConditionalForecastSnapshot, type ConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { readDateForecastSnapshot, type DateForecastSnapshot } from "./date-forecast-metadata";
-import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
-import { readForecastInputContextSnapshot } from "./forecast-input-context-metadata";
-import { readForecastRunSnapshot } from "./forecast-run-metadata";
+import { readEvidenceCoverageSnapshot, type EvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
+import { readForecastInputContextSnapshot, type ForecastInputContextSnapshot } from "./forecast-input-context-metadata";
+import { readForecastRunSnapshot, type ForecastRunSnapshot } from "./forecast-run-metadata";
 import { readMarketAnchorSnapshot, type MarketAnchorSnapshot } from "./market-anchor-metadata";
 import { readNumericForecastSnapshot, type NumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
@@ -92,6 +92,9 @@ type PerformanceCase = {
   numericForecast: NumericForecastSnapshot | null;
   dateForecast: DateForecastSnapshot | null;
   categoricalForecast: CategoricalForecastSnapshot | null;
+  evidenceCoverage: EvidenceCoverageSnapshot | null;
+  inputContext: ForecastInputContextSnapshot | null;
+  runMetadata: ForecastRunSnapshot | null;
   resolutionId: string | null;
   forecastAggregateId: string | null;
   createdAt: Date;
@@ -123,7 +126,10 @@ type PerformanceAttentionItem = {
     | "uncertainty_range_miss"
     | "component_weighting_miss"
     | "aggregate_quality_miss"
-    | "component_disagreement_miss";
+    | "component_disagreement_miss"
+    | "evidence_coverage_miss"
+    | "input_context_miss"
+    | "run_metadata_miss";
   severity: "high" | "medium";
   reason: string;
   recommendedActions: string[];
@@ -1520,6 +1526,9 @@ function rankAggregateCases(
         numericForecast: readNumericForecastSnapshot(latest.scoreConfig),
         dateForecast: readDateForecastSnapshot(latest.scoreConfig),
         categoricalForecast: readCategoricalForecastSnapshot(latest.scoreConfig),
+        evidenceCoverage: readEvidenceCoverageSnapshot(latest.scoreConfig),
+        inputContext: readForecastInputContextSnapshot(latest.scoreConfig),
+        runMetadata: readForecastRunSnapshot(latest.scoreConfig),
         resolutionId: latest.resolutionId,
         forecastAggregateId: latest.forecastAggregateId,
         createdAt: latest.createdAt,
@@ -1877,6 +1886,28 @@ function buildNeedsAttentionQueue(
       rank: 70 + index,
     }));
 
+  const evidenceCoverageItems = buildMetadataAttentionItems({
+    worstCases,
+    idPrefix: "evidence-coverage",
+    kind: "evidence_coverage_miss",
+    rankStart: 80,
+    signal: evidenceCoverageMissSignal,
+  });
+  const inputContextItems = buildMetadataAttentionItems({
+    worstCases,
+    idPrefix: "input-context",
+    kind: "input_context_miss",
+    rankStart: 90,
+    signal: inputContextMissSignal,
+  });
+  const runMetadataItems = buildMetadataAttentionItems({
+    worstCases,
+    idPrefix: "run-metadata",
+    kind: "run_metadata_miss",
+    rankStart: 100,
+    signal: runMetadataMissSignal,
+  });
+
   const calibrationItems = calibrationReport.calibrationDiagnostics.map((diagnostic) => ({
     id: diagnostic.id,
     kind: "calibration_mismatch" as const,
@@ -1947,6 +1978,9 @@ function buildNeedsAttentionQueue(
     ...componentWeightingItems,
     ...aggregateQualityItems,
     ...componentDisagreementItems,
+    ...evidenceCoverageItems,
+    ...inputContextItems,
+    ...runMetadataItems,
     ...trendItems,
     ...overallGuardImpactItems,
     ...ruleGuardImpactItems,
@@ -2051,6 +2085,128 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
   return null;
 }
 
+function buildMetadataAttentionItems(input: {
+  worstCases: PerformanceCase[];
+  idPrefix: string;
+  kind: PerformanceAttentionItem["kind"];
+  rankStart: number;
+  signal: (item: PerformanceCase) => { reason: string; delta: number | null; severity: "high" | "medium" } | null;
+}) {
+  return input.worstCases
+    .flatMap((item) => {
+      const threshold = poorScoreThreshold(item.primaryMetric);
+      const signal = input.signal(item);
+      if (signal === null || threshold === null || item.primaryScore < threshold) {
+        return [];
+      }
+      return [{ item, signal }];
+    })
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `${input.idPrefix}:${item.taskId}:${item.primaryMetric}`,
+      kind: input.kind,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
+      recommendedActions: recommendAttentionActions({
+        kind: input.kind,
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: input.rankStart + index,
+    }));
+}
+
+function evidenceCoverageMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const evidence = item.evidenceCoverage;
+  if (!evidence) {
+    return null;
+  }
+  if (evidence.sourceCountBand === "none" || evidence.sourceCountBand === "sparse") {
+    return {
+      reason: `${evidence.sourceCountBand} evidence coverage with ${evidence.sourceCount ?? 0} cited source(s)`,
+      delta: evidence.sourceCount,
+      severity: evidence.sourceCountBand === "none" ? "high" : "medium",
+    };
+  }
+  if (evidence.sourceDateCoverageBand === "none" || evidence.sourceDateCoverageBand === "partial") {
+    return {
+      reason: `${evidence.sourceDateCoverageBand} source-date coverage across ${evidence.sourceCount ?? 0} cited source(s)`,
+      delta: evidence.datedSourceCount,
+      severity: evidence.sourceDateCoverageBand === "none" ? "high" : "medium",
+    };
+  }
+  if (evidence.uncertaintyCountBand === "none") {
+    return {
+      reason: "no explicit uncertainty factors in the forecast rationale",
+      delta: evidence.uncertaintyCount,
+      severity: "medium",
+    };
+  }
+  if (evidence.rationaleLengthBand === "absent" || evidence.rationaleLengthBand === "short") {
+    return {
+      reason: `${evidence.rationaleLengthBand} forecast rationale (${evidence.rationaleLength ?? 0} words)`,
+      delta: evidence.rationaleLength,
+      severity: evidence.rationaleLengthBand === "absent" ? "high" : "medium",
+    };
+  }
+  return null;
+}
+
+function inputContextMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const context = item.inputContext;
+  if (!context) {
+    return null;
+  }
+  if (context.contextCompletenessBand === "sparse") {
+    return {
+      reason: `sparse input context with ${context.contextCompleteness} populated context field(s)`,
+      delta: context.contextCompleteness,
+      severity: "high",
+    };
+  }
+  if (!context.hasResolutionCriteria || !context.hasResolutionDate) {
+    const missing = [
+      !context.hasResolutionCriteria ? "resolution criteria" : null,
+      !context.hasResolutionDate ? "resolution date" : null,
+    ].filter((part): part is string => Boolean(part));
+    return {
+      reason: `missing ${missing.join(" and ")} in the forecast input`,
+      delta: context.contextCompleteness,
+      severity: !context.hasResolutionCriteria ? "high" : "medium",
+    };
+  }
+  if (context.questionLengthBand === "short" || context.questionLengthBand === "long") {
+    return {
+      reason: `${context.questionLengthBand} question text (${context.questionLength ?? 0} words)`,
+      delta: context.questionLength,
+      severity: "medium",
+    };
+  }
+  return null;
+}
+
+function runMetadataMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const run = item.runMetadata;
+  if (!run) {
+    return null;
+  }
+  if (run.durationBand === "fast" || run.durationBand === "very_slow") {
+    return {
+      reason: `${run.durationBand.replace(/_/g, " ")} workflow duration (${formatNullableMetric(run.durationSeconds)} seconds)`,
+      delta: run.durationSeconds,
+      severity: run.durationBand === "fast" ? "high" : "medium",
+    };
+  }
+  return null;
+}
+
 function recommendAttentionActions(input: {
   kind: PerformanceAttentionItem["kind"];
   metric: string;
@@ -2082,6 +2238,15 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "component_disagreement_miss") {
     actions.add("Inspect component forecasts before changing aggregation defaults; identify whether one role captured the resolved signal or all roles missed different parts.");
     actions.add("Compare mean, median, aggregation anchor, and final rationale to see whether disagreement was explained or over-smoothed.");
+  } else if (input.kind === "evidence_coverage_miss") {
+    actions.add("Audit cited sources, dated-source coverage, uncertainty notes, and rationale depth before changing model or aggregation defaults.");
+    actions.add("Add a benchmark case if sparse evidence repeatedly accompanies poor resolved forecasts in this forecast type.");
+  } else if (input.kind === "input_context_miss") {
+    actions.add("Tighten the input template before tuning prompts: require resolution criteria, resolution timing, and enough background for this forecast type.");
+    actions.add("Compare misses with richer-context cases to separate weak input setup from model reasoning failure.");
+  } else if (input.kind === "run_metadata_miss") {
+    actions.add("Inspect the run trace for premature completion, tool failures, retries, or unusually long loops before changing forecast prompts.");
+    actions.add("Compare duration bands against resolved score groups to decide whether runtime limits or workflow orchestration need adjustment.");
   } else if (input.kind === "worsening_trend") {
     actions.add("Review recent resolved runs in this metric before treating the trend as a workflow regression.");
     actions.add("Compare recent cases against older baseline cases for domain mix or resolution-source drift.");
