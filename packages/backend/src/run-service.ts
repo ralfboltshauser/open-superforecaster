@@ -20,6 +20,7 @@ import {
   type createDb,
 } from "@open-superforecaster/db";
 import type { OperationMode } from "@open-superforecaster/workflow-contracts";
+import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { inspectSmithersRun, launchSmithersDetached, readSmithersNodeOutput } from "./smithers-launcher";
 
 type Db = ReturnType<typeof createDb>["db"];
@@ -833,19 +834,15 @@ function summarizeUncertainty(output: Record<string, unknown>, attempts: Array<t
 
 function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited<ReturnType<typeof getTaskDetail>>) {
   const warnings = readStringArray(output, "calibrationWarnings", "calibration_warnings", "qualityIssues", "quality_issues");
-  const calibrationGuard = readRecord(output, "calibrationGuard", "calibration_guard");
-  const calibrationGuardRules = readArray(calibrationGuard, "appliedRules", "applied_rules").map((rule) => ({
-    id: readString(rule, "id") ?? "unknown",
-    adjustment: readNumber(rule, "adjustment"),
-    note: readString(rule, "note") ?? "",
-  }));
+  const calibrationGuard = readCalibrationGuardSnapshot(output);
+  const calibrationGuardRules = calibrationGuard?.appliedRules ?? [];
   return {
     status: detail.task.status,
     outputPresent: Object.keys(output).length > 0,
     rationalePresent: Boolean(readString(output, "rationale", "summary", "answer")),
     warningCount: warnings.length,
     warnings: warnings.slice(0, 20),
-    calibrationGuardAdjustment: readNumber(calibrationGuard, "adjustment"),
+    calibrationGuardAdjustment: calibrationGuard?.adjustment ?? null,
     calibrationGuardRules,
     calibrationGuardRuleCount: calibrationGuardRules.length,
     sourceCount: detail.sources.length,

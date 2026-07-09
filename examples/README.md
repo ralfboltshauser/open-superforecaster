@@ -99,7 +99,8 @@ Binary forecasts also run through a deterministic final calibration guard for
 known threshold, timing, and production-ramp failure modes. Contract checks pin
 those adjustments and final aggregates include structured `calibrationGuard`
 metadata visible in run reports, so future calibration changes are deliberate
-and auditable.
+and auditable. Future binary score rows keep the same guard metadata for
+performance review.
 
 To generate a local batch audit from those manifests:
 

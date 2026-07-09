@@ -1,5 +1,6 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
 import { applyBinaryCalibrationGuard } from "../packages/workflows/src/binary-calibration-guard";
 import { readJson, readRecord, readString, timestampLabel, writeJson } from "./lib/forecast-script-utils";
@@ -442,6 +443,24 @@ await check("binary forecast calibration guard preserves deterministic adjustmen
   assert(centralBankCut.appliedRules[0].id === "near-deadline-central-bank-easing", "central bank applied rule id mismatch");
   assert(centralBankCut.notes.some((note) => note.includes("near-deadline central-bank easing")), "central bank note missing");
   return "binary calibration guard is extracted and behavior-stable";
+});
+
+await check("calibration guard metadata snapshots are stable", async () => {
+  const snapshot = readCalibrationGuardSnapshot({
+    calibrationGuard: {
+      adjustment: -5,
+      appliedRules: [
+        { id: "production-ramp-threshold", adjustment: -5, note: "Subtracted 5 points." },
+        { adjustment: 2, note: "Missing id should be ignored." },
+      ],
+    },
+  });
+  assert(snapshot, "calibration guard snapshot missing");
+  assert(snapshot.adjustment === -5, "calibration guard adjustment mismatch");
+  assert(snapshot.appliedRules.length === 1, "calibration guard applied rule count mismatch");
+  assert(snapshot.appliedRules[0].id === "production-ramp-threshold", "calibration guard applied rule id mismatch");
+  assert(snapshot.appliedRules[0].adjustment === -5, "calibration guard applied rule adjustment mismatch");
+  return "calibration guard metadata can be persisted into score config";
 });
 
 const failed = checks.filter((result) => !result.ok);

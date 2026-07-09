@@ -252,14 +252,24 @@ function PerformanceCaseList({ title, cases }: { title: string; cases: JsonRecor
     <div className="min-w-0">
       <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">{title}</p>
       <div className="flex flex-col gap-2">
-        {cases.slice(0, 3).map((item) => (
-          <Link className="rounded-md border px-3 py-2 text-sm hover:bg-muted/50" href={`/runs/${String(item.taskId ?? "")}`} key={String(item.taskId ?? item.taskLabel)}>
-            <span className="block truncate font-medium">{String(item.taskLabel ?? item.taskId ?? "forecast")}</span>
-            <span className="mt-1 block truncate text-xs text-muted-foreground">
-              {String(item.primaryMetric ?? "score")} {formatMetric(item.primaryScore)}
-            </span>
-          </Link>
-        ))}
+        {cases.slice(0, 3).map((item) => {
+          const guard = isRecord(item.calibrationGuard) ? item.calibrationGuard : null
+          const guardRules = readArray(guard, "appliedRules").filter(isRecord)
+          const guardAdjustment = typeof guard?.adjustment === "number" ? guard.adjustment : null
+          return (
+            <Link className="rounded-md border px-3 py-2 text-sm hover:bg-muted/50" href={`/runs/${String(item.taskId ?? "")}`} key={String(item.taskId ?? item.taskLabel)}>
+              <span className="block truncate font-medium">{String(item.taskLabel ?? item.taskId ?? "forecast")}</span>
+              <span className="mt-1 block truncate text-xs text-muted-foreground">
+                {String(item.primaryMetric ?? "score")} {formatMetric(item.primaryScore)}
+              </span>
+              {guardRules.length || guardAdjustment !== null ? (
+                <span className="mt-1 block truncate text-xs text-muted-foreground">
+                  guard {guardAdjustment === null ? "0" : `${guardAdjustment >= 0 ? "+" : ""}${formatMetric(guardAdjustment)}`} · {guardRules.length} rule{guardRules.length === 1 ? "" : "s"}
+                </span>
+              ) : null}
+            </Link>
+          )
+        })}
       </div>
     </div>
   )

@@ -269,7 +269,8 @@ in `packages/workflows/src/binary-calibration-guard.ts` so measured calibration
 rules can be reviewed and tested outside the workflow orchestration. Final
 binary aggregates include a structured `calibrationGuard` block with applied
 rule ids and point adjustments, and run reports surface those guard rules for
-review.
+review. Future binary score rows persist the same guard metadata in score
+config so performance snapshots can compare guarded forecasts against outcomes.
 
 To consolidate those local artifacts into one audit file:
 

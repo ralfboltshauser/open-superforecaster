@@ -10,6 +10,7 @@ import {
   type createDb,
 } from "@open-superforecaster/db";
 import { scoreBinaryForecast } from "@open-superforecaster/evals";
+import { readCalibrationGuardSnapshot, type CalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
 
 type Db = ReturnType<typeof createDb>["db"];
@@ -62,6 +63,7 @@ type PerformanceCase = {
   resolvedValue: Record<string, unknown> | null;
   probability: number | null;
   resolved: boolean | null;
+  calibrationGuard: CalibrationGuardSnapshot | null;
   resolutionId: string | null;
   forecastAggregateId: string | null;
   createdAt: Date;
@@ -555,12 +557,14 @@ function scoreForecastPrediction(input: {
     if (probability === null || resolved === null) {
       return [];
     }
+    const calibrationGuard = readCalibrationGuardSnapshot(input.prediction);
     return Object.entries(scoreBinaryForecast({ probability, resolved })).map(([scoreType, scoreValue]) => ({
       scoreType,
       scoreValue,
       scoreConfig: {
         probability,
         resolved,
+        ...(calibrationGuard ? { calibrationGuard } : {}),
       },
     }));
   }
@@ -1022,6 +1026,7 @@ function rankAggregateCases(
         resolvedValue: asRecord(resolution?.resolvedValue ?? null),
         probability: readProbability(latest.scoreConfig),
         resolved: readResolved(latest.scoreConfig),
+        calibrationGuard: readCalibrationGuardSnapshot(latest.scoreConfig),
         resolutionId: latest.resolutionId,
         forecastAggregateId: latest.forecastAggregateId,
         createdAt: latest.createdAt,
@@ -1343,12 +1348,23 @@ function renderCaseTable(cases: PerformanceCase[]) {
     return ["No aggregate resolved forecasts yet."];
   }
   return [
-    "| Task | Forecast type | Primary metric | Score | Task id |",
-    "| --- | --- | --- | ---: | --- |",
+    "| Task | Forecast type | Primary metric | Score | Guard | Task id |",
+    "| --- | --- | --- | ---: | --- | --- |",
     ...cases.map((item) =>
-      `| ${escapeMarkdownCell(item.taskLabel)} | ${escapeMarkdownCell(item.forecastType)} | ${item.primaryMetric} | ${roundMetric(item.primaryScore)} | ${item.taskId} |`,
+      `| ${escapeMarkdownCell(item.taskLabel)} | ${escapeMarkdownCell(item.forecastType)} | ${item.primaryMetric} | ${roundMetric(item.primaryScore)} | ${
+        escapeMarkdownCell(formatCalibrationGuard(item.calibrationGuard))
+      } | ${item.taskId} |`,
     ),
   ];
+}
+
+function formatCalibrationGuard(guard: CalibrationGuardSnapshot | null) {
+  if (!guard || guard.appliedRules.length === 0) {
+    return "";
+  }
+  const adjustment = guard.adjustment === null ? "" : `${guard.adjustment >= 0 ? "+" : ""}${roundMetric(guard.adjustment)} pts`;
+  const ruleIds = guard.appliedRules.map((rule) => rule.id).join(", ");
+  return [adjustment, ruleIds].filter(Boolean).join(" ");
 }
 
 function renderTrendTable(trends: PerformanceTrend[]) {
