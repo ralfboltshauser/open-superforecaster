@@ -688,8 +688,8 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
       resolvedCases: 1,
       failedResolutions: 0,
       performanceScoreRows: null,
-      attentionItems: 3,
-      openAttentionItems: 2,
+      attentionItems: 4,
+      openAttentionItems: 3,
       reviewedAttentionItems: 0,
       deferredAttentionItems: 1,
       candidateCalibrationGuardRules: 1,
@@ -740,6 +740,20 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
         forecastType: "binary",
         reviewStatus: "open",
       },
+      {
+        id: "evidence-coverage:task-4:brier",
+        kind: "evidence_coverage_miss",
+        severity: "high",
+        reason: "brier 0.5 followed sparse evidence coverage.",
+        recommendedActions: ["Audit cited sources."],
+        metric: "brier",
+        score: 0.5,
+        delta: 1,
+        taskId: "task-4",
+        taskLabel: "Sparse evidence forecast",
+        forecastType: "binary",
+        reviewStatus: "open",
+      },
     ],
     candidateCalibrationGuardRules: [
       {
@@ -767,16 +781,27 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   const summary = readRecord(report, "summary");
   const missingPhases = readStringArray(report, "missingPhases");
   const issues = readArray(report, "issues");
+  const attentionByKind = readArray(report, "attentionByKind");
+  const attentionBySeverity = readArray(report, "attentionBySeverity");
+  const markdown = await readFile(resolve(outputDir, "batch-health.md"), "utf8");
   assert(report, "health report is not an object");
   assert(readString(report, "reportType") === "forecast_batch_health", "health report type mismatch");
   assert(readString(report, "batchId") === "latest-batch", "latest batch was not selected");
   assert(readString(report, "status") === "needs_attention", "health status mismatch");
   assert(summary, "health summary missing");
   assert(readNumber(summary, "failedForecasts") === 1, "failed forecast summary mismatch");
-  assert(readNumber(summary, "unresolvedAttentionItems") === 3, "unresolved attention summary mismatch");
+  assert(readNumber(summary, "unresolvedAttentionItems") === 4, "unresolved attention summary mismatch");
   assert(readNumber(summary, "scoreRegressionItems") === 1, "score regression summary mismatch");
   assert(readNumber(summary, "calibrationGuardRegressionItems") === 1, "calibration guard regression summary mismatch");
   assert(readNumber(summary, "unresolvedCandidateCalibrationGuardRules") === 1, "unresolved candidate calibration guard summary mismatch");
+  const evidenceKind = attentionByKind.find((row) => readString(row, "kind") === "evidence_coverage_miss");
+  const highSeverity = attentionBySeverity.find((row) => readString(row, "severity") === "high");
+  assert(evidenceKind, "attention kind breakdown missing evidence coverage misses");
+  assert(readNumber(evidenceKind, "open") === 1, "attention kind breakdown open count mismatch");
+  assert(highSeverity, "attention severity breakdown missing high severity");
+  assert(readNumber(highSeverity, "open") === 3, "attention severity open count mismatch");
+  assert(markdown.includes("## Attention Breakdown"), "health markdown missing attention breakdown");
+  assert(markdown.includes("evidence_coverage_miss"), "health markdown missing attention kind row");
   assert(missingPhases.includes("forecast_performance"), "missing performance phase was not reported");
   assert(issues.some((issue) => readString(issue, "kind") === "failed_forecasts"), "failed forecast issue missing");
   assert(issues.some((issue) => readString(issue, "kind") === "calibration_guard_regression"), "calibration guard regression issue missing");

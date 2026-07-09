@@ -21,6 +21,25 @@ type HealthIssue = {
   message: string;
 };
 
+type AttentionKindBreakdown = {
+  kind: string;
+  items: number;
+  open: number;
+  deferred: number;
+  reviewed: number;
+  high: number;
+  medium: number;
+  low: number;
+};
+
+type AttentionSeverityBreakdown = {
+  severity: string;
+  items: number;
+  open: number;
+  deferred: number;
+  reviewed: number;
+};
+
 type HealthReport = {
   reportType: "forecast_batch_health";
   generatedAt: string;
@@ -51,6 +70,8 @@ type HealthReport = {
   };
   missingPhases: BatchPhase[];
   issues: HealthIssue[];
+  attentionByKind: AttentionKindBreakdown[];
+  attentionBySeverity: AttentionSeverityBreakdown[];
   attentionItems: HealthAttentionItem[];
   candidateCalibrationGuardRules: HealthCandidateCalibrationGuardRule[];
   paths: {
@@ -182,7 +203,9 @@ function buildHealthReport(
   summary.unresolvedAttentionItems = summary.openAttentionItems + summary.deferredAttentionItems;
   summary.unresolvedCandidateCalibrationGuardRules = summary.openCandidateCalibrationGuardRules + summary.deferredCandidateCalibrationGuardRules;
   const missingPhases = expectedPhases.filter((phase) => countPhase(summary, phase) === 0);
-  const issues = buildIssues(summary, missingPhases);
+  const attentionByKind = summarizeAttentionByKind(attentionItems);
+  const attentionBySeverity = summarizeAttentionBySeverity(attentionItems);
+  const issues = buildIssues(summary, missingPhases, attentionByKind);
   return {
     reportType: "forecast_batch_health",
     generatedAt: new Date().toISOString(),
@@ -191,6 +214,8 @@ function buildHealthReport(
     summary,
     missingPhases,
     issues,
+    attentionByKind,
+    attentionBySeverity,
     attentionItems: sortAttentionItems(attentionItems),
     candidateCalibrationGuardRules: sortCandidateCalibrationGuardRules(candidateCalibrationGuardRules),
     paths: {
@@ -241,6 +266,8 @@ function buildEmptyReport(
     },
     missingPhases: expectedPhases,
     issues: [{ severity: "high", kind: "missing_batch_index", message: issueMessage }],
+    attentionByKind: [],
+    attentionBySeverity: [],
     attentionItems: [],
     candidateCalibrationGuardRules: [],
     paths: {
@@ -252,7 +279,11 @@ function buildEmptyReport(
   };
 }
 
-function buildIssues(summary: HealthReport["summary"], missingPhases: BatchPhase[]): HealthIssue[] {
+function buildIssues(
+  summary: HealthReport["summary"],
+  missingPhases: BatchPhase[],
+  attentionByKind: AttentionKindBreakdown[],
+): HealthIssue[] {
   const issues: HealthIssue[] = [];
   for (const phase of missingPhases) {
     issues.push({ severity: "high", kind: "missing_phase", message: `Missing ${phase} artifact in the batch index.` });
@@ -264,10 +295,15 @@ function buildIssues(summary: HealthReport["summary"], missingPhases: BatchPhase
     issues.push({ severity: "high", kind: "failed_resolutions", message: `${summary.failedResolutions} resolution update(s) failed.` });
   }
   if (summary.unresolvedAttentionItems > 0) {
+    const topKinds = attentionByKind
+      .filter((row) => row.open + row.deferred > 0)
+      .slice(0, 3)
+      .map((row) => `${row.kind}=${row.open + row.deferred}`)
+      .join(", ");
     issues.push({
       severity: summary.openAttentionItems > 0 ? "high" : "medium",
       kind: "unresolved_attention",
-      message: `${summary.unresolvedAttentionItems} attention item(s) remain open or deferred.`,
+      message: `${summary.unresolvedAttentionItems} attention item(s) remain open or deferred${topKinds ? ` (${topKinds})` : ""}.`,
     });
   }
   if (summary.scoreRegressionItems > 0) {
@@ -365,6 +401,14 @@ function renderMarkdown(report: HealthReport) {
     `- Candidate calibration guard rules: ${report.summary.candidateCalibrationGuardRules}`,
     `- Unresolved candidate calibration guard rules: ${report.summary.unresolvedCandidateCalibrationGuardRules}`,
     "",
+    "## Attention Breakdown",
+    "",
+    ...renderAttentionKindBreakdown(report.attentionByKind),
+    "",
+    "## Attention Severity",
+    "",
+    ...renderAttentionSeverityBreakdown(report.attentionBySeverity),
+    "",
     "## Issues",
     "",
     ...renderIssues(report.issues),
@@ -379,6 +423,32 @@ function renderMarkdown(report: HealthReport) {
     "",
   ];
   return `${lines.join("\n")}\n`;
+}
+
+function renderAttentionKindBreakdown(rows: AttentionKindBreakdown[]) {
+  if (rows.length === 0) {
+    return ["No attention kind breakdown available."];
+  }
+  return [
+    "| Kind | Items | Open | Deferred | Reviewed | High | Medium | Low |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...rows.map((row) =>
+      `| ${escapeMarkdownCell(row.kind)} | ${row.items} | ${row.open} | ${row.deferred} | ${row.reviewed} | ${row.high} | ${row.medium} | ${row.low} |`,
+    ),
+  ];
+}
+
+function renderAttentionSeverityBreakdown(rows: AttentionSeverityBreakdown[]) {
+  if (rows.length === 0) {
+    return ["No attention severity breakdown available."];
+  }
+  return [
+    "| Severity | Items | Open | Deferred | Reviewed |",
+    "| --- | ---: | ---: | ---: | ---: |",
+    ...rows.map((row) =>
+      `| ${escapeMarkdownCell(row.severity)} | ${row.items} | ${row.open} | ${row.deferred} | ${row.reviewed} |`,
+    ),
+  ];
 }
 
 function renderIssues(issues: HealthIssue[]) {
@@ -467,6 +537,52 @@ function countScoreRegressions(items: HealthAttentionItem[]) {
 
 function countCalibrationGuardRegressions(items: HealthAttentionItem[]) {
   return items.filter((item) => item.reviewStatus !== "reviewed" && item.kind === "calibration_guard_regression").length;
+}
+
+function summarizeAttentionByKind(items: HealthAttentionItem[]): AttentionKindBreakdown[] {
+  return [...groupBy(items, (item) => item.kind).entries()]
+    .map(([kind, rows]) => ({
+      kind,
+      items: rows.length,
+      open: countStatus(rows, "open"),
+      deferred: countStatus(rows, "deferred"),
+      reviewed: countStatus(rows, "reviewed"),
+      high: countSeverity(rows, "high"),
+      medium: countSeverity(rows, "medium"),
+      low: countSeverity(rows, "low"),
+    }))
+    .sort((left, right) =>
+      (right.open + right.deferred) - (left.open + left.deferred)
+      || severityRank(left.high > 0 ? "high" : left.medium > 0 ? "medium" : "low") - severityRank(right.high > 0 ? "high" : right.medium > 0 ? "medium" : "low")
+      || left.kind.localeCompare(right.kind)
+    );
+}
+
+function summarizeAttentionBySeverity(items: HealthAttentionItem[]): AttentionSeverityBreakdown[] {
+  return [...groupBy(items, (item) => item.severity).entries()]
+    .map(([severity, rows]) => ({
+      severity,
+      items: rows.length,
+      open: countStatus(rows, "open"),
+      deferred: countStatus(rows, "deferred"),
+      reviewed: countStatus(rows, "reviewed"),
+    }))
+    .sort((left, right) => severityRank(left.severity) - severityRank(right.severity) || left.severity.localeCompare(right.severity));
+}
+
+function countSeverity(items: HealthAttentionItem[], severity: string) {
+  return items.filter((item) => item.severity === severity).length;
+}
+
+function groupBy<T>(items: T[], keyFor: (item: T) => string) {
+  const grouped = new Map<string, T[]>();
+  for (const item of items) {
+    const key = keyFor(item);
+    const rows = grouped.get(key) ?? [];
+    rows.push(item);
+    grouped.set(key, rows);
+  }
+  return grouped;
 }
 
 function readRecordArray(value: unknown, key: string) {
