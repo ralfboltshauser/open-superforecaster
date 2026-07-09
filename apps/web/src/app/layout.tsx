@@ -13,7 +13,9 @@ export const metadata: Metadata = {
   title: "Open Superforecaster",
   description: "A local forecast-first research workspace.",
   icons: {
-    icon: "/logo.svg",
+    icon: "/favicon.ico",
+    shortcut: "/favicon.ico",
+    apple: "/logo.png",
   },
 };
 

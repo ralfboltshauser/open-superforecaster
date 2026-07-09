@@ -40,7 +40,9 @@ export function ForecastComposer({ className, compact = false }: { className?: s
 
   return (
     <div className={cn("w-full", className)}>
-      <div className="fs-panel rounded-xl p-2">
+      <div className="fs-panel relative overflow-hidden rounded-lg p-2">
+        <div className="pointer-events-none absolute left-4 right-4 top-0 h-px bg-primary/35" />
+        <div className="pointer-events-none absolute bottom-0 left-8 right-8 h-px bg-primary/20" />
         <Textarea
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
@@ -51,17 +53,22 @@ export function ForecastComposer({ className, compact = false }: { className?: s
             }
           }}
           className={cn(
-            "max-h-52 min-h-24 resize-none border-0 bg-transparent text-sm leading-6 shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 md:text-base",
+            "max-h-52 min-h-24 resize-none rounded-md border-0 bg-transparent text-sm leading-6 shadow-none placeholder:text-muted-foreground/65 focus-visible:ring-0 md:text-base",
             compact && "min-h-16 text-sm",
           )}
           aria-label="Forecast prompt"
           placeholder="Ask a forecasting or research question"
         />
-        <div className="flex items-center justify-between gap-3 border-t border-border/70 px-1 pt-2">
-          <Button type="button" variant="ghost" size="icon-sm" aria-label="Attach context">
+        <div className="flex items-center justify-between gap-3 border-t border-border/80 px-1 pt-2">
+          <Button type="button" variant="ghost" size="icon-sm" aria-label="Attach context" className="text-primary/80 hover:bg-primary/10 hover:text-primary">
             <Paperclip data-icon="inline-start" />
           </Button>
-          <Button type="button" onClick={() => void submit()} disabled={submitting || !prompt.trim()}>
+          <Button
+            type="button"
+            onClick={() => void submit()}
+            disabled={submitting || !prompt.trim()}
+            className="border border-primary/25 bg-primary/90 uppercase tracking-[0.14em] shadow-[0_0_24px_rgba(132,205,255,0.12)] hover:bg-primary"
+          >
             {submitting ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <SendHorizonal data-icon="inline-start" />}
             Start forecast
           </Button>

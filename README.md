@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/web/public/logo.svg" alt="Open Superforecaster logo" width="96" height="96">
+  <img src="apps/web/public/logo.png" alt="Open Superforecaster logo" width="96" height="96">
 </p>
 
 # Open Superforecaster

@@ -50,13 +50,13 @@ export function AppShell({ children, runs = [] }: { children: React.ReactNode; r
 
   return (
     <SidebarProvider>
-      <Sidebar collapsible="icon" className="border-sidebar-border bg-sidebar/95">
+      <Sidebar collapsible="icon" className="border-sidebar-border bg-sidebar/95 shadow-[12px_0_60px_rgba(0,0,0,0.22)]">
         <SidebarHeader className="border-b border-sidebar-border p-3">
           <Link className="flex min-w-0 items-center gap-2 rounded-md px-1 py-2" href="/">
-            <LogoMark className="size-8 text-primary" />
+            <LogoMark className="h-8 w-14 drop-shadow-[0_0_18px_rgba(132,205,255,0.18)]" />
             <span className="min-w-0">
-              <span className="block truncate text-sm font-medium tracking-[0.08em] text-primary/90">Open Superforecaster</span>
-              <span className="block truncate text-xs text-muted-foreground">local forecast lab</span>
+              <span className="block truncate text-xs font-medium uppercase tracking-[0.26em] text-primary/90">Open Superforecaster</span>
+              <span className="block truncate text-[0.68rem] uppercase tracking-[0.2em] text-muted-foreground">local forecast lab</span>
             </span>
           </Link>
         </SidebarHeader>
@@ -144,14 +144,14 @@ export function AppShell({ children, runs = [] }: { children: React.ReactNode; r
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
-        <SidebarFooter className="p-3 text-xs text-muted-foreground">
-          <span className="truncate">Personal workspace</span>
+        <SidebarFooter className="border-t border-sidebar-border p-3 text-[0.68rem] uppercase tracking-[0.22em] text-muted-foreground">
+          <span className="truncate">science. evidence. open.</span>
         </SidebarFooter>
       </Sidebar>
       <div className="fixed inset-x-0 top-0 z-30 flex h-12 items-center gap-2 border-b border-border/70 bg-background/95 px-3 backdrop-blur md:hidden">
         <SidebarTrigger aria-label="Open navigation" className="text-foreground" />
-        <LogoMark className="size-6 text-primary" />
-        <span className="truncate text-sm font-medium tracking-[0.04em] text-foreground">Open Superforecaster</span>
+        <LogoMark className="h-7 w-12" />
+        <span className="truncate text-xs font-medium uppercase tracking-[0.2em] text-foreground">Open Superforecaster</span>
       </div>
       <SidebarInset className="pt-12 md:pt-0">{children}</SidebarInset>
     </SidebarProvider>

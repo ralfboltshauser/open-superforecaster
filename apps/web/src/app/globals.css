@@ -52,24 +52,24 @@
 }
 
 :root {
-  --background: oklch(0.145 0.004 265);
-  --foreground: oklch(0.928 0.004 265);
-  --card: oklch(0.176 0.005 265);
-  --card-foreground: oklch(0.928 0.004 265);
-  --popover: oklch(0.166 0.005 265);
-  --popover-foreground: oklch(0.928 0.004 265);
-  --primary: oklch(0.66 0.128 262);
-  --primary-foreground: oklch(0.14 0.01 265);
-  --secondary: oklch(0.222 0.006 265);
-  --secondary-foreground: oklch(0.9 0.005 265);
-  --muted: oklch(0.205 0.006 265);
-  --muted-foreground: oklch(0.63 0.012 265);
-  --accent: oklch(0.28 0.03 262);
-  --accent-foreground: oklch(0.93 0.01 265);
+  --background: oklch(0.105 0.012 257);
+  --foreground: oklch(0.94 0.012 252);
+  --card: oklch(0.15 0.014 257);
+  --card-foreground: oklch(0.94 0.012 252);
+  --popover: oklch(0.13 0.014 257);
+  --popover-foreground: oklch(0.94 0.012 252);
+  --primary: oklch(0.76 0.12 244);
+  --primary-foreground: oklch(0.1 0.012 257);
+  --secondary: oklch(0.185 0.016 257);
+  --secondary-foreground: oklch(0.9 0.014 252);
+  --muted: oklch(0.18 0.014 257);
+  --muted-foreground: oklch(0.66 0.018 252);
+  --accent: oklch(0.245 0.04 244);
+  --accent-foreground: oklch(0.94 0.012 252);
   --destructive: oklch(0.62 0.2 22);
-  --border: oklch(1 0 0 / 8%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.66 0.128 262);
+  --border: oklch(0.84 0.055 244 / 14%);
+  --input: oklch(0.84 0.055 244 / 18%);
+  --ring: oklch(0.76 0.12 244);
   /* forecast artifact accents: amber question title, green resolved answer */
   --forecast: oklch(0.845 0.12 84);
   --forecast-foreground: oklch(0.16 0.02 84);
@@ -80,14 +80,14 @@
   --chart-4: oklch(0.68 0.16 30);
   --chart-5: oklch(0.7 0.13 312);
   --radius: 0.625rem;
-  --sidebar: oklch(0.128 0.004 265);
-  --sidebar-foreground: oklch(0.87 0.006 265);
-  --sidebar-primary: oklch(0.66 0.128 262);
-  --sidebar-primary-foreground: oklch(0.14 0.01 265);
-  --sidebar-accent: oklch(0.2 0.008 265);
-  --sidebar-accent-foreground: oklch(0.94 0.005 265);
-  --sidebar-border: oklch(1 0 0 / 7%);
-  --sidebar-ring: oklch(0.66 0.128 262);
+  --sidebar: oklch(0.095 0.012 257);
+  --sidebar-foreground: oklch(0.87 0.012 252);
+  --sidebar-primary: oklch(0.76 0.12 244);
+  --sidebar-primary-foreground: oklch(0.1 0.012 257);
+  --sidebar-accent: oklch(0.165 0.016 257);
+  --sidebar-accent-foreground: oklch(0.94 0.012 252);
+  --sidebar-border: oklch(0.84 0.055 244 / 12%);
+  --sidebar-ring: oklch(0.76 0.12 244);
 }
 
 .dark {
@@ -146,19 +146,21 @@
   .fs-vignette {
     background:
       radial-gradient(
-        ellipse 62% 55% at 50% 44%,
-        var(--background) 0%,
-        color-mix(in oklab, var(--background) 55%, transparent) 45%,
+        ellipse 65% 58% at 50% 42%,
+        oklch(0.135 0.018 257 / 0.92) 0%,
+        oklch(0.105 0.012 257 / 0.72) 45%,
         transparent 72%
-      );
+      ),
+      linear-gradient(to bottom, oklch(0.03 0.012 257 / 0.62), transparent 25%, oklch(0.03 0.012 257 / 0.72));
   }
 
   .fs-graph-sheen {
     background:
-      linear-gradient(to bottom, oklch(1 0 0 / 0.035), transparent 18%, transparent 78%, oklch(0 0 0 / 0.36)),
-      repeating-linear-gradient(to bottom, transparent 0, transparent 9px, oklch(1 0 0 / 0.018) 10px);
+      linear-gradient(to bottom, oklch(0.9 0.05 244 / 0.055), transparent 18%, transparent 78%, oklch(0 0 0 / 0.46)),
+      repeating-linear-gradient(to bottom, transparent 0, transparent 11px, oklch(0.88 0.04 244 / 0.018) 12px),
+      repeating-linear-gradient(to right, transparent 0, transparent 79px, oklch(0.88 0.04 244 / 0.018) 80px);
     mix-blend-mode: screen;
-    opacity: 0.55;
+    opacity: 0.64;
   }
 
   /* Source-graph node treatments */
@@ -172,12 +174,26 @@
 
   /* Compact monospace metadata label used across the research cockpit */
   .fs-eyebrow {
-    @apply text-[0.68rem] uppercase tracking-[0.22em] text-muted-foreground;
+    @apply text-[0.68rem] uppercase tracking-[0.42em] text-muted-foreground;
+  }
+
+  .fs-wordmark {
+    @apply uppercase tracking-[0.36em] text-foreground;
+    text-shadow: 0 0 28px oklch(0.76 0.12 244 / 0.18);
+  }
+
+  .fs-blueprint-line {
+    background: linear-gradient(to right, transparent, oklch(0.76 0.12 244 / 0.35), transparent);
   }
 
   .fs-panel {
-    @apply border bg-card/70 shadow-2xl shadow-black/35 backdrop-blur-xl;
-    box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.05), 0 24px 70px oklch(0 0 0 / 0.35);
+    @apply border bg-card/60 shadow-2xl shadow-black/40 backdrop-blur-xl;
+    border-color: oklch(0.84 0.055 244 / 18%);
+    box-shadow:
+      inset 0 1px 0 oklch(1 0 0 / 0.055),
+      inset 0 0 0 1px oklch(0.76 0.12 244 / 0.045),
+      0 24px 80px oklch(0 0 0 / 0.45),
+      0 0 46px oklch(0.76 0.12 244 / 0.055);
   }
 
   .fs-artifact {
