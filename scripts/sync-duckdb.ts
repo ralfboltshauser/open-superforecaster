@@ -282,6 +282,13 @@ try {
       nullif(fs.score_config #>> '{aggregateQuality,maxIterationsReached}', '')::boolean as aggregate_max_iterations_reached,
       nullif(fs.score_config #>> '{aggregateQuality,roundsUsed}', '')::integer as aggregate_rounds_used,
       nullif(fs.score_config #>> '{aggregateQuality,qualityIssueCount}', '')::integer as aggregate_quality_issue_count,
+      nullif(fs.score_config #>> '{aggregateStats,meanProbability}', '')::double precision as aggregate_mean_probability,
+      nullif(fs.score_config #>> '{aggregateStats,medianProbability}', '')::double precision as aggregate_median_probability,
+      nullif(fs.score_config #>> '{aggregateStats,disagreement}', '')::double precision as aggregate_component_disagreement,
+      fs.score_config #>> '{aggregateStats,disagreementBand}' as aggregate_component_disagreement_band,
+      fs.score_config #>> '{aggregateStats,aggregationAnchor}' as aggregation_anchor,
+      nullif(fs.score_config #>> '{aggregateStats,adjustmentFromMedian}', '')::double precision as adjustment_from_median,
+      nullif(fs.score_config #>> '{aggregateStats,attemptCount}', '')::integer as aggregate_attempt_count,
       fs.score_config::text as score_config_json,
       fs.created_at::text as created_at
     from forecast_scores fs
@@ -561,6 +568,13 @@ const forecastScoreColumns = [
   { name: "aggregate_max_iterations_reached", type: "BOOLEAN" },
   { name: "aggregate_rounds_used", type: "INTEGER" },
   { name: "aggregate_quality_issue_count", type: "INTEGER" },
+  { name: "aggregate_mean_probability", type: "DOUBLE" },
+  { name: "aggregate_median_probability", type: "DOUBLE" },
+  { name: "aggregate_component_disagreement", type: "DOUBLE" },
+  { name: "aggregate_component_disagreement_band", type: "VARCHAR" },
+  { name: "aggregation_anchor", type: "VARCHAR" },
+  { name: "adjustment_from_median", type: "DOUBLE" },
+  { name: "aggregate_attempt_count", type: "INTEGER" },
   { name: "score_config_json", type: "VARCHAR" },
   { name: "created_at", type: "VARCHAR" },
 ] satisfies DuckColumn[];

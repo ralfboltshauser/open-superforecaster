@@ -16,6 +16,7 @@ import {
 } from "@open-superforecaster/db";
 import { summarizeBenchmarkPromotionGateEvidence } from "./benchmark-service";
 import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
+import { readAggregateStatsSnapshot } from "./aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { buildCalibrationGuardImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
@@ -500,6 +501,52 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge(
       "open_superforecaster_aggregate_quality_score_mean",
       "Mean product aggregate forecast score by aggregate quality status.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
+    );
+  }
+  const aggregateStatsScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readAggregateStatsSnapshot(row.scoreConfig) !== null
+  );
+  if (aggregateStatsScoreRows.length === 0) {
+    const labels = {
+      component_disagreement_band: "none",
+      aggregation_anchor: "unknown",
+      score_type: "all",
+    };
+    metrics.gauge(
+      "open_superforecaster_aggregate_stats_scores_total",
+      "Product aggregate forecast score rows by component disagreement band and aggregation anchor.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_aggregate_stats_score_mean",
+      "Mean product aggregate forecast score by component disagreement band and aggregation anchor.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(aggregateStatsScoreRows, (row) => {
+    const aggregateStats = readAggregateStatsSnapshot(row.scoreConfig);
+    return labelKey({
+      score_type: row.scoreType,
+      component_disagreement_band: aggregateStats?.disagreementBand ?? "unknown",
+      aggregation_anchor: aggregateStats?.aggregationAnchor ?? "unknown",
+    });
+  })) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_aggregate_stats_scores_total",
+      "Product aggregate forecast score rows by component disagreement band and aggregation anchor.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_aggregate_stats_score_mean",
+      "Mean product aggregate forecast score by component disagreement band and aggregation anchor.",
       mean(rows.map((row) => row.scoreValue)),
       labels,
     );

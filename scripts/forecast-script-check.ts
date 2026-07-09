@@ -7,6 +7,7 @@ import {
   summarizeBenchmarkPromotionGateEvidence,
 } from "../packages/backend/src/benchmark-service";
 import { readAggregateQualitySnapshot } from "../packages/backend/src/aggregate-quality-metadata";
+import { readAggregateStatsSnapshot } from "../packages/backend/src/aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "../packages/backend/src/baseline-sanity-metadata";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
@@ -820,6 +821,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("renderCalibrationGuardRuleImpactTable"), "performance Markdown missing rule-level calibration guard impact table");
   assert(resolutionSource.includes("## Baseline sanity groups"), "performance Markdown missing baseline sanity group section");
   assert(resolutionSource.includes("## Aggregate quality groups"), "performance Markdown missing aggregate quality group section");
+  assert(resolutionSource.includes("## Component disagreement groups"), "performance Markdown missing component disagreement group section");
+  assert(resolutionSource.includes("## Aggregation anchor groups"), "performance Markdown missing aggregation anchor group section");
   assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");
   assert(dashboardSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not read candidate calibration guard rules");
   assert(dashboardSource.includes("Candidate calibration guards"), "lab dashboard does not render candidate calibration guard rules");
@@ -829,6 +832,10 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Baseline sanity outcomes"), "lab dashboard does not render baseline sanity performance groups");
   assert(dashboardSource.includes("byAggregateQuality"), "lab dashboard does not read aggregate quality performance groups");
   assert(dashboardSource.includes("Aggregate quality outcomes"), "lab dashboard does not render aggregate quality performance groups");
+  assert(dashboardSource.includes("byAggregateDisagreement"), "lab dashboard does not read component disagreement performance groups");
+  assert(dashboardSource.includes("Component disagreement outcomes"), "lab dashboard does not render component disagreement performance groups");
+  assert(dashboardSource.includes("byAggregationAnchor"), "lab dashboard does not read aggregation anchor performance groups");
+  assert(dashboardSource.includes("Aggregation anchor outcomes"), "lab dashboard does not render aggregation anchor performance groups");
   return "candidate calibration guard rules are visible in report artifacts and the lab dashboard";
 });
 
@@ -893,6 +900,8 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_baseline_sanity_score_mean"), "baseline sanity score mean metric missing");
   assert(metricsSource.includes("open_superforecaster_aggregate_quality_scores_total"), "aggregate quality score count metric missing");
   assert(metricsSource.includes("open_superforecaster_aggregate_quality_score_mean"), "aggregate quality score mean metric missing");
+  assert(metricsSource.includes("open_superforecaster_aggregate_stats_scores_total"), "aggregate stats score count metric missing");
+  assert(metricsSource.includes("open_superforecaster_aggregate_stats_score_mean"), "aggregate stats score mean metric missing");
   assert(metricsSource.includes("buildCalibrationGuardImpact"), "metrics exporter does not use shared calibration guard impact builder");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_status"), "calibration guard impact status metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_brier_delta"), "calibration guard impact Brier delta metric missing");
@@ -908,6 +917,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(smokeSource.includes("open_superforecaster_binary_calibration_status"), "smoke check does not require calibration status metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_impact_status"), "smoke check does not require calibration guard impact metric");
   assert(smokeSource.includes("open_superforecaster_aggregate_quality_scores_total"), "smoke check does not require aggregate quality metric");
+  assert(smokeSource.includes("open_superforecaster_aggregate_stats_scores_total"), "smoke check does not require aggregate stats metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
   assert(metricsRouteSource.includes("renderPrometheusMetrics"), "metrics route does not render Prometheus metrics");
   assert(metricsRouteSource.includes("text/plain; version=0.0.4"), "metrics route missing Prometheus content type");
@@ -933,6 +943,8 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("baseline_delta"), "forecast score mart missing baseline sanity delta");
   assert(syncSource.includes("aggregate_convergence_status"), "forecast score mart missing aggregate convergence status");
   assert(syncSource.includes("aggregate_max_iterations_reached"), "forecast score mart missing aggregate max-iteration flag");
+  assert(syncSource.includes("aggregate_component_disagreement"), "forecast score mart missing aggregate component disagreement");
+  assert(syncSource.includes("aggregation_anchor"), "forecast score mart missing aggregation anchor");
   assert(syncSource.includes("candidate_guard_suggested_adjustment"), "binary calibration bucket mart missing candidate guard adjustment");
   assert(syncSource.includes("candidate_guard_activation_status"), "binary calibration bucket mart missing candidate guard activation status");
   assert(syncSource.includes("readCalibrationGuardValidationRows"), "DuckDB sync does not read calibration guard validation reports");
@@ -1026,6 +1038,38 @@ await check("binary aggregate quality metadata reaches resolved score analytics"
   assert(dashboardSource.includes("byAggregateQuality"), "lab dashboard does not read aggregate quality performance groups");
   assert(dashboardSource.includes("Aggregate quality outcomes"), "lab dashboard does not render aggregate quality performance groups");
   return "binary aggregate quality metadata is persisted and visible in resolved score analytics";
+});
+
+await check("binary aggregate stats reach resolved score analytics", async () => {
+  const snapshot = readAggregateStatsSnapshot({
+    aggregateStats: {
+      meanProbability: 67,
+      medianProbability: 70,
+      disagreement: 22,
+      aggregationAnchor: "median",
+      adjustmentFromMedian: -5,
+      attemptCount: 4,
+    },
+  });
+  assert(snapshot?.meanProbability === 67, "aggregate stats mean mismatch");
+  assert(snapshot?.medianProbability === 70, "aggregate stats median mismatch");
+  assert(snapshot?.disagreement === 22, "aggregate stats disagreement mismatch");
+  assert(snapshot?.disagreementBand === "high", "aggregate stats disagreement band mismatch");
+  assert(snapshot?.aggregationAnchor === "median", "aggregate stats anchor mismatch");
+  assert(snapshot?.adjustmentFromMedian === -5, "aggregate stats adjustment mismatch");
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(resolutionSource.includes("readAggregateStatsSnapshot(input.prediction)"), "resolution scoring does not persist aggregate stats");
+  assert(resolutionSource.includes("byAggregateDisagreement"), "performance report does not group by component disagreement");
+  assert(resolutionSource.includes("byAggregationAnchor"), "performance report does not group by aggregation anchor");
+  assert(resolutionSource.includes("component_disagreement_miss"), "performance report does not flag high-disagreement misses");
+  assert(metricsSource.includes("open_superforecaster_aggregate_stats_scores_total"), "metrics missing aggregate stats score counts");
+  assert(syncSource.includes("aggregate_component_disagreement_band"), "DuckDB forecast score mart missing disagreement band");
+  assert(dashboardSource.includes("Component disagreement outcomes"), "lab dashboard does not render component disagreement outcomes");
+  assert(dashboardSource.includes("Aggregation anchor outcomes"), "lab dashboard does not render aggregation anchor outcomes");
+  return "binary aggregate stats are persisted and visible in resolved score analytics";
 });
 
 await check("binary aggregate quality metadata is visible before resolution", async () => {

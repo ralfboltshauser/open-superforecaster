@@ -11,6 +11,7 @@ import {
 } from "@open-superforecaster/db";
 import { scoreBinaryForecast } from "@open-superforecaster/evals";
 import { readAggregateQualitySnapshot, type AggregateQualitySnapshot } from "./aggregate-quality-metadata";
+import { readAggregateStatsSnapshot, type AggregateStatsSnapshot } from "./aggregate-stats-metadata";
 import { readBaselineSanitySnapshot, type BaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { buildCalibrationGuardImpact, type CalibrationGuardImpact, type CalibrationGuardRuleImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot, type CalibrationGuardSnapshot } from "./calibration-guard-metadata";
@@ -69,6 +70,7 @@ type PerformanceCase = {
   calibrationGuard: CalibrationGuardSnapshot | null;
   baselineSanity: BaselineSanitySnapshot | null;
   aggregateQuality: AggregateQualitySnapshot | null;
+  aggregateStats: AggregateStatsSnapshot | null;
   resolutionId: string | null;
   forecastAggregateId: string | null;
   createdAt: Date;
@@ -95,7 +97,8 @@ type PerformanceAttentionItem = {
     | "calibration_mismatch"
     | "calibration_guard_regression"
     | "baseline_sanity_miss"
-    | "aggregate_quality_miss";
+    | "aggregate_quality_miss"
+    | "component_disagreement_miss";
   severity: "high" | "medium";
   reason: string;
   recommendedActions: string[];
@@ -352,6 +355,8 @@ export async function getForecastPerformanceReport(db: Db) {
   const byCalibrationGuard = groupScores(aggregateScores, calibrationGuardGroupKey);
   const byBaselineSanity = groupScores(aggregateScores, baselineSanityGroupKey);
   const byAggregateQuality = groupScores(aggregateScores, aggregateQualityGroupKey);
+  const byAggregateDisagreement = groupScores(aggregateScores, aggregateDisagreementGroupKey);
+  const byAggregationAnchor = groupScores(aggregateScores, aggregationAnchorGroupKey);
   const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
@@ -391,6 +396,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byCalibrationGuard,
       byBaselineSanity,
       byAggregateQuality,
+      byAggregateDisagreement,
+      byAggregationAnchor,
     },
     bestResolvedForecasts,
     worstResolvedForecasts,
@@ -420,6 +427,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byCalibrationGuard,
       byBaselineSanity,
       byAggregateQuality,
+      byAggregateDisagreement,
+      byAggregationAnchor,
       bestResolvedForecasts,
       worstResolvedForecasts,
       scoreTrends,
@@ -587,6 +596,7 @@ function scoreForecastPrediction(input: {
     const calibrationGuard = readCalibrationGuardSnapshot(input.prediction);
     const baselineSanity = readBaselineSanitySnapshot(input.prediction);
     const aggregateQuality = readAggregateQualitySnapshot(input.prediction);
+    const aggregateStats = readAggregateStatsSnapshot(input.prediction);
     return Object.entries(scoreBinaryForecast({ probability, resolved })).map(([scoreType, scoreValue]) => ({
       scoreType,
       scoreValue,
@@ -596,6 +606,7 @@ function scoreForecastPrediction(input: {
         ...(calibrationGuard ? { calibrationGuard } : {}),
         ...(baselineSanity ? { baselineSanity } : {}),
         ...(aggregateQuality ? { aggregateQuality } : {}),
+        ...(aggregateStats ? { aggregateStats } : {}),
       },
     }));
   }
@@ -1066,6 +1077,16 @@ function aggregateQualityGroupKey(score: typeof forecastScores.$inferSelect) {
   return `aggregate_quality:${aggregateQuality.convergenceStatus}`;
 }
 
+function aggregateDisagreementGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `component_disagreement:${aggregateStats?.disagreementBand ?? "unrecorded"}`;
+}
+
+function aggregationAnchorGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return aggregateStats?.aggregationAnchor ? `aggregation_anchor:${aggregateStats.aggregationAnchor}` : "aggregation_anchor:unrecorded";
+}
+
 function rankAggregateCases(
   rows: Array<typeof forecastScores.$inferSelect>,
   taskMeta: Map<string, { id: string; label: string; operationSubmode: string | null }>,
@@ -1107,6 +1128,7 @@ function rankAggregateCases(
         calibrationGuard: readCalibrationGuardSnapshot(latest.scoreConfig),
         baselineSanity: readBaselineSanitySnapshot(latest.scoreConfig),
         aggregateQuality: readAggregateQualitySnapshot(latest.scoreConfig),
+        aggregateStats: readAggregateStatsSnapshot(latest.scoreConfig),
         resolutionId: latest.resolutionId,
         forecastAggregateId: latest.forecastAggregateId,
         createdAt: latest.createdAt,
@@ -1290,6 +1312,42 @@ function buildNeedsAttentionQueue(
       rank: 60 + index,
     }));
 
+  const componentDisagreementCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    if (
+      item.forecastType !== "binary" ||
+      item.aggregateStats === null ||
+      !["high", "extreme"].includes(item.aggregateStats.disagreementBand) ||
+      threshold === null ||
+      item.primaryScore < threshold
+    ) {
+      return [];
+    }
+    return [{ item, aggregateStats: item.aggregateStats }];
+  });
+  const componentDisagreementItems = componentDisagreementCandidates
+    .slice(0, 5)
+    .map(({ item, aggregateStats }, index) => ({
+      id: `component-disagreement:${item.taskId}:${item.primaryMetric}`,
+      kind: "component_disagreement_miss" as const,
+      severity: aggregateStats.disagreementBand === "extreme" ? "high" as const : "medium" as const,
+      reason:
+        `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${aggregateStats.disagreementBand} component disagreement of ${formatNullableMetric(aggregateStats.disagreement)} points.`,
+      recommendedActions: recommendAttentionActions({
+        kind: "component_disagreement_miss",
+        metric: item.primaryMetric,
+        severity: aggregateStats.disagreementBand === "extreme" ? "high" : "medium",
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: aggregateStats.disagreement,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 70 + index,
+    }));
+
   const calibrationItems = calibrationReport.calibrationDiagnostics.map((diagnostic) => ({
     id: diagnostic.id,
     kind: "calibration_mismatch" as const,
@@ -1355,6 +1413,7 @@ function buildNeedsAttentionQueue(
     ...caseItems,
     ...baselineSanityItems,
     ...aggregateQualityItems,
+    ...componentDisagreementItems,
     ...trendItems,
     ...overallGuardImpactItems,
     ...ruleGuardImpactItems,
@@ -1387,6 +1446,9 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "aggregate_quality_miss") {
     actions.add("Review the final quality issues and review rationale before changing prompts or defaults.");
     actions.add("Compare max-iteration cases against approved cases to decide whether the review loop needs another round or sharper rejection criteria.");
+  } else if (input.kind === "component_disagreement_miss") {
+    actions.add("Inspect component forecasts before changing aggregation defaults; identify whether one role captured the resolved signal or all roles missed different parts.");
+    actions.add("Compare mean, median, aggregation anchor, and final rationale to see whether disagreement was explained or over-smoothed.");
   } else if (input.kind === "worsening_trend") {
     actions.add("Review recent resolved runs in this metric before treating the trend as a workflow regression.");
     actions.add("Compare recent cases against older baseline cases for domain mix or resolution-source drift.");
@@ -1488,6 +1550,8 @@ function renderPerformanceMarkdown(input: {
   byCalibrationGuard: PerformanceGroup[];
   byBaselineSanity: PerformanceGroup[];
   byAggregateQuality: PerformanceGroup[];
+  byAggregateDisagreement: PerformanceGroup[];
+  byAggregationAnchor: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
   worstResolvedForecasts: PerformanceCase[];
   scoreTrends: PerformanceTrend[];
@@ -1520,6 +1584,12 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Aggregate quality groups",
     ...renderGroupTable(input.byAggregateQuality),
+    "",
+    "## Component disagreement groups",
+    ...renderGroupTable(input.byAggregateDisagreement),
+    "",
+    "## Aggregation anchor groups",
+    ...renderGroupTable(input.byAggregationAnchor),
     "",
     "## Calibration guard impact",
     ...renderCalibrationGuardImpact(input.calibrationGuardImpact),

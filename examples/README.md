@@ -71,7 +71,9 @@ Product forecast score rows are exported to `osf_forecast_scores`, including
 probability, resolved outcome, score, calibration-guard metadata, and
 baseline-sanity deltas, plus binary aggregate quality-review metadata such as
 convergence status, review approval, max-iteration status, rounds used, and
-quality-issue counts. Binary
+quality-issue counts. They also include binary aggregate stats such as mean,
+median, component-disagreement band, aggregation anchor, median adjustment, and
+attempt count. Binary
 aggregate calibration buckets are exported to `osf_binary_calibration_buckets`
 with bucket error, diagnostic direction, and candidate guard adjustment fields.
 Those bucket rows are generated from the same shared calibration report builder
@@ -194,8 +196,10 @@ in run reports, along with aggregate review status, approval, review rounds,
 max-iteration state, and final review rationale, so future calibration changes
 are deliberate and auditable.
 Future binary score rows keep the same
-guard metadata for performance review, including guarded-vs-unguarded score
-groups and a dedicated calibration guard impact summary with per-rule rows.
+guard, baseline, quality-review, and aggregate-stat metadata for performance
+review, including guarded-vs-unguarded score groups, component-disagreement
+groups, aggregation-anchor groups, and a dedicated calibration guard impact
+summary with per-rule rows.
 If guarded aggregate forecasts start scoring worse than unguarded aggregates
 overall or for a specific applied rule, the performance report adds a
 high-severity attention item before more default guard rules are promoted.
