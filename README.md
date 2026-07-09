@@ -257,6 +257,12 @@ Then snapshot the scored performance report:
 bun run forecast:performance -- --batch-id july-smoke
 ```
 
+To consolidate those local artifacts into one audit file:
+
+```bash
+bun run forecast:batches -- --batch-id july-smoke
+```
+
 ### Host Development
 
 For direct host development, keep the backing services in Docker and run the web

@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 
 export type JsonRecord = Record<string, unknown>;
 
@@ -46,6 +46,10 @@ export function isRecord(value: unknown): value is JsonRecord {
 
 export async function writeJson(path: string, value: unknown) {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+export async function readJson(path: string) {
+  return JSON.parse(await readFile(path, "utf8")) as unknown;
 }
 
 export function safeSegment(value: string) {

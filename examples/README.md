@@ -91,6 +91,17 @@ label, and writes JSON plus Markdown snapshots for review.
 Use the same `--batch-id` across forecast ops, resolution, and performance
 commands to keep their manifests tied to the same operational batch.
 
+To generate a local batch audit from those manifests:
+
+```bash
+bun run forecast:batches -- --batch-id july-smoke
+bun run forecast:batches
+```
+
+The batch index scans `data/forecast-ops`, `data/resolutions`, and
+`data/reports/forecast-performance`, then writes JSON and Markdown summaries
+under `data/reports/forecast-batches`.
+
 ## Table Workflows
 
 Use the CSV files in the web composer by selecting the relevant mode and
