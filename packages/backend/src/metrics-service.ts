@@ -7,6 +7,7 @@ import {
   forecastScores,
   sourceBankEntries,
   tasks,
+  workflowChangeProposals,
   workflowPromotionDecisions,
   workflowVariants,
   type createDb,
@@ -25,6 +26,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     scoreRows,
     resolutionRows,
     sourceRows,
+    workflowProposalRows,
     workflowVariantRows,
     promotionDecisionRows,
   ] = await Promise.all([
@@ -93,6 +95,19 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       .from(forecastScores),
     db.select({ id: forecastResolutions.id, annulled: forecastResolutions.annulled }).from(forecastResolutions),
     db.select({ id: sourceBankEntries.id, sourceType: sourceBankEntries.sourceType, usedInFinal: sourceBankEntries.usedInFinal }).from(sourceBankEntries),
+    db
+      .select({
+        id: workflowChangeProposals.id,
+        sourceBenchmarkRunId: workflowChangeProposals.sourceBenchmarkRunId,
+        targetWorkflowId: workflowChangeProposals.targetWorkflowId,
+        status: workflowChangeProposals.status,
+        reviewedBy: workflowChangeProposals.reviewedBy,
+        reviewedAt: workflowChangeProposals.reviewedAt,
+        createdAt: workflowChangeProposals.createdAt,
+      })
+      .from(workflowChangeProposals)
+      .orderBy(desc(workflowChangeProposals.createdAt))
+      .limit(100),
     db
       .select({
         id: workflowVariants.id,
@@ -300,6 +315,25 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
   }
   for (const [key, count] of countBy(promotionDecisionRows, (row) => labelKey({ state: row.state }))) {
     metrics.gauge("open_superforecaster_workflow_promotion_decisions_total", "Workflow promotion decision count by state.", count, parseLabelKey(key));
+  }
+  metrics.gauge("open_superforecaster_workflow_change_proposals_total", "Workflow change proposal count by status and target workflow.", workflowProposalRows.length);
+  for (const [key, count] of countBy(workflowProposalRows, (row) =>
+    labelKey({
+      status: row.status,
+      target_workflow_id: row.targetWorkflowId,
+    }),
+  )) {
+    metrics.gauge("open_superforecaster_workflow_change_proposals_total", "Workflow change proposal count by status and target workflow.", count, parseLabelKey(key));
+  }
+  for (const proposal of workflowProposalRows.slice(0, 50)) {
+    metrics.gauge("open_superforecaster_workflow_change_proposal_info", "Recent workflow change proposal lifecycle metadata.", 1, {
+      proposal_id: proposal.id,
+      source_benchmark_run_id: proposal.sourceBenchmarkRunId ?? "none",
+      target_workflow_id: proposal.targetWorkflowId,
+      status: proposal.status,
+      reviewed_by: proposal.reviewedBy ?? "none",
+      reviewed: proposal.reviewedAt ? "true" : "false",
+    });
   }
 
   for (const [key, count] of countBy(scoreRows, (row) =>

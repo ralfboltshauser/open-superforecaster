@@ -656,6 +656,18 @@ await check("benchmark promotion gate blockers are exported as metrics", async (
   return "promotion gate blockers are visible in Prometheus metrics";
 });
 
+await check("workflow change proposal lifecycle is exported as metrics", async () => {
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const smokeSource = await readFile(resolve(root, "scripts/smoke-check.ts"), "utf8");
+  assert(metricsSource.includes("workflowChangeProposals"), "metrics exporter does not read workflow change proposals");
+  assert(metricsSource.includes("open_superforecaster_workflow_change_proposals_total"), "workflow proposal count metric missing");
+  assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_info"), "workflow proposal info metric missing");
+  assert(metricsSource.includes("reviewed_by"), "workflow proposal metric missing reviewer label");
+  assert(metricsSource.includes("source_benchmark_run_id"), "workflow proposal metric missing source benchmark label");
+  assert(smokeSource.includes("open_superforecaster_workflow_change_proposals_total"), "smoke check does not require workflow proposal metric");
+  return "workflow proposal lifecycle state is visible in Prometheus metrics";
+});
+
 await check("benchmark promotion gate blockers are exported to DuckDB", async () => {
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
   assert(syncSource.includes("promotion_gate_status"), "DuckDB benchmark run mart missing promotion gate status");
