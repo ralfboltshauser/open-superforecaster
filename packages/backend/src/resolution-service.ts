@@ -50,6 +50,22 @@ type PerformanceGroup = {
   primaryMean: number | null;
 };
 
+type PerformanceCase = {
+  taskId: string;
+  taskLabel: string;
+  forecastType: string;
+  primaryMetric: string;
+  primaryScore: number;
+  scoreRows: number;
+  scores: Record<string, number>;
+  resolvedValue: Record<string, unknown> | null;
+  probability: number | null;
+  resolved: boolean | null;
+  resolutionId: string | null;
+  forecastAggregateId: string | null;
+  createdAt: Date;
+};
+
 export async function resolveBinaryForecastTask(db: Db, input: BinaryResolutionInput) {
   return resolveForecastTask(db, {
     taskId: input.taskId,
@@ -277,6 +293,7 @@ export async function getForecastPerformanceReport(db: Db) {
     db.select({ id: tasks.id, label: tasks.label, operationSubmode: tasks.operationSubmode }).from(tasks),
   ]);
   const taskMeta = new Map(taskRows.map((task) => [task.id, task]));
+  const resolutionById = new Map(resolutionRows.map((resolution) => [resolution.id, resolution]));
   const productScores = scoreRows.filter(isProductScore);
   const aggregateScores = productScores.filter((score) => score.forecastAggregateId);
   const attemptScores = productScores.filter((score) => score.forecastAttemptId);
@@ -290,6 +307,9 @@ export async function getForecastPerformanceReport(db: Db) {
     const target = readString(score.scoreConfig, "target") ?? "unknown";
     return `${forecastType}:${target}`;
   });
+  const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
+  const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
+  const worstResolvedForecasts = [...rankedAggregateCases].reverse().slice(0, 8);
 
   return {
     reportType: "forecast_performance_report",
@@ -310,6 +330,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byForecaster,
       byForecastTypeAndTarget,
     },
+    bestResolvedForecasts,
+    worstResolvedForecasts,
     recentResolvedTasks: resolutionRows.slice(0, 12).map((resolution) => {
       const taskId = readScoreTaskIdFromResolution(resolution.resolvedValue);
       const task = taskId ? taskMeta.get(taskId) : null;
@@ -331,6 +353,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byForecastType,
       byTarget,
       byForecaster,
+      bestResolvedForecasts,
+      worstResolvedForecasts,
     }),
   };
 }
@@ -908,6 +932,57 @@ function groupScores(
     });
 }
 
+function rankAggregateCases(
+  rows: Array<typeof forecastScores.$inferSelect>,
+  taskMeta: Map<string, { id: string; label: string; operationSubmode: string | null }>,
+  resolutionById: Map<string, typeof forecastResolutions.$inferSelect>,
+): PerformanceCase[] {
+  const grouped = new Map<string, Array<typeof forecastScores.$inferSelect>>();
+  for (const row of rows) {
+    const taskId = readScoreTaskId(row.scoreConfig);
+    if (!taskId) {
+      continue;
+    }
+    grouped.set(taskId, [...(grouped.get(taskId) ?? []), row]);
+  }
+
+  return [...grouped.entries()]
+    .flatMap(([taskId, groupRows]) => {
+      const scores = meanScoresByType(groupRows);
+      const primaryMetric = selectPrimaryMetric(scores);
+      const primaryScore = primaryMetric ? scores[primaryMetric] : null;
+      if (!primaryMetric || primaryScore === null) {
+        return [];
+      }
+      const latest = groupRows.reduce((currentLatest, row) =>
+        row.createdAt.getTime() > currentLatest.createdAt.getTime() ? row : currentLatest,
+      groupRows[0]);
+      const task = taskMeta.get(taskId);
+      const resolution = latest.resolutionId ? resolutionById.get(latest.resolutionId) : null;
+      return [{
+        taskId,
+        taskLabel: task?.label ?? taskId,
+        forecastType: readString(latest.scoreConfig, "forecastType") ?? (task?.operationSubmode ? forecastTypeFromSubmode(task.operationSubmode) : "unknown"),
+        primaryMetric,
+        primaryScore,
+        scoreRows: groupRows.length,
+        scores,
+        resolvedValue: asRecord(resolution?.resolvedValue ?? null),
+        probability: readProbability(latest.scoreConfig),
+        resolved: readResolved(latest.scoreConfig),
+        resolutionId: latest.resolutionId,
+        forecastAggregateId: latest.forecastAggregateId,
+        createdAt: latest.createdAt,
+      }];
+    })
+    .sort((left, right) => {
+      if (left.primaryScore !== right.primaryScore) {
+        return left.primaryScore - right.primaryScore;
+      }
+      return left.taskLabel.localeCompare(right.taskLabel);
+    });
+}
+
 function selectPrimaryMetric(meanScores: Record<string, number>) {
   const preference = [
     "brier",
@@ -934,6 +1009,8 @@ function renderPerformanceMarkdown(input: {
   byForecastType: PerformanceGroup[];
   byTarget: PerformanceGroup[];
   byForecaster: PerformanceGroup[];
+  bestResolvedForecasts: PerformanceCase[];
+  worstResolvedForecasts: PerformanceCase[];
 }) {
   const lines = [
     "# Forecast performance report",
@@ -950,6 +1027,12 @@ function renderPerformanceMarkdown(input: {
     "## Forecasters",
     ...renderGroupTable(input.byForecaster),
     "",
+    "## Best resolved forecasts",
+    ...renderCaseTable(input.bestResolvedForecasts),
+    "",
+    "## Worst resolved forecasts",
+    ...renderCaseTable(input.worstResolvedForecasts),
+    "",
   ];
   return `${lines.join("\n")}\n`;
 }
@@ -965,6 +1048,19 @@ function renderGroupTable(groups: PerformanceGroup[]) {
       `| ${escapeMarkdownCell(group.label)} | ${group.resolvedTasks} | ${group.scoreRows} | ${group.primaryMetric ?? ""} | ${
         group.primaryMean === null ? "" : roundMetric(group.primaryMean)
       } |`,
+    ),
+  ];
+}
+
+function renderCaseTable(cases: PerformanceCase[]) {
+  if (cases.length === 0) {
+    return ["No aggregate resolved forecasts yet."];
+  }
+  return [
+    "| Task | Forecast type | Primary metric | Score | Task id |",
+    "| --- | --- | --- | ---: | --- |",
+    ...cases.map((item) =>
+      `| ${escapeMarkdownCell(item.taskLabel)} | ${escapeMarkdownCell(item.forecastType)} | ${item.primaryMetric} | ${roundMetric(item.primaryScore)} | ${item.taskId} |`,
     ),
   ];
 }

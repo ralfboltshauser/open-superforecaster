@@ -86,7 +86,8 @@ bun run forecast:performance -- --batch-id july-smoke --out-dir data/reports/for
 ```
 
 The report groups existing score rows by forecast type, target, and forecaster
-label, and writes JSON plus Markdown snapshots for review.
+label, includes best and worst resolved aggregate forecasts, and writes JSON
+plus Markdown snapshots for review.
 
 Use the same `--batch-id` across forecast ops, resolution, and performance
 commands to keep their manifests tied to the same operational batch.

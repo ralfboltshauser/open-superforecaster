@@ -148,6 +148,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const summary = isRecord(performance?.summary) ? performance.summary : {}
   const groups = isRecord(performance?.groups) ? performance.groups : {}
   const byForecastType = readArray(groups, "byForecastType").filter(isRecord)
+  const bestForecasts = readArray(performance, "bestResolvedForecasts").filter(isRecord)
+  const worstForecasts = readArray(performance, "worstResolvedForecasts").filter(isRecord)
   return (
     <Card id="performance">
       <CardHeader>
@@ -177,6 +179,12 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         ) : (
           <p className="text-sm text-muted-foreground">No resolved score rows yet.</p>
         )}
+        {bestForecasts.length || worstForecasts.length ? (
+          <div className="grid gap-3 border-t pt-3 md:grid-cols-2">
+            <PerformanceCaseList title="Best" cases={bestForecasts} />
+            <PerformanceCaseList title="Worst" cases={worstForecasts} />
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   )
@@ -230,4 +238,22 @@ function MetricCard({ icon: Icon, label, value }: { icon: LucideIcon; label: str
 
 function formatMetric(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? String(Math.round(value * 10000) / 10000) : ""
+}
+
+function PerformanceCaseList({ title, cases }: { title: string; cases: JsonRecord[] }) {
+  return (
+    <div className="min-w-0">
+      <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">{title}</p>
+      <div className="flex flex-col gap-2">
+        {cases.slice(0, 3).map((item) => (
+          <Link className="rounded-md border px-3 py-2 text-sm hover:bg-muted/50" href={`/runs/${String(item.taskId ?? "")}`} key={String(item.taskId ?? item.taskLabel)}>
+            <span className="block truncate font-medium">{String(item.taskLabel ?? item.taskId ?? "forecast")}</span>
+            <span className="mt-1 block truncate text-xs text-muted-foreground">
+              {String(item.primaryMetric ?? "score")} {formatMetric(item.primaryScore)}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
 }
