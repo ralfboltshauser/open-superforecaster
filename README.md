@@ -213,6 +213,16 @@ curl -X POST http://localhost:3000/api/runs \
   -d @examples/request-binary-forecast.json
 ```
 
+The create response includes durable links for automation. Use them to poll,
+retrieve the normalized result, and materialize a decision-report artifact:
+
+```bash
+TASK_ID=<task-id-from-create-response>
+curl http://localhost:3000/api/runs/$TASK_ID/status
+curl http://localhost:3000/api/runs/$TASK_ID/result
+curl -X POST http://localhost:3000/api/runs/$TASK_ID/report-artifact
+```
+
 You can also plan sample workflows without launching agent work:
 
 ```bash

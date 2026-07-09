@@ -450,6 +450,148 @@ export async function getTaskDetail(db: Db, taskId: string) {
   };
 }
 
+export async function getRunStatus(db: Db, taskId: string) {
+  const [task] = await db
+    .select({
+      id: tasks.id,
+      status: tasks.status,
+      label: tasks.label,
+      operationMode: tasks.operationMode,
+      operationSubmode: tasks.operationSubmode,
+      smithersRunId: tasks.smithersRunId,
+      outputArtifactId: tasks.outputArtifactId,
+      progressTotal: tasks.progressTotal,
+      progressPending: tasks.progressPending,
+      progressRunning: tasks.progressRunning,
+      progressCompleted: tasks.progressCompleted,
+      progressFailed: tasks.progressFailed,
+      activeWorkers: tasks.activeWorkers,
+      error: tasks.error,
+      createdAt: tasks.createdAt,
+      startedAt: tasks.startedAt,
+      completedAt: tasks.completedAt,
+      updatedAt: tasks.updatedAt,
+    })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .limit(1);
+  if (!task) {
+    throw new Error(`Task not found: ${taskId}`);
+  }
+
+  return {
+    taskId: task.id,
+    status: task.status,
+    label: task.label,
+    operationMode: task.operationMode,
+    operationSubmode: task.operationSubmode,
+    smithersRunId: task.smithersRunId,
+    outputArtifactId: task.outputArtifactId,
+    progress: {
+      total: task.progressTotal,
+      pending: task.progressPending,
+      running: task.progressRunning,
+      completed: task.progressCompleted,
+      failed: task.progressFailed,
+      activeWorkers: task.activeWorkers,
+    },
+    isComplete: task.status === "completed",
+    isFailed: task.status === "failed" || task.status === "cancelled" || task.status === "revoked",
+    isPending: task.status === "queued" || task.status === "running",
+    error: task.error,
+    createdAt: task.createdAt,
+    startedAt: task.startedAt,
+    completedAt: task.completedAt,
+    updatedAt: task.updatedAt,
+    links: runLinks(task.id),
+  };
+}
+
+export async function getRunResult(db: Db, taskId: string) {
+  const detail = await getTaskDetail(db, taskId);
+  const outputArtifactId = detail.task.outputArtifactId;
+  const outputArtifact = outputArtifactId
+    ? detail.artifacts.find((artifact) => artifact.id === outputArtifactId)
+    : detail.artifacts.find((artifact) => artifact.rows.some((row) => row.rowIndex === 0));
+  const outputRow = outputArtifact?.rows.find((row) => row.rowIndex === 0) ?? null;
+
+  return {
+    taskId: detail.task.id,
+    status: detail.task.status,
+    operationMode: detail.task.operationMode,
+    operationSubmode: detail.task.operationSubmode,
+    outputArtifactId: outputArtifact?.id ?? null,
+    result: outputRow?.rowJson ?? null,
+    rows: outputArtifact?.rows ?? [],
+    sourceCount: detail.sources.length,
+    citationCount: detail.citations.length,
+    links: runLinks(detail.task.id),
+  };
+}
+
+export async function ensureRunReportArtifact(db: Db, taskId: string) {
+  const detail = await getTaskDetail(db, taskId);
+  const report = buildRunReportPayload(detail);
+  const existing = detail.artifacts.find((artifact) => artifact.createdBy === "run-report-api");
+
+  if (existing) {
+    await db
+      .update(artifacts)
+      .set({
+        rowCount: 1,
+        schemaJson: runReportSchemaJson(),
+        storageUri: `runs/${detail.task.id}/decision-report.json`,
+        parentArtifactIds: detail.task.outputArtifactId ? [detail.task.outputArtifactId] : [],
+        updatedAt: new Date(),
+      })
+      .where(eq(artifacts.id, existing.id));
+    await db
+      .insert(artifactRows)
+      .values({
+        artifactId: existing.id,
+        rowIndex: 0,
+        rowJson: report,
+        status: detail.task.status === "completed" ? "completed" : "needs_review",
+        completedAt: detail.task.status === "completed" ? new Date() : null,
+      })
+      .onConflictDoUpdate({
+        target: [artifactRows.artifactId, artifactRows.rowIndex],
+        set: {
+          rowJson: report,
+          status: detail.task.status === "completed" ? "completed" : "needs_review",
+          completedAt: detail.task.status === "completed" ? new Date() : null,
+          updatedAt: new Date(),
+        },
+      });
+    return { artifactId: existing.id, report, links: runLinks(detail.task.id) };
+  }
+
+  const [artifact] = await db
+    .insert(artifacts)
+    .values({
+      taskId: detail.task.id,
+      sessionId: detail.task.sessionId,
+      artifactType: "report",
+      createdBy: "run-report-api",
+      schemaJson: runReportSchemaJson(),
+      rowCount: 1,
+      storageUri: `runs/${detail.task.id}/decision-report.json`,
+      parentArtifactIds: detail.task.outputArtifactId ? [detail.task.outputArtifactId] : [],
+      visibility: "private",
+    })
+    .returning({ id: artifacts.id });
+
+  await db.insert(artifactRows).values({
+    artifactId: artifact.id,
+    rowIndex: 0,
+    rowJson: report,
+    status: detail.task.status === "completed" ? "completed" : "needs_review",
+    completedAt: detail.task.status === "completed" ? new Date() : null,
+  });
+
+  return { artifactId: artifact.id, report, links: runLinks(detail.task.id) };
+}
+
 export async function getRunEventSnapshot(db: Db, taskId: string, afterSequenceNumber = 0) {
   const [task] = await db
     .select({
@@ -490,6 +632,124 @@ export async function getRunEventSnapshot(db: Db, taskId: string, afterSequenceN
     task,
     events,
     lastSequenceNumber: events.at(-1)?.sequenceNumber ?? afterSequenceNumber,
+  };
+}
+
+function buildRunReportPayload(detail: Awaited<ReturnType<typeof getTaskDetail>>) {
+  const outputArtifactId = detail.task.outputArtifactId;
+  const outputArtifact = outputArtifactId
+    ? detail.artifacts.find((artifact) => artifact.id === outputArtifactId)
+    : detail.artifacts.find((artifact) => artifact.rows.some((row) => row.rowIndex === 0));
+  const output = outputArtifact?.rows.find((row) => row.rowIndex === 0)?.rowJson ?? null;
+  const outputRecord = isRecord(output) ? output : {};
+  const aggregateRecord = detail.forecastAggregates.at(0)?.rawAggregate ?? outputRecord;
+  const config = isRecord(detail.task.configJson) ? detail.task.configJson : {};
+  const classification = isRecord(config.classification) ? config.classification : {};
+  const prompt = readString(config, "prompt") ?? readString(outputRecord, "question") ?? detail.task.label;
+
+  return {
+    reportType: "run_decision_report",
+    version: 1,
+    task: {
+      id: detail.task.id,
+      label: detail.task.label,
+      status: detail.task.status,
+      operationMode: detail.task.operationMode,
+      operationSubmode: detail.task.operationSubmode,
+      smithersRunId: detail.task.smithersRunId,
+      createdAt: detail.task.createdAt,
+      completedAt: detail.task.completedAt,
+    },
+    question: prompt,
+    forecastType: readString(aggregateRecord, "forecastType", "forecast_type") ?? readString(classification, "forecastType") ?? null,
+    answer: summarizeForecastAnswer(aggregateRecord),
+    output,
+    evidence: {
+      sourceCount: detail.sources.length,
+      citationCount: detail.citations.length,
+      sources: detail.sources.slice(0, 25).map((source) => ({
+        title: source.title,
+        url: source.url,
+        domain: source.domain,
+        claim: source.contentSummary,
+        sourceType: source.sourceType,
+        publishedAt: source.publishedAt,
+        retrievedAt: source.retrievedAt,
+      })),
+    },
+    process: {
+      attemptCount: detail.forecastAttempts.length,
+      aggregateCount: detail.forecastAggregates.length,
+      recentTraceEventCount: detail.traceEvents.length,
+      method: readString(aggregateRecord, "method") ?? null,
+    },
+    links: runLinks(detail.task.id),
+  };
+}
+
+function runReportSchemaJson() {
+  return {
+    type: "object",
+    properties: {
+      reportType: { const: "run_decision_report" },
+      version: { type: "number" },
+      task: { type: "object" },
+      question: { type: "string" },
+      forecastType: { type: ["string", "null"] },
+      answer: { type: "object" },
+      output: { type: ["object", "null"] },
+      evidence: { type: "object" },
+      process: { type: "object" },
+      links: { type: "object" },
+    },
+  };
+}
+
+function summarizeForecastAnswer(output: unknown) {
+  if (!isRecord(output)) {
+    return { kind: "missing", value: null };
+  }
+  const probability = readNumber(output, "probability");
+  if (probability !== null) {
+    return { kind: "probability", value: probability, unit: "percent" };
+  }
+  const targetDate = readString(output, "targetDate", "target_date") ?? readString(readRecord(output, "dateDistribution", "date_distribution"), "p50");
+  if (targetDate) {
+    return { kind: "date", value: targetDate, neverProbability: readNumber(output, "neverProbability", "never_probability") };
+  }
+  const value = readNumber(output, "value");
+  if (value !== null) {
+    return { kind: "numeric", value, unit: readString(output, "unit") ?? null };
+  }
+  const topCategory = readString(output, "topCategory", "top_category");
+  if (topCategory) {
+    return { kind: "categorical", value: topCategory };
+  }
+  const probabilities = readArray(output, "probabilities");
+  if (probabilities.length) {
+    return { kind: "thresholded", value: probabilities };
+  }
+  return { kind: "recorded", value: null };
+}
+
+function readRecord(value: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const raw = value[key];
+    if (isRecord(raw)) {
+      return raw;
+    }
+  }
+  return {};
+}
+
+function runLinks(taskId: string) {
+  return {
+    detail: `/api/runs/${taskId}`,
+    status: `/api/runs/${taskId}/status`,
+    result: `/api/runs/${taskId}/result`,
+    reportArtifact: `/api/runs/${taskId}/report-artifact`,
+    reportPage: `/runs/${taskId}/report`,
+    traceBundle: `/api/runs/${taskId}/trace-bundle`,
   };
 }
 

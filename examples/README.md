@@ -36,6 +36,16 @@ curl -X POST http://localhost:3000/api/runs \
   -d @examples/request-binary-forecast.json
 ```
 
+The run API is split into start/status/result calls so automation does not need
+to hold a long request open:
+
+```bash
+TASK_ID=<task-id-from-create-response>
+curl http://localhost:3000/api/runs/$TASK_ID/status
+curl http://localhost:3000/api/runs/$TASK_ID/result
+curl -X POST http://localhost:3000/api/runs/$TASK_ID/report-artifact
+```
+
 ## Table Workflows
 
 Use the CSV files in the web composer by selecting the relevant mode and
