@@ -412,6 +412,12 @@ export const workflowChangeProposals = pgTable("workflow_change_proposals", {
   reviewNote: text("review_note"),
   reviewedBy: text("reviewed_by"),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  implementationTaskTitle: text("implementation_task_title"),
+  implementationStatus: text("implementation_status").notNull().default("not_started"),
+  implementationExperimentLabel: text("implementation_experiment_label"),
+  implementationNote: text("implementation_note"),
+  implementationUpdatedBy: text("implementation_updated_by"),
+  implementationUpdatedAt: timestamp("implementation_updated_at", { withTimezone: true }),
   ...timestamps,
 });
 

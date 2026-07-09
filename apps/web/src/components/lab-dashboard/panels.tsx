@@ -4,7 +4,11 @@ import Link from "next/link"
 import type { LucideIcon } from "lucide-react"
 import { Activity, BarChart3, Database, FlaskConical, Play, Server, ShieldCheck, TrendingUp, Wrench } from "lucide-react"
 
-import type { BenchmarkMode, WorkflowChangeProposalStatus } from "@/components/lab-dashboard/use-lab-dashboard"
+import type {
+  BenchmarkMode,
+  WorkflowChangeProposalImplementationStatus,
+  WorkflowChangeProposalStatus,
+} from "@/components/lab-dashboard/use-lab-dashboard"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -132,7 +136,12 @@ export function BenchmarksCard({
 }: {
   benchmarks: { benchmarkRuns: JsonRecord[]; benchmarkSuites: JsonRecord[] }
   busy: string | null
-  updateWorkflowChangeProposal: (benchmarkRunId: string, proposalId: string, status: WorkflowChangeProposalStatus) => Promise<void>
+  updateWorkflowChangeProposal: (
+    benchmarkRunId: string,
+    proposalId: string,
+    status: WorkflowChangeProposalStatus,
+    implementationStatus?: WorkflowChangeProposalImplementationStatus,
+  ) => Promise<void>
 }) {
   return (
     <Card id="benchmarks">
@@ -161,7 +170,12 @@ function BenchmarkRunSummary({
 }: {
   busy: string | null
   run: JsonRecord
-  updateWorkflowChangeProposal: (benchmarkRunId: string, proposalId: string, status: WorkflowChangeProposalStatus) => Promise<void>
+  updateWorkflowChangeProposal: (
+    benchmarkRunId: string,
+    proposalId: string,
+    status: WorkflowChangeProposalStatus,
+    implementationStatus?: WorkflowChangeProposalImplementationStatus,
+  ) => Promise<void>
 }) {
   const promotionGate = isRecord(run.promotionGate) ? run.promotionGate : null
   const baselineSanity = isRecord(run.baselineSanityFindings) ? run.baselineSanityFindings : null
@@ -278,18 +292,29 @@ function WorkflowProposalSummary({
   benchmarkRunId: string | null
   busy: string | null
   proposal: JsonRecord
-  updateWorkflowChangeProposal: (benchmarkRunId: string, proposalId: string, status: WorkflowChangeProposalStatus) => Promise<void>
+  updateWorkflowChangeProposal: (
+    benchmarkRunId: string,
+    proposalId: string,
+    status: WorkflowChangeProposalStatus,
+    implementationStatus?: WorkflowChangeProposalImplementationStatus,
+  ) => Promise<void>
 }) {
   const proposalId = typeof proposal.id === "string" ? proposal.id : null
   const status = normalizeProposalStatus(proposal.status)
+  const implementationStatus = normalizeProposalImplementationStatus(proposal.implementationStatus)
+  const implementationTaskTitle = typeof proposal.implementationTaskTitle === "string" ? proposal.implementationTaskTitle : null
+  const implementationExperimentLabel = typeof proposal.implementationExperimentLabel === "string" ? proposal.implementationExperimentLabel : null
   const reviewedBy = typeof proposal.reviewedBy === "string" ? proposal.reviewedBy : null
   const reviewedAt = typeof proposal.reviewedAt === "string" ? proposal.reviewedAt : null
   const canUpdate = Boolean(benchmarkRunId && proposalId)
-  const updateStatus = (nextStatus: WorkflowChangeProposalStatus) => {
+  const updateStatus = (
+    nextStatus: WorkflowChangeProposalStatus,
+    nextImplementationStatus?: WorkflowChangeProposalImplementationStatus,
+  ) => {
     if (!benchmarkRunId || !proposalId) {
       return
     }
-    void updateWorkflowChangeProposal(benchmarkRunId, proposalId, nextStatus)
+    void updateWorkflowChangeProposal(benchmarkRunId, proposalId, nextStatus, nextImplementationStatus)
   }
   return (
     <div className="rounded-md border px-3 py-2">
@@ -313,13 +338,21 @@ function WorkflowProposalSummary({
           reviewed {reviewedBy ?? "local-user"}{reviewedAt ? ` · ${reviewedAt}` : ""}
         </p>
       ) : null}
+      {implementationStatus !== "not_started" ? (
+        <div className="mt-2 rounded-sm bg-muted/40 px-2 py-1.5 text-xs text-muted-foreground">
+          <p className="truncate">
+            implementation {implementationStatus}{implementationExperimentLabel ? ` · ${implementationExperimentLabel}` : ""}
+          </p>
+          {implementationTaskTitle ? <p className="mt-1 line-clamp-1">{implementationTaskTitle}</p> : null}
+        </div>
+      ) : null}
       {canUpdate ? (
         <div className="mt-2 flex flex-wrap gap-1">
           {(["accepted", "rejected", "implemented"] as const).map((nextStatus) => (
             <Button
               disabled={busy !== null || status === nextStatus}
               key={nextStatus}
-              onClick={() => updateStatus(nextStatus)}
+              onClick={() => updateStatus(nextStatus, implementationStatusForAction(nextStatus))}
               size="xs"
               type="button"
               variant={nextStatus === "rejected" ? "destructive" : "outline"}
@@ -327,10 +360,21 @@ function WorkflowProposalSummary({
               {nextStatus}
             </Button>
           ))}
+          {status === "accepted" && implementationStatus === "planned" ? (
+            <Button
+              disabled={busy !== null}
+              onClick={() => updateStatus("accepted", "in_progress")}
+              size="xs"
+              type="button"
+              variant="outline"
+            >
+              start patch
+            </Button>
+          ) : null}
           {status !== "candidate" ? (
             <Button
               disabled={busy !== null}
-              onClick={() => updateStatus("candidate")}
+              onClick={() => updateStatus("candidate", "not_started")}
               size="xs"
               type="button"
               variant="ghost"
@@ -346,6 +390,20 @@ function WorkflowProposalSummary({
 
 function normalizeProposalStatus(value: unknown): WorkflowChangeProposalStatus {
   return value === "accepted" || value === "rejected" || value === "implemented" ? value : "candidate"
+}
+
+function normalizeProposalImplementationStatus(value: unknown): WorkflowChangeProposalImplementationStatus {
+  return value === "planned" || value === "in_progress" || value === "validated" ? value : "not_started"
+}
+
+function implementationStatusForAction(status: WorkflowChangeProposalStatus): WorkflowChangeProposalImplementationStatus | undefined {
+  if (status === "accepted") {
+    return "planned"
+  }
+  if (status === "implemented") {
+    return "validated"
+  }
+  return undefined
 }
 
 export function PerformanceCard({ performance }: { performance: JsonRecord | null }) {

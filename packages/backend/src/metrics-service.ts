@@ -103,6 +103,8 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
         status: workflowChangeProposals.status,
         reviewedBy: workflowChangeProposals.reviewedBy,
         reviewedAt: workflowChangeProposals.reviewedAt,
+        implementationStatus: workflowChangeProposals.implementationStatus,
+        implementationExperimentLabel: workflowChangeProposals.implementationExperimentLabel,
         createdAt: workflowChangeProposals.createdAt,
       })
       .from(workflowChangeProposals)
@@ -316,14 +318,15 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
   for (const [key, count] of countBy(promotionDecisionRows, (row) => labelKey({ state: row.state }))) {
     metrics.gauge("open_superforecaster_workflow_promotion_decisions_total", "Workflow promotion decision count by state.", count, parseLabelKey(key));
   }
-  metrics.gauge("open_superforecaster_workflow_change_proposals_total", "Workflow change proposal count by status and target workflow.", workflowProposalRows.length);
+  metrics.gauge("open_superforecaster_workflow_change_proposals_total", "Workflow change proposal count by lifecycle, implementation status, and target workflow.", workflowProposalRows.length);
   for (const [key, count] of countBy(workflowProposalRows, (row) =>
     labelKey({
       status: row.status,
+      implementation_status: row.implementationStatus,
       target_workflow_id: row.targetWorkflowId,
     }),
   )) {
-    metrics.gauge("open_superforecaster_workflow_change_proposals_total", "Workflow change proposal count by status and target workflow.", count, parseLabelKey(key));
+    metrics.gauge("open_superforecaster_workflow_change_proposals_total", "Workflow change proposal count by lifecycle, implementation status, and target workflow.", count, parseLabelKey(key));
   }
   for (const proposal of workflowProposalRows.slice(0, 50)) {
     metrics.gauge("open_superforecaster_workflow_change_proposal_info", "Recent workflow change proposal lifecycle metadata.", 1, {
@@ -331,6 +334,8 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       source_benchmark_run_id: proposal.sourceBenchmarkRunId ?? "none",
       target_workflow_id: proposal.targetWorkflowId,
       status: proposal.status,
+      implementation_status: proposal.implementationStatus,
+      implementation_experiment_label: proposal.implementationExperimentLabel ?? "none",
       reviewed_by: proposal.reviewedBy ?? "none",
       reviewed: proposal.reviewedAt ? "true" : "false",
     });

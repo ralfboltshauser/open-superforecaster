@@ -66,6 +66,8 @@ const promotionStates = [
 export type WorkflowPromotionState = (typeof promotionStates)[number];
 const workflowChangeProposalStatuses = ["candidate", "accepted", "rejected", "implemented"] as const;
 export type WorkflowChangeProposalStatus = (typeof workflowChangeProposalStatuses)[number];
+const workflowChangeProposalImplementationStatuses = ["not_started", "planned", "in_progress", "validated"] as const;
+export type WorkflowChangeProposalImplementationStatus = (typeof workflowChangeProposalImplementationStatuses)[number];
 type BenchmarkPromotionComparisonStatus =
   | "candidate_better"
   | "candidate_worse"
@@ -728,6 +730,12 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
         reviewNote: workflowChangeProposals.reviewNote,
         reviewedBy: workflowChangeProposals.reviewedBy,
         reviewedAt: workflowChangeProposals.reviewedAt,
+        implementationTaskTitle: workflowChangeProposals.implementationTaskTitle,
+        implementationStatus: workflowChangeProposals.implementationStatus,
+        implementationExperimentLabel: workflowChangeProposals.implementationExperimentLabel,
+        implementationNote: workflowChangeProposals.implementationNote,
+        implementationUpdatedBy: workflowChangeProposals.implementationUpdatedBy,
+        implementationUpdatedAt: workflowChangeProposals.implementationUpdatedAt,
         createdAt: workflowChangeProposals.createdAt,
       })
       .from(workflowChangeProposals)
@@ -1033,12 +1041,41 @@ export async function updateWorkflowChangeProposalStatus(
     status: string;
     reviewNote?: string;
     reviewedBy?: string;
+    implementationTaskTitle?: string;
+    implementationStatus?: string;
+    implementationExperimentLabel?: string;
+    implementationNote?: string;
   },
 ) {
   const status = normalizeWorkflowChangeProposalStatus(input.status);
   const reviewNote = input.reviewNote?.trim() || null;
   const reviewedBy = input.reviewedBy?.trim() || "local-user";
   const reviewedAt = status === "candidate" ? null : new Date();
+  const [existing] = await db
+    .select()
+    .from(workflowChangeProposals)
+    .where(and(eq(workflowChangeProposals.id, input.proposalId), eq(workflowChangeProposals.sourceBenchmarkRunId, input.benchmarkRunId)))
+    .limit(1);
+  if (!existing) {
+    throw new Error(`Workflow change proposal not found for benchmark run: ${input.proposalId}`);
+  }
+  const implementationStatus = input.implementationStatus
+    ? normalizeWorkflowChangeProposalImplementationStatus(input.implementationStatus)
+    : implementationStatusForProposalTransition(status, existing.implementationStatus);
+  const implementationUpdatedAt = implementationStatus === existing.implementationStatus ? existing.implementationUpdatedAt : new Date();
+  const implementationUpdatedBy = implementationStatus === "not_started" ? null : reviewedBy;
+  const implementationExperimentLabel =
+    implementationStatus === "not_started"
+      ? null
+      : input.implementationExperimentLabel?.trim() || existing.implementationExperimentLabel || `proposal-${existing.id.slice(0, 8)}`;
+  const implementationTaskTitle =
+    implementationStatus === "not_started"
+      ? null
+      : input.implementationTaskTitle?.trim() || existing.implementationTaskTitle || `Patch ${existing.targetWorkflowId} from accepted proposal`;
+  const implementationNote =
+    implementationStatus === "not_started"
+      ? null
+      : input.implementationNote?.trim() || existing.implementationNote || implementationNoteForProposalTransition(status, implementationStatus);
   const [proposal] = await db
     .update(workflowChangeProposals)
     .set({
@@ -1046,9 +1083,15 @@ export async function updateWorkflowChangeProposalStatus(
       reviewNote,
       reviewedBy: status === "candidate" ? null : reviewedBy,
       reviewedAt,
+      implementationTaskTitle,
+      implementationStatus,
+      implementationExperimentLabel,
+      implementationNote,
+      implementationUpdatedBy,
+      implementationUpdatedAt,
       updatedAt: new Date(),
     })
-    .where(and(eq(workflowChangeProposals.id, input.proposalId), eq(workflowChangeProposals.sourceBenchmarkRunId, input.benchmarkRunId)))
+    .where(eq(workflowChangeProposals.id, existing.id))
     .returning({
       id: workflowChangeProposals.id,
       sourceBenchmarkRunId: workflowChangeProposals.sourceBenchmarkRunId,
@@ -1064,12 +1107,15 @@ export async function updateWorkflowChangeProposalStatus(
       reviewNote: workflowChangeProposals.reviewNote,
       reviewedBy: workflowChangeProposals.reviewedBy,
       reviewedAt: workflowChangeProposals.reviewedAt,
+      implementationTaskTitle: workflowChangeProposals.implementationTaskTitle,
+      implementationStatus: workflowChangeProposals.implementationStatus,
+      implementationExperimentLabel: workflowChangeProposals.implementationExperimentLabel,
+      implementationNote: workflowChangeProposals.implementationNote,
+      implementationUpdatedBy: workflowChangeProposals.implementationUpdatedBy,
+      implementationUpdatedAt: workflowChangeProposals.implementationUpdatedAt,
       createdAt: workflowChangeProposals.createdAt,
       updatedAt: workflowChangeProposals.updatedAt,
     });
-  if (!proposal) {
-    throw new Error(`Workflow change proposal not found for benchmark run: ${input.proposalId}`);
-  }
   return proposal;
 }
 
@@ -1239,6 +1285,42 @@ function normalizeWorkflowChangeProposalStatus(raw: string): WorkflowChangePropo
     return raw as WorkflowChangeProposalStatus;
   }
   throw new Error(`Unknown workflow change proposal status: ${raw}`);
+}
+
+function normalizeWorkflowChangeProposalImplementationStatus(raw: string): WorkflowChangeProposalImplementationStatus {
+  if (workflowChangeProposalImplementationStatuses.includes(raw as WorkflowChangeProposalImplementationStatus)) {
+    return raw as WorkflowChangeProposalImplementationStatus;
+  }
+  throw new Error(`Unknown workflow change proposal implementation status: ${raw}`);
+}
+
+function implementationStatusForProposalTransition(
+  status: WorkflowChangeProposalStatus,
+  current: string,
+): WorkflowChangeProposalImplementationStatus {
+  if (status === "candidate" || status === "rejected") {
+    return "not_started";
+  }
+  if (status === "implemented") {
+    return "validated";
+  }
+  const normalized = workflowChangeProposalImplementationStatuses.includes(current as WorkflowChangeProposalImplementationStatus)
+    ? (current as WorkflowChangeProposalImplementationStatus)
+    : "not_started";
+  return normalized === "not_started" ? "planned" : normalized;
+}
+
+function implementationNoteForProposalTransition(
+  status: WorkflowChangeProposalStatus,
+  implementationStatus: WorkflowChangeProposalImplementationStatus,
+) {
+  if (status === "implemented") {
+    return "Marked implemented after workflow patch validation.";
+  }
+  if (implementationStatus === "in_progress") {
+    return "Workflow patch work started from accepted proposal.";
+  }
+  return "Accepted for workflow implementation.";
 }
 
 async function loadWorkflowVariantSummary(db: Db, workflowVariantId: string) {
