@@ -670,6 +670,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byInputQuestionLength = readArray(groups, "byInputQuestionLength").filter(isRecord)
   const byInputCategoryCount = readArray(groups, "byInputCategoryCount").filter(isRecord)
   const byInputThresholdCount = readArray(groups, "byInputThresholdCount").filter(isRecord)
+  const byInputConditionCriteria = readArray(groups, "byInputConditionCriteria").filter(isRecord)
   const byRunDuration = readArray(groups, "byRunDuration").filter(isRecord)
   const byRunExperiment = readArray(groups, "byRunExperiment").filter(isRecord)
   const bestForecasts = readArray(performance, "bestResolvedForecasts").filter(isRecord)
@@ -772,6 +773,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byInputQuestionLength.length ? <PerformancePlanShapeGroupList groups={byInputQuestionLength} title="Input question outcomes" skipKey="input_question:unrecorded" fallback="input question" /> : null}
         {byInputCategoryCount.length ? <PerformancePlanShapeGroupList groups={byInputCategoryCount} title="Input category outcomes" skipKey="input_categories:unrecorded" fallback="input categories" /> : null}
         {byInputThresholdCount.length ? <PerformancePlanShapeGroupList groups={byInputThresholdCount} title="Input threshold outcomes" skipKey="input_thresholds:unrecorded" fallback="input thresholds" /> : null}
+        {byInputConditionCriteria.length ? <PerformancePlanShapeGroupList groups={byInputConditionCriteria} title="Input condition-criteria outcomes" skipKey="input_condition_criteria:unrecorded" fallback="input condition criteria" /> : null}
         {byRunDuration.length ? <PerformancePlanShapeGroupList groups={byRunDuration} title="Run duration outcomes" skipKey="run_duration:unrecorded" fallback="run duration" /> : null}
         {byRunExperiment.length ? <PerformancePlanShapeGroupList groups={byRunExperiment} title="Run experiment outcomes" skipKey="run_experiment:unrecorded" fallback="run experiment" /> : null}
         {calibrationBuckets.length ? <PerformanceCalibrationList buckets={calibrationBuckets} summary={calibrationSummary} /> : null}

@@ -21,6 +21,8 @@ export type ForecastInputContextSnapshot = {
   thresholdCount: number | null;
   thresholdCountBand: "none" | "single" | "curve" | "unknown";
   hasCondition: boolean;
+  hasConditionResolutionCriteria: boolean;
+  conditionCriteriaBand: "none" | "condition_only" | "condition_with_criteria" | "unknown";
   hasUnit: boolean;
   contextCompleteness: number;
   contextCompletenessBand: "sparse" | "partial" | "rich";
@@ -56,6 +58,7 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     ?? readIsoDate(rawMarket, "marketPriceAsOf", "market_price_as_of", "priceAsOf", "price_as_of", "asOf", "as_of");
   const marketPriceAgeDays = hasMarketPrice ? horizonDays(marketPriceAsOfDate, evidenceAsOfDate) : null;
   const hasCondition = Boolean(normalized.condition?.trim());
+  const hasConditionResolutionCriteria = Boolean(normalized.conditionResolutionCriteria?.trim());
   const hasUnit = Boolean(normalized.unit?.trim());
   const contextCompleteness = [
     hasResolutionCriteria,
@@ -65,6 +68,7 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     categoryCount > 0,
     thresholdCount > 0,
     hasCondition,
+    hasConditionResolutionCriteria,
     hasUnit,
   ].filter(Boolean).length;
   return {
@@ -88,6 +92,8 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     thresholdCount,
     thresholdCountBand: thresholdCountBand(thresholdCount),
     hasCondition,
+    hasConditionResolutionCriteria,
+    conditionCriteriaBand: conditionCriteriaBand({ hasCondition, hasConditionResolutionCriteria }),
     hasUnit,
     contextCompleteness,
     contextCompletenessBand: contextCompletenessBand(contextCompleteness),
@@ -133,6 +139,11 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
     thresholdCount,
     thresholdCountBand: readThresholdCountBand(value) ?? thresholdCountBand(thresholdCount),
     hasCondition: readBoolean(value, "hasCondition") ?? false,
+    hasConditionResolutionCriteria: readBoolean(value, "hasConditionResolutionCriteria") ?? false,
+    conditionCriteriaBand: readConditionCriteriaBand(value) ?? conditionCriteriaBand({
+      hasCondition: readBoolean(value, "hasCondition") ?? false,
+      hasConditionResolutionCriteria: readBoolean(value, "hasConditionResolutionCriteria") ?? false,
+    }),
     hasUnit: readBoolean(value, "hasUnit") ?? false,
     contextCompleteness: contextCompleteness ?? 0,
     contextCompletenessBand: isContextCompletenessBand(contextCompletenessBandValue)
@@ -204,6 +215,16 @@ export function thresholdCountBand(count: number | null): ForecastInputContextSn
     return "single";
   }
   return "curve";
+}
+
+export function conditionCriteriaBand(input: {
+  hasCondition: boolean;
+  hasConditionResolutionCriteria: boolean;
+}): ForecastInputContextSnapshot["conditionCriteriaBand"] {
+  if (!input.hasCondition) {
+    return "none";
+  }
+  return input.hasConditionResolutionCriteria ? "condition_with_criteria" : "condition_only";
 }
 
 export function contextCompletenessBand(count: number): ForecastInputContextSnapshot["contextCompletenessBand"] {
@@ -289,6 +310,11 @@ function readCategoryCountBand(value: Record<string, unknown>) {
 function readThresholdCountBand(value: Record<string, unknown>) {
   const raw = readString(value, "thresholdCountBand");
   return raw === "none" || raw === "single" || raw === "curve" || raw === "unknown" ? raw : null;
+}
+
+function readConditionCriteriaBand(value: Record<string, unknown>) {
+  const raw = readString(value, "conditionCriteriaBand");
+  return raw === "none" || raw === "condition_only" || raw === "condition_with_criteria" || raw === "unknown" ? raw : null;
 }
 
 function isMarketPriceBand(value: string | null): value is ForecastInputContextSnapshot["marketPriceBand"] {

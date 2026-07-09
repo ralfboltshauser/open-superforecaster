@@ -447,6 +447,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byInputQuestionLength = groupScores(aggregateScores, inputQuestionLengthGroupKey);
   const byInputCategoryCount = groupScores(aggregateScores, inputCategoryCountGroupKey);
   const byInputThresholdCount = groupScores(aggregateScores, inputThresholdCountGroupKey);
+  const byInputConditionCriteria = groupScores(aggregateScores, inputConditionCriteriaGroupKey);
   const byRunDuration = groupScores(aggregateScores, runDurationGroupKey);
   const byRunExperiment = groupScores(aggregateScores, runExperimentGroupKey);
   const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
@@ -540,6 +541,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputQuestionLength,
       byInputCategoryCount,
       byInputThresholdCount,
+      byInputConditionCriteria,
       byRunDuration,
       byRunExperiment,
     },
@@ -623,6 +625,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputQuestionLength,
       byInputCategoryCount,
       byInputThresholdCount,
+      byInputConditionCriteria,
       byRunDuration,
       byRunExperiment,
       bestResolvedForecasts,
@@ -1664,6 +1667,11 @@ function inputThresholdCountGroupKey(score: typeof forecastScores.$inferSelect) 
   return `input_thresholds:${inputContext?.thresholdCountBand ?? "unrecorded"}`;
 }
 
+function inputConditionCriteriaGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_condition_criteria:${inputContext?.conditionCriteriaBand ?? "unrecorded"}`;
+}
+
 function runDurationGroupKey(score: typeof forecastScores.$inferSelect) {
   const runMetadata = readForecastRunSnapshot(score.scoreConfig);
   return `run_duration:${runMetadata?.durationBand ?? "unrecorded"}`;
@@ -2565,6 +2573,13 @@ function inputContextMissSignal(item: PerformanceCase): { reason: string; delta:
       severity: "medium",
     };
   }
+  if (context.conditionCriteriaBand === "condition_only") {
+    return {
+      reason: "conditional input included a condition but no separate condition resolution criteria",
+      delta: context.contextCompleteness,
+      severity: "medium",
+    };
+  }
   if (context.questionLengthBand === "short" || context.questionLengthBand === "long") {
     return {
       reason: `${context.questionLengthBand} question text (${context.questionLength ?? 0} words)`,
@@ -2786,6 +2801,7 @@ function renderPerformanceMarkdown(input: {
   byInputQuestionLength: PerformanceGroup[];
   byInputCategoryCount: PerformanceGroup[];
   byInputThresholdCount: PerformanceGroup[];
+  byInputConditionCriteria: PerformanceGroup[];
   byRunDuration: PerformanceGroup[];
   byRunExperiment: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
@@ -2976,6 +2992,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input threshold-count groups",
     ...renderGroupTable(input.byInputThresholdCount),
+    "",
+    "## Input condition-criteria groups",
+    ...renderGroupTable(input.byInputConditionCriteria),
     "",
     "## Run duration groups",
     ...renderGroupTable(input.byRunDuration),
