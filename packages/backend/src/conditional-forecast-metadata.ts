@@ -4,6 +4,10 @@ export type ConditionalForecastSnapshot = {
   probabilityGivenNotCondition: number | null;
   probabilityDelta: number | null;
   effectBand: "none" | "small" | "moderate" | "large" | "unknown";
+  conditionResolved: boolean | null;
+  resolvedBranchProbability: number | null;
+  resolvedBranchProbabilityBand: "zero" | "low" | "moderate" | "high" | "unknown";
+  resolvedBranchPlacement: "higher_probability" | "lower_probability" | "tied" | "unknown";
   condition: string | null;
   attemptCount: number | null;
   componentBranchCount: number | null;
@@ -29,6 +33,13 @@ export function readConditionalForecastSnapshot(value: unknown): ConditionalFore
       ? null
       : roundOne(probabilityGivenCondition - probabilityGivenNotCondition));
   const conditionProbability = readNumber(conditional, "conditionProbability", "condition_probability");
+  const conditionResolved = readBoolean(conditional, "conditionResolved", "condition_resolved", "condition")
+    ?? readBoolean(record, "conditionResolved", "condition_resolved", "condition");
+  const resolvedBranchProbability = conditionalResolvedBranchProbability({
+    conditionResolved,
+    probabilityGivenCondition,
+    probabilityGivenNotCondition,
+  });
   const condition = readString(conditional, "condition");
   const attemptCount = readNumber(conditional, "attemptCount", "attempt_count");
   const branchStats = readBranchStats(conditional);
@@ -49,6 +60,14 @@ export function readConditionalForecastSnapshot(value: unknown): ConditionalFore
     probabilityGivenNotCondition,
     probabilityDelta,
     effectBand: conditionalEffectBand(probabilityDelta),
+    conditionResolved,
+    resolvedBranchProbability,
+    resolvedBranchProbabilityBand: conditionalBranchProbabilityBand(resolvedBranchProbability),
+    resolvedBranchPlacement: conditionalResolvedBranchPlacement({
+      conditionResolved,
+      probabilityGivenCondition,
+      probabilityGivenNotCondition,
+    }),
     condition,
     attemptCount,
     ...branchStats,
@@ -70,6 +89,52 @@ export function conditionalEffectBand(delta: number | null): ConditionalForecast
     return "small";
   }
   return "none";
+}
+
+export function conditionalResolvedBranchProbability(input: {
+  conditionResolved: boolean | null;
+  probabilityGivenCondition: number | null;
+  probabilityGivenNotCondition: number | null;
+}) {
+  if (input.conditionResolved === null) {
+    return null;
+  }
+  return input.conditionResolved ? input.probabilityGivenCondition : input.probabilityGivenNotCondition;
+}
+
+export function conditionalBranchProbabilityBand(probability: number | null): ConditionalForecastSnapshot["resolvedBranchProbabilityBand"] {
+  if (probability === null || !Number.isFinite(probability)) {
+    return "unknown";
+  }
+  if (probability <= 0) {
+    return "zero";
+  }
+  if (probability < 25) {
+    return "low";
+  }
+  if (probability < 60) {
+    return "moderate";
+  }
+  return "high";
+}
+
+export function conditionalResolvedBranchPlacement(input: {
+  conditionResolved: boolean | null;
+  probabilityGivenCondition: number | null;
+  probabilityGivenNotCondition: number | null;
+}): ConditionalForecastSnapshot["resolvedBranchPlacement"] {
+  if (
+    input.conditionResolved === null ||
+    input.probabilityGivenCondition === null ||
+    input.probabilityGivenNotCondition === null
+  ) {
+    return "unknown";
+  }
+  if (input.probabilityGivenCondition === input.probabilityGivenNotCondition) {
+    return "tied";
+  }
+  const conditionHigher = input.probabilityGivenCondition > input.probabilityGivenNotCondition;
+  return input.conditionResolved === conditionHigher ? "higher_probability" : "lower_probability";
 }
 
 function readString(value: unknown, ...keys: string[]) {
@@ -94,6 +159,20 @@ function readNumber(value: unknown, ...keys: string[]) {
   for (const key of keys) {
     const raw = record[key];
     if (typeof raw === "number" && Number.isFinite(raw)) {
+      return raw;
+    }
+  }
+  return null;
+}
+
+function readBoolean(value: unknown, ...keys: string[]) {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+  for (const key of keys) {
+    const raw = record[key];
+    if (typeof raw === "boolean") {
       return raw;
     }
   }

@@ -318,9 +318,10 @@ guarded impact is also queued as a high-severity attention item
 before more default guard rules are promoted.
 Conditional score rows likewise preserve the resolved branch, condition
 probability, branch probabilities, probability delta, condition-effect band,
-component branch disagreement, and effect-direction agreement so performance
-reports can separate condition-probability errors from outcome-under-condition
-errors and high-disagreement conditional aggregates.
+resolved-branch placement, component branch disagreement, and effect-direction
+agreement so performance reports can separate condition-probability errors,
+lower-probability active branches, outcome-under-condition errors, and
+high-disagreement conditional aggregates.
 Thresholded score rows preserve threshold direction, source, count,
 monotonicity repair status, curve spread and spread band, component curve
 disagreement, resolved-value placement, and attempt count so flat, steep,

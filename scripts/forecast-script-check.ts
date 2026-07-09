@@ -982,6 +982,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Complexity score groups"), "performance Markdown missing complexity score group section");
   assert(resolutionSource.includes("## Conditional branch groups"), "performance Markdown missing conditional branch group section");
   assert(resolutionSource.includes("## Conditional effect groups"), "performance Markdown missing conditional effect group section");
+  assert(resolutionSource.includes("## Conditional resolved-branch groups"), "performance Markdown missing conditional resolved-branch group section");
   assert(resolutionSource.includes("## Thresholded direction groups"), "performance Markdown missing thresholded direction group section");
   assert(resolutionSource.includes("## Thresholded source groups"), "performance Markdown missing thresholded source group section");
   assert(resolutionSource.includes("## Thresholded monotonicity groups"), "performance Markdown missing thresholded monotonicity group section");
@@ -1036,6 +1037,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Conditional branch outcomes"), "lab dashboard does not render conditional branch performance groups");
   assert(dashboardSource.includes("byConditionalEffect"), "lab dashboard does not read conditional effect performance groups");
   assert(dashboardSource.includes("Conditional effect outcomes"), "lab dashboard does not render conditional effect performance groups");
+  assert(dashboardSource.includes("byConditionalResolvedBranch"), "lab dashboard does not read conditional resolved-branch performance groups");
+  assert(dashboardSource.includes("Conditional resolved-branch outcomes"), "lab dashboard does not render conditional resolved-branch performance groups");
   assert(dashboardSource.includes("byThresholdedDirection"), "lab dashboard does not read thresholded direction performance groups");
   assert(dashboardSource.includes("Threshold direction outcomes"), "lab dashboard does not render thresholded direction performance groups");
   assert(dashboardSource.includes("byThresholdedSource"), "lab dashboard does not read thresholded source performance groups");
@@ -1661,12 +1664,17 @@ await check("conditional forecast metadata reaches resolved score analytics", as
         { forecasterLabel: "skeptic", probabilityGivenCondition: 54, probabilityGivenNotCondition: 52 },
       ],
     },
+    conditionResolved: false,
   });
   assert(snapshot?.conditionProbability === 40, "conditional metadata condition probability mismatch");
   assert(snapshot?.probabilityGivenCondition === 72, "conditional metadata true-branch probability mismatch");
   assert(snapshot?.probabilityGivenNotCondition === 38, "conditional metadata false-branch probability mismatch");
   assert(snapshot?.probabilityDelta === 34, "conditional metadata probability delta mismatch");
   assert(snapshot?.effectBand === "large", "conditional metadata effect band mismatch");
+  assert(snapshot?.conditionResolved === false, "conditional metadata resolved condition mismatch");
+  assert(snapshot?.resolvedBranchProbability === 38, "conditional metadata resolved branch probability mismatch");
+  assert(snapshot?.resolvedBranchProbabilityBand === "moderate", "conditional metadata resolved branch probability band mismatch");
+  assert(snapshot?.resolvedBranchPlacement === "lower_probability", "conditional metadata resolved branch placement mismatch");
   assert(snapshot?.componentBranchCount === 3, "conditional metadata component branch count mismatch");
   assert(snapshot?.givenConditionDisagreement === 18, "conditional metadata true-branch disagreement mismatch");
   assert(snapshot?.givenNotConditionDisagreement === 14, "conditional metadata false-branch disagreement mismatch");
@@ -1677,18 +1685,24 @@ await check("conditional forecast metadata reaches resolved score analytics", as
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
-  assert(resolutionSource.includes("readConditionalForecastSnapshot(input.prediction)"), "resolution scoring does not persist conditional metadata");
+  assert(resolutionSource.includes("readConditionalForecastSnapshot({ ...input.prediction, conditionResolved })"), "resolution scoring does not persist conditional metadata with resolved branch");
   assert(resolutionSource.includes("byConditionalBranch"), "performance report does not group by conditional branch");
   assert(resolutionSource.includes("byConditionalEffect"), "performance report does not group by conditional effect size");
   assert(resolutionSource.includes("byConditionalBranchDisagreement"), "performance report does not group by conditional branch disagreement");
+  assert(resolutionSource.includes("byConditionalResolvedBranch"), "performance report does not group by conditional resolved branch");
+  assert(resolutionSource.includes("conditionalForecast.resolvedBranchPlacement"), "attention queue does not use conditional resolved branch placement");
   assert(metricsSource.includes("open_superforecaster_conditional_scores_total"), "metrics missing conditional score counts");
   assert(metricsSource.includes("conditional_branch_disagreement_band"), "metrics missing conditional branch disagreement labels");
+  assert(metricsSource.includes("conditional_resolved_branch_placement"), "metrics missing conditional resolved branch labels");
   assert(syncSource.includes("probability_given_condition"), "DuckDB forecast score mart missing conditional true branch probability");
   assert(syncSource.includes("conditional_probability_delta"), "DuckDB forecast score mart missing conditional probability delta");
+  assert(syncSource.includes("conditional_resolved_branch_probability"), "DuckDB forecast score mart missing conditional resolved branch probability");
+  assert(syncSource.includes("conditional_resolved_branch_placement"), "DuckDB forecast score mart missing conditional resolved branch placement");
   assert(syncSource.includes("conditional_effect_disagreement"), "DuckDB forecast score mart missing conditional effect disagreement");
   assert(dashboardSource.includes("Conditional branch outcomes"), "lab dashboard does not render conditional branch outcomes");
   assert(dashboardSource.includes("Conditional effect outcomes"), "lab dashboard does not render conditional effect outcomes");
   assert(dashboardSource.includes("Conditional branch-disagreement outcomes"), "lab dashboard does not render conditional branch disagreement outcomes");
+  assert(dashboardSource.includes("Conditional resolved-branch outcomes"), "lab dashboard does not render conditional resolved branch outcomes");
   return "conditional forecast metadata is persisted and visible in resolved score analytics";
 });
 

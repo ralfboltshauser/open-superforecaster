@@ -409,6 +409,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byConditionalBranch = groupScores(aggregateScores, conditionalBranchGroupKey);
   const byConditionalEffect = groupScores(aggregateScores, conditionalEffectGroupKey);
   const byConditionalBranchDisagreement = groupScores(aggregateScores, conditionalBranchDisagreementGroupKey);
+  const byConditionalResolvedBranch = groupScores(aggregateScores, conditionalResolvedBranchGroupKey);
   const byThresholdedDirection = groupScores(aggregateScores, thresholdedDirectionGroupKey);
   const byThresholdedSource = groupScores(aggregateScores, thresholdedSourceGroupKey);
   const byThresholdedRepair = groupScores(aggregateScores, thresholdedRepairGroupKey);
@@ -497,6 +498,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byConditionalBranch,
       byConditionalEffect,
       byConditionalBranchDisagreement,
+      byConditionalResolvedBranch,
       byThresholdedDirection,
       byThresholdedSource,
       byThresholdedRepair,
@@ -575,6 +577,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byConditionalBranch,
       byConditionalEffect,
       byConditionalBranchDisagreement,
+      byConditionalResolvedBranch,
       byThresholdedDirection,
       byThresholdedSource,
       byThresholdedRepair,
@@ -951,7 +954,7 @@ function scoreForecastPrediction(input: {
   if (conditionResolved === null || outcomeResolved === null) {
     return [];
   }
-  const conditionalForecast = readConditionalForecastSnapshot(input.prediction);
+  const conditionalForecast = readConditionalForecastSnapshot({ ...input.prediction, conditionResolved });
   const branch = conditionResolved ? "condition" : "not_condition";
   const probability = conditionResolved
     ? readNumber(input.prediction, "probabilityGivenCondition", "probability_given_condition")
@@ -1372,6 +1375,16 @@ function conditionalBranchDisagreementGroupKey(score: typeof forecastScores.$inf
   return conditionalForecast
     ? `conditional_branch_disagreement:${conditionalForecast.branchDisagreementBand}:${conditionalForecast.effectDirectionAgreement}`
     : "conditional_branch_disagreement:unrecorded";
+}
+
+function conditionalResolvedBranchGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "conditional") {
+    return "conditional_resolved_branch:not_conditional";
+  }
+  const conditionalForecast = readConditionalForecastSnapshot(score.scoreConfig);
+  return conditionalForecast
+    ? `conditional_resolved_branch:${conditionalForecast.resolvedBranchPlacement}:${conditionalForecast.resolvedBranchProbabilityBand}`
+    : "conditional_resolved_branch:unrecorded";
 }
 
 function thresholdedDirectionGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2187,6 +2200,22 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
   if (
     item.forecastType === "conditional" &&
     item.conditionalForecast !== null &&
+    item.conditionalForecast.resolvedBranchPlacement === "lower_probability"
+  ) {
+    return {
+      reason:
+        `resolved condition branch was the lower-probability branch with ${formatNullableMetric(item.conditionalForecast.resolvedBranchProbability)}% assigned to the active branch`,
+      delta: item.conditionalForecast.resolvedBranchProbability,
+      severity: item.conditionalForecast.resolvedBranchProbabilityBand === "low" ||
+        item.conditionalForecast.resolvedBranchProbabilityBand === "zero"
+        ? "high"
+        : "medium",
+    };
+  }
+
+  if (
+    item.forecastType === "conditional" &&
+    item.conditionalForecast !== null &&
     (
       ["moderate", "wide"].includes(item.conditionalForecast.branchDisagreementBand) ||
       item.conditionalForecast.effectDirectionAgreement === "mixed"
@@ -2634,6 +2663,7 @@ function renderPerformanceMarkdown(input: {
   byConditionalBranch: PerformanceGroup[];
   byConditionalEffect: PerformanceGroup[];
   byConditionalBranchDisagreement: PerformanceGroup[];
+  byConditionalResolvedBranch: PerformanceGroup[];
   byThresholdedDirection: PerformanceGroup[];
   byThresholdedSource: PerformanceGroup[];
   byThresholdedRepair: PerformanceGroup[];
@@ -2743,6 +2773,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Conditional branch disagreement groups",
     ...renderGroupTable(input.byConditionalBranchDisagreement),
+    "",
+    "## Conditional resolved-branch groups",
+    ...renderGroupTable(input.byConditionalResolvedBranch),
     "",
     "## Thresholded direction groups",
     ...renderGroupTable(input.byThresholdedDirection),
