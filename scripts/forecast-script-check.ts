@@ -882,6 +882,8 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_binary_calibration_bucket_error"), "calibration bucket error metric missing");
   assert(metricsSource.includes("open_superforecaster_binary_calibration_diagnostic"), "calibration diagnostic metric missing");
   assert(metricsSource.includes("open_superforecaster_binary_calibration_candidate_guard_rules_total"), "candidate calibration guard metric missing");
+  assert(metricsSource.includes("open_superforecaster_baseline_sanity_scores_total"), "baseline sanity score count metric missing");
+  assert(metricsSource.includes("open_superforecaster_baseline_sanity_score_mean"), "baseline sanity score mean metric missing");
   assert(metricsSource.includes("buildCalibrationGuardImpact"), "metrics exporter does not use shared calibration guard impact builder");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_status"), "calibration guard impact status metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_brier_delta"), "calibration guard impact Brier delta metric missing");

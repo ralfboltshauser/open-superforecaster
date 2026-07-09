@@ -267,6 +267,9 @@ attention queue with review actions and structured candidate calibration guard
 rules for human review. Poor resolved binary aggregates that moved materially
 away from their component base-rate anchor are also queued as baseline-sanity
 misses for postmortem review.
+The metrics endpoint exports baseline-sanity score counts and means as
+Prometheus series so large base-rate departures can be monitored outside the
+lab dashboard.
 
 Binary forecast generation also applies a deterministic final calibration guard
 for known threshold, timing, and production-ramp failure modes. The guard is an

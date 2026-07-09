@@ -52,7 +52,8 @@ review outcomes with blockers still present.
 The metrics endpoint exports promotion-gate status and blocker series for
 recent benchmark runs, so blocked promotion reasons can be monitored outside the
 lab dashboard. It also exports binary aggregate calibration status, bucket
-errors, diagnostics, and candidate calibration guard rule counts.
+errors, diagnostics, candidate calibration guard rule counts, and resolved
+score means by baseline-sanity status.
 Calibration guard validation outcomes are exported as Prometheus metrics too,
 including validation report count, recommendation counts, matched rows, and
 Brier/calibration-error deltas.

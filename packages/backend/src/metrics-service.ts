@@ -15,6 +15,7 @@ import {
   type createDb,
 } from "@open-superforecaster/db";
 import { summarizeBenchmarkPromotionGateEvidence } from "./benchmark-service";
+import { readBaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { buildCalibrationGuardImpact } from "./calibration-guard-impact";
 import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { buildBinaryCalibrationReport } from "./performance-calibration";
@@ -412,6 +413,46 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       "Mean score value by score type and source.",
       mean(rows.map((row) => row.scoreValue)),
       parseLabelKey(key),
+    );
+  }
+  const baselineSanityScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readBaselineSanitySnapshot(row.scoreConfig) !== null
+  );
+  if (baselineSanityScoreRows.length === 0) {
+    const labels = { baseline_sanity_status: "none", score_type: "all" };
+    metrics.gauge(
+      "open_superforecaster_baseline_sanity_scores_total",
+      "Product aggregate forecast score rows by baseline sanity status.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_baseline_sanity_score_mean",
+      "Mean product aggregate forecast score by baseline sanity status.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(baselineSanityScoreRows, (row) =>
+    labelKey({
+      score_type: row.scoreType,
+      baseline_sanity_status: readBaselineSanitySnapshot(row.scoreConfig)?.status ?? "unknown",
+    }),
+  )) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_baseline_sanity_scores_total",
+      "Product aggregate forecast score rows by baseline sanity status.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_baseline_sanity_score_mean",
+      "Mean product aggregate forecast score by baseline sanity status.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
     );
   }
   const productAggregateBrierRows = scoreRows.filter((row) =>
