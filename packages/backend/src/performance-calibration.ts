@@ -4,6 +4,24 @@ export type BinaryCalibrationInput = {
   score: number | null;
 };
 
+export const BINARY_CALIBRATION_BUCKETS = [
+  { min: 0, max: 20 },
+  { min: 20, max: 40 },
+  { min: 40, max: 60 },
+  { min: 60, max: 80 },
+  { min: 80, max: 100 },
+] as const;
+
+export const BINARY_CALIBRATION_POLICY = {
+  minimumForFitting: 25,
+  minimumBucketSampleSize: 3,
+  diagnosticCalibrationErrorThreshold: 20,
+  highSeveritySampleSize: 5,
+  highSeverityCalibrationErrorThreshold: 30,
+  candidateAdjustmentDivisor: 2,
+  maxCandidateAdjustment: 15,
+} as const;
+
 export type CalibrationBucket = {
   label: string;
   minProbability: number;
@@ -77,14 +95,7 @@ export function buildBinaryCalibrationReport(
 }
 
 function buildCalibrationBuckets(rows: BinaryCalibrationInput[]): CalibrationBucket[] {
-  const bucketDefs = [
-    { min: 0, max: 20 },
-    { min: 20, max: 40 },
-    { min: 40, max: 60 },
-    { min: 60, max: 80 },
-    { min: 80, max: 100 },
-  ];
-  return bucketDefs.map((bucket) => {
+  return BINARY_CALIBRATION_BUCKETS.map((bucket) => {
     const bucketRows = rows.filter((row) => {
       if (row.probability === null) {
         return false;
@@ -131,7 +142,7 @@ function summarizeCalibration(buckets: CalibrationBucket[], resolvedForecastCoun
   const maxBucketCalibrationError = weightedErrors.length
     ? Math.max(...weightedErrors.map((bucket) => bucket.calibrationError ?? 0))
     : null;
-  const minimumForFitting = 25;
+  const minimumForFitting = BINARY_CALIBRATION_POLICY.minimumForFitting;
   return {
     sampleSize,
     resolvedForecastCount,
@@ -152,17 +163,21 @@ function buildCalibrationDiagnostics(
   return buckets
     .flatMap((bucket): CalibrationDiagnostic[] => {
       if (
-        bucket.count < 3 ||
         bucket.meanForecast === null ||
         bucket.observedRate === null ||
         bucket.calibrationError === null ||
-        bucket.calibrationError < 20
+        bucket.count < BINARY_CALIBRATION_POLICY.minimumBucketSampleSize ||
+        bucket.calibrationError < BINARY_CALIBRATION_POLICY.diagnosticCalibrationErrorThreshold
       ) {
         return [];
       }
       const delta = bucket.observedRate - bucket.meanForecast;
       const direction = delta < 0 ? "overforecast" : "underforecast";
-      const severity = bucket.count >= 5 && bucket.calibrationError >= 30 ? "high" : "medium";
+      const severity =
+        bucket.count >= BINARY_CALIBRATION_POLICY.highSeveritySampleSize &&
+          bucket.calibrationError >= BINARY_CALIBRATION_POLICY.highSeverityCalibrationErrorThreshold
+          ? "high"
+          : "medium";
       return [{
         id: `calibration:${bucket.minProbability}-${bucket.maxProbability}`,
         severity,
@@ -234,8 +249,11 @@ function buildCandidateCalibrationGuardRules(
 }
 
 function conservativeCalibrationAdjustment(delta: number) {
-  const halfError = delta / 2;
-  const clipped = Math.max(-15, Math.min(15, halfError));
+  const halfError = delta / BINARY_CALIBRATION_POLICY.candidateAdjustmentDivisor;
+  const clipped = Math.max(
+    -BINARY_CALIBRATION_POLICY.maxCandidateAdjustment,
+    Math.min(BINARY_CALIBRATION_POLICY.maxCandidateAdjustment, halfError),
+  );
   return roundMetric(clipped);
 }
 

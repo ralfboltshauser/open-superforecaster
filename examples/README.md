@@ -70,6 +70,9 @@ Product forecast score rows are exported to `osf_forecast_scores`, including
 probability, resolved outcome, score, and calibration-guard metadata. Binary
 aggregate calibration buckets are exported to `osf_binary_calibration_buckets`
 with bucket error, diagnostic direction, and candidate guard adjustment fields.
+Those bucket rows are generated from the same shared calibration report builder
+used by performance reports, so local analytics and report artifacts use one
+set of bucket thresholds and fitting policy.
 Calibration guard validation reports are exported to
 `osf_calibration_guard_validations` with before/after Brier, bucket calibration
 error deltas, and recommendation status.

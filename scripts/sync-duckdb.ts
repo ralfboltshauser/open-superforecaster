@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { DuckDBInstance, type DuckDBAppender, type DuckDBConnection } from "@duckdb/node-api";
 import postgres from "postgres";
+import { buildBinaryCalibrationReport, type BinaryCalibrationInput } from "../packages/backend/src/performance-calibration";
 import { loadAppConfig } from "../packages/config/src/index";
 import { listFilesNamed, readJson, readRecord, readString, type JsonRecord } from "./lib/forecast-script-utils";
 
@@ -281,96 +282,7 @@ try {
   `;
   await replaceTable(duck, "osf_forecast_scores", forecastScoreColumns, forecastScores);
 
-  const binaryCalibrationBuckets = await pg<BinaryCalibrationBucketMartRow[]>`
-    with bucket_defs as (
-      select * from (values
-        (0, 20, '0-20%'),
-        (20, 40, '20-40%'),
-        (40, 60, '40-60%'),
-        (60, 80, '60-80%'),
-        (80, 100, '80-100%')
-      ) as bucket(min_probability, max_probability, label)
-    ),
-    product_scores as (
-      select
-        fs.id,
-        fs.resolution_id,
-        fs.score_value,
-        nullif(coalesce(fs.score_config #>> '{probability}', fs.score_config #>> '{probability_pct}', fs.score_config #>> '{probabilityPct}'), '')::double precision as probability,
-        nullif(fs.score_config #>> '{resolved}', '')::boolean as resolved
-      from forecast_scores fs
-      where fs.score_type = 'brier'
-        and fs.forecast_aggregate_id is not null
-        and fs.score_config #>> '{source}' = 'manual_resolution'
-        and fs.score_config ? 'taskId'
-        and not (fs.score_config ? 'benchmarkRunId')
-    ),
-    resolved_counts as (
-      select count(distinct resolution_id)::integer as resolved_forecast_count
-      from forecast_scores
-      where score_config #>> '{source}' = 'manual_resolution'
-        and score_config ? 'taskId'
-        and not (score_config ? 'benchmarkRunId')
-    ),
-    bucket_rows as (
-      select
-        bucket.label,
-        bucket.min_probability,
-        bucket.max_probability,
-        ps.probability,
-        ps.resolved,
-        ps.score_value
-      from bucket_defs bucket
-      left join product_scores ps
-        on ps.probability is not null
-       and (
-          (bucket.max_probability = 100 and ps.probability >= bucket.min_probability and ps.probability <= bucket.max_probability)
-          or (bucket.max_probability < 100 and ps.probability >= bucket.min_probability and ps.probability < bucket.max_probability)
-       )
-    ),
-    buckets as (
-      select
-        label,
-        min_probability,
-        max_probability,
-        count(probability)::integer as sample_size,
-        avg(probability)::double precision as mean_forecast,
-        (avg(case when resolved is true then 1.0 when resolved is false then 0.0 end) * 100)::double precision as observed_rate,
-        avg(score_value)::double precision as mean_brier
-      from bucket_rows
-      group by label, min_probability, max_probability
-    ),
-    diagnostics as (
-      select
-        buckets.*,
-        abs(mean_forecast - observed_rate)::double precision as calibration_error,
-        (observed_rate - mean_forecast)::double precision as calibration_delta,
-        case when observed_rate - mean_forecast < 0 then 'overforecast' else 'underforecast' end as direction,
-        case when sample_size >= 5 and abs(mean_forecast - observed_rate) >= 30 then 'high' else 'medium' end as severity
-      from buckets
-    )
-    select
-      label as bucket_label,
-      min_probability,
-      max_probability,
-      sample_size,
-      mean_forecast,
-      observed_rate,
-      mean_brier,
-      calibration_error,
-      case when sample_size >= 3 and calibration_error >= 20 then severity end as diagnostic_severity,
-      case when sample_size >= 3 and calibration_error >= 20 then direction end as diagnostic_direction,
-      case when sample_size >= 3 and calibration_error >= 20 then 'candidate-guard:' || label end as candidate_guard_id,
-      case when sample_size >= 3 and calibration_error >= 20 then least(15, greatest(-15, calibration_delta / 2)) end as candidate_guard_suggested_adjustment,
-      case
-        when sample_size >= 3 and calibration_error >= 20 and resolved_counts.resolved_forecast_count >= 25 then 'ready_for_review'
-        when sample_size >= 3 and calibration_error >= 20 then 'needs_more_resolved_forecasts'
-      end as candidate_guard_activation_status,
-      resolved_counts.resolved_forecast_count,
-      25::integer as minimum_for_fitting
-    from diagnostics, resolved_counts
-    order by min_probability
-  `;
+  const binaryCalibrationBuckets = buildBinaryCalibrationBucketMartRows(forecastScores);
   await replaceTable(duck, "osf_binary_calibration_buckets", binaryCalibrationBucketColumns, binaryCalibrationBuckets);
 
   const workflowChangeProposals = await pg<WorkflowChangeProposalMartRow[]>`
@@ -804,6 +716,59 @@ function appendValue(
   appender.appendVarchar(String(value));
 }
 
+function buildBinaryCalibrationBucketMartRows(forecastScores: ForecastScoreMartRow[]): BinaryCalibrationBucketMartRow[] {
+  const productBrierScores = forecastScores.filter((score) => {
+    const config = parseJsonRecord(score.score_config_json);
+    return score.score_type === "brier" &&
+      Boolean(score.forecast_aggregate_id) &&
+      score.source === "manual_resolution" &&
+      Boolean(readString(config, "taskId")) &&
+      !readString(config, "benchmarkRunId");
+  });
+  const resolvedForecastCount = new Set(
+    forecastScores
+      .filter((score) => {
+        const config = parseJsonRecord(score.score_config_json);
+        return score.source === "manual_resolution" &&
+          Boolean(readString(config, "taskId")) &&
+          !readString(config, "benchmarkRunId") &&
+          Boolean(score.resolution_id);
+      })
+      .map((score) => String(score.resolution_id)),
+  ).size;
+  const report = buildBinaryCalibrationReport(productBrierScores.map(scoreToCalibrationInput), resolvedForecastCount);
+  return report.calibrationBuckets.map((bucket) => {
+    const diagnostic = report.calibrationDiagnostics.find((item) => item.bucketLabel === bucket.label);
+    const candidateGuard = report.candidateCalibrationGuardRules.find((item) => item.bucketLabel === bucket.label);
+    return {
+      bucket_label: bucket.label,
+      min_probability: bucket.minProbability,
+      max_probability: bucket.maxProbability,
+      sample_size: bucket.count,
+      mean_forecast: bucket.meanForecast,
+      observed_rate: bucket.observedRate,
+      mean_brier: bucket.meanBrier,
+      calibration_error: bucket.calibrationError,
+      diagnostic_severity: diagnostic?.severity ?? null,
+      diagnostic_direction: diagnostic?.direction ?? null,
+      candidate_guard_id: candidateGuard?.id ?? null,
+      candidate_guard_suggested_adjustment: candidateGuard?.suggestedAdjustment ?? null,
+      candidate_guard_activation_status: candidateGuard?.activationStatus ?? null,
+      resolved_forecast_count: report.calibrationSummary.resolvedForecastCount,
+      minimum_for_fitting: report.calibrationSummary.minimumForFitting,
+    };
+  });
+}
+
+function scoreToCalibrationInput(score: ForecastScoreMartRow): BinaryCalibrationInput {
+  const config = parseJsonRecord(score.score_config_json);
+  return {
+    probability: readNumber(config, "probability") ?? readNumber(config, "probability_pct") ?? readNumber(config, "probabilityPct"),
+    resolved: readBoolean(config, "resolved"),
+    score: typeof score.score_value === "number" && Number.isFinite(score.score_value) ? score.score_value : null,
+  };
+}
+
 async function readCalibrationGuardValidationRows(reportRoot: string): Promise<CalibrationGuardValidationMartRow[]> {
   const paths = await listFilesNamed(reportRoot, "calibration-guard-validation.json");
   const rows: CalibrationGuardValidationMartRow[] = [];
@@ -895,12 +860,44 @@ function readRecordArray(value: unknown, key: string) {
 
 function readNumber(value: unknown, key: string) {
   const raw = readRecord(value)?.[key];
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw;
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function readBoolean(value: unknown, key: string) {
+  const raw = readRecord(value)?.[key];
+  if (typeof raw === "boolean") {
+    return raw;
+  }
+  if (raw === "true") {
+    return true;
+  }
+  if (raw === "false") {
+    return false;
+  }
+  return null;
 }
 
 function readStringArray(value: unknown, key: string) {
   const raw = readRecord(value)?.[key];
   return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string") : [];
+}
+
+function parseJsonRecord(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  try {
+    return readRecord(JSON.parse(value));
+  } catch {
+    return null;
+  }
 }
 
 await main();

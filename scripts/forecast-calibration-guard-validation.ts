@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { BINARY_CALIBRATION_POLICY } from "../packages/backend/src/performance-calibration";
 import {
   listFilesNamed,
   readArgValue,
@@ -214,7 +215,11 @@ function recommendationFor(input: {
   baselineCalibrationError: number | null;
   candidateCalibrationError: number | null;
 }): ValidationRecommendation {
-  if (input.matchedRows < 3 || input.baselineMeanBrier === null || input.candidateMeanBrier === null) {
+  if (
+    input.matchedRows < BINARY_CALIBRATION_POLICY.minimumBucketSampleSize ||
+    input.baselineMeanBrier === null ||
+    input.candidateMeanBrier === null
+  ) {
     return "needs_more_evidence";
   }
   if (

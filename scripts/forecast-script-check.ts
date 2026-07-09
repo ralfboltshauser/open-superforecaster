@@ -824,10 +824,13 @@ await check("forecast calibration health is exported as metrics", async () => {
 
 await check("forecast calibration health is exported to DuckDB", async () => {
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const validationSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-validation.ts"), "utf8");
   assert(syncSource.includes("osf_forecast_scores"), "DuckDB sync missing forecast score mart");
   assert(syncSource.includes("osf_binary_calibration_buckets"), "DuckDB sync missing binary calibration bucket mart");
   assert(syncSource.includes("osf_calibration_guard_validations"), "DuckDB sync missing calibration guard validation mart");
   assert(syncSource.includes("osf_calibration_guard_default_plan_candidates"), "DuckDB sync missing calibration guard default plan mart");
+  assert(syncSource.includes("buildBinaryCalibrationReport"), "DuckDB sync does not use shared binary calibration report builder");
+  assert(syncSource.includes("buildBinaryCalibrationBucketMartRows"), "DuckDB sync missing calibration bucket mart mapper");
   assert(syncSource.includes("calibration_guard_adjustment"), "forecast score mart missing calibration guard adjustment");
   assert(syncSource.includes("calibration_guard_rules_json"), "forecast score mart missing calibration guard rules");
   assert(syncSource.includes("candidate_guard_suggested_adjustment"), "binary calibration bucket mart missing candidate guard adjustment");
@@ -840,6 +843,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("recommendation"), "calibration guard validation mart missing recommendation");
   assert(syncSource.includes("acceptance_criteria_json"), "calibration guard default plan mart missing acceptance criteria");
   assert(syncSource.includes("resolved_forecast_count"), "binary calibration bucket mart missing resolved forecast count");
+  assert(validationSource.includes("BINARY_CALIBRATION_POLICY.minimumBucketSampleSize"), "calibration validation does not use shared minimum bucket sample policy");
   return "binary calibration scores, candidate guard rules, and validation outcomes are visible in local DuckDB analytics";
 });
 
