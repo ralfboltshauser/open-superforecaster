@@ -20,10 +20,12 @@ import { readForecastRunSnapshot } from "../packages/backend/src/forecast-run-me
 import { readMarketAnchorSnapshot } from "../packages/backend/src/market-anchor-metadata";
 import { readNumericForecastSnapshot } from "../packages/backend/src/numeric-forecast-metadata";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
+import { readResolutionBoundarySnapshot } from "../packages/backend/src/resolution-boundary-metadata";
 import { readThresholdedForecastSnapshot } from "../packages/backend/src/thresholded-forecast-metadata";
 import { buildBinaryBaselineSanityAudit } from "../packages/workflows/src/binary-baseline-sanity";
 import { applyBinaryCalibrationGuard, BINARY_CALIBRATION_GUARD_RULES } from "../packages/workflows/src/binary-calibration-guard";
 import { buildBinaryMarketAnchorAudit } from "../packages/workflows/src/binary-market-anchor";
+import { buildBinaryResolutionBoundaryAudit } from "../packages/workflows/src/binary-resolution-boundary";
 import { readJson, readRecord, readString, timestampLabel, writeJson } from "./lib/forecast-script-utils";
 
 type CheckResult = {
@@ -1049,6 +1051,8 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("baseline_delta"), "forecast score mart missing baseline sanity delta");
   assert(syncSource.includes("market_anchor_status"), "forecast score mart missing market anchor status");
   assert(syncSource.includes("market_anchor_delta"), "forecast score mart missing market anchor delta");
+  assert(syncSource.includes("resolution_boundary_status"), "forecast score mart missing resolution boundary status");
+  assert(syncSource.includes("resolution_boundary_ambiguity_flag_count"), "forecast score mart missing resolution boundary ambiguity count");
   assert(syncSource.includes("aggregate_convergence_status"), "forecast score mart missing aggregate convergence status");
   assert(syncSource.includes("aggregate_max_iterations_reached"), "forecast score mart missing aggregate max-iteration flag");
   assert(syncSource.includes("aggregate_component_disagreement"), "forecast score mart missing aggregate component disagreement");
@@ -1174,6 +1178,49 @@ await check("binary forecast aggregates persist market anchor audit", async () =
   assert(dashboardSource.includes("byMarketAnchor"), "lab dashboard does not read market anchor performance groups");
   assert(dashboardSource.includes("Market-anchor outcomes"), "lab dashboard does not render market anchor performance groups");
   return "binary aggregate market anchor audit is deterministic, persisted, and visible";
+});
+
+await check("binary forecast aggregates persist resolution boundary audit", async () => {
+  const material = buildBinaryResolutionBoundaryAudit({
+    components: [
+      { resolutionBoundary: "Clear if the agency publishes a final rule." },
+      { resolutionBoundary: "Ambiguous edge case if a draft rule is disputed or later annulled." },
+      { resolutionBoundary: "Unclear whether a temporary order should count." },
+    ],
+    qualityIssues: ["major: unresolved resolution boundary concern"],
+    plannerRisks: ["Resolution criteria may be ambiguous."],
+    resolutionCriteria: "Resolve from official agency publications.",
+  });
+  assert(material.status === "material_ambiguity", "material boundary status mismatch");
+  assert(material.componentBoundaryCount === 3, "boundary component count mismatch");
+  assert(material.ambiguityFlagCount === 2, "boundary ambiguity count mismatch");
+  assert(material.qualityIssueCount === 1, "boundary quality issue count mismatch");
+  assert(material.plannerRiskCount === 1, "boundary planner risk count mismatch");
+  const missing = buildBinaryResolutionBoundaryAudit({ components: [] });
+  assert(missing.status === "missing_boundary_review", "missing boundary status mismatch");
+  const snapshot = readResolutionBoundarySnapshot({ resolutionBoundary: material });
+  assert(snapshot?.status === "material_ambiguity", "resolution boundary snapshot status mismatch");
+  assert(snapshot?.ambiguityFlagCount === 2, "resolution boundary snapshot ambiguity count mismatch");
+  const workflowSource = await readFile(resolve(root, "packages/workflows/src/binary-forecast.workflow.tsx"), "utf8");
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  const panelSource = await readFile(resolve(root, "apps/web/src/components/run-workspace/panels.tsx"), "utf8");
+  const reportSource = await readFile(resolve(root, "packages/backend/src/run-service.ts"), "utf8");
+  assert(workflowSource.includes("buildBinaryResolutionBoundaryAudit"), "binary workflow does not use shared resolution boundary builder");
+  assert(workflowSource.includes("resolutionBoundary"), "binary aggregate schema missing resolution boundary audit");
+  assert(resolutionSource.includes("readResolutionBoundarySnapshot(input.prediction)"), "resolution scoring does not persist resolution boundary");
+  assert(resolutionSource.includes("byResolutionBoundary"), "performance report does not group by resolution boundary");
+  assert(resolutionSource.includes("resolution_boundary_miss"), "performance report does not flag boundary ambiguity misses");
+  assert(metricsSource.includes("open_superforecaster_resolution_boundary_scores_total"), "metrics missing resolution boundary score counts");
+  assert(syncSource.includes("resolution_boundary_status"), "DuckDB forecast score mart missing resolution boundary status");
+  assert(syncSource.includes("resolution_boundary_ambiguity_flag_count"), "DuckDB forecast score mart missing boundary flag count");
+  assert(dashboardSource.includes("byResolutionBoundary"), "lab dashboard does not read resolution boundary performance groups");
+  assert(dashboardSource.includes("Resolution-boundary outcomes"), "lab dashboard does not render resolution boundary performance groups");
+  assert(panelSource.includes("resolution boundary"), "run workspace does not render resolution boundary");
+  assert(reportSource.includes("readReportResolutionBoundary"), "generated report does not include resolution boundary");
+  return "binary aggregate resolution boundary audit is deterministic, persisted, and visible";
 });
 
 await check("binary aggregate quality metadata reaches resolved score analytics", async () => {

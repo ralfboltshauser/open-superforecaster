@@ -226,6 +226,11 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
   const marketDelta = readNumberAny(marketAnchor, "marketDelta", "market_delta")
   const marketPlatform = readStringAny(marketAnchor, "marketPlatform", "market_platform")
   const marketPriceAsOf = readStringAny(marketAnchor, "marketPriceAsOf", "market_price_as_of")
+  const resolutionBoundary = readRecordAny(output, "resolutionBoundary", "resolution_boundary")
+  const boundaryComponents = readNumberAny(resolutionBoundary, "componentBoundaryCount", "component_boundary_count")
+  const boundaryFlags = readNumberAny(resolutionBoundary, "ambiguityFlagCount", "ambiguity_flag_count")
+  const boundaryQualityIssues = readNumberAny(resolutionBoundary, "qualityIssueCount", "quality_issue_count")
+  const boundaryPlannerRisks = readNumberAny(resolutionBoundary, "plannerRiskCount", "planner_risk_count")
   const aggregateQuality = readAggregateQualityRecord(output)
   const convergenceStatus = readStringAny(aggregateQuality, "convergenceStatus", "convergence_status")
   const qualityApproved = readBooleanAny(aggregateQuality, "qualityApproved", "quality_approved")
@@ -306,6 +311,18 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
           </div>
           {marketPriceAsOf ? <p className="mt-2 text-xs text-muted-foreground">as of {marketPriceAsOf}</p> : null}
           <p className="mt-2 text-xs text-muted-foreground">{String(marketAnchor.note ?? "")}</p>
+        </ReportSection>
+      ) : null}
+      {Object.keys(resolutionBoundary).length ? (
+        <ReportSection label="resolution boundary">
+          <div className="grid gap-2 md:grid-cols-5">
+            <MiniMetric label="status" value={String(resolutionBoundary.status ?? "unknown").replace(/_/g, " ")} />
+            <MiniMetric label="reviews" value={boundaryComponents === null ? "n/a" : formatNumber(boundaryComponents)} />
+            <MiniMetric label="flags" value={boundaryFlags === null ? "n/a" : formatNumber(boundaryFlags)} />
+            <MiniMetric label="issues" value={boundaryQualityIssues === null ? "n/a" : formatNumber(boundaryQualityIssues)} />
+            <MiniMetric label="planner" value={boundaryPlannerRisks === null ? "n/a" : formatNumber(boundaryPlannerRisks)} />
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">{String(resolutionBoundary.note ?? "")}</p>
         </ReportSection>
       ) : null}
       {Object.keys(aggregateQuality).length ? (

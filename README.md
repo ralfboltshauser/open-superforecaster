@@ -267,7 +267,9 @@ enough resolved examples and large forecast-vs-observed gaps are added to the
 attention queue with review actions and structured candidate calibration guard
 rules for human review. Poor resolved binary aggregates that moved materially
 away from their component base-rate anchor are also queued as baseline-sanity
-misses for postmortem review.
+misses for postmortem review. Poor resolved binary aggregates with material
+resolution-boundary ambiguity are queued separately, so unclear criteria can be
+treated as question-specification risk instead of hidden model error.
 The metrics endpoint exports baseline-sanity score counts and means as
 Prometheus series so large base-rate departures can be monitored outside the
 lab dashboard.
@@ -286,13 +288,15 @@ workflow orchestration. Final binary aggregates include a structured
 `calibrationGuard` block with applied rule ids and point adjustments plus a
 deterministic `baselineSanity` audit comparing the final probability with the
 mean component base-rate anchor and a `marketAnchor` audit for structured
-market-price divergence. Run reports surface those guard rules, baseline
-deltas, and market-anchor deltas for review. Future binary score rows persist
-the same guard, baseline-sanity, market-anchor, aggregate-quality, aggregate-stat, and
+market-price divergence. They also include a deterministic `resolutionBoundary`
+audit summarizing component boundary reviews and ambiguity flags. Run reports
+surface those guard rules, baseline deltas, market-anchor deltas, and
+resolution-boundary status for review. Future binary score rows persist
+the same guard, baseline-sanity, market-anchor, resolution-boundary, aggregate-quality, aggregate-stat, and
 selected plan-shape metadata in score config so performance snapshots can
 compare guarded forecasts, large baseline movements, high component
-market divergences, disagreement, aggregation anchors, research depth, panel
-size, and complexity against outcomes, summarize score groups, and report guarded-vs-unguarded
+market divergences, boundary ambiguity, disagreement, aggregation anchors,
+research depth, panel size, and complexity against outcomes, summarize score groups, and report guarded-vs-unguarded
 Brier impact overall and by applied rule id. Worse overall or rule-level
 guarded impact is also queued as a high-severity attention item
 before more default guard rules are promoted.

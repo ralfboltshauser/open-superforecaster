@@ -24,6 +24,7 @@ import { readForecastRunSnapshot } from "./forecast-run-metadata";
 import { readMarketAnchorSnapshot, type MarketAnchorSnapshot } from "./market-anchor-metadata";
 import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
+import { readResolutionBoundarySnapshot, type ResolutionBoundarySnapshot } from "./resolution-boundary-metadata";
 import { readThresholdedForecastSnapshot } from "./thresholded-forecast-metadata";
 
 type Db = ReturnType<typeof createDb>["db"];
@@ -79,6 +80,7 @@ type PerformanceCase = {
   calibrationGuard: CalibrationGuardSnapshot | null;
   baselineSanity: BaselineSanitySnapshot | null;
   marketAnchor: MarketAnchorSnapshot | null;
+  resolutionBoundary: ResolutionBoundarySnapshot | null;
   aggregateQuality: AggregateQualitySnapshot | null;
   aggregateStats: AggregateStatsSnapshot | null;
   resolutionId: string | null;
@@ -108,6 +110,7 @@ type PerformanceAttentionItem = {
     | "calibration_guard_regression"
     | "baseline_sanity_miss"
     | "market_anchor_miss"
+    | "resolution_boundary_miss"
     | "aggregate_quality_miss"
     | "component_disagreement_miss";
   severity: "high" | "medium";
@@ -372,6 +375,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byCalibrationGuard = groupScores(aggregateScores, calibrationGuardGroupKey);
   const byBaselineSanity = groupScores(aggregateScores, baselineSanityGroupKey);
   const byMarketAnchor = groupScores(aggregateScores, marketAnchorGroupKey);
+  const byResolutionBoundary = groupScores(aggregateScores, resolutionBoundaryGroupKey);
   const byAggregateQuality = groupScores(aggregateScores, aggregateQualityGroupKey);
   const byAggregateDisagreement = groupScores(aggregateScores, aggregateDisagreementGroupKey);
   const byAggregationAnchor = groupScores(aggregateScores, aggregationAnchorGroupKey);
@@ -438,6 +442,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byCalibrationGuard,
       byBaselineSanity,
       byMarketAnchor,
+      byResolutionBoundary,
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregationAnchor,
@@ -494,6 +499,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byCalibrationGuard,
       byBaselineSanity,
       byMarketAnchor,
+      byResolutionBoundary,
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregationAnchor,
@@ -690,6 +696,7 @@ function scoreForecastPrediction(input: {
     const calibrationGuard = readCalibrationGuardSnapshot(input.prediction);
     const baselineSanity = readBaselineSanitySnapshot(input.prediction);
     const marketAnchor = readMarketAnchorSnapshot(input.prediction);
+    const resolutionBoundary = readResolutionBoundarySnapshot(input.prediction);
     const aggregateQuality = readAggregateQualitySnapshot(input.prediction);
     const aggregateStats = readAggregateStatsSnapshot(input.prediction);
     return Object.entries(scoreBinaryForecast({ probability, resolved })).map(([scoreType, scoreValue]) => ({
@@ -701,6 +708,7 @@ function scoreForecastPrediction(input: {
         ...(calibrationGuard ? { calibrationGuard } : {}),
         ...(baselineSanity ? { baselineSanity } : {}),
         ...(marketAnchor ? { marketAnchor } : {}),
+        ...(resolutionBoundary ? { resolutionBoundary } : {}),
         ...(aggregateQuality ? { aggregateQuality } : {}),
         ...(aggregateStats ? { aggregateStats } : {}),
         ...evidenceConfig,
@@ -1182,6 +1190,11 @@ function marketAnchorGroupKey(score: typeof forecastScores.$inferSelect) {
   return marketAnchor ? `market_anchor:${marketAnchor.status}` : "market_anchor:unrecorded";
 }
 
+function resolutionBoundaryGroupKey(score: typeof forecastScores.$inferSelect) {
+  const resolutionBoundary = readResolutionBoundarySnapshot(score.scoreConfig);
+  return resolutionBoundary ? `resolution_boundary:${resolutionBoundary.status}` : "resolution_boundary:unrecorded";
+}
+
 function aggregateQualityGroupKey(score: typeof forecastScores.$inferSelect) {
   const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
   if (!aggregateQuality) {
@@ -1409,6 +1422,7 @@ function rankAggregateCases(
         calibrationGuard: readCalibrationGuardSnapshot(latest.scoreConfig),
         baselineSanity: readBaselineSanitySnapshot(latest.scoreConfig),
         marketAnchor: readMarketAnchorSnapshot(latest.scoreConfig),
+        resolutionBoundary: readResolutionBoundarySnapshot(latest.scoreConfig),
         aggregateQuality: readAggregateQualitySnapshot(latest.scoreConfig),
         aggregateStats: readAggregateStatsSnapshot(latest.scoreConfig),
         resolutionId: latest.resolutionId,
@@ -1594,6 +1608,42 @@ function buildNeedsAttentionQueue(
       rank: 55 + index,
     }));
 
+  const resolutionBoundaryCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    if (
+      item.forecastType !== "binary" ||
+      item.resolutionBoundary === null ||
+      item.resolutionBoundary.status !== "material_ambiguity" ||
+      threshold === null ||
+      item.primaryScore < threshold
+    ) {
+      return [];
+    }
+    return [{ item, resolutionBoundary: item.resolutionBoundary }];
+  });
+  const resolutionBoundaryItems = resolutionBoundaryCandidates
+    .slice(0, 5)
+    .map(({ item, resolutionBoundary }, index) => ({
+      id: `resolution-boundary:${item.taskId}:${item.primaryMetric}`,
+      kind: "resolution_boundary_miss" as const,
+      severity: "high" as const,
+      reason:
+        `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed material resolution-boundary ambiguity with ${resolutionBoundary.ambiguityFlagCount ?? 0} component flag(s).`,
+      recommendedActions: recommendAttentionActions({
+        kind: "resolution_boundary_miss",
+        metric: item.primaryMetric,
+        severity: "high",
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: resolutionBoundary.ambiguityFlagCount,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 58 + index,
+    }));
+
   const aggregateQualityCandidates = worstCases.flatMap((item) => {
     const threshold = poorScoreThreshold(item.primaryMetric);
     if (
@@ -1731,6 +1781,7 @@ function buildNeedsAttentionQueue(
     ...caseItems,
     ...baselineSanityItems,
     ...marketAnchorItems,
+    ...resolutionBoundaryItems,
     ...aggregateQualityItems,
     ...componentDisagreementItems,
     ...trendItems,
@@ -1765,6 +1816,9 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "market_anchor_miss") {
     actions.add("Audit whether the forecast had a valid evidence or resolution-boundary reason to diverge from the structured market-price anchor.");
     actions.add("Compare resolved outcomes for similar market-anchor divergence bands before turning this into a deterministic adjustment.");
+  } else if (input.kind === "resolution_boundary_miss") {
+    actions.add("Review whether the forecast should have widened uncertainty or changed probability because of resolution-boundary ambiguity.");
+    actions.add("Tighten the question template or resolution criteria before using similar cases for calibration changes.");
   } else if (input.kind === "aggregate_quality_miss") {
     actions.add("Review the final quality issues and review rationale before changing prompts or defaults.");
     actions.add("Compare max-iteration cases against approved cases to decide whether the review loop needs another round or sharper rejection criteria.");
@@ -1872,6 +1926,7 @@ function renderPerformanceMarkdown(input: {
   byCalibrationGuard: PerformanceGroup[];
   byBaselineSanity: PerformanceGroup[];
   byMarketAnchor: PerformanceGroup[];
+  byResolutionBoundary: PerformanceGroup[];
   byAggregateQuality: PerformanceGroup[];
   byAggregateDisagreement: PerformanceGroup[];
   byAggregationAnchor: PerformanceGroup[];
@@ -1931,6 +1986,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Market-anchor groups",
     ...renderGroupTable(input.byMarketAnchor),
+    "",
+    "## Resolution-boundary groups",
+    ...renderGroupTable(input.byResolutionBoundary),
     "",
     "## Aggregate quality groups",
     ...renderGroupTable(input.byAggregateQuality),

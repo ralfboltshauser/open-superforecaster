@@ -211,10 +211,11 @@ those adjustments. The live guard is an explicit rule registry in
 defaults have one place to land. Final aggregates include structured
 `calibrationGuard` metadata, deterministic `baselineSanity` deltas, and
 structured `marketAnchor` deltas visible in run reports, along with aggregate
-review status, approval, review rounds, max-iteration state, and final review
-rationale, so future calibration changes are deliberate and auditable.
+review status, resolution-boundary ambiguity audits, approval, review rounds,
+max-iteration state, and final review rationale, so future calibration changes
+are deliberate and auditable.
 Future binary score rows keep the same
-guard, baseline, market-anchor, quality-review, and aggregate-stat metadata for performance
+guard, baseline, market-anchor, resolution-boundary, quality-review, and aggregate-stat metadata for performance
 review, including guarded-vs-unguarded score groups, component-disagreement
 groups, aggregation-anchor groups, research-depth groups, panel-size groups,
 complexity-score groups, and a dedicated calibration guard impact summary with

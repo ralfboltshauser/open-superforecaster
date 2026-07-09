@@ -29,6 +29,7 @@ import { readForecastRunSnapshot } from "./forecast-run-metadata";
 import { readMarketAnchorSnapshot } from "./market-anchor-metadata";
 import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport } from "./performance-calibration";
+import { readResolutionBoundarySnapshot } from "./resolution-boundary-metadata";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
 import { readThresholdedForecastSnapshot } from "./thresholded-forecast-metadata";
 
@@ -504,6 +505,47 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge(
       "open_superforecaster_market_anchor_score_mean",
       "Mean product aggregate forecast score by market-anchor divergence status.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
+    );
+  }
+  const resolutionBoundaryScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readResolutionBoundarySnapshot(row.scoreConfig) !== null
+  );
+  if (resolutionBoundaryScoreRows.length === 0) {
+    const labels = { resolution_boundary_status: "none", score_type: "all" };
+    metrics.gauge(
+      "open_superforecaster_resolution_boundary_scores_total",
+      "Product aggregate forecast score rows by resolution-boundary status.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_resolution_boundary_score_mean",
+      "Mean product aggregate forecast score by resolution-boundary status.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(resolutionBoundaryScoreRows, (row) => {
+    const resolutionBoundary = readResolutionBoundarySnapshot(row.scoreConfig);
+    return labelKey({
+      score_type: row.scoreType,
+      resolution_boundary_status: resolutionBoundary?.status ?? "unknown",
+    });
+  })) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_resolution_boundary_scores_total",
+      "Product aggregate forecast score rows by resolution-boundary status.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_resolution_boundary_score_mean",
+      "Mean product aggregate forecast score by resolution-boundary status.",
       mean(rows.map((row) => row.scoreValue)),
       labels,
     );

@@ -9,6 +9,7 @@ import { codexResearchAgent, codexStructuredAgent } from "./agents";
 import { buildBinaryBaselineSanityAudit } from "./binary-baseline-sanity";
 import { applyBinaryCalibrationGuard } from "./binary-calibration-guard";
 import { buildBinaryMarketAnchorAudit } from "./binary-market-anchor";
+import { buildBinaryResolutionBoundaryAudit } from "./binary-resolution-boundary";
 
 const roleIdValues = [
   "base-rate",
@@ -252,6 +253,15 @@ const marketAnchor = z.object({
   note: z.string(),
 });
 
+const resolutionBoundary = z.object({
+  status: z.enum(["missing_boundary_review", "clear_boundary", "some_ambiguity", "material_ambiguity"]),
+  componentBoundaryCount: z.number().int().min(0),
+  ambiguityFlagCount: z.number().int().min(0),
+  qualityIssueCount: z.number().int().min(0),
+  plannerRiskCount: z.number().int().min(0),
+  note: z.string(),
+});
+
 const binaryAggregate = aggregateCore.extend({
   calibrationGuard: z.object({
     adjustment: z.number(),
@@ -259,6 +269,7 @@ const binaryAggregate = aggregateCore.extend({
   }),
   baselineSanity,
   marketAnchor,
+  resolutionBoundary,
   convergenceStatus: z.enum(["approved", "max_iterations_return_last"]),
   roundsUsed: z.number().int().min(1),
   qualityApproved: z.boolean(),
@@ -468,6 +479,13 @@ export default smithers((ctx) => {
   const finalMarketAnchor = buildBinaryMarketAnchorAudit({
     finalProbability: finalCalibration.probability,
     market: forecastInput.market,
+  });
+  const finalRoundAttempts = (ctx.outputs.binaryAttempt ?? []).filter((attempt) => attempt.round === latestCandidate?.round);
+  const finalResolutionBoundary = buildBinaryResolutionBoundaryAudit({
+    components: finalRoundAttempts,
+    qualityIssues: finalQualityIssues,
+    plannerRisks: plan?.resolutionRisks ?? [],
+    resolutionCriteria: forecastInput.resolutionCriteria,
   });
 
   return (
@@ -727,6 +745,7 @@ Return round ${round}, approved, confidenceScore, disagreementExplained, issues,
               },
               baselineSanity: finalBaselineSanity,
               marketAnchor: finalMarketAnchor,
+              resolutionBoundary: finalResolutionBoundary,
               convergenceStatus: qualityApproved ? "approved" as const : "max_iterations_return_last" as const,
               roundsUsed,
               qualityApproved,

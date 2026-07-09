@@ -23,6 +23,7 @@ import type { OperationMode } from "@open-superforecaster/workflow-contracts";
 import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
 import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { readMarketAnchorSnapshot } from "./market-anchor-metadata";
+import { readResolutionBoundarySnapshot } from "./resolution-boundary-metadata";
 import { inspectSmithersRun, launchSmithersDetached, readSmithersNodeOutput } from "./smithers-launcher";
 
 type Db = ReturnType<typeof createDb>["db"];
@@ -840,6 +841,7 @@ function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited
   const calibrationGuardRules = calibrationGuard?.appliedRules ?? [];
   const baselineSanity = readRecord(output, "baselineSanity", "baseline_sanity");
   const marketAnchor = readMarketAnchorSnapshot(output);
+  const resolutionBoundary = readResolutionBoundarySnapshot(output);
   const aggregateQuality = readAggregateQualitySnapshot(output);
   return {
     status: detail.task.status,
@@ -852,6 +854,7 @@ function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited
     calibrationGuardRuleCount: calibrationGuardRules.length,
     baselineSanity: Object.keys(baselineSanity).length ? baselineSanity : null,
     marketAnchor,
+    resolutionBoundary,
     aggregateQuality,
     sourceCount: detail.sources.length,
     citationCount: detail.citations.length,
@@ -936,6 +939,7 @@ function renderRunReportMarkdown(report: {
     ...markdownList("Warnings", report.quality.warnings),
     ...markdownList("Baseline sanity", readReportBaselineSanity(report.quality)),
     ...markdownList("Market anchor", readReportMarketAnchor(report.quality)),
+    ...markdownList("Resolution boundary", readReportResolutionBoundary(report.quality)),
     ...markdownList("Aggregate quality", readReportAggregateQuality(report.quality)),
     ...markdownList("Calibration guard rules", readReportGuardRules(report.quality)),
     "",
@@ -973,6 +977,20 @@ function readReportMarketAnchor(quality: Record<string, unknown>) {
   const note = readString(marketAnchor, "note");
   return [
     `${status}: market ${marketPrice === null ? "n/a" : `${marketPrice}%`}, delta ${marketDelta === null ? "n/a" : `${marketDelta >= 0 ? "+" : ""}${marketDelta} pts`}${platform ? ` (${platform})` : ""}${note ? `. ${note}` : ""}`,
+  ];
+}
+
+function readReportResolutionBoundary(quality: Record<string, unknown>) {
+  const resolutionBoundary = readRecord(quality, "resolutionBoundary", "resolution_boundary");
+  if (Object.keys(resolutionBoundary).length === 0) {
+    return [];
+  }
+  const status = readString(resolutionBoundary, "status") ?? "unknown";
+  const componentBoundaryCount = readNumber(resolutionBoundary, "componentBoundaryCount", "component_boundary_count");
+  const ambiguityFlagCount = readNumber(resolutionBoundary, "ambiguityFlagCount", "ambiguity_flag_count");
+  const note = readString(resolutionBoundary, "note");
+  return [
+    `${status}: ${componentBoundaryCount ?? 0} boundary review(s), ${ambiguityFlagCount ?? 0} ambiguity flag(s)${note ? `. ${note}` : ""}`,
   ];
 }
 
