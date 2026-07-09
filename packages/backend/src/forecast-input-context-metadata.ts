@@ -20,6 +20,8 @@ export type ForecastInputContextSnapshot = {
   marketPlatform: string | null;
   categoryCount: number | null;
   categoryCountBand: "none" | "few" | "many" | "unknown";
+  categoriesExhaustive: boolean | null;
+  categoryCoverageBand: "none" | "open_set" | "closed_set" | "unknown";
   thresholdCount: number | null;
   thresholdCountBand: "none" | "single" | "curve" | "unknown";
   hasCondition: boolean;
@@ -48,6 +50,7 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   }
   const questionLength = wordCount(normalized.question);
   const categoryCount = normalized.categories.length;
+  const categoriesExhaustive = categoryCount > 0 ? normalized.categoriesExhaustive : null;
   const thresholdCount = normalized.thresholds.length;
   const marketPlatform = normalized.market.marketPlatform?.trim() || null;
   const hasResolutionCriteria = Boolean(normalized.resolutionCriteria?.trim());
@@ -97,6 +100,8 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     marketPlatform,
     categoryCount,
     categoryCountBand: categoryCountBand(categoryCount),
+    categoriesExhaustive,
+    categoryCoverageBand: inputCategoryCoverageBand({ categoryCount, categoriesExhaustive }),
     thresholdCount,
     thresholdCountBand: thresholdCountBand(thresholdCount),
     hasCondition,
@@ -117,6 +122,7 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
     return null;
   }
   const categoryCount = readNumber(value, "categoryCount");
+  const categoriesExhaustive = readBoolean(value, "categoriesExhaustive");
   const thresholdCount = readNumber(value, "thresholdCount");
   const resolutionHorizonDays = readNumber(value, "resolutionHorizonDays");
   const marketPriceAgeDays = readNumber(value, "marketPriceAgeDays");
@@ -128,6 +134,7 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   const backgroundLengthBandValue = readString(value, "backgroundLengthBand");
   const unit = readString(value, "unit");
   const unitSpecificityBandValue = readString(value, "unitSpecificityBand");
+  const categoryCoverageBandValue = readString(value, "categoryCoverageBand");
   return {
     questionLength,
     questionLengthBand: readQuestionLengthBand(value) ?? questionLengthBand(questionLength),
@@ -154,6 +161,10 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
     marketPlatform: readString(value, "marketPlatform"),
     categoryCount,
     categoryCountBand: readCategoryCountBand(value) ?? categoryCountBand(categoryCount),
+    categoriesExhaustive,
+    categoryCoverageBand: isInputCategoryCoverageBand(categoryCoverageBandValue)
+      ? categoryCoverageBandValue
+      : inputCategoryCoverageBand({ categoryCount, categoriesExhaustive }),
     thresholdCount,
     thresholdCountBand: readThresholdCountBand(value) ?? thresholdCountBand(thresholdCount),
     hasCondition: readBoolean(value, "hasCondition") ?? false,
@@ -224,6 +235,22 @@ export function categoryCountBand(count: number | null): ForecastInputContextSna
     return "few";
   }
   return "many";
+}
+
+export function inputCategoryCoverageBand(input: {
+  categoryCount: number | null;
+  categoriesExhaustive: boolean | null;
+}): ForecastInputContextSnapshot["categoryCoverageBand"] {
+  if (input.categoryCount === null || !Number.isFinite(input.categoryCount)) {
+    return "unknown";
+  }
+  if (input.categoryCount <= 0) {
+    return "none";
+  }
+  if (input.categoriesExhaustive === null) {
+    return "unknown";
+  }
+  return input.categoriesExhaustive ? "closed_set" : "open_set";
 }
 
 export function thresholdCountBand(count: number | null): ForecastInputContextSnapshot["thresholdCountBand"] {
@@ -357,6 +384,10 @@ function readQuestionLengthBand(value: Record<string, unknown>) {
 function readCategoryCountBand(value: Record<string, unknown>) {
   const raw = readString(value, "categoryCountBand");
   return raw === "none" || raw === "few" || raw === "many" || raw === "unknown" ? raw : null;
+}
+
+function isInputCategoryCoverageBand(value: string | null): value is ForecastInputContextSnapshot["categoryCoverageBand"] {
+  return value === "none" || value === "open_set" || value === "closed_set" || value === "unknown";
 }
 
 function readThresholdCountBand(value: Record<string, unknown>) {

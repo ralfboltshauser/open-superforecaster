@@ -670,6 +670,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byInputMarketRecency = readArray(groups, "byInputMarketRecency").filter(isRecord)
   const byInputQuestionLength = readArray(groups, "byInputQuestionLength").filter(isRecord)
   const byInputCategoryCount = readArray(groups, "byInputCategoryCount").filter(isRecord)
+  const byInputCategoryCoverage = readArray(groups, "byInputCategoryCoverage").filter(isRecord)
   const byInputThresholdCount = readArray(groups, "byInputThresholdCount").filter(isRecord)
   const byInputConditionCriteria = readArray(groups, "byInputConditionCriteria").filter(isRecord)
   const byInputUnitSpecificity = readArray(groups, "byInputUnitSpecificity").filter(isRecord)
@@ -775,6 +776,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byInputMarketRecency.length ? <PerformancePlanShapeGroupList groups={byInputMarketRecency} title="Input market-recency outcomes" skipKey="input_market_recency:unrecorded" fallback="input market recency" /> : null}
         {byInputQuestionLength.length ? <PerformancePlanShapeGroupList groups={byInputQuestionLength} title="Input question outcomes" skipKey="input_question:unrecorded" fallback="input question" /> : null}
         {byInputCategoryCount.length ? <PerformancePlanShapeGroupList groups={byInputCategoryCount} title="Input category outcomes" skipKey="input_categories:unrecorded" fallback="input categories" /> : null}
+        {byInputCategoryCoverage.length ? <PerformancePlanShapeGroupList groups={byInputCategoryCoverage} title="Input category-coverage outcomes" skipKey="input_category_coverage:unrecorded" fallback="input category coverage" /> : null}
         {byInputThresholdCount.length ? <PerformancePlanShapeGroupList groups={byInputThresholdCount} title="Input threshold outcomes" skipKey="input_thresholds:unrecorded" fallback="input thresholds" /> : null}
         {byInputConditionCriteria.length ? <PerformancePlanShapeGroupList groups={byInputConditionCriteria} title="Input condition-criteria outcomes" skipKey="input_condition_criteria:unrecorded" fallback="input condition criteria" /> : null}
         {byInputUnitSpecificity.length ? <PerformancePlanShapeGroupList groups={byInputUnitSpecificity} title="Input unit outcomes" skipKey="input_unit:unrecorded" fallback="input unit" /> : null}

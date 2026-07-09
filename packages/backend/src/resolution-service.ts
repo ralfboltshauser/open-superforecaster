@@ -447,6 +447,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byInputMarketRecency = groupScores(aggregateScores, inputMarketRecencyGroupKey);
   const byInputQuestionLength = groupScores(aggregateScores, inputQuestionLengthGroupKey);
   const byInputCategoryCount = groupScores(aggregateScores, inputCategoryCountGroupKey);
+  const byInputCategoryCoverage = groupScores(aggregateScores, inputCategoryCoverageGroupKey);
   const byInputThresholdCount = groupScores(aggregateScores, inputThresholdCountGroupKey);
   const byInputConditionCriteria = groupScores(aggregateScores, inputConditionCriteriaGroupKey);
   const byInputUnitSpecificity = groupScores(aggregateScores, inputUnitSpecificityGroupKey);
@@ -543,6 +544,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputMarketRecency,
       byInputQuestionLength,
       byInputCategoryCount,
+      byInputCategoryCoverage,
       byInputThresholdCount,
       byInputConditionCriteria,
       byInputUnitSpecificity,
@@ -629,6 +631,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputMarketRecency,
       byInputQuestionLength,
       byInputCategoryCount,
+      byInputCategoryCoverage,
       byInputThresholdCount,
       byInputConditionCriteria,
       byInputUnitSpecificity,
@@ -1673,6 +1676,11 @@ function inputCategoryCountGroupKey(score: typeof forecastScores.$inferSelect) {
   return `input_categories:${inputContext?.categoryCountBand ?? "unrecorded"}`;
 }
 
+function inputCategoryCoverageGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_category_coverage:${inputContext?.categoryCoverageBand ?? "unrecorded"}`;
+}
+
 function inputThresholdCountGroupKey(score: typeof forecastScores.$inferSelect) {
   const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
   return `input_thresholds:${inputContext?.thresholdCountBand ?? "unrecorded"}`;
@@ -2610,6 +2618,13 @@ function inputContextMissSignal(item: PerformanceCase): { reason: string; delta:
       severity: context.unitSpecificityBand === "missing" ? "high" : "medium",
     };
   }
+  if (item.forecastType === "categorical" && context.categoryCoverageBand === "open_set") {
+    return {
+      reason: `open-set categorical input with ${context.categoryCount ?? 0} listed categor${context.categoryCount === 1 ? "y" : "ies"}`,
+      delta: context.categoryCount,
+      severity: "medium",
+    };
+  }
   if (context.questionLengthBand === "short" || context.questionLengthBand === "long") {
     return {
       reason: `${context.questionLengthBand} question text (${context.questionLength ?? 0} words)`,
@@ -2835,6 +2850,7 @@ function renderPerformanceMarkdown(input: {
   byInputMarketRecency: PerformanceGroup[];
   byInputQuestionLength: PerformanceGroup[];
   byInputCategoryCount: PerformanceGroup[];
+  byInputCategoryCoverage: PerformanceGroup[];
   byInputThresholdCount: PerformanceGroup[];
   byInputConditionCriteria: PerformanceGroup[];
   byInputUnitSpecificity: PerformanceGroup[];
@@ -3028,6 +3044,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input category-count groups",
     ...renderGroupTable(input.byInputCategoryCount),
+    "",
+    "## Input category-coverage groups",
+    ...renderGroupTable(input.byInputCategoryCoverage),
     "",
     "## Input threshold-count groups",
     ...renderGroupTable(input.byInputThresholdCount),
