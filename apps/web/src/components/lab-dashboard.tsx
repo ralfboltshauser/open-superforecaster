@@ -6,6 +6,7 @@ import {
   DiagnosticsCard,
   LabMetricGrid,
   MaintenanceCard,
+  PerformanceCard,
   RecentRunsCard,
   WorkflowLauncher,
 } from "@/components/lab-dashboard/panels"
@@ -20,6 +21,7 @@ export function LabDashboard() {
     health,
     importBtf2,
     launchBenchmark,
+    performance,
     resolutionSummary,
     runMaintenance,
     runs,
@@ -48,6 +50,7 @@ export function LabDashboard() {
       <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="grid gap-6">
           <WorkflowLauncher busy={busy} importBtf2={importBtf2} launchBenchmark={launchBenchmark} />
+          <PerformanceCard performance={performance} />
           <RecentRunsCard runs={runs} />
         </div>
 

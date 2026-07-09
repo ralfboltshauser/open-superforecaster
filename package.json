@@ -26,6 +26,7 @@
     "workflow:samples": "bun scripts/run-sample-workflows.ts",
     "forecast:ops": "bun scripts/forecast-ops-runner.ts",
     "forecast:resolve": "bun scripts/forecast-resolution-runner.ts",
+    "forecast:performance": "bun scripts/forecast-performance-report.ts",
     "onboarding:check": "bun scripts/onboarding-check.ts",
     "object-storage:smoke": "bun scripts/object-storage-smoke.ts",
     "workflow:coverage": "bun scripts/workflow-coverage.ts",

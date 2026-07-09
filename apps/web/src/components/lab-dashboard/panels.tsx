@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import type { LucideIcon } from "lucide-react"
-import { Activity, BarChart3, Database, FlaskConical, Play, Server, ShieldCheck, Wrench } from "lucide-react"
+import { Activity, BarChart3, Database, FlaskConical, Play, Server, ShieldCheck, TrendingUp, Wrench } from "lucide-react"
 
 import type { BenchmarkMode } from "@/components/lab-dashboard/use-lab-dashboard"
 import { Badge } from "@/components/ui/badge"
@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
-import { formatModeLabel, runTitle, statusTone, type JsonRecord } from "@/lib/records"
+import { formatModeLabel, isRecord, readArray, runTitle, statusTone, type JsonRecord } from "@/lib/records"
 
 type DiagnosticCounts = {
   rows: Array<{ name: string; ok: boolean }>
@@ -144,6 +144,44 @@ export function BenchmarksCard({ benchmarks }: { benchmarks: { benchmarkRuns: Js
   )
 }
 
+export function PerformanceCard({ performance }: { performance: JsonRecord | null }) {
+  const summary = isRecord(performance?.summary) ? performance.summary : {}
+  const groups = isRecord(performance?.groups) ? performance.groups : {}
+  const byForecastType = readArray(groups, "byForecastType").filter(isRecord)
+  return (
+    <Card id="performance">
+      <CardHeader>
+        <CardTitle>Forecast performance</CardTitle>
+        <CardDescription>
+          {String(summary.resolvedTasks ?? 0)} resolved tasks · {String(summary.productScoreRows ?? 0)} score rows
+        </CardDescription>
+        <CardAction>
+          <TrendingUp className="text-primary" />
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {byForecastType.length ? (
+          byForecastType.slice(0, 6).map((group) => (
+            <div className="grid gap-2 rounded-md border p-3 text-sm md:grid-cols-[1fr_auto]" key={String(group.key ?? group.label)}>
+              <span className="min-w-0">
+                <span className="block truncate font-medium">{String(group.label ?? group.key ?? "forecast type")}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {String(group.resolvedTasks ?? 0)} tasks · {String(group.scoreRows ?? 0)} rows
+                </span>
+              </span>
+              <Badge variant="secondary">
+                {String(group.primaryMetric ?? "metric")} {formatMetric(group.primaryMean)}
+              </Badge>
+            </div>
+          ))
+        ) : (
+          <p className="text-sm text-muted-foreground">No resolved score rows yet.</p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function MaintenanceCard({
   actions,
   busy,
@@ -188,4 +226,8 @@ function MetricCard({ icon: Icon, label, value }: { icon: LucideIcon; label: str
       </CardContent>
     </Card>
   )
+}
+
+function formatMetric(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? String(Math.round(value * 10000) / 10000) : ""
 }

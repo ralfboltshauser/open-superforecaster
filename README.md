@@ -250,6 +250,12 @@ bun run forecast:resolve -- --input examples/resolutions.sample.jsonl
 bun run forecast:resolve -- --execute --input data/resolutions/manual.jsonl
 ```
 
+Then snapshot the scored performance report:
+
+```bash
+bun run forecast:performance
+```
+
 ### Host Development
 
 For direct host development, keep the backing services in Docker and run the web

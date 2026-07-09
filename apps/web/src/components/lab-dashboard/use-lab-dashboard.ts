@@ -22,17 +22,19 @@ export function useLabDashboard() {
     benchmarkSuites: [],
   })
   const [resolutions, setResolutions] = useState<JsonRecord | null>(null)
+  const [performance, setPerformance] = useState<JsonRecord | null>(null)
   const [maintenance, setMaintenance] = useState<JsonRecord | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const [runsPayload, healthPayload, diagnosticsPayload, benchmarkPayload, resolutionPayload, maintenancePayload] =
+    const [runsPayload, healthPayload, diagnosticsPayload, benchmarkPayload, resolutionPayload, performancePayload, maintenancePayload] =
       await Promise.all([
         fetchJson<{ runs?: JsonRecord[] }>("/api/runs").catch(() => ({ runs: [] })),
         fetchJson<JsonRecord>("/api/health").catch(() => null),
         fetchJson<JsonRecord>("/api/diagnostics").catch(() => null),
         fetchJson<BenchmarksPayload>("/api/benchmarks").catch(() => ({ benchmarkRuns: [], benchmarkSuites: [] })),
         fetchJson<JsonRecord>("/api/resolutions").catch(() => null),
+        fetchJson<JsonRecord>("/api/resolutions/performance").catch(() => null),
         fetchJson<JsonRecord>("/api/maintenance").catch(() => null),
       ])
 
@@ -44,6 +46,7 @@ export function useLabDashboard() {
       benchmarkSuites: Array.isArray(benchmarkPayload.benchmarkSuites) ? benchmarkPayload.benchmarkSuites : [],
     })
     setResolutions(resolutionPayload)
+    setPerformance(performancePayload)
     setMaintenance(maintenancePayload)
   }, [])
 
@@ -91,6 +94,7 @@ export function useLabDashboard() {
     health,
     importBtf2,
     launchBenchmark,
+    performance,
     resolutionSummary,
     runMaintenance,
     runs,

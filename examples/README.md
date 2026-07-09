@@ -77,6 +77,16 @@ bun run forecast:resolve -- --execute --input data/resolutions/manual.jsonl
 Execute mode calls `/api/resolutions`, writes each response, and snapshots the
 resolution dashboard so score and calibration changes are auditable.
 
+After resolutions have created score rows, snapshot grouped performance metrics:
+
+```bash
+bun run forecast:performance
+bun run forecast:performance -- --out-dir data/reports/forecast-performance/manual
+```
+
+The report groups existing score rows by forecast type, target, and forecaster
+label, and writes JSON plus Markdown snapshots for review.
+
 ## Table Workflows
 
 Use the CSV files in the web composer by selecting the relevant mode and

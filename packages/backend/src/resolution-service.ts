@@ -40,6 +40,16 @@ type ScoreRowInput = {
   scoreConfig?: Record<string, unknown>;
 };
 
+type PerformanceGroup = {
+  key: string;
+  label: string;
+  scoreRows: number;
+  resolvedTasks: number;
+  meanScores: Record<string, number>;
+  primaryMetric: string | null;
+  primaryMean: number | null;
+};
+
 export async function resolveBinaryForecastTask(db: Db, input: BinaryResolutionInput) {
   return resolveForecastTask(db, {
     taskId: input.taskId,
@@ -257,6 +267,71 @@ export async function getResolutionDashboard(db: Db) {
           createdAt: score.createdAt,
         };
       }),
+  };
+}
+
+export async function getForecastPerformanceReport(db: Db) {
+  const [scoreRows, resolutionRows, taskRows] = await Promise.all([
+    db.select().from(forecastScores),
+    db.select().from(forecastResolutions).orderBy(desc(forecastResolutions.resolvedAt)),
+    db.select({ id: tasks.id, label: tasks.label, operationSubmode: tasks.operationSubmode }).from(tasks),
+  ]);
+  const taskMeta = new Map(taskRows.map((task) => [task.id, task]));
+  const productScores = scoreRows.filter(isProductScore);
+  const aggregateScores = productScores.filter((score) => score.forecastAggregateId);
+  const attemptScores = productScores.filter((score) => score.forecastAttemptId);
+  const productResolutionIds = new Set(productScores.map((score) => score.resolutionId).filter(Boolean));
+  const resolvedTaskIds = new Set(productScores.map((score) => readScoreTaskId(score.scoreConfig)).filter((id): id is string => Boolean(id)));
+  const byForecastType = groupScores(productScores, (score) => readString(score.scoreConfig, "forecastType") ?? "unknown");
+  const byTarget = groupScores(productScores, (score) => readString(score.scoreConfig, "target") ?? "unknown");
+  const byForecaster = groupScores(attemptScores, (score) => readString(score.scoreConfig, "forecasterLabel") ?? "unknown");
+  const byForecastTypeAndTarget = groupScores(productScores, (score) => {
+    const forecastType = readString(score.scoreConfig, "forecastType") ?? "unknown";
+    const target = readString(score.scoreConfig, "target") ?? "unknown";
+    return `${forecastType}:${target}`;
+  });
+
+  return {
+    reportType: "forecast_performance_report",
+    generatedAt: new Date().toISOString(),
+    summary: {
+      resolvedTasks: resolvedTaskIds.size,
+      productResolutions: productResolutionIds.size,
+      productScoreRows: productScores.length,
+      aggregateScoreRows: aggregateScores.length,
+      attemptScoreRows: attemptScores.length,
+      meanScores: meanScoresByType(productScores),
+      aggregateMeanScores: meanScoresByType(aggregateScores),
+      attemptMeanScores: meanScoresByType(attemptScores),
+    },
+    groups: {
+      byForecastType,
+      byTarget,
+      byForecaster,
+      byForecastTypeAndTarget,
+    },
+    recentResolvedTasks: resolutionRows.slice(0, 12).map((resolution) => {
+      const taskId = readScoreTaskIdFromResolution(resolution.resolvedValue);
+      const task = taskId ? taskMeta.get(taskId) : null;
+      return {
+        resolutionId: resolution.id,
+        taskId,
+        taskLabel: task?.label ?? taskId ?? "Unknown task",
+        forecastType: task?.operationSubmode ? forecastTypeFromSubmode(task.operationSubmode) : null,
+        resolutionSource: resolution.resolutionSource,
+        resolvedValue: resolution.resolvedValue,
+        annulled: resolution.annulled,
+        resolvedAt: resolution.resolvedAt,
+        createdAt: resolution.createdAt,
+      };
+    }),
+    markdown: renderPerformanceMarkdown({
+      resolvedTasks: resolvedTaskIds.size,
+      productScoreRows: productScores.length,
+      byForecastType,
+      byTarget,
+      byForecaster,
+    }),
   };
 }
 
@@ -791,6 +866,115 @@ function meanScore(rows: Array<typeof forecastScores.$inferSelect>) {
     return null;
   }
   return rows.reduce((sum, row) => sum + row.scoreValue, 0) / rows.length;
+}
+
+function meanScoresByType(rows: Array<typeof forecastScores.$inferSelect>) {
+  const scores: Record<string, number> = {};
+  for (const scoreType of uniqueStrings(rows.map((row) => row.scoreType)).sort()) {
+    const matchingRows = rows.filter((row) => row.scoreType === scoreType);
+    scores[scoreType] = meanNumber(matchingRows.map((row) => row.scoreValue));
+  }
+  return scores;
+}
+
+function groupScores(
+  rows: Array<typeof forecastScores.$inferSelect>,
+  keyForScore: (score: typeof forecastScores.$inferSelect) => string,
+): PerformanceGroup[] {
+  const grouped = new Map<string, Array<typeof forecastScores.$inferSelect>>();
+  for (const row of rows) {
+    const key = keyForScore(row);
+    grouped.set(key, [...(grouped.get(key) ?? []), row]);
+  }
+  return [...grouped.entries()]
+    .map(([key, groupRows]) => {
+      const meanScores = meanScoresByType(groupRows);
+      const primaryMetric = selectPrimaryMetric(meanScores);
+      return {
+        key,
+        label: formatPerformanceGroupLabel(key),
+        scoreRows: groupRows.length,
+        resolvedTasks: new Set(groupRows.map((row) => readScoreTaskId(row.scoreConfig)).filter(Boolean)).size,
+        meanScores,
+        primaryMetric,
+        primaryMean: primaryMetric ? meanScores[primaryMetric] ?? null : null,
+      };
+    })
+    .sort((left, right) => {
+      if (left.primaryMean !== null && right.primaryMean !== null && left.primaryMean !== right.primaryMean) {
+        return left.primaryMean - right.primaryMean;
+      }
+      return right.scoreRows - left.scoreRows;
+    });
+}
+
+function selectPrimaryMetric(meanScores: Record<string, number>) {
+  const preference = [
+    "brier",
+    "categorical_brier",
+    "thresholded_brier",
+    "conditional_brier",
+    "absolute_error",
+    "absolute_days_error",
+    "absolute_percentage_error",
+  ];
+  return preference.find((metric) => metric in meanScores) ?? Object.keys(meanScores).sort()[0] ?? null;
+}
+
+function formatPerformanceGroupLabel(key: string) {
+  return key
+    .split(":")
+    .map((part) => part.replace(/_/g, " "))
+    .join(" / ");
+}
+
+function renderPerformanceMarkdown(input: {
+  resolvedTasks: number;
+  productScoreRows: number;
+  byForecastType: PerformanceGroup[];
+  byTarget: PerformanceGroup[];
+  byForecaster: PerformanceGroup[];
+}) {
+  const lines = [
+    "# Forecast performance report",
+    "",
+    `Resolved tasks: ${input.resolvedTasks}`,
+    `Product score rows: ${input.productScoreRows}`,
+    "",
+    "## Forecast types",
+    ...renderGroupTable(input.byForecastType),
+    "",
+    "## Targets",
+    ...renderGroupTable(input.byTarget),
+    "",
+    "## Forecasters",
+    ...renderGroupTable(input.byForecaster),
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function renderGroupTable(groups: PerformanceGroup[]) {
+  if (groups.length === 0) {
+    return ["No resolved score rows yet."];
+  }
+  return [
+    "| Group | Resolved tasks | Score rows | Primary metric | Mean |",
+    "| --- | ---: | ---: | --- | ---: |",
+    ...groups.map((group) =>
+      `| ${escapeMarkdownCell(group.label)} | ${group.resolvedTasks} | ${group.scoreRows} | ${group.primaryMetric ?? ""} | ${
+        group.primaryMean === null ? "" : roundMetric(group.primaryMean)
+      } |`,
+    ),
+  ];
+}
+
+function escapeMarkdownCell(value: string) {
+  return value.replace(/\|/g, "\\|");
+}
+
+function roundMetric(value: number) {
+  return Math.round(value * 10_000) / 10_000;
 }
 
 function buildCalibrationBuckets(rows: Array<typeof forecastScores.$inferSelect>) {
