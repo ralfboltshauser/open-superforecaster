@@ -6,6 +6,7 @@ import {
   normalizeForecastInputRow,
 } from "@open-superforecaster/workflow-contracts";
 import { codexResearchAgent } from "./agents";
+import { readForecastTiming } from "./forecast-timing";
 
 const citedSource = z.object({
   title: z.string().optional(),
@@ -52,6 +53,7 @@ const thresholdedAggregate = z.object({
     probabilities: z.array(thresholdProbability),
   })),
   citedSources: z.array(citedSource).default([]),
+  evidenceAsOfDate: z.string().optional(),
 });
 
 const { Workflow, smithers, outputs } = createSmithers({
@@ -78,11 +80,13 @@ const forecasterBriefs = [
 ];
 
 export default smithers((ctx) => {
-  const forecastInput = normalizeForecastInputRow((ctx.input ?? {}) as Record<string, unknown>);
+  const rawInput = (ctx.input ?? {}) as Record<string, unknown>;
+  const forecastInput = normalizeForecastInputRow(rawInput);
   const question = forecastInput.question;
   const resolutionCriteria = forecastInput.resolutionCriteria ?? "Resolve according to the plain-language question.";
   const background = forecastInput.background ?? "";
   const structuredContext = formatForecastContextForPrompt(forecastInput);
+  const timing = readForecastTiming(rawInput);
   const thresholdContract = normalizeThresholds(forecastInput.thresholds.map((threshold) => threshold.label), question);
   const thresholds = thresholdContract.thresholds;
   const thresholdDirection = forecastInput.thresholdDirection ?? normalizeDirection(undefined, question);
@@ -128,6 +132,8 @@ ${resolutionCriteria}
 
 ${structuredContext}
 
+${timing.promptBlock}
+
 Background:
 ${background || "No extra background provided."}
 
@@ -166,6 +172,7 @@ Return one probability for every threshold label. If no valid thresholds are lis
               : "Median curve satisfied monotonicity in caller order.",
             componentCurves,
             citedSources,
+            ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
             rationale:
               attempts.length === 0
                 ? "No attempts were available; this fallback should only appear in graph rendering."

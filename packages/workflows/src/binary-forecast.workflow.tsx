@@ -11,6 +11,7 @@ import { applyBinaryCalibrationGuard } from "./binary-calibration-guard";
 import { buildBinaryMarketAnchorAudit } from "./binary-market-anchor";
 import { buildBinaryResolutionBoundaryAudit } from "./binary-resolution-boundary";
 import { buildBinaryUncertaintyRangeAudit } from "./binary-uncertainty-range";
+import { readForecastTiming } from "./forecast-timing";
 
 const roleIdValues = [
   "base-rate",
@@ -407,6 +408,7 @@ export default smithers((ctx) => {
   const fixedEvidence = String(rawInput.fixedEvidence ?? "");
   const presentDate = String(rawInput.presentDate ?? "");
   const cutoffDate = String(rawInput.cutoffDate ?? "");
+  const timing = readForecastTiming(rawInput);
   const cutoffHorizonDays = daysBetween(presentDate, cutoffDate);
   const cutoffHorizonText = cutoffHorizonDays === undefined
     ? "unknown"
@@ -755,7 +757,7 @@ Return round ${round}, approved, confidenceScore, disagreementExplained, issues,
               calibrationWarnings: finalCalibration.notes.length
                 ? [...latestCandidate.calibrationWarnings, ...finalCalibration.notes]
                 : latestCandidate.calibrationWarnings,
-              ...(presentDate ? { evidenceAsOfDate: presentDate } : {}),
+              ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
               calibrationGuard: {
                 adjustment: finalCalibration.adjustment,
                 appliedRules: finalCalibration.appliedRules,

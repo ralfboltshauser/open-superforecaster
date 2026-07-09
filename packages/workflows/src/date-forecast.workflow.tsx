@@ -7,6 +7,7 @@ import {
   normalizeForecastInputRow,
 } from "@open-superforecaster/workflow-contracts";
 import { codexResearchAgent } from "./agents";
+import { readForecastTiming } from "./forecast-timing";
 
 const citedSource = z.object({
   title: z.string().optional(),
@@ -38,6 +39,7 @@ const dateAggregate = z.object({
     neverProbability: z.number().optional(),
   })),
   citedSources: z.array(citedSource).default([]),
+  evidenceAsOfDate: z.string().optional(),
   rationale: z.string(),
 });
 
@@ -65,11 +67,13 @@ const forecasterBriefs = [
 ];
 
 export default smithers((ctx) => {
-  const forecastInput = normalizeForecastInputRow((ctx.input ?? {}) as Record<string, unknown>);
+  const rawInput = (ctx.input ?? {}) as Record<string, unknown>;
+  const forecastInput = normalizeForecastInputRow(rawInput);
   const question = forecastInput.question;
   const resolutionCriteria = forecastInput.resolutionCriteria ?? "Resolve according to the plain-language question.";
   const background = forecastInput.background ?? "";
   const structuredContext = formatForecastContextForPrompt(forecastInput);
+  const timing = readForecastTiming(rawInput);
   const attemptIds = forecasterBriefs.map((brief) => `attempt-${brief.id}`);
   const attemptNeeds = Object.fromEntries(attemptIds.map((id) => [id, id]));
   const attempts = ctx.outputs.dateAttempt ?? [];
@@ -112,6 +116,8 @@ ${resolutionCriteria}
 
 ${structuredContext}
 
+${timing.promptBlock}
+
 Background:
 ${background || "No extra background provided."}
 
@@ -133,6 +139,7 @@ Return a date forecast as a calibrated date distribution. Provide dateDistributi
             attemptCount: attempts.length,
             componentDates,
             citedSources,
+            ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
             rationale:
               attempts.length === 0
                 ? "No attempts were available; this fallback should only appear in graph rendering."

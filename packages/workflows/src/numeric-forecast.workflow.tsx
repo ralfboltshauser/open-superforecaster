@@ -7,6 +7,7 @@ import {
   numericQuantileDistributionSchema,
 } from "@open-superforecaster/workflow-contracts";
 import { codexResearchAgent } from "./agents";
+import { readForecastTiming } from "./forecast-timing";
 
 const citedSource = z.object({
   title: z.string().optional(),
@@ -42,6 +43,7 @@ const numericAggregate = z.object({
     value: z.number(),
   })),
   citedSources: z.array(citedSource).default([]),
+  evidenceAsOfDate: z.string().optional(),
   rationale: z.string(),
 });
 
@@ -69,11 +71,13 @@ const forecasterBriefs = [
 ];
 
 export default smithers((ctx) => {
-  const forecastInput = normalizeForecastInputRow((ctx.input ?? {}) as Record<string, unknown>);
+  const rawInput = (ctx.input ?? {}) as Record<string, unknown>;
+  const forecastInput = normalizeForecastInputRow(rawInput);
   const question = forecastInput.question;
   const resolutionCriteria = forecastInput.resolutionCriteria ?? "Resolve according to the plain-language question.";
   const background = forecastInput.background ?? "";
   const structuredContext = formatForecastContextForPrompt(forecastInput);
+  const timing = readForecastTiming(rawInput);
   const requestedUnit = forecastInput.unit;
   const attemptIds = forecasterBriefs.map((brief) => `attempt-${brief.id}`);
   const attemptNeeds = Object.fromEntries(attemptIds.map((id) => [id, id]));
@@ -115,6 +119,8 @@ ${resolutionCriteria}
 
 ${structuredContext}
 
+${timing.promptBlock}
+
 Background:
 ${background || "No extra background provided."}
 
@@ -143,6 +149,7 @@ Return a numeric forecast as a calibrated distribution, not only a point estimat
             attemptCount: attempts.length,
             componentValues,
             citedSources,
+            ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
             rationale:
               attempts.length === 0
                 ? "No attempts were available; this fallback should only appear in graph rendering."

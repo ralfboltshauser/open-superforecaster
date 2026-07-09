@@ -30,6 +30,7 @@ import { applyBinaryCalibrationGuard, BINARY_CALIBRATION_GUARD_RULES } from "../
 import { buildBinaryMarketAnchorAudit } from "../packages/workflows/src/binary-market-anchor";
 import { buildBinaryResolutionBoundaryAudit } from "../packages/workflows/src/binary-resolution-boundary";
 import { buildBinaryUncertaintyRangeAudit } from "../packages/workflows/src/binary-uncertainty-range";
+import { readForecastTiming } from "../packages/workflows/src/forecast-timing";
 import { readJson, readRecord, readString, timestampLabel, writeJson } from "./lib/forecast-script-utils";
 
 type CheckResult = {
@@ -1901,15 +1902,35 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
   });
   assert(conditionalSnapshot?.rationaleLength === 18, "conditional evidence rationale length mismatch");
   assert(conditionalSnapshot?.rationaleLengthBand === "short", "conditional evidence rationale band mismatch");
+  const timing = readForecastTiming({ present_date: "2026-07-09T12:34:56Z", cutoff_date: "2026-07-01" });
+  assert(timing.evidenceAsOfDate === "2026-07-09", "forecast timing did not normalize present date");
+  assert(timing.cutoffDate === "2026-07-01", "forecast timing did not normalize cutoff date");
+  assert(timing.promptBlock.includes("Timing context:"), "forecast timing prompt block missing heading");
 
   const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
-  const workflowSource = await readFile(resolve(root, "packages/workflows/src/binary-forecast.workflow.tsx"), "utf8");
-  assert(workflowSource.includes("publishedAt: z.string().optional()"), "forecast cited-source schema does not accept publishedAt");
-  assert(workflowSource.includes("publishedAt as an ISO date"), "forecast prompts do not request source publication dates");
-  assert(workflowSource.includes("evidenceAsOfDate: z.string().optional()"), "binary forecast aggregate schema does not persist evidence as-of date");
+  const workflowFiles = [
+    "binary-forecast.workflow.tsx",
+    "date-forecast.workflow.tsx",
+    "numeric-forecast.workflow.tsx",
+    "categorical-forecast.workflow.tsx",
+    "conditional-forecast.workflow.tsx",
+    "thresholded-forecast.workflow.tsx",
+  ];
+  const workflowSources = await Promise.all(workflowFiles.map(async (file) => ({
+    file,
+    source: await readFile(resolve(root, "packages/workflows/src", file), "utf8"),
+  })));
+  for (const { file, source } of workflowSources) {
+    assert(source.includes("publishedAt: z.string().optional()"), `${file} cited-source schema does not accept publishedAt`);
+    assert(source.includes("publishedAt as an ISO date"), `${file} prompts do not request source publication dates`);
+    assert(source.includes("evidenceAsOfDate: z.string().optional()"), `${file} aggregate schema does not persist evidence as-of date`);
+  }
+  for (const { file, source } of workflowSources.filter((item) => item.file !== "binary-forecast.workflow.tsx")) {
+    assert(source.includes("timing.promptBlock"), `${file} prompt does not include timing context`);
+  }
   assert(resolutionSource.includes("readEvidenceCoverageSnapshot(input.prediction)"), "resolution scoring does not persist evidence coverage metadata");
   assert(resolutionSource.includes("byEvidenceSourceCount"), "performance report does not group by evidence source count");
   assert(resolutionSource.includes("byEvidenceSourceDateCoverage"), "performance report does not group by evidence source date coverage");

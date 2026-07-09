@@ -2,6 +2,7 @@
 import { createSmithers, Parallel, Sequence, Task } from "smithers-orchestrator";
 import { z } from "zod";
 import { codexResearchAgent } from "./agents";
+import { readForecastTiming } from "./forecast-timing";
 
 const citedSource = z.object({
   title: z.string().optional(),
@@ -51,6 +52,7 @@ const conditionalAggregate = z.object({
     probabilityGivenNotCondition: z.number(),
   })),
   citedSources: z.array(citedSource).default([]),
+  evidenceAsOfDate: z.string().optional(),
 });
 
 const { Workflow, smithers, outputs } = createSmithers({
@@ -85,6 +87,7 @@ export default smithers((ctx) => {
     conditionResolutionCriteria?: unknown;
     background?: unknown;
   };
+  const timing = readForecastTiming(input);
   const question = String(input.question ?? input.prompt ?? "");
   const condition = String(input.condition ?? inferCondition(question) ?? "the stated condition in the question");
   const conditionResolutionCriteria = String(input.conditionResolutionCriteria ?? `Resolve whether this condition occurred: ${condition}`);
@@ -131,6 +134,8 @@ ${conditionResolutionCriteria}
 
 Outcome resolution criteria:
 ${outcomeResolutionCriteria}
+
+${timing.promptBlock}
 
 Background:
 ${background || "No extra background provided."}
@@ -179,6 +184,7 @@ Explain why the condition changes, or does not change, the outcome. Include bran
             attemptCount: attempts.length,
             componentBranches,
             citedSources,
+            ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
           }}
         </Task>
       </Sequence>
