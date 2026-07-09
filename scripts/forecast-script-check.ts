@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { summarizeBenchmarkPromotionGateEvidence } from "../packages/backend/src/benchmark-service";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
@@ -494,6 +494,18 @@ await check("benchmark promotion gate requires paired improvement", async () => 
   assert(candidateBetter.status === "review_for_promotion", "candidate improvement should be reviewable");
   assert(candidateBetter.blockers.length === 0, "candidate improvement should not have blockers");
   return "promotion review requires paired candidate improvement";
+});
+
+await check("fixed-evidence benchmark aggregate requires baseline sanity", async () => {
+  const workflowSource = await readFile(resolve(root, "packages/workflows/src/fixed-evidence-eval.workflow.tsx"), "utf8");
+  const analysisSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
+  for (const field of ["baselineProbability", "baselineDelta", "baselineSanityCheck", "baseRateAnchor", "insideViewDelta", "skepticalAdjustment", "aggregationRule"]) {
+    assert(workflowSource.includes(field), `fixed-evidence aggregate missing ${field}`);
+  }
+  assert(workflowSource.includes("If a baseline probability is provided"), "rollout prompt does not require baseline comparison");
+  assert(analysisSource.includes("baselineSanityGate"), "benchmark analysis does not gate baseline sanity metadata");
+  assert(analysisSource.includes("warn_missing_baseline_sanity"), "baseline sanity warning missing");
+  return "fixed-evidence aggregates persist baseline sanity metadata";
 });
 
 const failed = checks.filter((result) => !result.ok);

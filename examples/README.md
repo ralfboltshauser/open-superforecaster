@@ -19,6 +19,10 @@ Benchmark promotion gates treat indistinguishable candidate-vs-baseline scores
 as iteration evidence only. A run becomes ready for promotion review only after
 the paired comparison shows candidate improvement and the trace/review blockers
 are clear.
+Fixed-evidence benchmark aggregates also persist baseline-sanity fields: the
+provided baseline probability, final delta, base-rate anchor, inside-view
+movement, skeptical adjustment, and aggregation rule. Those fields make
+worse-than-baseline cases easier to debug from the saved artifact alone.
 
 ## Forecast And Research Prompts
 

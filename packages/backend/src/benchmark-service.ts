@@ -2261,8 +2261,23 @@ function qualityGatesForCase(input: {
     traceBundle: input.traceAudit.traceBundleWritten ? "pass" : "fail_missing_trace_bundle",
     sourceProvenance: String(input.sourceAudit.sourceAuditStatus ?? "unknown"),
     baselineComparison: input.baselineProbability === null ? "warn_no_baseline" : "pass",
+    baselineSanity: baselineSanityGate(input.output, input.baselineProbability),
     aggregateRationale: readString(input.output, "rationale") ? "pass" : "warn_missing_rationale",
   };
+}
+
+function baselineSanityGate(output: Record<string, unknown>, baselineProbability: number | null) {
+  if (baselineProbability === null) {
+    return "warn_no_baseline";
+  }
+  const baselineSanityCheck = readString(output, "baselineSanityCheck", "baseline_sanity_check");
+  const baselineDelta = readNumber(output, "baselineDelta", "baseline_delta");
+  const aggregationRule = readString(output, "aggregationRule", "aggregation_rule");
+  const baseRateAnchor = readString(output, "baseRateAnchor", "base_rate_anchor");
+  if (!baselineSanityCheck || baselineDelta === null || !aggregationRule || !baseRateAnchor) {
+    return "warn_missing_baseline_sanity";
+  }
+  return "pass";
 }
 
 function traceQualityFindingsForRun(
