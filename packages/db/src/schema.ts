@@ -409,6 +409,9 @@ export const workflowChangeProposals = pgTable("workflow_change_proposals", {
   overfitRisk: text("overfit_risk").notNull(),
   validationPlan: text("validation_plan").notNull(),
   status: text("status").notNull().default("candidate"),
+  reviewNote: text("review_note"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   ...timestamps,
 });
 

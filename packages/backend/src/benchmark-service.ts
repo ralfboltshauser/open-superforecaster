@@ -64,6 +64,8 @@ const promotionStates = [
   "needs_more_cases",
 ] as const;
 export type WorkflowPromotionState = (typeof promotionStates)[number];
+const workflowChangeProposalStatuses = ["candidate", "accepted", "rejected", "implemented"] as const;
+export type WorkflowChangeProposalStatus = (typeof workflowChangeProposalStatuses)[number];
 type BenchmarkPromotionComparisonStatus =
   | "candidate_better"
   | "candidate_worse"
@@ -723,6 +725,9 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
         overfitRisk: workflowChangeProposals.overfitRisk,
         validationPlan: workflowChangeProposals.validationPlan,
         status: workflowChangeProposals.status,
+        reviewNote: workflowChangeProposals.reviewNote,
+        reviewedBy: workflowChangeProposals.reviewedBy,
+        reviewedAt: workflowChangeProposals.reviewedAt,
         createdAt: workflowChangeProposals.createdAt,
       })
       .from(workflowChangeProposals)
@@ -1020,6 +1025,54 @@ export async function recordWorkflowPromotionDecision(
   };
 }
 
+export async function updateWorkflowChangeProposalStatus(
+  db: Db,
+  input: {
+    benchmarkRunId: string;
+    proposalId: string;
+    status: string;
+    reviewNote?: string;
+    reviewedBy?: string;
+  },
+) {
+  const status = normalizeWorkflowChangeProposalStatus(input.status);
+  const reviewNote = input.reviewNote?.trim() || null;
+  const reviewedBy = input.reviewedBy?.trim() || "local-user";
+  const reviewedAt = status === "candidate" ? null : new Date();
+  const [proposal] = await db
+    .update(workflowChangeProposals)
+    .set({
+      status,
+      reviewNote,
+      reviewedBy: status === "candidate" ? null : reviewedBy,
+      reviewedAt,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(workflowChangeProposals.id, input.proposalId), eq(workflowChangeProposals.sourceBenchmarkRunId, input.benchmarkRunId)))
+    .returning({
+      id: workflowChangeProposals.id,
+      sourceBenchmarkRunId: workflowChangeProposals.sourceBenchmarkRunId,
+      targetWorkflowId: workflowChangeProposals.targetWorkflowId,
+      problemStatement: workflowChangeProposals.problemStatement,
+      evidenceCaseIds: workflowChangeProposals.evidenceCaseIds,
+      proposedChange: workflowChangeProposals.proposedChange,
+      expectedMetricEffect: workflowChangeProposals.expectedMetricEffect,
+      expectedCostLatencyEffect: workflowChangeProposals.expectedCostLatencyEffect,
+      overfitRisk: workflowChangeProposals.overfitRisk,
+      validationPlan: workflowChangeProposals.validationPlan,
+      status: workflowChangeProposals.status,
+      reviewNote: workflowChangeProposals.reviewNote,
+      reviewedBy: workflowChangeProposals.reviewedBy,
+      reviewedAt: workflowChangeProposals.reviewedAt,
+      createdAt: workflowChangeProposals.createdAt,
+      updatedAt: workflowChangeProposals.updatedAt,
+    });
+  if (!proposal) {
+    throw new Error(`Workflow change proposal not found for benchmark run: ${input.proposalId}`);
+  }
+  return proposal;
+}
+
 export async function createBenchmarkComparisonReport(
   db: Db,
   input: {
@@ -1179,6 +1232,13 @@ function normalizePromotionState(raw: string): WorkflowPromotionState {
     return raw as WorkflowPromotionState;
   }
   throw new Error(`Unknown promotion state: ${raw}`);
+}
+
+function normalizeWorkflowChangeProposalStatus(raw: string): WorkflowChangeProposalStatus {
+  if (workflowChangeProposalStatuses.includes(raw as WorkflowChangeProposalStatus)) {
+    return raw as WorkflowChangeProposalStatus;
+  }
+  throw new Error(`Unknown workflow change proposal status: ${raw}`);
 }
 
 async function loadWorkflowVariantSummary(db: Db, workflowVariantId: string) {

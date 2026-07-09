@@ -691,6 +691,9 @@ await check("workflow change proposals are exported to DuckDB", async () => {
   assert(syncSource.includes("overfit_risk"), "workflow proposal mart missing overfit risk");
   assert(syncSource.includes("validation_plan"), "workflow proposal mart missing validation plan");
   assert(syncSource.includes("evidence_case_ids_json"), "workflow proposal mart missing evidence case ids");
+  assert(syncSource.includes("review_note"), "workflow proposal mart missing review note");
+  assert(syncSource.includes("reviewed_by"), "workflow proposal mart missing reviewer");
+  assert(syncSource.includes("reviewed_at"), "workflow proposal mart missing review timestamp");
   return "benchmark-derived workflow proposals are visible in local DuckDB analytics";
 });
 
@@ -702,7 +705,30 @@ await check("workflow change proposals are visible in the lab dashboard", async 
   assert(dashboardSource.includes("proposedChange"), "lab dashboard proposal section missing proposed change");
   assert(dashboardSource.includes("overfitRisk"), "lab dashboard proposal section missing overfit risk");
   assert(dashboardSource.includes("validationPlan"), "lab dashboard proposal section missing validation plan");
+  assert(dashboardSource.includes("updateWorkflowChangeProposal"), "lab dashboard does not expose workflow proposal lifecycle actions");
+  assert(dashboardSource.includes("implemented"), "lab dashboard proposal section missing implemented action");
   return "benchmark-derived workflow proposals are visible where promotion blockers are reviewed";
+});
+
+await check("workflow change proposal lifecycle is auditable", async () => {
+  const schemaSource = await readFile(resolve(root, "packages/db/src/schema.ts"), "utf8");
+  const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
+  const routeSource = await readFile(
+    resolve(root, "apps/web/src/app/api/benchmarks/[benchmarkRunId]/proposals/[proposalId]/route.ts"),
+    "utf8",
+  );
+  assert(schemaSource.includes("reviewNote: text(\"review_note\")"), "workflow proposal schema missing review note");
+  assert(schemaSource.includes("reviewedBy: text(\"reviewed_by\")"), "workflow proposal schema missing reviewer");
+  assert(schemaSource.includes("reviewedAt: timestamp(\"reviewed_at\""), "workflow proposal schema missing review timestamp");
+  assert(backendSource.includes("workflowChangeProposalStatuses"), "backend missing shared workflow proposal status set");
+  for (const status of ["candidate", "accepted", "rejected", "implemented"]) {
+    assert(backendSource.includes(`"${status}"`), `backend missing workflow proposal status ${status}`);
+  }
+  assert(backendSource.includes("updateWorkflowChangeProposalStatus"), "backend missing workflow proposal lifecycle function");
+  assert(backendSource.includes("eq(workflowChangeProposals.sourceBenchmarkRunId, input.benchmarkRunId)"), "proposal update does not verify benchmark ownership");
+  assert(routeSource.includes("updateWorkflowChangeProposalStatus"), "proposal lifecycle API route missing backend update call");
+  assert(routeSource.includes("reviewNote"), "proposal lifecycle API route missing review note");
+  return "workflow proposal status changes keep reviewer context and benchmark ownership";
 });
 
 const failed = checks.filter((result) => !result.ok);

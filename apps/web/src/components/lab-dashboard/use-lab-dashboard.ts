@@ -7,6 +7,7 @@ import { fetchJson, postJson } from "@/lib/api-client"
 import { isRecord, readArray, type JsonRecord } from "@/lib/records"
 
 export type BenchmarkMode = "fixed_evidence" | "agentic_pastcasting_smoke"
+export type WorkflowChangeProposalStatus = "candidate" | "accepted" | "rejected" | "implemented"
 
 type BenchmarksPayload = {
   benchmarkRuns?: JsonRecord[]
@@ -86,6 +87,18 @@ export function useLabDashboard() {
 
   const runMaintenance = useCallback((action: string) => runAction(action, () => postJson("/api/maintenance", { action })), [runAction])
 
+  const updateWorkflowChangeProposal = useCallback(
+    (benchmarkRunId: string, proposalId: string, status: WorkflowChangeProposalStatus) =>
+      runAction(`proposal:${proposalId}:${status}`, () =>
+        postJson(`/api/benchmarks/${benchmarkRunId}/proposals/${proposalId}`, {
+          status,
+          reviewNote: `Marked ${status} from lab dashboard.`,
+          reviewedBy: "local-user",
+        }),
+      ),
+    [runAction],
+  )
+
   return {
     actions,
     benchmarks,
@@ -98,6 +111,7 @@ export function useLabDashboard() {
     resolutionSummary,
     runMaintenance,
     runs,
+    updateWorkflowChangeProposal,
   }
 }
 

@@ -264,6 +264,9 @@ try {
       overfit_risk,
       validation_plan,
       status,
+      review_note,
+      reviewed_by,
+      reviewed_at::text as reviewed_at,
       created_at::text as created_at,
       updated_at::text as updated_at
     from workflow_change_proposals
@@ -441,6 +444,9 @@ const workflowChangeProposalColumns = [
   { name: "overfit_risk", type: "VARCHAR" },
   { name: "validation_plan", type: "VARCHAR" },
   { name: "status", type: "VARCHAR" },
+  { name: "review_note", type: "VARCHAR" },
+  { name: "reviewed_by", type: "VARCHAR" },
+  { name: "reviewed_at", type: "VARCHAR" },
   { name: "created_at", type: "VARCHAR" },
   { name: "updated_at", type: "VARCHAR" },
 ] satisfies DuckColumn[];

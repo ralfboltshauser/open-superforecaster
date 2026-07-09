@@ -58,9 +58,10 @@ analysis-finding counts into `osf_benchmark_runs` for local analytics.
 Benchmark-derived workflow change proposals are exported to
 `osf_workflow_change_proposals`, including source benchmark run, evidence case
 ids, proposed change, expected metric and cost/latency effects, overfit risk,
-and validation plan.
+validation plan, status, reviewer note, reviewer, and review timestamp.
 The lab benchmark list also shows the latest proposals beside promotion
-blockers, so review can connect observed failures to concrete workflow changes.
+blockers, so review can connect observed failures to concrete workflow changes
+and mark each proposal accepted, rejected, implemented, or reopened.
 
 ## Forecast And Research Prompts
 

@@ -15,6 +15,13 @@
       "when": 1783489222173,
       "tag": "0001_mature_lady_mastermind",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783613868638,
+      "tag": "0002_certain_misty_knight",
+      "breakpoints": true
     }
   ]
 }

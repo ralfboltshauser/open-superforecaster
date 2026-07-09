@@ -4,7 +4,7 @@ import Link from "next/link"
 import type { LucideIcon } from "lucide-react"
 import { Activity, BarChart3, Database, FlaskConical, Play, Server, ShieldCheck, TrendingUp, Wrench } from "lucide-react"
 
-import type { BenchmarkMode } from "@/components/lab-dashboard/use-lab-dashboard"
+import type { BenchmarkMode, WorkflowChangeProposalStatus } from "@/components/lab-dashboard/use-lab-dashboard"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -125,7 +125,15 @@ export function DiagnosticsCard({ diagnosticCounts }: { diagnosticCounts: Diagno
   )
 }
 
-export function BenchmarksCard({ benchmarks }: { benchmarks: { benchmarkRuns: JsonRecord[]; benchmarkSuites: JsonRecord[] } }) {
+export function BenchmarksCard({
+  benchmarks,
+  busy,
+  updateWorkflowChangeProposal,
+}: {
+  benchmarks: { benchmarkRuns: JsonRecord[]; benchmarkSuites: JsonRecord[] }
+  busy: string | null
+  updateWorkflowChangeProposal: (benchmarkRunId: string, proposalId: string, status: WorkflowChangeProposalStatus) => Promise<void>
+}) {
   return (
     <Card id="benchmarks">
       <CardHeader>
@@ -134,14 +142,27 @@ export function BenchmarksCard({ benchmarks }: { benchmarks: { benchmarkRuns: Js
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {benchmarks.benchmarkRuns.slice(0, 6).map((run) => (
-          <BenchmarkRunSummary run={run} key={String(run.id ?? run.label)} />
+          <BenchmarkRunSummary
+            busy={busy}
+            run={run}
+            updateWorkflowChangeProposal={updateWorkflowChangeProposal}
+            key={String(run.id ?? run.label)}
+          />
         ))}
       </CardContent>
     </Card>
   )
 }
 
-function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
+function BenchmarkRunSummary({
+  busy,
+  run,
+  updateWorkflowChangeProposal,
+}: {
+  busy: string | null
+  run: JsonRecord
+  updateWorkflowChangeProposal: (benchmarkRunId: string, proposalId: string, status: WorkflowChangeProposalStatus) => Promise<void>
+}) {
   const promotionGate = isRecord(run.promotionGate) ? run.promotionGate : null
   const baselineSanity = isRecord(run.baselineSanityFindings) ? run.baselineSanityFindings : null
   const componentDisagreement = isRecord(run.componentDisagreementFindings) ? run.componentDisagreementFindings : null
@@ -170,6 +191,7 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
   const missingProbabilityCases = typeof traceQuality?.missingProbabilityCases === "number" ? traceQuality.missingProbabilityCases : null
   const missingScoreRowsCases = typeof traceQuality?.missingScoreRowsCases === "number" ? traceQuality.missingScoreRowsCases : null
   const missingAggregateRationaleCases = typeof traceQuality?.missingAggregateRationaleCases === "number" ? traceQuality.missingAggregateRationaleCases : null
+  const benchmarkRunId = typeof run.id === "string" ? run.id : null
   return (
     <div className="rounded-md border p-3 text-sm">
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -232,29 +254,98 @@ function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
           <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">Workflow proposals</p>
           <div className="flex flex-col gap-2">
             {workflowChangeProposals.slice(0, 2).map((proposal) => (
-              <div className="rounded-md border px-3 py-2" key={String(proposal.id ?? proposal.proposedChange)}>
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="min-w-0 truncate text-xs font-medium">
-                    {String(proposal.targetWorkflowId ?? "workflow")}
-                  </span>
-                  <Badge variant="secondary">{String(proposal.status ?? "candidate")}</Badge>
-                  <Badge variant="outline">risk {String(proposal.overfitRisk ?? "unknown")}</Badge>
-                </div>
-                <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
-                  {String(proposal.proposedChange ?? proposal.problemStatement ?? "No proposed change recorded.")}
-                </p>
-                {proposal.validationPlan ? (
-                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                    validation {String(proposal.validationPlan)}
-                  </p>
-                ) : null}
-              </div>
+              <WorkflowProposalSummary
+                benchmarkRunId={benchmarkRunId}
+                busy={busy}
+                proposal={proposal}
+                updateWorkflowChangeProposal={updateWorkflowChangeProposal}
+                key={String(proposal.id ?? proposal.proposedChange)}
+              />
             ))}
           </div>
         </div>
       ) : null}
     </div>
   )
+}
+
+function WorkflowProposalSummary({
+  benchmarkRunId,
+  busy,
+  proposal,
+  updateWorkflowChangeProposal,
+}: {
+  benchmarkRunId: string | null
+  busy: string | null
+  proposal: JsonRecord
+  updateWorkflowChangeProposal: (benchmarkRunId: string, proposalId: string, status: WorkflowChangeProposalStatus) => Promise<void>
+}) {
+  const proposalId = typeof proposal.id === "string" ? proposal.id : null
+  const status = normalizeProposalStatus(proposal.status)
+  const reviewedBy = typeof proposal.reviewedBy === "string" ? proposal.reviewedBy : null
+  const reviewedAt = typeof proposal.reviewedAt === "string" ? proposal.reviewedAt : null
+  const canUpdate = Boolean(benchmarkRunId && proposalId)
+  const updateStatus = (nextStatus: WorkflowChangeProposalStatus) => {
+    if (!benchmarkRunId || !proposalId) {
+      return
+    }
+    void updateWorkflowChangeProposal(benchmarkRunId, proposalId, nextStatus)
+  }
+  return (
+    <div className="rounded-md border px-3 py-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <span className="min-w-0 truncate text-xs font-medium">
+          {String(proposal.targetWorkflowId ?? "workflow")}
+        </span>
+        <Badge variant="secondary">{status}</Badge>
+        <Badge variant="outline">risk {String(proposal.overfitRisk ?? "unknown")}</Badge>
+      </div>
+      <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
+        {String(proposal.proposedChange ?? proposal.problemStatement ?? "No proposed change recorded.")}
+      </p>
+      {proposal.validationPlan ? (
+        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+          validation {String(proposal.validationPlan)}
+        </p>
+      ) : null}
+      {reviewedBy || reviewedAt ? (
+        <p className="mt-1 truncate text-xs text-muted-foreground">
+          reviewed {reviewedBy ?? "local-user"}{reviewedAt ? ` · ${reviewedAt}` : ""}
+        </p>
+      ) : null}
+      {canUpdate ? (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {(["accepted", "rejected", "implemented"] as const).map((nextStatus) => (
+            <Button
+              disabled={busy !== null || status === nextStatus}
+              key={nextStatus}
+              onClick={() => updateStatus(nextStatus)}
+              size="xs"
+              type="button"
+              variant={nextStatus === "rejected" ? "destructive" : "outline"}
+            >
+              {nextStatus}
+            </Button>
+          ))}
+          {status !== "candidate" ? (
+            <Button
+              disabled={busy !== null}
+              onClick={() => updateStatus("candidate")}
+              size="xs"
+              type="button"
+              variant="ghost"
+            >
+              reopen
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function normalizeProposalStatus(value: unknown): WorkflowChangeProposalStatus {
+  return value === "accepted" || value === "rejected" || value === "implemented" ? value : "candidate"
 }
 
 export function PerformanceCard({ performance }: { performance: JsonRecord | null }) {

@@ -25,6 +25,7 @@ export function LabDashboard() {
     resolutionSummary,
     runMaintenance,
     runs,
+    updateWorkflowChangeProposal,
   } = useLabDashboard()
 
   return (
@@ -56,7 +57,11 @@ export function LabDashboard() {
 
         <div className="grid gap-6">
           <DiagnosticsCard diagnosticCounts={diagnosticCounts} />
-          <BenchmarksCard benchmarks={benchmarks} />
+          <BenchmarksCard
+            benchmarks={benchmarks}
+            busy={busy}
+            updateWorkflowChangeProposal={updateWorkflowChangeProposal}
+          />
           <MaintenanceCard actions={actions} busy={busy} runMaintenance={runMaintenance} />
         </div>
       </section>
