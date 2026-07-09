@@ -18,6 +18,7 @@ import { readCalibrationGuardSnapshot, type CalibrationGuardSnapshot } from "./c
 import { readCategoricalForecastSnapshot } from "./categorical-forecast-metadata";
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
+import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
 import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
 import { readThresholdedForecastSnapshot } from "./thresholded-forecast-metadata";
@@ -377,6 +378,9 @@ export async function getForecastPerformanceReport(db: Db) {
   const byCategoricalConfidence = groupScores(aggregateScores, categoricalConfidenceGroupKey);
   const byCategoricalEntropy = groupScores(aggregateScores, categoricalEntropyGroupKey);
   const byCategoricalSource = groupScores(aggregateScores, categoricalSourceGroupKey);
+  const byEvidenceSourceCount = groupScores(aggregateScores, evidenceSourceCountGroupKey);
+  const byEvidenceUncertaintyCount = groupScores(aggregateScores, evidenceUncertaintyCountGroupKey);
+  const byEvidenceRationaleLength = groupScores(aggregateScores, evidenceRationaleLengthGroupKey);
   const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
   const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
@@ -433,6 +437,9 @@ export async function getForecastPerformanceReport(db: Db) {
       byCategoricalConfidence,
       byCategoricalEntropy,
       byCategoricalSource,
+      byEvidenceSourceCount,
+      byEvidenceUncertaintyCount,
+      byEvidenceRationaleLength,
     },
     bestResolvedForecasts,
     worstResolvedForecasts,
@@ -479,6 +486,9 @@ export async function getForecastPerformanceReport(db: Db) {
       byCategoricalConfidence,
       byCategoricalEntropy,
       byCategoricalSource,
+      byEvidenceSourceCount,
+      byEvidenceUncertaintyCount,
+      byEvidenceRationaleLength,
       bestResolvedForecasts,
       worstResolvedForecasts,
       scoreTrends,
@@ -637,6 +647,8 @@ function scoreForecastPrediction(input: {
   prediction: Record<string, unknown>;
   resolvedValue: Record<string, unknown>;
 }): ScoreRowInput[] {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(input.prediction);
+  const evidenceConfig = evidenceCoverage ? { evidenceCoverage } : {};
   if (input.forecastType === "binary") {
     const probability = readProbability(input.prediction);
     const resolved = readResolved(input.resolvedValue);
@@ -657,6 +669,7 @@ function scoreForecastPrediction(input: {
         ...(baselineSanity ? { baselineSanity } : {}),
         ...(aggregateQuality ? { aggregateQuality } : {}),
         ...(aggregateStats ? { aggregateStats } : {}),
+        ...evidenceConfig,
       },
     }));
   }
@@ -674,19 +687,19 @@ function scoreForecastPrediction(input: {
       {
         scoreType: "absolute_error",
         scoreValue: absoluteError,
-        scoreConfig: { predicted, actual, error, ...(numericForecast ? { numericForecast } : {}) },
+        scoreConfig: { predicted, actual, error, ...(numericForecast ? { numericForecast } : {}), ...evidenceConfig },
       },
       {
         scoreType: "squared_error",
         scoreValue: error ** 2,
-        scoreConfig: { predicted, actual, error, ...(numericForecast ? { numericForecast } : {}) },
+        scoreConfig: { predicted, actual, error, ...(numericForecast ? { numericForecast } : {}), ...evidenceConfig },
       },
     ];
     if (actual !== 0) {
       rows.push({
         scoreType: "absolute_percentage_error",
         scoreValue: absoluteError / Math.abs(actual),
-        scoreConfig: { predicted, actual, error, ...(numericForecast ? { numericForecast } : {}) },
+        scoreConfig: { predicted, actual, error, ...(numericForecast ? { numericForecast } : {}), ...evidenceConfig },
       });
     }
     return rows;
@@ -710,6 +723,7 @@ function scoreForecastPrediction(input: {
           actualDate: actual.toISOString().slice(0, 10),
           errorDays,
           ...(dateForecast ? { dateForecast } : {}),
+          ...evidenceConfig,
         },
       },
       {
@@ -720,6 +734,7 @@ function scoreForecastPrediction(input: {
           actualDate: actual.toISOString().slice(0, 10),
           errorDays,
           ...(dateForecast ? { dateForecast } : {}),
+          ...evidenceConfig,
         },
       },
     ];
@@ -747,12 +762,12 @@ function scoreForecastPrediction(input: {
       {
         scoreType: "categorical_brier",
         scoreValue: brier,
-        scoreConfig: { actualCategory, distribution, ...(categoricalForecast ? { categoricalForecast } : {}) },
+        scoreConfig: { actualCategory, distribution, ...(categoricalForecast ? { categoricalForecast } : {}), ...evidenceConfig },
       },
       {
         scoreType: "categorical_log",
         scoreValue: -Math.log(Math.max(1e-6, actualProbability)),
-        scoreConfig: { actualCategory, actualProbability, distribution, ...(categoricalForecast ? { categoricalForecast } : {}) },
+        scoreConfig: { actualCategory, actualProbability, distribution, ...(categoricalForecast ? { categoricalForecast } : {}), ...evidenceConfig },
       },
     ];
   }
@@ -789,12 +804,12 @@ function scoreForecastPrediction(input: {
       {
         scoreType: "thresholded_brier",
         scoreValue: meanNumber(points.map((point) => point.scores.brier)),
-        scoreConfig: { actual, direction, points, ...(thresholdedForecast ? { thresholdedForecast } : {}) },
+        scoreConfig: { actual, direction, points, ...(thresholdedForecast ? { thresholdedForecast } : {}), ...evidenceConfig },
       },
       {
         scoreType: "thresholded_log",
         scoreValue: meanNumber(points.map((point) => point.scores.log)),
-        scoreConfig: { actual, direction, points, ...(thresholdedForecast ? { thresholdedForecast } : {}) },
+        scoreConfig: { actual, direction, points, ...(thresholdedForecast ? { thresholdedForecast } : {}), ...evidenceConfig },
       },
     ];
   }
@@ -822,6 +837,7 @@ function scoreForecastPrediction(input: {
       conditionResolved,
       outcomeResolved,
       ...(conditionalForecast ? { conditionalForecast } : {}),
+      ...evidenceConfig,
     },
   }));
   const conditionProbability = readNumber(input.prediction, "conditionProbability", "condition_probability");
@@ -831,12 +847,12 @@ function scoreForecastPrediction(input: {
       {
         scoreType: "condition_brier",
         scoreValue: conditionScores.brier,
-        scoreConfig: { probability: conditionProbability, conditionResolved, ...(conditionalForecast ? { conditionalForecast } : {}) },
+        scoreConfig: { probability: conditionProbability, conditionResolved, ...(conditionalForecast ? { conditionalForecast } : {}), ...evidenceConfig },
       },
       {
         scoreType: "condition_log",
         scoreValue: conditionScores.log,
-        scoreConfig: { probability: conditionProbability, conditionResolved, ...(conditionalForecast ? { conditionalForecast } : {}) },
+        scoreConfig: { probability: conditionProbability, conditionResolved, ...(conditionalForecast ? { conditionalForecast } : {}), ...evidenceConfig },
       },
     );
   }
@@ -1260,6 +1276,21 @@ function categoricalSourceGroupKey(score: typeof forecastScores.$inferSelect) {
   }
   const categoricalForecast = readCategoricalForecastSnapshot(score.scoreConfig);
   return `categorical_source:${categoricalForecast?.categorySource ?? "unrecorded"}`;
+}
+
+function evidenceSourceCountGroupKey(score: typeof forecastScores.$inferSelect) {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
+  return `evidence_sources:${evidenceCoverage?.sourceCountBand ?? "unrecorded"}`;
+}
+
+function evidenceUncertaintyCountGroupKey(score: typeof forecastScores.$inferSelect) {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
+  return `evidence_uncertainties:${evidenceCoverage?.uncertaintyCountBand ?? "unrecorded"}`;
+}
+
+function evidenceRationaleLengthGroupKey(score: typeof forecastScores.$inferSelect) {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
+  return `evidence_rationale:${evidenceCoverage?.rationaleLengthBand ?? "unrecorded"}`;
 }
 
 function rankAggregateCases(
@@ -1742,6 +1773,9 @@ function renderPerformanceMarkdown(input: {
   byCategoricalConfidence: PerformanceGroup[];
   byCategoricalEntropy: PerformanceGroup[];
   byCategoricalSource: PerformanceGroup[];
+  byEvidenceSourceCount: PerformanceGroup[];
+  byEvidenceUncertaintyCount: PerformanceGroup[];
+  byEvidenceRationaleLength: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
   worstResolvedForecasts: PerformanceCase[];
   scoreTrends: PerformanceTrend[];
@@ -1825,6 +1859,15 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Categorical source groups",
     ...renderGroupTable(input.byCategoricalSource),
+    "",
+    "## Evidence source-count groups",
+    ...renderGroupTable(input.byEvidenceSourceCount),
+    "",
+    "## Evidence uncertainty-count groups",
+    ...renderGroupTable(input.byEvidenceUncertaintyCount),
+    "",
+    "## Evidence rationale-length groups",
+    ...renderGroupTable(input.byEvidenceRationaleLength),
     "",
     "## Calibration guard impact",
     ...renderCalibrationGuardImpact(input.calibrationGuardImpact),

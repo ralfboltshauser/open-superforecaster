@@ -490,6 +490,9 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byCategoricalConfidence = readArray(groups, "byCategoricalConfidence").filter(isRecord)
   const byCategoricalEntropy = readArray(groups, "byCategoricalEntropy").filter(isRecord)
   const byCategoricalSource = readArray(groups, "byCategoricalSource").filter(isRecord)
+  const byEvidenceSourceCount = readArray(groups, "byEvidenceSourceCount").filter(isRecord)
+  const byEvidenceUncertaintyCount = readArray(groups, "byEvidenceUncertaintyCount").filter(isRecord)
+  const byEvidenceRationaleLength = readArray(groups, "byEvidenceRationaleLength").filter(isRecord)
   const bestForecasts = readArray(performance, "bestResolvedForecasts").filter(isRecord)
   const worstForecasts = readArray(performance, "worstResolvedForecasts").filter(isRecord)
   const scoreTrends = readArray(performance, "scoreTrends").filter(isRecord)
@@ -555,6 +558,9 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byCategoricalConfidence.length ? <PerformancePlanShapeGroupList groups={byCategoricalConfidence} title="Categorical confidence outcomes" skipKey="categorical_confidence:not_categorical" fallback="categorical confidence" /> : null}
         {byCategoricalEntropy.length ? <PerformancePlanShapeGroupList groups={byCategoricalEntropy} title="Categorical entropy outcomes" skipKey="categorical_entropy:not_categorical" fallback="categorical entropy" /> : null}
         {byCategoricalSource.length ? <PerformancePlanShapeGroupList groups={byCategoricalSource} title="Categorical source outcomes" skipKey="categorical_source:not_categorical" fallback="categorical source" /> : null}
+        {byEvidenceSourceCount.length ? <PerformancePlanShapeGroupList groups={byEvidenceSourceCount} title="Evidence source outcomes" skipKey="evidence_sources:unrecorded" fallback="evidence sources" /> : null}
+        {byEvidenceUncertaintyCount.length ? <PerformancePlanShapeGroupList groups={byEvidenceUncertaintyCount} title="Evidence uncertainty outcomes" skipKey="evidence_uncertainties:unrecorded" fallback="evidence uncertainties" /> : null}
+        {byEvidenceRationaleLength.length ? <PerformancePlanShapeGroupList groups={byEvidenceRationaleLength} title="Evidence rationale outcomes" skipKey="evidence_rationale:unrecorded" fallback="evidence rationale" /> : null}
         {calibrationBuckets.length ? <PerformanceCalibrationList buckets={calibrationBuckets} summary={calibrationSummary} /> : null}
         {candidateCalibrationGuardRules.length ? <PerformanceCandidateGuardList rules={candidateCalibrationGuardRules} /> : null}
         {needsAttention.length ? <PerformanceAttentionList items={needsAttention} /> : null}

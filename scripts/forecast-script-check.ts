@@ -14,6 +14,7 @@ import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibratio
 import { readCategoricalForecastSnapshot } from "../packages/backend/src/categorical-forecast-metadata";
 import { readConditionalForecastSnapshot } from "../packages/backend/src/conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "../packages/backend/src/date-forecast-metadata";
+import { readEvidenceCoverageSnapshot } from "../packages/backend/src/evidence-coverage-metadata";
 import { readNumericForecastSnapshot } from "../packages/backend/src/numeric-forecast-metadata";
 import { buildBinaryCalibrationReport } from "../packages/backend/src/performance-calibration";
 import { readThresholdedForecastSnapshot } from "../packages/backend/src/thresholded-forecast-metadata";
@@ -843,6 +844,9 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Categorical confidence groups"), "performance Markdown missing categorical confidence group section");
   assert(resolutionSource.includes("## Categorical entropy groups"), "performance Markdown missing categorical entropy group section");
   assert(resolutionSource.includes("## Categorical source groups"), "performance Markdown missing categorical source group section");
+  assert(resolutionSource.includes("## Evidence source-count groups"), "performance Markdown missing evidence source-count group section");
+  assert(resolutionSource.includes("## Evidence uncertainty-count groups"), "performance Markdown missing evidence uncertainty-count group section");
+  assert(resolutionSource.includes("## Evidence rationale-length groups"), "performance Markdown missing evidence rationale-length group section");
   assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");
   assert(dashboardSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not read candidate calibration guard rules");
   assert(dashboardSource.includes("Candidate calibration guards"), "lab dashboard does not render candidate calibration guard rules");
@@ -886,6 +890,12 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Categorical entropy outcomes"), "lab dashboard does not render categorical entropy performance groups");
   assert(dashboardSource.includes("byCategoricalSource"), "lab dashboard does not read categorical source performance groups");
   assert(dashboardSource.includes("Categorical source outcomes"), "lab dashboard does not render categorical source performance groups");
+  assert(dashboardSource.includes("byEvidenceSourceCount"), "lab dashboard does not read evidence source performance groups");
+  assert(dashboardSource.includes("Evidence source outcomes"), "lab dashboard does not render evidence source performance groups");
+  assert(dashboardSource.includes("byEvidenceUncertaintyCount"), "lab dashboard does not read evidence uncertainty performance groups");
+  assert(dashboardSource.includes("Evidence uncertainty outcomes"), "lab dashboard does not render evidence uncertainty performance groups");
+  assert(dashboardSource.includes("byEvidenceRationaleLength"), "lab dashboard does not read evidence rationale performance groups");
+  assert(dashboardSource.includes("Evidence rationale outcomes"), "lab dashboard does not render evidence rationale performance groups");
   return "candidate calibration guard rules are visible in report artifacts and the lab dashboard";
 });
 
@@ -964,6 +974,8 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_date_distribution_score_mean"), "date distribution score mean metric missing");
   assert(metricsSource.includes("open_superforecaster_categorical_distribution_scores_total"), "categorical distribution score count metric missing");
   assert(metricsSource.includes("open_superforecaster_categorical_distribution_score_mean"), "categorical distribution score mean metric missing");
+  assert(metricsSource.includes("open_superforecaster_evidence_coverage_scores_total"), "evidence coverage score count metric missing");
+  assert(metricsSource.includes("open_superforecaster_evidence_coverage_score_mean"), "evidence coverage score mean metric missing");
   assert(metricsSource.includes("buildCalibrationGuardImpact"), "metrics exporter does not use shared calibration guard impact builder");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_status"), "calibration guard impact status metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_impact_brier_delta"), "calibration guard impact Brier delta metric missing");
@@ -986,6 +998,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(smokeSource.includes("open_superforecaster_numeric_distribution_scores_total"), "smoke check does not require numeric distribution metric");
   assert(smokeSource.includes("open_superforecaster_date_distribution_scores_total"), "smoke check does not require date distribution metric");
   assert(smokeSource.includes("open_superforecaster_categorical_distribution_scores_total"), "smoke check does not require categorical distribution metric");
+  assert(smokeSource.includes("open_superforecaster_evidence_coverage_scores_total"), "smoke check does not require evidence coverage metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
   assert(metricsRouteSource.includes("renderPrometheusMetrics"), "metrics route does not render Prometheus metrics");
   assert(metricsRouteSource.includes("text/plain; version=0.0.4"), "metrics route missing Prometheus content type");
@@ -1027,6 +1040,9 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("categorical_top_probability_band"), "forecast score mart missing categorical top probability band");
   assert(syncSource.includes("categorical_entropy_band"), "forecast score mart missing categorical entropy band");
   assert(syncSource.includes("categorical_category_source"), "forecast score mart missing categorical category source");
+  assert(syncSource.includes("evidence_source_count_band"), "forecast score mart missing evidence source count band");
+  assert(syncSource.includes("evidence_uncertainty_count_band"), "forecast score mart missing evidence uncertainty count band");
+  assert(syncSource.includes("evidence_rationale_length_band"), "forecast score mart missing evidence rationale length band");
   assert(syncSource.includes("candidate_guard_suggested_adjustment"), "binary calibration bucket mart missing candidate guard adjustment");
   assert(syncSource.includes("candidate_guard_activation_status"), "binary calibration bucket mart missing candidate guard activation status");
   assert(syncSource.includes("readCalibrationGuardValidationRows"), "DuckDB sync does not read calibration guard validation reports");
@@ -1349,6 +1365,49 @@ await check("categorical forecast distribution metadata reaches resolved score a
   assert(dashboardSource.includes("Categorical confidence outcomes"), "lab dashboard does not render categorical confidence outcomes");
   assert(dashboardSource.includes("Categorical entropy outcomes"), "lab dashboard does not render categorical entropy outcomes");
   return "categorical forecast distributions are persisted and visible in resolved score analytics";
+});
+
+await check("forecast evidence coverage metadata reaches resolved score analytics", async () => {
+  const snapshot = readEvidenceCoverageSnapshot({
+    citedSources: [
+      { title: "A", url: "https://example.com/a", claim: "first source" },
+      { title: "B", url: "https://example.com/b", claim: "second source" },
+      { title: "C", url: "https://other.example/c", claim: "third source" },
+    ],
+    keyUncertainties: ["base rate", "timing", "measurement"],
+    rationale: "This forecast cites concrete evidence, names uncertainty, and gives enough explanation to be reviewed later against the resolution outcome.",
+    method: "sample_method_v1",
+  });
+  assert(snapshot?.sourceCount === 3, "evidence source count mismatch");
+  assert(snapshot?.sourceCountBand === "sourced", "evidence source count band mismatch");
+  assert(snapshot?.sourceDomainCount === 2, "evidence source domain count mismatch");
+  assert(snapshot?.uncertaintyCount === 3, "evidence uncertainty count mismatch");
+  assert(snapshot?.uncertaintyCountBand === "many", "evidence uncertainty count band mismatch");
+  assert(snapshot?.rationaleLength === 19, "evidence rationale length mismatch");
+  assert(snapshot?.rationaleLengthBand === "short", "evidence rationale length band mismatch");
+  assert(snapshot?.method === "sample_method_v1", "evidence method mismatch");
+
+  const conditionalSnapshot = readEvidenceCoverageSnapshot({
+    rationaleGivenCondition: "The condition would materially improve the outcome odds.",
+    rationaleGivenNotCondition: "Without the condition, the outcome remains possible but less supported.",
+  });
+  assert(conditionalSnapshot?.rationaleLength === 18, "conditional evidence rationale length mismatch");
+  assert(conditionalSnapshot?.rationaleLengthBand === "short", "conditional evidence rationale band mismatch");
+
+  const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(resolutionSource.includes("readEvidenceCoverageSnapshot(input.prediction)"), "resolution scoring does not persist evidence coverage metadata");
+  assert(resolutionSource.includes("byEvidenceSourceCount"), "performance report does not group by evidence source count");
+  assert(resolutionSource.includes("byEvidenceUncertaintyCount"), "performance report does not group by evidence uncertainty count");
+  assert(resolutionSource.includes("byEvidenceRationaleLength"), "performance report does not group by evidence rationale length");
+  assert(metricsSource.includes("open_superforecaster_evidence_coverage_scores_total"), "metrics missing evidence coverage score counts");
+  assert(syncSource.includes("evidence_source_count_band"), "DuckDB forecast score mart missing evidence source count band");
+  assert(syncSource.includes("evidence_rationale_length_band"), "DuckDB forecast score mart missing evidence rationale length band");
+  assert(dashboardSource.includes("Evidence source outcomes"), "lab dashboard does not render evidence source outcomes");
+  assert(dashboardSource.includes("Evidence rationale outcomes"), "lab dashboard does not render evidence rationale outcomes");
+  return "forecast evidence coverage is persisted and visible in resolved score analytics";
 });
 
 await check("binary aggregate quality metadata is visible before resolution", async () => {

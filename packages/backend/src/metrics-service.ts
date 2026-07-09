@@ -23,6 +23,7 @@ import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { readCategoricalForecastSnapshot } from "./categorical-forecast-metadata";
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
+import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
 import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport } from "./performance-calibration";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
@@ -835,6 +836,54 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge(
       "open_superforecaster_categorical_distribution_score_mean",
       "Mean product categorical aggregate forecast score by confidence, entropy, and category source.",
+      mean(rows.map((row) => row.scoreValue)),
+      labels,
+    );
+  }
+  const evidenceScoreRows = scoreRows.filter((row) =>
+    row.forecastAggregateId &&
+    isProductScoreConfig(row.scoreConfig) &&
+    readEvidenceCoverageSnapshot(row.scoreConfig) !== null
+  );
+  if (evidenceScoreRows.length === 0) {
+    const labels = {
+      score_type: "all",
+      source_count_band: "none",
+      uncertainty_count_band: "unknown",
+      rationale_length_band: "unknown",
+    };
+    metrics.gauge(
+      "open_superforecaster_evidence_coverage_scores_total",
+      "Product aggregate forecast score rows by evidence coverage bands.",
+      0,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_evidence_coverage_score_mean",
+      "Mean product aggregate forecast score by evidence coverage bands.",
+      0,
+      labels,
+    );
+  }
+  for (const [key, rows] of groupBy(evidenceScoreRows, (row) => {
+    const evidenceCoverage = readEvidenceCoverageSnapshot(row.scoreConfig);
+    return labelKey({
+      score_type: row.scoreType,
+      source_count_band: evidenceCoverage?.sourceCountBand ?? "unknown",
+      uncertainty_count_band: evidenceCoverage?.uncertaintyCountBand ?? "unknown",
+      rationale_length_band: evidenceCoverage?.rationaleLengthBand ?? "unknown",
+    });
+  })) {
+    const labels = parseLabelKey(key);
+    metrics.gauge(
+      "open_superforecaster_evidence_coverage_scores_total",
+      "Product aggregate forecast score rows by evidence coverage bands.",
+      rows.length,
+      labels,
+    );
+    metrics.gauge(
+      "open_superforecaster_evidence_coverage_score_mean",
+      "Mean product aggregate forecast score by evidence coverage bands.",
       mean(rows.map((row) => row.scoreValue)),
       labels,
     );
