@@ -132,6 +132,8 @@ export function DiagnosticsCard({ diagnosticCounts }: { diagnosticCounts: Diagno
 export function ForecastBatchHealthCard({ forecastBatchHealth }: { forecastBatchHealth: JsonRecord | null }) {
   const summary = isRecord(forecastBatchHealth?.summary) ? forecastBatchHealth.summary : {}
   const issues = readArray(forecastBatchHealth, "issues").filter(isRecord)
+  const attentionByKind = readArray(forecastBatchHealth, "attentionByKind").filter(isRecord)
+  const attentionBySeverity = readArray(forecastBatchHealth, "attentionBySeverity").filter(isRecord)
   const missingPhases = readArray(forecastBatchHealth, "missingPhases").filter((phase): phase is string => typeof phase === "string")
   const batchId = readString(forecastBatchHealth, "batchId") ?? "latest batch"
   const status = readString(forecastBatchHealth, "status") ?? "missing"
@@ -168,6 +170,33 @@ export function ForecastBatchHealthCard({ forecastBatchHealth }: { forecastBatch
             {missingPhases.map((phase) => (
               <Badge variant="secondary" className="max-w-full truncate" key={phase}>
                 missing {phase}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
+        {attentionByKind.length ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-medium uppercase text-muted-foreground">Top attention categories</p>
+            {attentionByKind.slice(0, 3).map((row) => {
+              const open = readNumber(row, "open") ?? 0
+              const deferred = readNumber(row, "deferred") ?? 0
+              const high = readNumber(row, "high") ?? 0
+              return (
+                <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-xs" key={String(row.kind ?? "kind")}>
+                  <span className="min-w-0 truncate font-medium">{String(row.kind ?? "attention")}</span>
+                  <span className="shrink-0 text-muted-foreground">
+                    {formatCount(open + deferred)} unresolved · {formatCount(high)} high
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        ) : null}
+        {attentionBySeverity.length ? (
+          <div className="flex flex-wrap gap-1">
+            {attentionBySeverity.map((row) => (
+              <Badge variant={row.severity === "high" ? "destructive" : "secondary"} key={String(row.severity ?? "severity")}>
+                {String(row.severity ?? "unknown")} {formatCount((readNumber(row, "open") ?? 0) + (readNumber(row, "deferred") ?? 0))}
               </Badge>
             ))}
           </div>

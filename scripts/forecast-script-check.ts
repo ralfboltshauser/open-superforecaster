@@ -830,6 +830,12 @@ await check("diagnostics surface latest forecast batch health", async () => {
     issues: [
       { severity: "high", kind: "unresolved_attention", message: "3 attention item(s) remain open or deferred." },
     ],
+    attentionByKind: [
+      { kind: "evidence_coverage_miss", items: 2, open: 2, deferred: 0, reviewed: 0, high: 1, medium: 1, low: 0 },
+    ],
+    attentionBySeverity: [
+      { severity: "high", items: 2, open: 1, deferred: 1, reviewed: 0 },
+    ],
   });
   const health = readLatestForecastBatchHealth(fixtureRoot);
   const diagnosticsSource = await readFile(resolve(root, "packages/backend/src/diagnostics-service.ts"), "utf8");
@@ -843,6 +849,8 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(health.summary.unresolvedCandidateCalibrationGuardRules === 1, "shared batch health reader did not expose unresolved candidate guard count");
   assert(health.missingPhases.includes("forecast_performance"), "shared batch health reader did not expose missing phases");
   assert(health.issues.some((issue) => issue.kind === "unresolved_attention"), "shared batch health reader did not expose issue kinds");
+  assert(health.attentionByKind.some((row) => row.kind === "evidence_coverage_miss" && row.open === 2), "shared batch health reader did not expose attention kind breakdowns");
+  assert(health.attentionBySeverity.some((row) => row.severity === "high" && row.deferred === 1), "shared batch health reader did not expose attention severity breakdowns");
   assert(diagnosticsSource.includes("readLatestForecastBatchHealth"), "diagnostics does not read local forecast batch health through the shared reader");
   assert(diagnosticsSource.includes("forecastBatchHealthDiagnostic"), "diagnostics does not turn forecast batch health into a check item");
   assert(diagnosticsSource.includes("ForecastBatchHealthSnapshot"), "diagnostics does not type batch health from the shared reader");
@@ -858,6 +866,8 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(dashboardShellSource.includes("ForecastBatchHealthCard"), "lab dashboard does not mount forecast batch health");
   assert(dashboardPanelSource.includes("unresolvedCandidateCalibrationGuardRules"), "lab dashboard does not render candidate guard review count");
   assert(dashboardPanelSource.includes("calibrationGuardRegressionItems"), "lab dashboard does not render guard regression count");
+  assert(dashboardPanelSource.includes("attentionByKind"), "lab dashboard does not render attention kind breakdowns");
+  assert(dashboardPanelSource.includes("attentionBySeverity"), "lab dashboard does not render attention severity breakdowns");
   return "latest forecast batch health is shared by diagnostics and metrics";
 });
 

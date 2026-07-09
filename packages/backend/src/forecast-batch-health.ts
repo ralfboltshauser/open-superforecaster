@@ -32,6 +32,25 @@ export type ForecastBatchHealthIssue = {
   message: string;
 };
 
+export type ForecastBatchAttentionKindBreakdown = {
+  kind: string;
+  items: number | null;
+  open: number | null;
+  deferred: number | null;
+  reviewed: number | null;
+  high: number | null;
+  medium: number | null;
+  low: number | null;
+};
+
+export type ForecastBatchAttentionSeverityBreakdown = {
+  severity: string;
+  items: number | null;
+  open: number | null;
+  deferred: number | null;
+  reviewed: number | null;
+};
+
 export type ForecastBatchHealthSnapshot = {
   path: string;
   exists: boolean;
@@ -41,6 +60,8 @@ export type ForecastBatchHealthSnapshot = {
   summary: ForecastBatchHealthSummary;
   missingPhases: string[];
   issues: ForecastBatchHealthIssue[];
+  attentionByKind: ForecastBatchAttentionKindBreakdown[];
+  attentionBySeverity: ForecastBatchAttentionSeverityBreakdown[];
 };
 
 const emptySummary: ForecastBatchHealthSummary = {
@@ -81,6 +102,8 @@ export function readLatestForecastBatchHealth(root: string): ForecastBatchHealth
       summary: readSummary(summary),
       missingPhases: readStringArray(payload, "missingPhases"),
       issues: readIssueArray(payload, "issues"),
+      attentionByKind: readAttentionKindArray(payload, "attentionByKind"),
+      attentionBySeverity: readAttentionSeverityArray(payload, "attentionBySeverity"),
     };
   } catch {
     return {
@@ -92,6 +115,8 @@ export function readLatestForecastBatchHealth(root: string): ForecastBatchHealth
       summary: { ...emptySummary },
       missingPhases: [],
       issues: [],
+      attentionByKind: [],
+      attentionBySeverity: [],
     };
   }
 }
@@ -138,6 +163,37 @@ function readIssueArray(value: Record<string, unknown> | null, key: string): For
       message: readString(record, "message") ?? "",
     }];
   });
+}
+
+function readAttentionKindArray(value: Record<string, unknown> | null, key: string): ForecastBatchAttentionKindBreakdown[] {
+  return readRecordArray(value, key).map((record) => ({
+    kind: readString(record, "kind") ?? "unknown",
+    items: readNumber(record, "items"),
+    open: readNumber(record, "open"),
+    deferred: readNumber(record, "deferred"),
+    reviewed: readNumber(record, "reviewed"),
+    high: readNumber(record, "high"),
+    medium: readNumber(record, "medium"),
+    low: readNumber(record, "low"),
+  }));
+}
+
+function readAttentionSeverityArray(value: Record<string, unknown> | null, key: string): ForecastBatchAttentionSeverityBreakdown[] {
+  return readRecordArray(value, key).map((record) => ({
+    severity: readString(record, "severity") ?? "unknown",
+    items: readNumber(record, "items"),
+    open: readNumber(record, "open"),
+    deferred: readNumber(record, "deferred"),
+    reviewed: readNumber(record, "reviewed"),
+  }));
+}
+
+function readRecordArray(value: Record<string, unknown> | null, key: string) {
+  const raw = value?.[key];
+  return Array.isArray(raw) ? raw.flatMap((item) => {
+    const record = asRecord(item);
+    return record ? [record] : [];
+  }) : [];
 }
 
 function readStringArray(value: Record<string, unknown> | null, key: string) {
