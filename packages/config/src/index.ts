@@ -31,15 +31,9 @@ const envSchema = z.object({
   // at the Claude Code login dir (defaults to ~/.claude); CLAUDE_MODEL is optional.
   CLAUDE_CONFIG_DIR: z.string().optional(),
   CLAUDE_MODEL: z.string().optional(),
-  // Let Claude Code's native WebSearch/WebFetch supplement the Firecrawl pipeline
-  // on live forecasts. Keep off for eval (agent-side search leaks post-cutoff data).
+  // Give the Claude Code engine its native WebSearch/WebFetch tools on live
+  // forecasts. Keep off for eval (agent-side search leaks post-cutoff data).
   CLAUDE_WEB_SEARCH: z.enum(["on", "off"]).default("off"),
-  // Live research retrieval (Firecrawl). When FIRECRAWL_API_KEY is unset, the
-  // forecast workflows fall back to unaugmented reasoning. FORECAST_RESEARCH=off
-  // force-disables retrieval even when a key is present.
-  FIRECRAWL_API_KEY: z.string().optional(),
-  FIRECRAWL_BASE_URL: z.string().min(1).default("https://api.firecrawl.dev"),
-  FORECAST_RESEARCH: z.enum(["on", "off"]).default("on"),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().min(1).default("http://localhost:4318"),
   OTEL_SERVICE_NAME: z.string().min(1).default("open-superforecaster"),
 });
@@ -65,7 +59,6 @@ export function redactConfig(config: AppConfig) {
     ...config,
     DATABASE_URL: redactUrl(config.DATABASE_URL),
     MINIO_SECRET_KEY: config.MINIO_SECRET_KEY ? "[redacted]" : "",
-    FIRECRAWL_API_KEY: config.FIRECRAWL_API_KEY ? "[redacted]" : "",
   };
 }
 

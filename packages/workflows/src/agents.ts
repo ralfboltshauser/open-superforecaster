@@ -5,10 +5,9 @@ import { ClaudeCodeAgent, CodexAgent, type AgentLike } from "smithers-orchestrat
  * so a mixed team can share one codebase: Codex users keep the default, Claude
  * users set AGENT_ENGINE=claude in their own env.
  *
- * Retrieval is deterministic (see packages/workflows/src/research), so agent-side
- * web search is disabled for the Claude engine — the pipeline supplies dated,
- * ledger-backed evidence, and letting the model run its own non-reproducible
- * search would undermine the source ledger and leak post-cutoff data in eval.
+ * For the Claude engine, native WebSearch/WebFetch are disabled by default and
+ * enabled only when CLAUDE_WEB_SEARCH=on (live forecasts) — keep it off for
+ * pastcasting/fixed-evidence eval, where agent-side search leaks post-cutoff data.
  */
 type AgentEngine = "codex" | "claude";
 
@@ -36,11 +35,10 @@ function createCodexAgents(): { structured: AgentLike; research: AgentLike } {
 }
 
 function createClaudeAgents(): { structured: AgentLike; research: AgentLike } {
-  // By default the deterministic Firecrawl pipeline is the sole retrieval path, so
-  // the agent's own (non-reproducible, non-date-boundable) web search stays off.
-  // CLAUDE_WEB_SEARCH=on lets Claude Code's native WebSearch/WebFetch supplement it
-  // — for LIVE forecasts only; leave it off for pastcasting / fixed-evidence eval,
-  // where agent-side search would leak post-cutoff data and pollute the ledger.
+  // Native web search stays off by default (non-reproducible, non-date-boundable).
+  // CLAUDE_WEB_SEARCH=on gives Claude Code its WebSearch/WebFetch tools — for LIVE
+  // forecasts only; leave it off for pastcasting / fixed-evidence eval, where
+  // agent-side search would leak post-cutoff data.
   const allowNativeWebSearch = process.env.CLAUDE_WEB_SEARCH === "on";
   const shared = {
     ...(process.env.CLAUDE_MODEL ? { model: process.env.CLAUDE_MODEL } : {}),

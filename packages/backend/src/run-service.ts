@@ -957,14 +957,17 @@ async function persistBinaryForecastLedger(
     },
   });
 
-  const citedSources = await resolveForecastLedgerSources(db, {
+  const citedSources = dedupeSources([
+    ...extractCitedSources(input.aggregateOutput),
+    ...attemptOutputs.flatMap((attempt) => extractCitedSources(attempt)),
+  ]);
+
+  await persistSources(db, {
     taskId: input.taskId,
     artifactId: input.artifactId,
     artifactRowId: input.artifactRowId,
-    smithersRunId: input.smithersRunId,
-    root: input.root,
-    aggregateOutput: input.aggregateOutput,
-    attemptOutputs,
+    sources: citedSources,
+    sourceType: "agent_reported_citation",
   });
   await appendTraceEvent(db, {
     taskId: input.taskId,
@@ -1156,17 +1159,7 @@ async function persistSources(
     taskId: string;
     artifactId: string;
     artifactRowId: string | null;
-    sources: Array<{
-      title: string | null;
-      url: string | null;
-      claim: string;
-      publishedAt?: string | null;
-      sourceType?: string | null;
-      usedInFinal?: boolean;
-      qualityScore?: number | null;
-      rank?: number | null;
-      query?: string | null;
-    }>;
+    sources: Array<{ title: string | null; url: string | null; claim: string; publishedAt?: string | null; sourceType?: string | null }>;
     sourceType: string;
   },
 ) {
@@ -1181,10 +1174,7 @@ async function persistSources(
         contentSummary: source.claim,
         sourceType: source.sourceType ?? input.sourceType,
         publishedAt: parseOptionalDate(source.publishedAt),
-        query: source.query ?? null,
-        rank: source.rank ?? null,
-        qualityScore: source.qualityScore ?? null,
-        usedInFinal: source.usedInFinal ?? true,
+        usedInFinal: true,
       })
       .returning({ id: sourceBankEntries.id });
 
@@ -1198,105 +1188,6 @@ async function persistSources(
       });
     }
   }
-}
-
-/**
- * Choose and persist the source ledger for a forecast run. When the workflow's
- * deterministic `research` node produced a live evidence bank, that bank is the
- * source of record: its sources carry real url/publishedAt/query/rank/quality
- * metadata and reconcile away hallucinated agent citations. Otherwise we fall
- * back to persisting whatever sources the agents self-reported.
- */
-async function resolveForecastLedgerSources(
-  db: Db,
-  input: {
-    taskId: string;
-    artifactId: string;
-    artifactRowId: string | null;
-    smithersRunId: string;
-    root: string;
-    aggregateOutput: Record<string, unknown>;
-    attemptOutputs: Array<Record<string, unknown>>;
-  },
-): Promise<Array<{ url: string | null }>> {
-  const bank = await readResearchEvidenceBank(input.smithersRunId, input.root);
-  const bankSourceRecords = bank ? readArray(bank, "sources") : [];
-  const bankEnabled = bank?.enabled === true && bankSourceRecords.length > 0;
-
-  if (bankEnabled) {
-    const finalCitedUrls = new Set(
-      extractCitedSources(input.aggregateOutput)
-        .map((source) => (source.url ? canonicalSourceKey({ url: source.url, title: null, claim: "" }) : null))
-        .filter((value): value is string => Boolean(value)),
-    );
-    const sources = dedupeSources(evidenceBankToLedgerSources(bankSourceRecords, finalCitedUrls));
-    await persistSources(db, {
-      taskId: input.taskId,
-      artifactId: input.artifactId,
-      artifactRowId: input.artifactRowId,
-      sources,
-      sourceType: "firecrawl_web_evidence",
-    });
-    return sources;
-  }
-
-  const citedSources = dedupeSources([
-    ...extractCitedSources(input.aggregateOutput),
-    ...input.attemptOutputs.flatMap((attempt) => extractCitedSources(attempt)),
-  ]);
-  await persistSources(db, {
-    taskId: input.taskId,
-    artifactId: input.artifactId,
-    artifactRowId: input.artifactRowId,
-    sources: citedSources,
-    sourceType: "agent_reported_citation",
-  });
-  return citedSources;
-}
-
-async function readResearchEvidenceBank(smithersRunId: string, root: string): Promise<Record<string, unknown> | null> {
-  try {
-    const output = await readSmithersNodeOutput(smithersRunId, "research", root);
-    return output && typeof output === "object" ? (output as Record<string, unknown>) : null;
-  } catch {
-    // Older runs, non-forecast workflows, or research-disabled runs have no node.
-    return null;
-  }
-}
-
-function evidenceBankToLedgerSources(
-  bankSources: Array<Record<string, unknown>>,
-  finalCitedUrls: Set<string>,
-) {
-  return bankSources
-    .map((source) => {
-      const url = readString(source, "url") ?? null;
-      const scraped = source.scraped === true;
-      const category = readString(source, "category");
-      const publishedAt = readString(source, "publishedAt", "published_at") ?? null;
-      const content = readString(source, "content");
-      const snippet = readString(source, "snippet");
-      let quality = 0.4;
-      if (scraped) quality += 0.25;
-      if (publishedAt) quality += 0.15;
-      if (category === "market") quality += 0.2;
-      const normalizedUrl = url ? canonicalSourceKey({ url, title: null, claim: "" }) : null;
-      const usedInFinal = Boolean(
-        (normalizedUrl && finalCitedUrls.has(normalizedUrl)) || scraped || category === "market",
-      );
-      return {
-        title: readString(source, "title") ?? null,
-        url,
-        claim: snippet ?? (content ? content.slice(0, 320) : undefined) ?? readString(source, "title") ?? url ?? "",
-        publishedAt,
-        sourceType: category === "market" ? "market_signal" : "firecrawl_web_evidence",
-        qualityScore: Math.min(1, quality),
-        rank: readNumber(source, "rank") ?? null,
-        query: readString(source, "query") ?? null,
-        usedInFinal,
-      };
-    })
-    .filter((source) => source.claim.length > 0);
 }
 
 async function readBinaryAttemptOutputs(smithersRunId: string, root: string) {
@@ -1362,9 +1253,9 @@ function extractCitedSources(value: Record<string, unknown>) {
     .filter((source) => source.claim.length > 0);
 }
 
-function dedupeSources<T extends { title: string | null; url: string | null; claim: string }>(sources: T[]): T[] {
+function dedupeSources(sources: Array<{ title: string | null; url: string | null; claim: string; publishedAt?: string | null; sourceType?: string | null }>) {
   const seen = new Set<string>();
-  const deduped: T[] = [];
+  const deduped = [];
   for (const source of sources) {
     const key = canonicalSourceKey(source);
     if (seen.has(key)) {

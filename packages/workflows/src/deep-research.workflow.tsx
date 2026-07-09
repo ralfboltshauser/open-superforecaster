@@ -2,20 +2,11 @@
 import { createSmithers, Parallel, Sequence, Task } from "smithers-orchestrator";
 import { z } from "zod";
 import { codexResearchAgent } from "./agents";
-import {
-  buildEvidenceBank,
-  emptyEvidenceBank,
-  evidenceBankSchema,
-  renderEvidenceSection,
-  type EvidenceBank,
-} from "./research";
 
 const citedSource = z.object({
   title: z.string().optional(),
   url: z.string().optional(),
   claim: z.string(),
-  publishedAt: z.string().optional(),
-  sourceType: z.string().optional(),
 });
 
 const researchBrief = z.object({
@@ -35,7 +26,6 @@ const researchReport = z.object({
 });
 
 const { Workflow, smithers, outputs } = createSmithers({
-  evidenceBank: evidenceBankSchema,
   researchBrief,
   researchReport,
 });
@@ -68,21 +58,10 @@ export default smithers((ctx) => {
   const background = String(input.background ?? "");
   const briefIds = directions.map((direction) => `research-${direction.id}`);
   const briefNeeds = Object.fromEntries(briefIds.map((id) => [id, id]));
-  const evidenceBank = ctx.latest(outputs.evidenceBank, "research") as EvidenceBank | undefined;
-  const evidenceSection = renderEvidenceSection(evidenceBank);
   const briefs = ctx.outputs.researchBrief ?? [];
   const keyFindings = briefs.flatMap((brief) => brief.keyFindings ?? []);
   const uncertaintyNotes = briefs.flatMap((brief) => brief.uncertaintyNotes ?? []);
-  const bankCitedSources = evidenceBank?.enabled
-    ? evidenceBank.citedSources.map((source) => ({
-        title: source.title,
-        url: source.url,
-        claim: source.claim,
-        publishedAt: source.publishedAt,
-        sourceType: source.sourceType,
-      }))
-    : [];
-  const citedSources = [...briefs.flatMap((brief) => brief.citedSources ?? []), ...bankCitedSources];
+  const citedSources = briefs.flatMap((brief) => brief.citedSources ?? []);
   const answer = briefs.length
     ? briefs.map((brief) => `${brief.direction}: ${brief.summary}`).join("\n\n")
     : "No research briefs were available; this fallback should only appear in graph rendering.";
@@ -90,24 +69,6 @@ export default smithers((ctx) => {
   return (
     <Workflow name="deep-research">
       <Sequence>
-        <Task id="research" output={outputs.evidenceBank}>
-          {async () => {
-            if (process.env.FORECAST_RESEARCH === "off") {
-              return emptyEvidenceBank(question, "Live research disabled (FORECAST_RESEARCH=off).");
-            }
-            try {
-              return await buildEvidenceBank({
-                question,
-                sources: ["web", "news"],
-                maxResultsPerQuery: 6,
-                maxScrape: 10,
-              });
-            } catch (error) {
-              return emptyEvidenceBank(question, `Live research failed: ${(error as Error).message}`);
-            }
-          }}
-        </Task>
-
         <Parallel maxConcurrency={3}>
           {directions.map((direction) => (
             <Task
@@ -124,9 +85,7 @@ ${question}
 Background:
 ${background || "No extra background provided."}
 
-${evidenceSection ? `${evidenceSection}
-
-` : ""}Research direction:
+Research direction:
 ${direction.instruction}
 
 Return a concise research brief. Set direction to "${direction.label}". Include key findings, uncertainty notes, and cited sources when available.`}
