@@ -3,6 +3,9 @@ export type EvidenceCoverageSnapshot = {
   sourceCountBand: "none" | "sparse" | "sourced" | "deep" | "unknown";
   sourceDomainCount: number | null;
   sourceDiversityBand: "none" | "single_domain" | "mixed" | "diverse" | "unknown";
+  topSourceDomainCount: number | null;
+  topSourceDomainShare: number | null;
+  sourceConcentrationBand: "none" | "balanced" | "concentrated" | "dominant" | "unknown";
   datedSourceCount: number | null;
   undatedSourceCount: number | null;
   sourceDateCoverageBand: "none" | "partial" | "complete" | "unknown";
@@ -28,7 +31,11 @@ export function readEvidenceCoverageSnapshot(value: unknown): EvidenceCoverageSn
   }
   const sourceCount = readNumber(evidence, "sourceCount", "source_count") ?? readSources(evidence).length;
   const sources = readSources(evidence);
-  const sourceDomainCount = readNumber(evidence, "sourceDomainCount", "source_domain_count") ?? sourceDomains(sources).length;
+  const domainCounts = sourceDomainCounts(sources);
+  const sourceDomainCount = readNumber(evidence, "sourceDomainCount", "source_domain_count") ?? domainCounts.length;
+  const topSourceDomainCount = readNumber(evidence, "topSourceDomainCount", "top_source_domain_count") ?? topDomainCount(domainCounts);
+  const topSourceDomainShare = readNumber(evidence, "topSourceDomainShare", "top_source_domain_share")
+    ?? sourceDomainShare({ sourceCount, topSourceDomainCount });
   const publishedDates = sourcePublishedDates(sources);
   const datedSourceCount = readNumber(evidence, "datedSourceCount", "dated_source_count") ?? publishedDates.length;
   const undatedSourceCount = readNumber(evidence, "undatedSourceCount", "undated_source_count") ?? Math.max(0, sourceCount - datedSourceCount);
@@ -50,6 +57,9 @@ export function readEvidenceCoverageSnapshot(value: unknown): EvidenceCoverageSn
     sourceCountBand: sourceCountBand(sourceCount),
     sourceDomainCount,
     sourceDiversityBand: sourceDiversityBand({ sourceCount, sourceDomainCount }),
+    topSourceDomainCount,
+    topSourceDomainShare,
+    sourceConcentrationBand: sourceConcentrationBand({ sourceCount, topSourceDomainCount, topSourceDomainShare }),
     datedSourceCount,
     undatedSourceCount,
     sourceDateCoverageBand: sourceDateCoverageBand({ sourceCount, datedSourceCount }),
@@ -132,6 +142,33 @@ export function sourceDiversityBand(input: {
   return "diverse";
 }
 
+export function sourceConcentrationBand(input: {
+  sourceCount: number | null;
+  topSourceDomainCount: number | null;
+  topSourceDomainShare: number | null;
+}): EvidenceCoverageSnapshot["sourceConcentrationBand"] {
+  if (
+    input.sourceCount === null ||
+    input.topSourceDomainCount === null ||
+    input.topSourceDomainShare === null ||
+    !Number.isFinite(input.sourceCount) ||
+    !Number.isFinite(input.topSourceDomainCount) ||
+    !Number.isFinite(input.topSourceDomainShare)
+  ) {
+    return "unknown";
+  }
+  if (input.sourceCount <= 0 || input.topSourceDomainCount <= 0) {
+    return "none";
+  }
+  if (input.topSourceDomainShare >= 0.8) {
+    return "dominant";
+  }
+  if (input.topSourceDomainShare >= 0.6) {
+    return "concentrated";
+  }
+  return "balanced";
+}
+
 export function sourceFreshnessBand(ageDays: number | null): EvidenceCoverageSnapshot["sourceFreshnessBand"] {
   if (ageDays === null || !Number.isFinite(ageDays)) {
     return "unknown";
@@ -205,8 +242,9 @@ function rationaleWordCount(value: Record<string, unknown>) {
   return parts.join(" ").trim().split(/\s+/).filter(Boolean).length;
 }
 
-function sourceDomains(sources: Record<string, unknown>[]) {
-  return [...new Set(sources.flatMap((source) => {
+function sourceDomainCounts(sources: Record<string, unknown>[]) {
+  const counts = new Map<string, number>();
+  for (const domain of sources.flatMap((source) => {
     const rawUrl = readString(source, "url");
     if (!rawUrl) {
       return [];
@@ -216,7 +254,27 @@ function sourceDomains(sources: Record<string, unknown>[]) {
     } catch {
       return [];
     }
-  }))];
+  })) {
+    counts.set(domain, (counts.get(domain) ?? 0) + 1);
+  }
+  return [...counts.values()];
+}
+
+function topDomainCount(domainCounts: number[]) {
+  return domainCounts.length ? Math.max(...domainCounts) : null;
+}
+
+function sourceDomainShare(input: { sourceCount: number | null; topSourceDomainCount: number | null }) {
+  if (
+    input.sourceCount === null ||
+    input.topSourceDomainCount === null ||
+    !Number.isFinite(input.sourceCount) ||
+    !Number.isFinite(input.topSourceDomainCount) ||
+    input.sourceCount <= 0
+  ) {
+    return null;
+  }
+  return input.topSourceDomainCount / input.sourceCount;
 }
 
 function sourcePublishedDates(sources: Record<string, unknown>[]) {

@@ -650,6 +650,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byCategoricalTopAgreement = readArray(groups, "byCategoricalTopAgreement").filter(isRecord)
   const byEvidenceSourceCount = readArray(groups, "byEvidenceSourceCount").filter(isRecord)
   const byEvidenceSourceDiversity = readArray(groups, "byEvidenceSourceDiversity").filter(isRecord)
+  const byEvidenceSourceConcentration = readArray(groups, "byEvidenceSourceConcentration").filter(isRecord)
   const byEvidenceSourceDateCoverage = readArray(groups, "byEvidenceSourceDateCoverage").filter(isRecord)
   const byEvidenceSourceFreshness = readArray(groups, "byEvidenceSourceFreshness").filter(isRecord)
   const byEvidenceSourceTiming = readArray(groups, "byEvidenceSourceTiming").filter(isRecord)
@@ -742,6 +743,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byCategoricalTopAgreement.length ? <PerformancePlanShapeGroupList groups={byCategoricalTopAgreement} title="Categorical top-agreement outcomes" skipKey="categorical_top_agreement:not_categorical" fallback="categorical top agreement" /> : null}
         {byEvidenceSourceCount.length ? <PerformancePlanShapeGroupList groups={byEvidenceSourceCount} title="Evidence source outcomes" skipKey="evidence_sources:unrecorded" fallback="evidence sources" /> : null}
         {byEvidenceSourceDiversity.length ? <PerformancePlanShapeGroupList groups={byEvidenceSourceDiversity} title="Evidence source-diversity outcomes" skipKey="evidence_source_diversity:unrecorded" fallback="evidence source diversity" /> : null}
+        {byEvidenceSourceConcentration.length ? <PerformancePlanShapeGroupList groups={byEvidenceSourceConcentration} title="Evidence source-concentration outcomes" skipKey="evidence_source_concentration:unrecorded" fallback="evidence source concentration" /> : null}
         {byEvidenceSourceDateCoverage.length ? <PerformancePlanShapeGroupList groups={byEvidenceSourceDateCoverage} title="Evidence source-date outcomes" skipKey="evidence_source_dates:unrecorded" fallback="evidence source dates" /> : null}
         {byEvidenceSourceFreshness.length ? <PerformancePlanShapeGroupList groups={byEvidenceSourceFreshness} title="Evidence freshness outcomes" skipKey="evidence_source_freshness:unrecorded" fallback="evidence freshness" /> : null}
         {byEvidenceSourceTiming.length ? <PerformancePlanShapeGroupList groups={byEvidenceSourceTiming} title="Evidence timing outcomes" skipKey="evidence_source_timing:unrecorded" fallback="evidence timing" /> : null}

@@ -1101,7 +1101,10 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       score_type: "all",
       source_count_band: "none",
       source_diversity_band: "unknown",
+      source_concentration_band: "unknown",
       source_date_coverage_band: "unknown",
+      source_freshness_band: "unknown",
+      source_timing_band: "unknown",
       uncertainty_count_band: "unknown",
       rationale_length_band: "unknown",
     };
@@ -1124,6 +1127,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       score_type: row.scoreType,
       source_count_band: evidenceCoverage?.sourceCountBand ?? "unknown",
       source_diversity_band: evidenceCoverage?.sourceDiversityBand ?? "unknown",
+      source_concentration_band: evidenceCoverage?.sourceConcentrationBand ?? "unknown",
       source_date_coverage_band: evidenceCoverage?.sourceDateCoverageBand ?? "unknown",
       source_freshness_band: evidenceCoverage?.sourceFreshnessBand ?? "unknown",
       source_timing_band: evidenceCoverage?.sourceTimingBand ?? "unknown",

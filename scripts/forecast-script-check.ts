@@ -996,6 +996,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Categorical coverage groups"), "performance Markdown missing categorical coverage group section");
   assert(resolutionSource.includes("## Evidence source-count groups"), "performance Markdown missing evidence source-count group section");
   assert(resolutionSource.includes("## Evidence source-diversity groups"), "performance Markdown missing evidence source-diversity group section");
+  assert(resolutionSource.includes("## Evidence source-concentration groups"), "performance Markdown missing evidence source-concentration group section");
   assert(resolutionSource.includes("## Evidence source-freshness groups"), "performance Markdown missing evidence source-freshness group section");
   assert(resolutionSource.includes("## Evidence source-timing groups"), "performance Markdown missing evidence source-timing group section");
   assert(resolutionSource.includes("## Evidence uncertainty-count groups"), "performance Markdown missing evidence uncertainty-count group section");
@@ -1063,6 +1064,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Evidence source outcomes"), "lab dashboard does not render evidence source performance groups");
   assert(dashboardSource.includes("byEvidenceSourceDiversity"), "lab dashboard does not read evidence source diversity performance groups");
   assert(dashboardSource.includes("Evidence source-diversity outcomes"), "lab dashboard does not render evidence source diversity performance groups");
+  assert(dashboardSource.includes("byEvidenceSourceConcentration"), "lab dashboard does not read evidence source concentration performance groups");
+  assert(dashboardSource.includes("Evidence source-concentration outcomes"), "lab dashboard does not render evidence source concentration performance groups");
   assert(dashboardSource.includes("byEvidenceSourceFreshness"), "lab dashboard does not read evidence freshness performance groups");
   assert(dashboardSource.includes("Evidence freshness outcomes"), "lab dashboard does not render evidence freshness performance groups");
   assert(dashboardSource.includes("byEvidenceSourceTiming"), "lab dashboard does not read evidence timing performance groups");
@@ -1947,6 +1950,9 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
   assert(snapshot?.sourceCountBand === "sourced", "evidence source count band mismatch");
   assert(snapshot?.sourceDomainCount === 2, "evidence source domain count mismatch");
   assert(snapshot?.sourceDiversityBand === "mixed", "evidence source diversity band mismatch");
+  assert(snapshot?.topSourceDomainCount === 2, "evidence top source domain count mismatch");
+  assert(snapshot?.topSourceDomainShare === 2 / 3, "evidence top source domain share mismatch");
+  assert(snapshot?.sourceConcentrationBand === "concentrated", "evidence source concentration band mismatch");
   assert(snapshot?.datedSourceCount === 2, "evidence dated source count mismatch");
   assert(snapshot?.undatedSourceCount === 1, "evidence undated source count mismatch");
   assert(snapshot?.sourceDateCoverageBand === "partial", "evidence source date coverage band mismatch");
@@ -1987,6 +1993,8 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
     ],
   });
   assert(singleDomainSnapshot?.sourceDiversityBand === "single_domain", "single-domain evidence diversity band mismatch");
+  assert(singleDomainSnapshot?.topSourceDomainCount === 3, "single-domain top source domain count mismatch");
+  assert(singleDomainSnapshot?.sourceConcentrationBand === "dominant", "single-domain evidence concentration band mismatch");
   const timing = readForecastTiming({ present_date: "2026-07-09T12:34:56Z", cutoff_date: "2026-07-01" });
   assert(timing.evidenceAsOfDate === "2026-07-09", "forecast timing did not normalize present date");
   assert(timing.cutoffDate === "2026-07-01", "forecast timing did not normalize cutoff date");
@@ -2049,20 +2057,26 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
   assert(!runServiceSource.includes("function canonicalSourceKey"), "run source-bank persistence still has a duplicate cited-source key function");
   assert(resolutionSource.includes("byEvidenceSourceCount"), "performance report does not group by evidence source count");
   assert(resolutionSource.includes("byEvidenceSourceDiversity"), "performance report does not group by evidence source diversity");
+  assert(resolutionSource.includes("byEvidenceSourceConcentration"), "performance report does not group by evidence source concentration");
   assert(resolutionSource.includes("byEvidenceSourceDateCoverage"), "performance report does not group by evidence source date coverage");
   assert(resolutionSource.includes("byEvidenceSourceFreshness"), "performance report does not group by evidence source freshness");
   assert(resolutionSource.includes("byEvidenceSourceTiming"), "performance report does not group by evidence source timing");
   assert(resolutionSource.includes("postAsOfSourceCount"), "performance report does not inspect post-as-of evidence sources");
   assert(resolutionSource.includes("sourceFreshnessBand"), "performance report does not inspect evidence source freshness");
+  assert(resolutionSource.includes("sourceConcentrationBand"), "performance report does not inspect evidence source concentration");
   assert(resolutionSource.includes("byEvidenceUncertaintyCount"), "performance report does not group by evidence uncertainty count");
   assert(resolutionSource.includes("byEvidenceRationaleLength"), "performance report does not group by evidence rationale length");
   assert(metricsSource.includes("open_superforecaster_evidence_coverage_scores_total"), "metrics missing evidence coverage score counts");
   assert(metricsSource.includes("source_diversity_band"), "metrics missing evidence source diversity labels");
+  assert(metricsSource.includes("source_concentration_band"), "metrics missing evidence source concentration labels");
   assert(metricsSource.includes("source_date_coverage_band"), "metrics missing evidence source date coverage labels");
   assert(metricsSource.includes("source_freshness_band"), "metrics missing evidence source freshness labels");
   assert(metricsSource.includes("source_timing_band"), "metrics missing evidence source timing labels");
   assert(syncSource.includes("evidence_source_count_band"), "DuckDB forecast score mart missing evidence source count band");
   assert(syncSource.includes("evidence_source_diversity_band"), "DuckDB forecast score mart missing evidence source diversity band");
+  assert(syncSource.includes("evidence_top_source_domain_count"), "DuckDB forecast score mart missing evidence top source domain count");
+  assert(syncSource.includes("evidence_top_source_domain_share"), "DuckDB forecast score mart missing evidence top source domain share");
+  assert(syncSource.includes("evidence_source_concentration_band"), "DuckDB forecast score mart missing evidence source concentration band");
   assert(syncSource.includes("evidence_source_date_coverage_band"), "DuckDB forecast score mart missing evidence source date coverage band");
   assert(syncSource.includes("evidence_newest_published_at"), "DuckDB forecast score mart missing evidence newest source date");
   assert(syncSource.includes("evidence_as_of_date"), "DuckDB forecast score mart missing evidence as-of date");
@@ -2073,6 +2087,7 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
   assert(syncSource.includes("evidence_rationale_length_band"), "DuckDB forecast score mart missing evidence rationale length band");
   assert(dashboardSource.includes("Evidence source outcomes"), "lab dashboard does not render evidence source outcomes");
   assert(dashboardSource.includes("Evidence source-diversity outcomes"), "lab dashboard does not render evidence source diversity outcomes");
+  assert(dashboardSource.includes("Evidence source-concentration outcomes"), "lab dashboard does not render evidence source concentration outcomes");
   assert(dashboardSource.includes("Evidence source-date outcomes"), "lab dashboard does not render evidence source date outcomes");
   assert(dashboardSource.includes("Evidence freshness outcomes"), "lab dashboard does not render evidence freshness outcomes");
   assert(dashboardSource.includes("Evidence timing outcomes"), "lab dashboard does not render evidence timing outcomes");

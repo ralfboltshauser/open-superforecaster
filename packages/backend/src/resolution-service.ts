@@ -427,6 +427,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byCategoricalTopAgreement = groupScores(aggregateScores, categoricalTopAgreementGroupKey);
   const byEvidenceSourceCount = groupScores(aggregateScores, evidenceSourceCountGroupKey);
   const byEvidenceSourceDiversity = groupScores(aggregateScores, evidenceSourceDiversityGroupKey);
+  const byEvidenceSourceConcentration = groupScores(aggregateScores, evidenceSourceConcentrationGroupKey);
   const byEvidenceSourceDateCoverage = groupScores(aggregateScores, evidenceSourceDateCoverageGroupKey);
   const byEvidenceSourceFreshness = groupScores(aggregateScores, evidenceSourceFreshnessGroupKey);
   const byEvidenceSourceTiming = groupScores(aggregateScores, evidenceSourceTimingGroupKey);
@@ -510,6 +511,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byCategoricalTopAgreement,
       byEvidenceSourceCount,
       byEvidenceSourceDiversity,
+      byEvidenceSourceConcentration,
       byEvidenceSourceDateCoverage,
       byEvidenceSourceFreshness,
       byEvidenceSourceTiming,
@@ -583,6 +585,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byCategoricalTopAgreement,
       byEvidenceSourceCount,
       byEvidenceSourceDiversity,
+      byEvidenceSourceConcentration,
       byEvidenceSourceDateCoverage,
       byEvidenceSourceFreshness,
       byEvidenceSourceTiming,
@@ -1498,6 +1501,11 @@ function evidenceSourceDiversityGroupKey(score: typeof forecastScores.$inferSele
   return `evidence_source_diversity:${evidenceCoverage?.sourceDiversityBand ?? "unrecorded"}`;
 }
 
+function evidenceSourceConcentrationGroupKey(score: typeof forecastScores.$inferSelect) {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
+  return `evidence_source_concentration:${evidenceCoverage?.sourceConcentrationBand ?? "unrecorded"}`;
+}
+
 function evidenceSourceDateCoverageGroupKey(score: typeof forecastScores.$inferSelect) {
   const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
   return `evidence_source_dates:${evidenceCoverage?.sourceDateCoverageBand ?? "unrecorded"}`;
@@ -2270,6 +2278,13 @@ function evidenceCoverageMissSignal(item: PerformanceCase): { reason: string; de
       severity: "medium",
     };
   }
+  if (evidence.sourceConcentrationBand === "dominant" || evidence.sourceConcentrationBand === "concentrated") {
+    return {
+      reason: `${evidence.sourceConcentrationBand} evidence concentration: top source domain supplied ${formatNullableMetric(evidence.topSourceDomainShare === null ? null : evidence.topSourceDomainShare * 100)}% of cited source(s)`,
+      delta: evidence.topSourceDomainShare,
+      severity: evidence.sourceConcentrationBand === "dominant" ? "high" : "medium",
+    };
+  }
   if (evidence.sourceDateCoverageBand === "none" || evidence.sourceDateCoverageBand === "partial") {
     return {
       reason: `${evidence.sourceDateCoverageBand} source-date coverage across ${evidence.sourceCount ?? 0} cited source(s)`,
@@ -2540,6 +2555,7 @@ function renderPerformanceMarkdown(input: {
   byCategoricalTopAgreement: PerformanceGroup[];
   byEvidenceSourceCount: PerformanceGroup[];
   byEvidenceSourceDiversity: PerformanceGroup[];
+  byEvidenceSourceConcentration: PerformanceGroup[];
   byEvidenceSourceDateCoverage: PerformanceGroup[];
   byEvidenceSourceFreshness: PerformanceGroup[];
   byEvidenceSourceTiming: PerformanceGroup[];
@@ -2680,6 +2696,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Evidence source-diversity groups",
     ...renderGroupTable(input.byEvidenceSourceDiversity),
+    "",
+    "## Evidence source-concentration groups",
+    ...renderGroupTable(input.byEvidenceSourceConcentration),
     "",
     "## Evidence source-date groups",
     ...renderGroupTable(input.byEvidenceSourceDateCoverage),
