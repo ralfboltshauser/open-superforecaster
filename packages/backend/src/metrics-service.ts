@@ -1058,6 +1058,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       category_source: "unknown",
       category_coverage_band: "unknown",
       top_category_agreement_band: "unknown",
+      resolved_category_band: "unknown",
     };
     metrics.gauge(
       "open_superforecaster_categorical_distribution_scores_total",
@@ -1081,6 +1082,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       category_source: categoricalForecast?.categorySource ?? "unknown",
       category_coverage_band: categoricalForecast?.categoryCoverageBand ?? "unknown",
       top_category_agreement_band: categoricalForecast?.topCategoryAgreementBand ?? "unknown",
+      resolved_category_band: categoricalForecast?.resolvedCategoryBand ?? "unknown",
     });
   })) {
     const labels = parseLabelKey(key);

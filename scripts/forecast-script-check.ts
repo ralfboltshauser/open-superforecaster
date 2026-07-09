@@ -997,6 +997,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Categorical entropy groups"), "performance Markdown missing categorical entropy group section");
   assert(resolutionSource.includes("## Categorical source groups"), "performance Markdown missing categorical source group section");
   assert(resolutionSource.includes("## Categorical coverage groups"), "performance Markdown missing categorical coverage group section");
+  assert(resolutionSource.includes("## Categorical resolved-category groups"), "performance Markdown missing categorical resolved-category group section");
   assert(resolutionSource.includes("## Evidence source-count groups"), "performance Markdown missing evidence source-count group section");
   assert(resolutionSource.includes("## Evidence source-diversity groups"), "performance Markdown missing evidence source-diversity group section");
   assert(resolutionSource.includes("## Evidence source-concentration groups"), "performance Markdown missing evidence source-concentration group section");
@@ -1065,6 +1066,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Categorical source outcomes"), "lab dashboard does not render categorical source performance groups");
   assert(dashboardSource.includes("byCategoricalCoverage"), "lab dashboard does not read categorical coverage performance groups");
   assert(dashboardSource.includes("Categorical coverage outcomes"), "lab dashboard does not render categorical coverage performance groups");
+  assert(dashboardSource.includes("byCategoricalResolvedCategory"), "lab dashboard does not read categorical resolved-category performance groups");
+  assert(dashboardSource.includes("Categorical resolved-category outcomes"), "lab dashboard does not render categorical resolved-category performance groups");
   assert(dashboardSource.includes("byBinaryConfidence"), "lab dashboard does not read binary confidence performance groups");
   assert(dashboardSource.includes("Binary confidence outcomes"), "lab dashboard does not render binary confidence performance groups");
   assert(dashboardSource.includes("byBinaryForecastSide"), "lab dashboard does not read binary side performance groups");
@@ -1931,6 +1934,7 @@ await check("categorical forecast distribution metadata reaches resolved score a
         },
       ],
     },
+    actualCategory: "Beta",
   });
   assert(snapshot?.topCategory === "Alpha", "categorical metadata top category mismatch");
   assert(snapshot?.topProbability === 65, "categorical metadata top probability mismatch");
@@ -1941,6 +1945,10 @@ await check("categorical forecast distribution metadata reaches resolved score a
   assert(snapshot?.categoryCoverageBand === "open_set", "categorical metadata coverage band mismatch");
   assert(snapshot?.entropy === 0.78, "categorical metadata entropy mismatch");
   assert(snapshot?.entropyBand === "diffuse", "categorical metadata entropy band mismatch");
+  assert(snapshot?.actualCategory === "Beta", "categorical metadata actual category mismatch");
+  assert(snapshot?.actualProbability === 25, "categorical metadata actual probability mismatch");
+  assert(snapshot?.actualProbabilityBand === "moderate", "categorical metadata actual probability band mismatch");
+  assert(snapshot?.resolvedCategoryBand === "in_distribution", "categorical metadata resolved category band mismatch");
   assert(snapshot?.attemptCount === 3, "categorical metadata attempt count mismatch");
   assert(snapshot?.componentCategoryCount === 3, "categorical metadata component category count mismatch");
   assert(snapshot?.uniqueTopCategoryCount === 2, "categorical metadata unique top category count mismatch");
@@ -1952,23 +1960,30 @@ await check("categorical forecast distribution metadata reaches resolved score a
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
-  assert(resolutionSource.includes("readCategoricalForecastSnapshot(input.prediction)"), "resolution scoring does not persist categorical distribution metadata");
+  assert(resolutionSource.includes("readCategoricalForecastSnapshot({ ...input.prediction, actualCategory })"), "resolution scoring does not persist categorical distribution metadata with resolved category");
   assert(resolutionSource.includes("byCategoricalConfidence"), "performance report does not group by categorical confidence");
   assert(resolutionSource.includes("byCategoricalEntropy"), "performance report does not group by categorical entropy");
   assert(resolutionSource.includes("byCategoricalSource"), "performance report does not group by categorical source");
   assert(resolutionSource.includes("byCategoricalCoverage"), "performance report does not group by categorical coverage");
   assert(resolutionSource.includes("byCategoricalTopAgreement"), "performance report does not group by categorical top agreement");
+  assert(resolutionSource.includes("byCategoricalResolvedCategory"), "performance report does not group by categorical resolved category");
+  assert(resolutionSource.includes("categoricalForecast.resolvedCategoryBand"), "attention queue does not use categorical resolved category");
   assert(metricsSource.includes("open_superforecaster_categorical_distribution_scores_total"), "metrics missing categorical distribution score counts");
   assert(metricsSource.includes("category_coverage_band"), "metrics missing categorical coverage labels");
   assert(metricsSource.includes("top_category_agreement_band"), "metrics missing categorical top agreement labels");
+  assert(metricsSource.includes("resolved_category_band"), "metrics missing categorical resolved-category labels");
   assert(syncSource.includes("categorical_top_probability"), "DuckDB forecast score mart missing categorical top probability");
   assert(syncSource.includes("categorical_category_coverage_band"), "DuckDB forecast score mart missing categorical coverage band");
   assert(syncSource.includes("categorical_entropy_band"), "DuckDB forecast score mart missing categorical entropy band");
   assert(syncSource.includes("categorical_top_category_vote_share"), "DuckDB forecast score mart missing categorical top category vote share");
+  assert(syncSource.includes("categorical_actual_category"), "DuckDB forecast score mart missing categorical actual category");
+  assert(syncSource.includes("categorical_actual_probability"), "DuckDB forecast score mart missing categorical actual probability");
+  assert(syncSource.includes("categorical_resolved_category_band"), "DuckDB forecast score mart missing categorical resolved category band");
   assert(dashboardSource.includes("Categorical confidence outcomes"), "lab dashboard does not render categorical confidence outcomes");
   assert(dashboardSource.includes("Categorical entropy outcomes"), "lab dashboard does not render categorical entropy outcomes");
   assert(dashboardSource.includes("Categorical coverage outcomes"), "lab dashboard does not render categorical coverage outcomes");
   assert(dashboardSource.includes("Categorical top-agreement outcomes"), "lab dashboard does not render categorical top agreement outcomes");
+  assert(dashboardSource.includes("Categorical resolved-category outcomes"), "lab dashboard does not render categorical resolved-category outcomes");
   return "categorical forecast distributions are persisted and visible in resolved score analytics";
 });
 

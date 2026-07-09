@@ -8,6 +8,10 @@ export type CategoricalForecastSnapshot = {
   categoryCoverageBand: "closed_set" | "open_set" | "unknown";
   entropy: number | null;
   entropyBand: "concentrated" | "mixed" | "diffuse" | "unknown";
+  actualCategory: string | null;
+  actualProbability: number | null;
+  actualProbabilityBand: "zero" | "low" | "moderate" | "high" | "unknown";
+  resolvedCategoryBand: "top_choice" | "in_distribution" | "missing" | "unknown";
   attemptCount: number | null;
   componentCategoryCount: number | null;
   uniqueTopCategoryCount: number | null;
@@ -30,6 +34,9 @@ export function readCategoricalForecastSnapshot(value: unknown): CategoricalFore
   const entropy = normalizedEntropy(probabilities);
   const topCategory = readString(categorical, "topCategory", "top_category") ?? top?.category ?? null;
   const topProbability = top?.probability ?? null;
+  const actualCategory = readString(categorical, "actualCategory", "actual_category", "actual", "resolvedCategory", "resolved_category")
+    ?? readString(record, "actualCategory", "actual_category", "actual", "resolvedCategory", "resolved_category");
+  const actualProbability = actualCategory === null ? null : probabilityForCategory(probabilities, actualCategory);
   const categorySource = readString(categorical, "categorySource", "category_source");
   const categoriesExhaustive = readBoolean(categorical, "categoriesExhaustive", "categories_exhaustive");
   const attemptCount = readNumber(categorical, "attemptCount", "attempt_count");
@@ -56,9 +63,46 @@ export function readCategoricalForecastSnapshot(value: unknown): CategoricalFore
     categoryCoverageBand: categoryCoverageBand(categoriesExhaustive),
     entropy,
     entropyBand: entropyBand(entropy),
+    actualCategory,
+    actualProbability,
+    actualProbabilityBand: actualProbabilityBand(actualProbability),
+    resolvedCategoryBand: resolvedCategoryBand({ actualCategory, actualProbability, topCategory }),
     attemptCount,
     ...componentStats,
   };
+}
+
+export function actualProbabilityBand(probability: number | null): CategoricalForecastSnapshot["actualProbabilityBand"] {
+  if (probability === null || !Number.isFinite(probability)) {
+    return "unknown";
+  }
+  if (probability <= 0) {
+    return "zero";
+  }
+  if (probability < 10) {
+    return "low";
+  }
+  if (probability < 40) {
+    return "moderate";
+  }
+  return "high";
+}
+
+export function resolvedCategoryBand(input: {
+  actualCategory: string | null;
+  actualProbability: number | null;
+  topCategory: string | null;
+}): CategoricalForecastSnapshot["resolvedCategoryBand"] {
+  if (!input.actualCategory) {
+    return "unknown";
+  }
+  if (input.topCategory && normalizeCategory(input.actualCategory) === normalizeCategory(input.topCategory)) {
+    return "top_choice";
+  }
+  if (input.actualProbability !== null && input.actualProbability > 0) {
+    return "in_distribution";
+  }
+  return "missing";
 }
 
 export function topProbabilityBand(probability: number | null): CategoricalForecastSnapshot["topProbabilityBand"] {
@@ -106,6 +150,16 @@ function readProbabilityDistribution(value: Record<string, unknown>) {
     }
     return [{ category, probability }];
   });
+}
+
+function probabilityForCategory(probabilities: Array<{ category: string; probability: number }>, category: string) {
+  const normalized = normalizeCategory(category);
+  const match = probabilities.find((item) => normalizeCategory(item.category) === normalized);
+  return match?.probability ?? 0;
+}
+
+function normalizeCategory(value: string) {
+  return value.trim().toLowerCase();
 }
 
 function readComponentCategoryStats(

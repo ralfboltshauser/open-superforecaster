@@ -428,6 +428,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byCategoricalSource = groupScores(aggregateScores, categoricalSourceGroupKey);
   const byCategoricalCoverage = groupScores(aggregateScores, categoricalCoverageGroupKey);
   const byCategoricalTopAgreement = groupScores(aggregateScores, categoricalTopAgreementGroupKey);
+  const byCategoricalResolvedCategory = groupScores(aggregateScores, categoricalResolvedCategoryGroupKey);
   const byEvidenceSourceCount = groupScores(aggregateScores, evidenceSourceCountGroupKey);
   const byEvidenceSourceDiversity = groupScores(aggregateScores, evidenceSourceDiversityGroupKey);
   const byEvidenceSourceConcentration = groupScores(aggregateScores, evidenceSourceConcentrationGroupKey);
@@ -515,6 +516,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byCategoricalSource,
       byCategoricalCoverage,
       byCategoricalTopAgreement,
+      byCategoricalResolvedCategory,
       byEvidenceSourceCount,
       byEvidenceSourceDiversity,
       byEvidenceSourceConcentration,
@@ -592,6 +594,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byCategoricalSource,
       byCategoricalCoverage,
       byCategoricalTopAgreement,
+      byCategoricalResolvedCategory,
       byEvidenceSourceCount,
       byEvidenceSourceDiversity,
       byEvidenceSourceConcentration,
@@ -878,7 +881,7 @@ function scoreForecastPrediction(input: {
     if (distribution.length === 0) {
       return [];
     }
-    const categoricalForecast = readCategoricalForecastSnapshot(input.prediction);
+    const categoricalForecast = readCategoricalForecastSnapshot({ ...input.prediction, actualCategory });
     const categories = uniqueStrings([...distribution.map((item) => item.category), actualCategory]);
     const probabilityByCategory = new Map(distribution.map((item) => [item.category, item.probability]));
     const brier = categories.reduce((sum, category) => {
@@ -1523,6 +1526,14 @@ function categoricalTopAgreementGroupKey(score: typeof forecastScores.$inferSele
   }
   const categoricalForecast = readCategoricalForecastSnapshot(score.scoreConfig);
   return `categorical_top_agreement:${categoricalForecast?.topCategoryAgreementBand ?? "unrecorded"}`;
+}
+
+function categoricalResolvedCategoryGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "categorical") {
+    return "categorical_resolved_category:not_categorical";
+  }
+  const categoricalForecast = readCategoricalForecastSnapshot(score.scoreConfig);
+  return `categorical_resolved_category:${categoricalForecast?.resolvedCategoryBand ?? "unrecorded"}`;
 }
 
 function evidenceSourceCountGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2274,6 +2285,19 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
   if (
     item.forecastType === "categorical" &&
     item.categoricalForecast !== null &&
+    (item.categoricalForecast.resolvedCategoryBand === "missing" || item.categoricalForecast.actualProbabilityBand === "zero")
+  ) {
+    return {
+      reason:
+        `resolved category ${item.categoricalForecast.actualCategory ?? "unknown"} was missing or assigned zero probability in the categorical distribution`,
+      delta: item.categoricalForecast.actualProbability,
+      severity: "high",
+    };
+  }
+
+  if (
+    item.forecastType === "categorical" &&
+    item.categoricalForecast !== null &&
     ["split", "none"].includes(item.categoricalForecast.topCategoryAgreementBand)
   ) {
     return {
@@ -2629,6 +2653,7 @@ function renderPerformanceMarkdown(input: {
   byCategoricalSource: PerformanceGroup[];
   byCategoricalCoverage: PerformanceGroup[];
   byCategoricalTopAgreement: PerformanceGroup[];
+  byCategoricalResolvedCategory: PerformanceGroup[];
   byEvidenceSourceCount: PerformanceGroup[];
   byEvidenceSourceDiversity: PerformanceGroup[];
   byEvidenceSourceConcentration: PerformanceGroup[];
@@ -2775,6 +2800,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Categorical top-agreement groups",
     ...renderGroupTable(input.byCategoricalTopAgreement),
+    "",
+    "## Categorical resolved-category groups",
+    ...renderGroupTable(input.byCategoricalResolvedCategory),
     "",
     "## Evidence source-count groups",
     ...renderGroupTable(input.byEvidenceSourceCount),
