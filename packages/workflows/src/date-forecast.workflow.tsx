@@ -1,6 +1,11 @@
 /** @jsxImportSource smithers-orchestrator */
 import { createSmithers, Parallel, Sequence, Task } from "smithers-orchestrator";
 import { z } from "zod";
+import {
+  dateQuantileDistributionSchema,
+  formatForecastContextForPrompt,
+  normalizeForecastInputRow,
+} from "@open-superforecaster/workflow-contracts";
 import { codexResearchAgent } from "./agents";
 
 const citedSource = z.object({
@@ -11,9 +16,7 @@ const citedSource = z.object({
 
 const dateAttempt = z.object({
   forecasterLabel: z.string(),
-  targetDate: z.string(),
-  earliestDate: z.string().optional(),
-  latestDate: z.string().optional(),
+  dateDistribution: dateQuantileDistributionSchema,
   neverProbability: z.number().min(0).max(100).default(0),
   rationale: z.string(),
   keyUncertainties: z.array(z.string()).default([]),
@@ -23,19 +26,14 @@ const dateAttempt = z.object({
 const dateAggregate = z.object({
   forecastType: z.literal("date"),
   targetDate: z.string(),
-  dateDistribution: z.object({
-    p10: z.string().optional(),
-    p25: z.string().optional(),
-    p50: z.string(),
-    p75: z.string().optional(),
-    p90: z.string().optional(),
-  }),
+  dateDistribution: dateQuantileDistributionSchema,
   neverProbability: z.number().min(0).max(100),
   method: z.string(),
   attemptCount: z.number().int(),
   componentDates: z.array(z.object({
     forecasterLabel: z.string(),
     targetDate: z.string(),
+    dateDistribution: dateQuantileDistributionSchema,
     neverProbability: z.number().optional(),
   })),
   citedSources: z.array(citedSource).default([]),
@@ -66,32 +64,28 @@ const forecasterBriefs = [
 ];
 
 export default smithers((ctx) => {
-  const input = (ctx.input ?? {}) as {
-    question?: unknown;
-    prompt?: unknown;
-    resolutionCriteria?: unknown;
-    background?: unknown;
-  };
-  const question = String(input.question ?? input.prompt ?? "");
-  const resolutionCriteria = String(input.resolutionCriteria ?? "Resolve according to the plain-language question.");
-  const background = String(input.background ?? "");
+  const forecastInput = normalizeForecastInputRow((ctx.input ?? {}) as Record<string, unknown>);
+  const question = forecastInput.question;
+  const resolutionCriteria = forecastInput.resolutionCriteria ?? "Resolve according to the plain-language question.";
+  const background = forecastInput.background ?? "";
+  const structuredContext = formatForecastContextForPrompt(forecastInput);
   const attemptIds = forecasterBriefs.map((brief) => `attempt-${brief.id}`);
   const attemptNeeds = Object.fromEntries(attemptIds.map((id) => [id, id]));
   const attempts = ctx.outputs.dateAttempt ?? [];
-  const sortedDates = attempts.map((attempt) => attempt.targetDate).filter(Boolean).sort();
-  const quantileDate = (quantile: number) => {
-    if (sortedDates.length === 0) {
-      return undefined;
-    }
-    return sortedDates[Math.round((sortedDates.length - 1) * quantile)];
+  const aggregateDistribution = {
+    p10: medianDate(attempts.map((attempt) => attempt.dateDistribution.p10)),
+    p25: medianDate(attempts.map((attempt) => attempt.dateDistribution.p25)),
+    p50: medianDate(attempts.map((attempt) => attempt.dateDistribution.p50)),
+    p75: medianDate(attempts.map((attempt) => attempt.dateDistribution.p75)),
+    p90: medianDate(attempts.map((attempt) => attempt.dateDistribution.p90)),
   };
-  const p50 = sortedDates[Math.floor(sortedDates.length / 2)] ?? "unknown";
   const neverProbability = attempts.length
     ? Math.round((attempts.reduce((sum, attempt) => sum + (attempt.neverProbability ?? 0), 0) / attempts.length) * 10) / 10
     : 0;
   const componentDates = attempts.map((attempt) => ({
     forecasterLabel: attempt.forecasterLabel,
-    targetDate: attempt.targetDate,
+    targetDate: attempt.dateDistribution.p50,
+    dateDistribution: attempt.dateDistribution,
     neverProbability: attempt.neverProbability,
   }));
   const citedSources = attempts.flatMap((attempt) => attempt.citedSources ?? []);
@@ -115,13 +109,15 @@ ${question}
 Resolution criteria:
 ${resolutionCriteria}
 
+${structuredContext}
+
 Background:
 ${background || "No extra background provided."}
 
 Focus:
 ${brief.focus}
 
-Return a date forecast. Use ISO date strings like YYYY-MM-DD for targetDate, earliestDate, and latestDate when possible. Include neverProbability from 0 to 100, rationale, key uncertainties, and cited sources when available. Set forecasterLabel to "${brief.label}".`}
+Return a date forecast as a calibrated date distribution. Provide dateDistribution with p10, p25, p50, p75, and p90 using ISO date strings like YYYY-MM-DD. Earlier quantiles should not come after later quantiles. Include neverProbability from 0 to 100, rationale, key uncertainties, and cited sources when available. Set forecasterLabel to "${brief.label}".`}
             </Task>
           ))}
         </Parallel>
@@ -129,26 +125,31 @@ Return a date forecast. Use ISO date strings like YYYY-MM-DD for targetDate, ear
         <Task id="aggregate" output={outputs.dateAggregate} needs={attemptNeeds}>
           {{
             forecastType: "date",
-            targetDate: p50,
-            dateDistribution: {
-              p10: quantileDate(0.1),
-              p25: quantileDate(0.25),
-              p50,
-              p75: quantileDate(0.75),
-              p90: quantileDate(0.9),
-            },
+            targetDate: aggregateDistribution.p50,
+            dateDistribution: aggregateDistribution,
             neverProbability,
-            method: "median_of_three_differentiated_date_forecasters_v0",
+            method: "median_date_quantiles_of_three_differentiated_forecasters_v1",
             attemptCount: attempts.length,
             componentDates,
             citedSources,
             rationale:
               attempts.length === 0
                 ? "No attempts were available; this fallback should only appear in graph rendering."
-                : `Used the median target date from ${attempts.length} differentiated date forecasters and averaged never probabilities.`,
+                : `Aggregated ${attempts.length} differentiated date distributions by taking the median date for each requested quantile and averaged never probabilities.`,
           }}
         </Task>
       </Sequence>
     </Workflow>
   );
 });
+
+function medianDate(values: string[]) {
+  const datedValues = values
+    .map((value) => ({ value, time: Date.parse(value) }))
+    .filter((item) => item.value && Number.isFinite(item.time))
+    .sort((left, right) => left.time - right.time);
+  if (datedValues.length === 0) {
+    return "unknown";
+  }
+  return datedValues[Math.floor(datedValues.length / 2)]?.value ?? "unknown";
+}

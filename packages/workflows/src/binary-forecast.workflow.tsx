@@ -1,6 +1,10 @@
 /** @jsxImportSource smithers-orchestrator */
 import { createSmithers, Loop, Parallel, Sequence, Task } from "smithers-orchestrator";
 import { z } from "zod";
+import {
+  formatForecastContextForPrompt,
+  normalizeForecastInputRow,
+} from "@open-superforecaster/workflow-contracts";
 import { codexResearchAgent, codexStructuredAgent } from "./agents";
 
 const roleIdValues = [
@@ -407,7 +411,7 @@ function applyFinalCalibration(input: {
 }
 
 export default smithers((ctx) => {
-  const input = (ctx.input ?? {}) as {
+  const rawInput = (ctx.input ?? {}) as Record<string, unknown> & {
     question?: unknown;
     prompt?: unknown;
     resolutionCriteria?: unknown;
@@ -416,12 +420,14 @@ export default smithers((ctx) => {
     presentDate?: unknown;
     cutoffDate?: unknown;
   };
-  const question = String(input.question ?? input.prompt ?? "");
-  const resolutionCriteria = String(input.resolutionCriteria ?? "Resolve according to the plain-language question.");
-  const background = String(input.background ?? "");
-  const fixedEvidence = String(input.fixedEvidence ?? "");
-  const presentDate = String(input.presentDate ?? "");
-  const cutoffDate = String(input.cutoffDate ?? "");
+  const forecastInput = normalizeForecastInputRow(rawInput);
+  const question = forecastInput.question;
+  const resolutionCriteria = forecastInput.resolutionCriteria ?? "Resolve according to the plain-language question.";
+  const background = forecastInput.background ?? "";
+  const structuredContext = formatForecastContextForPrompt(forecastInput);
+  const fixedEvidence = String(rawInput.fixedEvidence ?? "");
+  const presentDate = String(rawInput.presentDate ?? "");
+  const cutoffDate = String(rawInput.cutoffDate ?? "");
   const cutoffHorizonDays = daysBetween(presentDate, cutoffDate);
   const cutoffHorizonText = cutoffHorizonDays === undefined
     ? "unknown"
@@ -523,12 +529,15 @@ Selection rules:
 8. Market-price threshold questions with explicit volatility, ETF/flow, momentum, halving, pricing, or reflexivity evidence should usually include market-consensus and adversarial-tail, because the question is often about whether an upside/downside tail touches a threshold before cutoff.
 9. Central-bank, rates, inflation, or macro-policy timing questions with market debate or pricing in the evidence should usually include incentives-timing and market-consensus. Market debate is still evidence even when exact market-implied percentages are absent.
 10. For timing questions, distinguish a near-deadline cutoff from a broad cutoff with many decision opportunities. Qualitative market-pricing, policymaker-projection, polling, or expert-consensus evidence included in the fixed packet is direct evidence; do not discount it solely because exact numeric odds are absent.
+11. If structured market metadata is provided, treat it as dated consensus evidence. Do not invent missing markets, do not assume liquidity, and do not double-count the same market price through background commentary.
 
 Question:
 ${question}
 
 Resolution criteria:
 ${resolutionCriteria}
+
+${structuredContext}
 
 ${presentDate || cutoffDate ? `Timing context:
 Present date: ${presentDate || "unspecified"}
@@ -578,6 +587,7 @@ Forecasting process:
 3. Pick concrete reference classes and estimate a base-rate probability.
 4. Update from that base rate using case-specific evidence.
 5. Treat qualitative market-pricing, policymaker-projection, polling, expert-consensus, or revealed-behavior evidence in the fixed packet as real evidence. Do not invent exact odds, but do not discard the signal merely because it is qualitative.
+5a. If structured market metadata is present, use it only as dated consensus evidence and state whether it anchors, weakly informs, or should be discounted. Avoid double-counting market-derived background.
 6. List the strongest yes and no arguments, then run a premortem.
 7. Give a precise final probability from 0 to 100. Round sensibly; do not hide uncertainty at 50.
 8. Flag overconfidence, missing base rates, weak evidence, disallowed evidence, correlated assumptions, or numeric inconsistency in calibrationWarnings.
@@ -587,6 +597,8 @@ ${question}
 
 Resolution criteria:
 ${resolutionCriteria}
+
+${structuredContext}
 
 ${presentDate || cutoffDate ? `Timing context:
 Present date: ${presentDate || "unspecified"}
@@ -624,6 +636,8 @@ ${question}
 
 Resolution criteria:
 ${resolutionCriteria}
+
+${structuredContext}
 
 ${presentDate || cutoffDate ? `Timing context:
 Present date: ${presentDate || "unspecified"}
@@ -665,6 +679,7 @@ Evaluation rules:
 8. Preserve cited sources from component forecasts when useful; do not invent new sources.
 9. Do not downweight a higher inside-view, incentives-timing, market-consensus, or adversarial-tail estimate merely because it is above the median. Downweight it only when the component double-counts evidence, violates the resolution boundary, or makes an unsupported leap.
 10. For timing questions, explicitly compare the cutoff horizon to the evidence window. If the cutoff is broad and the packet says policymakers, markets, polls, or expert consensus expected the event in that general window, that signal should usually move the aggregate materially unless a named NO mechanism offsets it. Qualitative consensus evidence is weaker than numeric pricing but still direct evidence.
+11. If structured market metadata exists, state whether the aggregate anchored to it, discounted it, or moved away from it. Name the reason and avoid double-counting.
 
 Return the round ${round} candidate aggregate. Set method exactly to "adaptive_candidate_calibration_evaluator_v1". Set round to ${round}, forecasterCount to ${selectedRoles.length}, complexityScore to ${plan.complexityScore}, and roleIds to ${JSON.stringify(selectedRoles.map((role) => role.id))}. Include componentProbabilities for every component, componentAudits for every component, meanProbability, medianProbability, disagreement, aggregationAnchor, adjustmentFromMedian, calibrationNotes, calibrationWarnings, method, rationale, citedSources, unresolvedDisagreement, decisiveIssue, feedbackForNextRound, and final probability.`}
               </Task>
@@ -684,6 +699,8 @@ ${question}
 
 Resolution criteria:
 ${resolutionCriteria}
+
+${structuredContext}
 
 Planner output:
 ${planSummary}

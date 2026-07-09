@@ -313,29 +313,42 @@ function NumericForecastReport({ output, expanded }: { output: JsonRecord; expan
   const distribution = parseRecord(output.distribution)
   const value = readNumber(output, "value")
   const unit = readString(output, "unit") ?? "units"
-  const low = readNumber(distribution, "low")
-  const median = readNumber(distribution, "median")
-  const high = readNumber(distribution, "high")
+  const quantiles = [
+    { label: "p10", value: readNumber(distribution, "p10") ?? readNumber(distribution, "low") },
+    { label: "p25", value: readNumber(distribution, "p25") },
+    { label: "p50", value: readNumber(distribution, "p50") ?? readNumber(distribution, "median") ?? value },
+    { label: "p75", value: readNumber(distribution, "p75") },
+    { label: "p90", value: readNumber(distribution, "p90") ?? readNumber(distribution, "high") },
+  ]
   const componentValues = recordArray(output, "componentValues", "component_values")
 
   return (
     <div className="flex flex-col gap-6">
       <HeroMetric label="aggregate value" value={value === null ? "not set" : `${formatNumber(value)} ${unit}`} />
-      <div className="grid gap-3 md:grid-cols-3">
-        <ForecastQuantile label="low" value={low === null ? "not set" : `${formatNumber(low)} ${unit}`} />
-        <ForecastQuantile active label="median" value={median === null ? "not set" : `${formatNumber(median)} ${unit}`} />
-        <ForecastQuantile label="high" value={high === null ? "not set" : `${formatNumber(high)} ${unit}`} />
+      <div className="grid gap-3 md:grid-cols-5">
+        {quantiles.map((quantile) => (
+          <ForecastQuantile
+            active={quantile.label === "p50"}
+            key={quantile.label}
+            label={quantile.label}
+            value={quantile.value === null ? "not set" : `${formatNumber(quantile.value)} ${unit}`}
+          />
+        ))}
       </div>
       <ReportSection label="component values">
         <div className="grid gap-2 md:grid-cols-3">
           {componentValues.map((component, index) => {
             const componentValue = readNumber(component, "value")
             const componentUnit = readString(component, "unit") ?? unit
+            const componentQuantiles = parseRecord(component.quantiles)
+            const componentP10 = readNumber(componentQuantiles, "p10")
+            const componentP90 = readNumber(componentQuantiles, "p90")
             return (
               <CompactValue
                 key={`${readString(component, "forecasterLabel") ?? "numeric"}-${index}`}
                 label={readString(component, "forecasterLabel") ?? readString(component, "forecaster_label") ?? `forecaster ${index + 1}`}
                 value={componentValue === null ? "not set" : `${formatNumber(componentValue)} ${componentUnit}`}
+                meta={componentP10 === null || componentP90 === null ? undefined : `p10-p90 ${formatNumber(componentP10)}-${formatNumber(componentP90)}`}
               />
             )
           })}

@@ -19,9 +19,9 @@ curiosity. Dynamic benchmarks such as
 limits of current LLM forecasters. Newer scaffolded systems such as
 [AIA Forecaster](https://arxiv.org/html/2511.07678v1) report results that are
 competitive with expert superforecasters on some benchmarks, while liquid
-prediction markets remain a hard baseline and ensembles can add value.
-[FutureSearch Evals](https://evals.futuresearch.ai/) shows how quickly this
-space is moving across pastcasting benchmarks, live tournaments, and markets.
+prediction markets remain a hard baseline and ensembles can add value. The
+space is moving quickly across pastcasting benchmarks, live tournaments, and
+markets.
 
 The point of this project is not to claim that this repo is already a
 benchmark-grade oracle. The point is to keep the capability open, inspectable,
@@ -66,6 +66,24 @@ forecast should answer:
 - What probability or distribution was emitted?
 - Which artifacts, traces, and benchmarks support the result?
 - What should be re-run before using this in a real decision?
+
+## Forecast Contract
+
+Forecast requests can carry structured context in addition to the plain-language
+question. Use these fields when available instead of burying them in prose:
+
+- `resolutionCriteria` and `resolutionDate`
+- `background`
+- `marketPrice`, `marketPriceAsOf`, `marketCreationDate`, `marketPlatform`,
+  and `marketUrl`
+- `categories` and `categoriesExhaustive` for categorical forecasts
+- `thresholds`, `thresholdDirection`, and `unit` for thresholded forecasts
+
+Numeric and date forecasts emit p10, p25, p50, p75, and p90 distributions.
+Categorical forecasts normalize probability mass over a frozen option set when
+one is provided. Thresholded forecasts preserve explicit threshold order and
+return a validation artifact instead of inventing generic thresholds when the
+input is underspecified.
 
 ## Getting Started
 
