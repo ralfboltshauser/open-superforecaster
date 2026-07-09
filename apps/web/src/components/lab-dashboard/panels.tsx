@@ -134,13 +134,43 @@ export function BenchmarksCard({ benchmarks }: { benchmarks: { benchmarkRuns: Js
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {benchmarks.benchmarkRuns.slice(0, 6).map((run) => (
-          <div className="rounded-md border p-3 text-sm" key={String(run.id ?? run.label)}>
-            <p className="truncate font-medium">{String(run.experimentLabel ?? run.evalMode ?? "benchmark")}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{String(run.status ?? "unknown")}</p>
-          </div>
+          <BenchmarkRunSummary run={run} key={String(run.id ?? run.label)} />
         ))}
       </CardContent>
     </Card>
+  )
+}
+
+function BenchmarkRunSummary({ run }: { run: JsonRecord }) {
+  const promotionGate = isRecord(run.promotionGate) ? run.promotionGate : null
+  const blockers = readArray(promotionGate, "blockers").filter((blocker): blocker is string => typeof blocker === "string")
+  const recommendationStatus = typeof promotionGate?.recommendationStatus === "string" ? promotionGate.recommendationStatus : null
+  return (
+    <div className="rounded-md border p-3 text-sm">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <span className="min-w-0">
+          <span className="block truncate font-medium">{String(run.experimentLabel ?? run.evalMode ?? "benchmark")}</span>
+          <span className="mt-1 block truncate text-xs text-muted-foreground">
+            {String(run.status ?? "unknown")} · {String(run.completedCases ?? 0)} completed · {String(run.reviewCases ?? 0)} review
+          </span>
+        </span>
+        <Badge variant={promotionGate?.status === "review_for_promotion" ? "outline" : "secondary"} className="shrink-0">
+          {String(promotionGate?.status ?? "no gate")}
+        </Badge>
+      </div>
+      {recommendationStatus ? (
+        <p className="mt-2 truncate text-xs text-muted-foreground">comparison {recommendationStatus}</p>
+      ) : null}
+      {blockers.length ? (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {blockers.slice(0, 3).map((blocker) => (
+            <Badge variant="secondary" className="max-w-full truncate" key={blocker}>
+              {blocker}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+    </div>
   )
 }
 

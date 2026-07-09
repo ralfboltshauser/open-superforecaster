@@ -296,6 +296,11 @@ async function runSmokeChecks() {
     if (requireData && benchmarkRuns.length === 0) {
       throw new Error("no benchmark runs available");
     }
+    const benchmarkRunRecords = benchmarkRuns.filter(isRecord);
+    const runMissingPromotionGate = benchmarkRunRecords.find((run) => !readRecord(run, "promotionGate"));
+    if (runMissingPromotionGate) {
+      throw new Error("benchmark list run is missing promotion gate");
+    }
     return `${benchmarkRuns.length} run(s), ${benchmarkSuites.length} suite(s)`;
   });
 

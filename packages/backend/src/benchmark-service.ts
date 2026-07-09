@@ -562,6 +562,13 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
       workflowPromotionState: variant?.promotionState ?? "candidate",
       latestPromotionDecision: latestPromotionDecision ?? null,
       comparison: comparisonReportRow?.rowJson ?? null,
+      promotionGate: summarizeBenchmarkPromotionGateEvidence({
+        runStatus: row.status,
+        resultCount: results.length,
+        traceMissing: results.filter((result) => !result.traceBundleUri).length,
+        reviewOrFailed: results.filter((result) => result.status === "failed" || result.status === "needs_review").length,
+        comparisonStatus: readComparisonRecommendationStatus(comparisonReportRow?.rowJson ?? null),
+      }),
       completedCases: results.filter((result) => result.status === "completed").length,
       failedCases: results.filter((result) => result.status === "failed").length,
       runningCases: results.filter((result) => result.status === "running").length,
@@ -2640,17 +2647,25 @@ function benchmarkPromotionGateSummary(input: {
 }) {
   const traceMissing = input.results.filter((result) => !result.traceBundleUri).length;
   const reviewOrFailed = input.metrics.failedCases + input.metrics.reviewCases;
-  const recommendation = input.comparison && typeof input.comparison === "object" && !Array.isArray(input.comparison)
-    ? (input.comparison.recommendation as Record<string, unknown> | undefined)
-    : null;
-  const comparisonStatus = recommendation && typeof recommendation.status === "string" ? recommendation.status : null;
   return summarizeBenchmarkPromotionGateEvidence({
     runStatus: input.run.status,
     resultCount: input.results.length,
     traceMissing,
     reviewOrFailed,
-    comparisonStatus,
+    comparisonStatus: readComparisonRecommendationStatus(input.comparison),
   });
+}
+
+function readComparisonRecommendationStatus(comparison: Record<string, unknown> | null) {
+  if (!comparison || typeof comparison !== "object" || Array.isArray(comparison)) {
+    return null;
+  }
+  const recommendation = comparison.recommendation;
+  if (!recommendation || typeof recommendation !== "object" || Array.isArray(recommendation)) {
+    return null;
+  }
+  const recommendationRecord = recommendation as Record<string, unknown>;
+  return typeof recommendationRecord.status === "string" ? recommendationRecord.status : null;
 }
 
 function parseOptionalDateForAnalysis(raw: string | null) {
