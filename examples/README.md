@@ -87,8 +87,9 @@ bun run forecast:performance -- --batch-id july-smoke --out-dir data/reports/for
 
 The report groups existing score rows by forecast type, target, and forecaster
 label, includes best and worst resolved aggregate forecasts, tracks recent
-score deltas against older baselines, adds a needs-attention queue for poor
-scores or worsening trends, and writes JSON plus Markdown snapshots for review.
+score deltas against older baselines, adds a needs-attention queue with
+recommended actions for poor scores or worsening trends, and writes JSON plus
+Markdown snapshots for review.
 
 Use the same `--batch-id` across forecast ops, resolution, and performance
 commands to keep their manifests tied to the same operational batch.

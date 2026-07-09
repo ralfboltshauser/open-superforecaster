@@ -293,12 +293,16 @@ function PerformanceAttentionList({ items }: { items: JsonRecord[] }) {
       <div className="flex flex-col gap-2">
         {items.slice(0, 4).map((item) => {
           const taskId = typeof item.taskId === "string" ? item.taskId : null
+          const recommendedActions = readArray(item, "recommendedActions").filter((value): value is string => typeof value === "string")
           const content = (
             <>
               <span className="block truncate font-medium">{String(item.taskLabel ?? item.kind ?? "attention item")}</span>
               <span className="mt-1 block truncate text-xs text-muted-foreground">
                 {String(item.severity ?? "medium")} · {String(item.metric ?? "metric")} {formatMetric(item.score)}
               </span>
+              {recommendedActions[0] ? (
+                <span className="mt-1 block truncate text-xs text-muted-foreground">{recommendedActions[0]}</span>
+              ) : null}
             </>
           )
           return taskId ? (

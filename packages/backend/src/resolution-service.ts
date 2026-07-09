@@ -84,6 +84,7 @@ type PerformanceAttentionItem = {
   kind: "poor_resolved_forecast" | "worsening_trend";
   severity: "high" | "medium";
   reason: string;
+  recommendedActions: string[];
   metric: string;
   score: number | null;
   delta: number | null;
@@ -1065,13 +1066,20 @@ function buildNeedsAttentionQueue(
   const caseItems = worstCases.slice(0, 5).map((item, index) => {
     const threshold = poorScoreThreshold(item.primaryMetric);
     const exceedsThreshold = threshold !== null && item.primaryScore >= threshold;
+    const reason = exceedsThreshold
+      ? `${item.primaryMetric} ${roundMetric(item.primaryScore)} exceeds review threshold ${threshold}`
+      : `Among the worst resolved aggregate forecasts by ${item.primaryMetric}`;
     return {
       id: `poor:${item.taskId}:${item.primaryMetric}`,
       kind: "poor_resolved_forecast" as const,
       severity: exceedsThreshold ? "high" as const : "medium" as const,
-      reason: exceedsThreshold
-        ? `${item.primaryMetric} ${roundMetric(item.primaryScore)} exceeds review threshold ${threshold}`
-        : `Among the worst resolved aggregate forecasts by ${item.primaryMetric}`,
+      reason,
+      recommendedActions: recommendAttentionActions({
+        kind: "poor_resolved_forecast",
+        metric: item.primaryMetric,
+        severity: exceedsThreshold ? "high" : "medium",
+        forecastType: item.forecastType,
+      }),
       metric: item.primaryMetric,
       score: item.primaryScore,
       delta: null,
@@ -1089,6 +1097,12 @@ function buildNeedsAttentionQueue(
       kind: "worsening_trend" as const,
       severity: Math.abs(trend.delta ?? 0) >= trendDeltaHighThreshold(trend.metric) ? "high" as const : "medium" as const,
       reason: `${trend.metric} worsened over ${trend.label}: recent ${formatNullableMetric(trend.recentMean)}, baseline ${formatNullableMetric(trend.baselineMean)}`,
+      recommendedActions: recommendAttentionActions({
+        kind: "worsening_trend",
+        metric: trend.metric,
+        severity: Math.abs(trend.delta ?? 0) >= trendDeltaHighThreshold(trend.metric) ? "high" : "medium",
+        forecastType: null,
+      }),
       metric: trend.metric,
       score: trend.recentMean,
       delta: trend.delta,
@@ -1108,6 +1122,49 @@ function buildNeedsAttentionQueue(
     })
     .slice(0, 10)
     .map(({ rank: _rank, ...item }) => item);
+}
+
+function recommendAttentionActions(input: {
+  kind: PerformanceAttentionItem["kind"];
+  metric: string;
+  severity: PerformanceAttentionItem["severity"];
+  forecastType: string | null;
+}) {
+  const actions = new Set<string>();
+  if (input.kind === "poor_resolved_forecast") {
+    actions.add("Open the run report and compare the final answer against the written resolution criteria.");
+    actions.add("Inspect component disagreement and final calibration notes before changing prompts or defaults.");
+  } else {
+    actions.add("Review recent resolved runs in this metric before treating the trend as a workflow regression.");
+    actions.add("Compare recent cases against older baseline cases for domain mix or resolution-source drift.");
+  }
+
+  if (isProbabilityMetric(input.metric)) {
+    actions.add("Check for overconfidence: compare predicted probability, resolved outcome, and calibration bucket.");
+  }
+  if (input.metric.includes("log")) {
+    actions.add("Look for near-zero or near-one probabilities that made the log score fragile.");
+  }
+  if (input.metric.includes("absolute") || input.forecastType === "numeric" || input.forecastType === "date") {
+    actions.add("Inspect units, target date/value parsing, and whether the forecast should have used a quantile distribution.");
+  }
+  if (input.forecastType === "categorical") {
+    actions.add("Check whether the resolved category was present in the allowed option set and assigned non-trivial mass.");
+  }
+  if (input.forecastType === "thresholded") {
+    actions.add("Review threshold ordering and whether the curve was monotonic around the resolved value.");
+  }
+  if (input.forecastType === "conditional") {
+    actions.add("Separate condition resolution from outcome resolution before judging the conditional forecast.");
+  }
+  if (input.severity === "high") {
+    actions.add("Add or update a benchmark case that captures this failure before promoting related workflow changes.");
+  }
+  return [...actions].slice(0, 5);
+}
+
+function isProbabilityMetric(metric: string) {
+  return metric.includes("brier") || metric.includes("log") || metric === "condition_brier" || metric === "condition_log";
 }
 
 function poorScoreThreshold(metric: string) {
@@ -1250,12 +1307,12 @@ function renderAttentionTable(items: PerformanceAttentionItem[]) {
     return ["No attention items yet."];
   }
   return [
-    "| Severity | Kind | Metric | Score | Delta | Task | Reason |",
-    "| --- | --- | --- | ---: | ---: | --- | --- |",
+    "| Severity | Kind | Metric | Score | Delta | Task | Reason | Recommended action |",
+    "| --- | --- | --- | ---: | ---: | --- | --- | --- |",
     ...items.map((item) =>
       `| ${item.severity} | ${item.kind} | ${item.metric} | ${item.score === null ? "" : roundMetric(item.score)} | ${
         item.delta === null ? "" : roundMetric(item.delta)
-      } | ${escapeMarkdownCell(item.taskLabel ?? item.taskId ?? "")} | ${escapeMarkdownCell(item.reason)} |`,
+      } | ${escapeMarkdownCell(item.taskLabel ?? item.taskId ?? "")} | ${escapeMarkdownCell(item.reason)} | ${escapeMarkdownCell(item.recommendedActions[0] ?? "")} |`,
     ),
   ];
 }
