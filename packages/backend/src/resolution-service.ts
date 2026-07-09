@@ -87,7 +87,7 @@ type PerformanceTrend = {
 
 type PerformanceAttentionItem = {
   id: string;
-  kind: "poor_resolved_forecast" | "worsening_trend" | "calibration_mismatch" | "calibration_guard_regression";
+  kind: "poor_resolved_forecast" | "worsening_trend" | "calibration_mismatch" | "calibration_guard_regression" | "baseline_sanity_miss";
   severity: "high" | "medium";
   reason: string;
   recommendedActions: string[];
@@ -1196,6 +1196,42 @@ function buildNeedsAttentionQueue(
       rank: 100 + trend.recentDays,
     }));
 
+  const baselineSanityCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    if (
+      item.forecastType !== "binary" ||
+      item.baselineSanity === null ||
+      !["moderate_delta", "large_delta"].includes(item.baselineSanity.status) ||
+      threshold === null ||
+      item.primaryScore < threshold
+    ) {
+      return [];
+    }
+    return [{ item, baselineSanity: item.baselineSanity }];
+  });
+  const baselineSanityItems = baselineSanityCandidates
+    .slice(0, 5)
+    .map(({ item, baselineSanity }, index) => ({
+      id: `baseline-sanity:${item.taskId}:${item.primaryMetric}`,
+      kind: "baseline_sanity_miss" as const,
+      severity: baselineSanity.status === "large_delta" ? "high" as const : "medium" as const,
+      reason:
+        `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed a ${baselineSanity.status.replace(/_/g, " ")} of ${formatSignedMetric(baselineSanity.baselineDelta ?? 0)} points from the component base-rate anchor.`,
+      recommendedActions: recommendAttentionActions({
+        kind: "baseline_sanity_miss",
+        metric: item.primaryMetric,
+        severity: baselineSanity.status === "large_delta" ? "high" : "medium",
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: baselineSanity.baselineDelta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 50 + index,
+    }));
+
   const calibrationItems = calibrationReport.calibrationDiagnostics.map((diagnostic) => ({
     id: diagnostic.id,
     kind: "calibration_mismatch" as const,
@@ -1257,7 +1293,7 @@ function buildNeedsAttentionQueue(
       rank: 151 + index,
     }));
 
-  return [...caseItems, ...trendItems, ...overallGuardImpactItems, ...ruleGuardImpactItems, ...calibrationItems]
+  return [...caseItems, ...baselineSanityItems, ...trendItems, ...overallGuardImpactItems, ...ruleGuardImpactItems, ...calibrationItems]
     .sort((left, right) => {
       const severityDelta = severityRank(right.severity) - severityRank(left.severity);
       if (severityDelta !== 0) {
@@ -1279,6 +1315,9 @@ function recommendAttentionActions(input: {
   if (input.kind === "poor_resolved_forecast") {
     actions.add("Open the run report and compare the final answer against the written resolution criteria.");
     actions.add("Inspect component disagreement and final calibration notes before changing prompts or defaults.");
+  } else if (input.kind === "baseline_sanity_miss") {
+    actions.add("Audit why the aggregate moved away from the component base-rate anchor before changing prompts or calibration defaults.");
+    actions.add("Compare the component base-rate estimates, inside-view deltas, and final rationale against the resolved outcome.");
   } else if (input.kind === "worsening_trend") {
     actions.add("Review recent resolved runs in this metric before treating the trend as a workflow regression.");
     actions.add("Compare recent cases against older baseline cases for domain mix or resolution-source drift.");

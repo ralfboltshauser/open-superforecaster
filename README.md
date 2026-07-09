@@ -264,7 +264,9 @@ aggregate forecasts, score trends, attention items, and binary aggregate
 calibration buckets with expected calibration error. Calibration buckets with
 enough resolved examples and large forecast-vs-observed gaps are added to the
 attention queue with review actions and structured candidate calibration guard
-rules for human review.
+rules for human review. Poor resolved binary aggregates that moved materially
+away from their component base-rate anchor are also queued as baseline-sanity
+misses for postmortem review.
 
 Binary forecast generation also applies a deterministic final calibration guard
 for known threshold, timing, and production-ramp failure modes. The guard is an
@@ -312,7 +314,9 @@ bun run forecast:health -- --batch-id july-smoke
 The health report flags missing artifact phases, failed forecast or resolution
 steps, unresolved attention items, open candidate calibration guard reviews, and
 score-regression attention signals. Calibration guard regressions are called out
-separately when guarded aggregates are scoring worse than unguarded aggregates.
+separately when guarded aggregates are scoring worse than unguarded aggregates;
+baseline-sanity misses remain in the same unresolved attention lane as other
+forecast postmortems.
 
 Reviewed candidate calibration guard rules can be promoted through a local
 evidence ladder:

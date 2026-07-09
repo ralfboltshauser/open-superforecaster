@@ -969,6 +969,8 @@ await check("binary forecast aggregates persist baseline sanity audit", async ()
   assert(workflowSource.includes("buildBinaryBaselineSanityAudit"), "binary workflow does not use shared baseline sanity builder");
   assert(resolutionSource.includes("readBaselineSanitySnapshot(input.prediction)"), "resolution scoring does not persist baseline sanity");
   assert(resolutionSource.includes("byBaselineSanity"), "performance report does not group by baseline sanity");
+  assert(resolutionSource.includes("baseline_sanity_miss"), "performance report does not turn poor baseline moves into attention");
+  assert(resolutionSource.includes("component base-rate anchor"), "baseline sanity attention action missing");
   assert(panelSource.includes("baseline sanity"), "run workspace does not render baseline sanity");
   assert(reportSource.includes("readReportBaselineSanity"), "generated report does not include baseline sanity");
   return "binary aggregate baseline sanity audit is deterministic, persisted, and visible";
