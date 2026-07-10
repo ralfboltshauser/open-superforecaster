@@ -385,10 +385,12 @@ await check("forecast calibration guard proposals require reviewed ready candida
   assert(proposalSource.includes("readForecastBatchIndexArtifacts"), "calibration guard proposal generator does not use the shared batch-index artifact reader");
   assert(proposalSource.includes("summarizeForecastAttentionReviewStatuses"), "calibration guard proposal generator does not use shared review status counts");
   assert(proposalSource.includes("normalizeForecastAttentionReviewStatus"), "calibration guard proposal generator does not use shared review status normalization");
+  assert(proposalSource.includes("isForecastAttentionReviewResolved"), "calibration guard proposal generator does not use shared resolved review policy");
   assert(proposalSource.includes("reportRoot: batchRoot"), "calibration guard proposal generator does not pass its configured batch-index directory to the shared reader");
   assert(!proposalSource.includes("listFilesNamed(batchRoot"), "calibration guard proposal generator should not keep a local batch-index scanner");
   assert(!proposalSource.includes("readRecordArray(batchIndex"), "calibration guard proposal generator should not parse candidate rules from raw batch-index JSON");
   assert(!proposalSource.includes("function readReviewStatus("), "calibration guard proposal generator should not keep a local review status reader");
+  assert(!proposalSource.includes("reviewStatus === \"reviewed\""), "calibration guard proposal generator should not keep local resolved review checks");
   assert(batchIndexReaderSource.includes("candidateCalibrationGuardRules"), "shared batch-index reader does not expose candidate calibration guard rules");
   return "reviewed ready calibration guard candidates become proposal drafts";
 });
@@ -1768,6 +1770,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert((await readFile(resolve(root, "packages/backend/src/forecast-score-policy.ts"), "utf8")).includes("selectPrimaryScoreMetric"), "shared forecast score policy does not expose primary metric selection");
   assert(attentionPolicySource.includes("recommendPerformanceAttentionActions"), "shared forecast attention policy does not expose recommendation actions");
   assert(attentionPolicySource.includes("forecastAttentionReviewStatuses"), "shared forecast attention policy does not expose review statuses");
+  assert(attentionPolicySource.includes("isForecastAttentionReviewResolved"), "shared forecast attention policy does not expose resolved review policy");
+  assert(attentionPolicySource.includes("isForecastAttentionReviewUnresolved"), "shared forecast attention policy does not expose unresolved review policy");
   assert(attentionPolicySource.includes("forecastAttentionSeveritySortRank"), "shared forecast attention policy does not expose severity sort ranking");
   assert(attentionPolicySource.includes("summarizeForecastAttentionSeverities"), "shared forecast attention policy does not expose severity counts");
   assert(attentionPolicySource.includes("performanceAttentionSeverityRank"), "shared forecast attention policy does not expose performance severity ranking");
@@ -1789,6 +1793,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(!attentionBacklogSource.includes("function countSeverity("), "attention backlog should not keep local severity counter");
   assert(!attentionBacklogSource.includes("function severityRank("), "attention backlog should not keep local severity rank");
   assert(batchHealthSource.includes("forecastAttentionReviewStatusRank"), "batch health does not use shared review status rank");
+  assert(batchHealthSource.includes("isForecastAttentionReviewUnresolved"), "batch health does not use shared unresolved review policy");
   assert(batchHealthSource.includes("summarizeForecastAttentionReviewStatuses"), "batch health does not use shared review status counts");
   assert(batchHealthSource.includes("forecastAttentionSeveritySortRank"), "batch health does not use shared attention severity rank");
   assert(batchHealthSource.includes("summarizeForecastAttentionSeverities"), "batch health does not use shared attention severity counts");
@@ -1801,6 +1806,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(!batchHealthSource.includes("function countSeverity("), "batch health should not keep local severity counter");
   assert(!batchHealthSource.includes("function countCandidateRuleStatus("), "batch health should not keep local candidate guard review status counter");
   assert(!batchHealthSource.includes("function severityRank("), "batch health should not keep local severity rank");
+  assert(!batchHealthSource.includes("reviewStatus !== \"reviewed\""), "batch health should not keep local unresolved review checks");
   assert(resolutionSource.includes("performanceAttentionSeverityRank"), "performance report does not use shared performance severity rank");
   assert(calibrationProposalSource.includes("normalizeForecastAttentionReviewStatus"), "calibration proposals do not use shared review status normalization");
   assert(calibrationProposalSource.includes("isCalibrationGuardReadyForReview"), "calibration proposals do not use shared candidate guard readiness policy");

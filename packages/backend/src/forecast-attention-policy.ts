@@ -89,6 +89,14 @@ export function forecastAttentionReviewStatusRank(status: ForecastAttentionRevie
   return 2;
 }
 
+export function isForecastAttentionReviewResolved(status: string | null | undefined) {
+  return status === "reviewed";
+}
+
+export function isForecastAttentionReviewUnresolved(status: string | null | undefined) {
+  return normalizeForecastAttentionReviewStatus(status) !== "reviewed";
+}
+
 export function summarizeForecastAttentionReviewStatuses<T extends { reviewStatus: string | null | undefined }>(
   items: T[],
 ): ForecastAttentionReviewStatusCounts {

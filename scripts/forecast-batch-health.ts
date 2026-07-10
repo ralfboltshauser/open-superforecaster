@@ -8,6 +8,7 @@ import {
 import {
   forecastAttentionSeveritySortRank,
   forecastAttentionReviewStatusRank,
+  isForecastAttentionReviewUnresolved,
   isForecastAttentionReviewStatus,
   summarizeForecastAttentionSeverities,
   summarizeForecastAttentionReviewStatuses,
@@ -719,13 +720,13 @@ function countPhase(summary: HealthReport["summary"], phase: BatchPhase) {
 
 function countScoreRegressions(items: HealthAttentionItem[]) {
   return items.filter((item) =>
-    item.reviewStatus !== "reviewed" &&
+    isForecastAttentionReviewUnresolved(item.reviewStatus) &&
     (item.kind === "forecast_score_regression" || item.kind === "worsening_trend")
   ).length;
 }
 
 function countCalibrationGuardRegressions(items: HealthAttentionItem[]) {
-  return items.filter((item) => item.reviewStatus !== "reviewed" && item.kind === "calibration_guard_regression").length;
+  return items.filter((item) => isForecastAttentionReviewUnresolved(item.reviewStatus) && item.kind === "calibration_guard_regression").length;
 }
 
 function summarizeAttentionByKind(items: HealthAttentionItem[]): AttentionKindBreakdown[] {
