@@ -517,7 +517,10 @@ not change runtime behavior; it writes the exact rule candidates, target file,
 manual acceptance criteria, and skipped validation rows with reasons under
 `data/reports/forecast-calibration-guard-default-plan`. Prometheus and DuckDB
 also expose those skipped default-plan rows so rejected or non-holdout
-calibration evidence is auditable without opening the raw report.
+calibration evidence is auditable without opening the raw report. Default-plan
+artifacts also carry issue rows when the selected validation report is undated or
+older than the latest validation report in the configured directory, and those
+issues are exported to Prometheus and `osf_calibration_guard_default_plan_issues`.
 
 To check the local forecast script contracts:
 

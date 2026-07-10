@@ -47,7 +47,9 @@ type DefaultPlanReport = {
     defaultCandidates: number;
     skippedNonHoldout: number;
     skippedNotPromoted: number;
+    issues: number;
   };
+  issues: DefaultPlanIssue[];
   defaultCandidates: DefaultPlanCandidate[];
   skippedRows: {
     proposalId: string;
@@ -64,13 +66,23 @@ type DefaultPlanReport = {
   };
 };
 
+type DefaultPlanIssue = {
+  severity: "medium";
+  kind: "validation_report_timestamp_missing" | "validation_report_stale";
+  message: string;
+  validationReport: string | null;
+  latestValidationReport: string | null;
+};
+
 const root = resolve(import.meta.dir, "..");
 const args = Bun.argv.slice(2);
 const validationReportArg = readArgValue(args, "--validation-report");
 const validationReportDirArg = readArgValue(args, "--validation-report-dir") ?? "data/reports/forecast-calibration-guard-validation";
+const validationReportDir = resolve(root, validationReportDirArg);
+const latestValidationReport = await latestValidationReportCandidate(validationReportDir);
 const validationReportPath = validationReportArg
   ? resolve(root, validationReportArg)
-  : await latestValidationReportPath(resolve(root, validationReportDirArg));
+  : latestValidationReport?.path ?? null;
 const outputDir = resolve(root, readArgValue(args, "--out-dir") ?? "data/reports/forecast-calibration-guard-default-plan");
 const jsonPath = resolve(outputDir, "calibration-guard-default-plan.json");
 const markdownPath = resolve(outputDir, "calibration-guard-default-plan.md");
@@ -78,7 +90,9 @@ const markdownPath = resolve(outputDir, "calibration-guard-default-plan.md");
 const validationPayload = validationReportPath ? await readOptionalRecord(validationReportPath) : null;
 const report = buildDefaultPlanReport({
   validationReportPath,
-  validationReportDir: validationReportArg ? null : resolve(root, validationReportDirArg),
+  validationReportDir: validationReportArg ? null : validationReportDir,
+  latestValidationReportPath: latestValidationReport?.path ?? null,
+  latestValidationReportGeneratedAt: latestValidationReport?.generatedAt ?? null,
   validationPayload,
   jsonPath,
   markdownPath,
@@ -92,7 +106,7 @@ console.log(`Calibration guard default candidates: ${report.summary.defaultCandi
 console.log(`Validation report: ${report.paths.validationReport ?? "none"}`);
 console.log(`Output: ${jsonPath}`);
 
-async function latestValidationReportPath(validationRoot: string) {
+async function latestValidationReportCandidate(validationRoot: string) {
   const paths = await listFilesNamed(validationRoot, "calibration-guard-validation.json");
   const candidates: { path: string; generatedAt: string | null }[] = [];
   for (const path of paths) {
@@ -103,7 +117,7 @@ async function latestValidationReportPath(validationRoot: string) {
     candidates.push({ path, generatedAt: readString(payload, "generatedAt") });
   }
   candidates.sort((left, right) => timestampValue(right.generatedAt) - timestampValue(left.generatedAt) || right.path.localeCompare(left.path));
-  return candidates[0]?.path ?? null;
+  return candidates[0] ?? null;
 }
 
 async function readOptionalRecord(path: string) {
@@ -117,11 +131,14 @@ async function readOptionalRecord(path: string) {
 function buildDefaultPlanReport(input: {
   validationReportPath: string | null;
   validationReportDir: string | null;
+  latestValidationReportPath: string | null;
+  latestValidationReportGeneratedAt: string | null;
   validationPayload: JsonRecord | null;
   jsonPath: string;
   markdownPath: string;
 }): DefaultPlanReport {
   const validationRows = readRecordArray(input.validationPayload, "validations").flatMap(readValidationRow);
+  const issues = defaultPlanIssues(input);
   const defaultCandidates = validationRows
     .filter((row) => row.validationMode === "holdout_replay" && row.recommendation === "promote_for_default")
     .map(buildDefaultCandidate);
@@ -142,7 +159,9 @@ function buildDefaultPlanReport(input: {
       defaultCandidates: defaultCandidates.length,
       skippedNonHoldout: skippedRows.filter((row) => row.reason === "not_holdout_replay").length,
       skippedNotPromoted: skippedRows.filter((row) => row.reason === "not_promoted_for_default").length,
+      issues: issues.length,
     },
+    issues,
     defaultCandidates,
     skippedRows,
     paths: {
@@ -152,6 +171,40 @@ function buildDefaultPlanReport(input: {
       validationReportDir: input.validationReportDir,
     },
   };
+}
+
+function defaultPlanIssues(input: {
+  validationReportPath: string | null;
+  latestValidationReportPath: string | null;
+  latestValidationReportGeneratedAt: string | null;
+  validationPayload: JsonRecord | null;
+}): DefaultPlanIssue[] {
+  if (!input.validationPayload) {
+    return [];
+  }
+  const issues: DefaultPlanIssue[] = [];
+  const validationGeneratedAt = readString(input.validationPayload, "generatedAt");
+  const validationTimestamp = timestampValue(validationGeneratedAt);
+  const latestTimestamp = timestampValue(input.latestValidationReportGeneratedAt);
+  if (validationTimestamp === 0) {
+    issues.push({
+      severity: "medium",
+      kind: "validation_report_timestamp_missing",
+      message: "Selected calibration validation report has no parseable generatedAt timestamp; review before using default-plan output.",
+      validationReport: input.validationReportPath,
+      latestValidationReport: input.latestValidationReportPath,
+    });
+  }
+  if (validationTimestamp > 0 && latestTimestamp > 0 && latestTimestamp > validationTimestamp) {
+    issues.push({
+      severity: "medium",
+      kind: "validation_report_stale",
+      message: "Selected calibration validation report is older than the latest validation report in the configured directory.",
+      validationReport: input.validationReportPath,
+      latestValidationReport: input.latestValidationReportPath,
+    });
+  }
+  return issues;
 }
 
 function buildDefaultCandidate(row: ValidationRow): DefaultPlanCandidate {
@@ -191,6 +244,11 @@ function renderMarkdown(report: DefaultPlanReport) {
     `- Default candidates: ${report.summary.defaultCandidates}`,
     `- Skipped non-holdout rows: ${report.summary.skippedNonHoldout}`,
     `- Skipped rows not promoted for default: ${report.summary.skippedNotPromoted}`,
+    `- Issues: ${report.summary.issues}`,
+    "",
+    "## Issues",
+    "",
+    ...renderIssueTable(report.issues),
     "",
     "## Default Candidates",
     "",
@@ -202,6 +260,21 @@ function renderMarkdown(report: DefaultPlanReport) {
     "",
   ];
   return `${lines.join("\n")}\n`;
+}
+
+function renderIssueTable(rows: DefaultPlanIssue[]) {
+  if (rows.length === 0) {
+    return ["No default-plan artifact issues found."];
+  }
+  return [
+    "| Severity | Kind | Message | Validation report | Latest validation report |",
+    "| --- | --- | --- | --- | --- |",
+    ...rows.map((row) =>
+      `| ${row.severity} | ${row.kind} | ${escapeMarkdownCell(row.message)} | ${escapeMarkdownCell(row.validationReport ?? "")} | ${
+        escapeMarkdownCell(row.latestValidationReport ?? "")
+      } |`,
+    ),
+  ];
 }
 
 function renderCandidateTable(rows: DefaultPlanCandidate[]) {

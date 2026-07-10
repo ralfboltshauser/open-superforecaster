@@ -862,8 +862,10 @@ try {
   const calibrationGuardDefaultPlan = await readCalibrationGuardDefaultPlanRows(resolve(root, "data/reports/forecast-calibration-guard-default-plan"));
   const calibrationGuardDefaultPlanCandidates = calibrationGuardDefaultPlan.candidateRows;
   const calibrationGuardDefaultPlanSkippedRows = calibrationGuardDefaultPlan.skippedRows;
+  const calibrationGuardDefaultPlanIssues = calibrationGuardDefaultPlan.issueRows;
   await replaceTable(duck, "osf_calibration_guard_default_plan_candidates", calibrationGuardDefaultPlanColumns, calibrationGuardDefaultPlanCandidates);
   await replaceTable(duck, "osf_calibration_guard_default_plan_skipped_rows", calibrationGuardDefaultPlanSkippedColumns, calibrationGuardDefaultPlanSkippedRows);
+  await replaceTable(duck, "osf_calibration_guard_default_plan_issues", calibrationGuardDefaultPlanIssueColumns, calibrationGuardDefaultPlanIssues);
   const forecastAttentionItems = await readForecastAttentionItemRows(root);
   await replaceTable(duck, "osf_forecast_attention_items", forecastAttentionItemColumns, forecastAttentionItems);
   const forecastBatchHealthSnapshot = readLatestForecastBatchHealth(root);
@@ -897,6 +899,7 @@ try {
     osf_calibration_guard_validations: calibrationGuardValidations.length,
     osf_calibration_guard_default_plan_candidates: calibrationGuardDefaultPlanCandidates.length,
     osf_calibration_guard_default_plan_skipped_rows: calibrationGuardDefaultPlanSkippedRows.length,
+    osf_calibration_guard_default_plan_issues: calibrationGuardDefaultPlanIssues.length,
     osf_forecast_attention_items: forecastAttentionItems.length,
     osf_forecast_batch_health: forecastBatchHealth.length,
     osf_forecast_batch_health_issues: forecastBatchHealthIssues.length,
@@ -928,6 +931,7 @@ try {
       "select proposal_id, recommendation, brier_delta, calibration_error_delta from osf_calibration_guard_validations order by generated_at desc limit 5;",
       "select proposal_id, bucket_label, suggested_adjustment, brier_delta, calibration_error_delta, implementation_status from osf_calibration_guard_default_plan_candidates order by generated_at desc limit 5;",
       "select proposal_id, bucket_label, validation_mode, recommendation, reason from osf_calibration_guard_default_plan_skipped_rows order by generated_at desc limit 10;",
+      "select severity, kind, validation_report_path, latest_validation_report_path from osf_calibration_guard_default_plan_issues order by generated_at desc, kind limit 10;",
       "select batch_id, review_status, severity, kind, metric, score, task_label from osf_forecast_attention_items order by generated_at desc, severity limit 10;",
       "select batch_id, status, unresolved_attention_items, unresolved_candidate_calibration_guard_rules, issue_count from osf_forecast_batch_health;",
       "select batch_id, severity, kind, message from osf_forecast_batch_health_issues order by severity, kind;",
@@ -1593,6 +1597,16 @@ const calibrationGuardDefaultPlanSkippedColumns = [
   { name: "validation_report_path", type: "VARCHAR" },
 ] satisfies DuckColumn[];
 
+const calibrationGuardDefaultPlanIssueColumns = [
+  { name: "report_path", type: "VARCHAR" },
+  { name: "generated_at", type: "VARCHAR" },
+  { name: "severity", type: "VARCHAR" },
+  { name: "kind", type: "VARCHAR" },
+  { name: "message", type: "VARCHAR" },
+  { name: "validation_report_path", type: "VARCHAR" },
+  { name: "latest_validation_report_path", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
 const forecastAttentionItemColumns = [
   { name: "report_path", type: "VARCHAR" },
   { name: "batch_id", type: "VARCHAR" },
@@ -1769,6 +1783,7 @@ type SourceDomainMartRow = RowFor<typeof sourceDomainColumns>;
 type CalibrationGuardValidationMartRow = RowFor<typeof calibrationGuardValidationColumns>;
 type CalibrationGuardDefaultPlanMartRow = RowFor<typeof calibrationGuardDefaultPlanColumns>;
 type CalibrationGuardDefaultPlanSkippedMartRow = RowFor<typeof calibrationGuardDefaultPlanSkippedColumns>;
+type CalibrationGuardDefaultPlanIssueMartRow = RowFor<typeof calibrationGuardDefaultPlanIssueColumns>;
 type ForecastAttentionItemMartRow = RowFor<typeof forecastAttentionItemColumns>;
 type ForecastBatchHealthMartRow = RowFor<typeof forecastBatchHealthColumns>;
 type ForecastBatchHealthIssueMartRow = RowFor<typeof forecastBatchHealthIssueColumns>;
@@ -2067,10 +2082,12 @@ async function readCalibrationGuardValidationRows(reportRoot: string): Promise<C
 async function readCalibrationGuardDefaultPlanRows(reportRoot: string): Promise<{
   candidateRows: CalibrationGuardDefaultPlanMartRow[];
   skippedRows: CalibrationGuardDefaultPlanSkippedMartRow[];
+  issueRows: CalibrationGuardDefaultPlanIssueMartRow[];
 }> {
   const paths = await listFilesNamed(reportRoot, "calibration-guard-default-plan.json");
   const candidateRows: CalibrationGuardDefaultPlanMartRow[] = [];
   const skippedRows: CalibrationGuardDefaultPlanSkippedMartRow[] = [];
+  const issueRows: CalibrationGuardDefaultPlanIssueMartRow[] = [];
   for (const path of paths) {
     const payload = await readJsonRecord(path);
     if (!payload) {
@@ -2109,15 +2126,27 @@ async function readCalibrationGuardDefaultPlanRows(reportRoot: string): Promise<
         validation_report_path: readString(pathsRecord, "validationReport"),
       });
     }
+    for (const issue of readRecordArray(payload, "issues")) {
+      issueRows.push({
+        report_path: path,
+        generated_at: generatedAt,
+        severity: readString(issue, "severity"),
+        kind: readString(issue, "kind"),
+        message: readString(issue, "message"),
+        validation_report_path: readString(issue, "validationReport"),
+        latest_validation_report_path: readString(issue, "latestValidationReport"),
+      });
+    }
   }
-  const sortRows = <T extends CalibrationGuardDefaultPlanMartRow | CalibrationGuardDefaultPlanSkippedMartRow>(rows: T[]) => rows.sort((left, right) =>
+  const sortRows = <T extends CalibrationGuardDefaultPlanMartRow | CalibrationGuardDefaultPlanSkippedMartRow | CalibrationGuardDefaultPlanIssueMartRow>(rows: T[]) => rows.sort((left, right) =>
     String(left.generated_at ?? "").localeCompare(String(right.generated_at ?? ""))
-    || String(left.proposal_id ?? "").localeCompare(String(right.proposal_id ?? ""))
+    || String("proposal_id" in left ? left.proposal_id ?? "" : left.kind ?? "").localeCompare(String("proposal_id" in right ? right.proposal_id ?? "" : right.kind ?? ""))
     || String(left.report_path ?? "").localeCompare(String(right.report_path ?? ""))
   );
   return {
     candidateRows: sortRows(candidateRows),
     skippedRows: sortRows(skippedRows),
+    issueRows: sortRows(issueRows),
   };
 }
 

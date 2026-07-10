@@ -484,6 +484,8 @@ await check("forecast calibration default plan requires held-out promotion", asy
   const summary = readRecord(report, "summary");
   const candidates = readArray(report, "defaultCandidates");
   const skippedRows = readArray(report, "skippedRows");
+  const issues = readArray(report, "issues");
+  const markdown = await readFile(resolve(outputDir, "calibration-guard-default-plan.md"), "utf8");
   assert(report, "default plan report missing");
   assert(readString(report, "reportType") === "forecast_calibration_guard_default_plan", "default plan report type mismatch");
   assert(summary, "default plan summary missing");
@@ -498,7 +500,31 @@ await check("forecast calibration default plan requires held-out promotion", asy
   );
   assert(readString(candidates[0], "implementationStatus") === "manual_review_required", "default plan should require manual review");
   assert(skippedRows.length === 2, `expected 2 skipped rows, got ${skippedRows.length}`);
-  return "held-out default promotions become explicit manual implementation plans";
+  assert(readNumber(summary, "issues") === 0, "fresh default plan should not report artifact issues");
+  assert(issues.length === 0, "fresh default plan issue rows should be empty");
+  assert(markdown.includes("## Issues"), "default plan markdown missing issues section");
+  await mkdir(resolve(validationDir, "newer"), { recursive: true });
+  await writeJson(resolve(validationDir, "newer", "calibration-guard-validation.json"), {
+    reportType: "forecast_calibration_guard_validation",
+    generatedAt: "2026-07-10T00:09:00.000Z",
+    validations: readArray(await readJson(resolve(validationDir, "calibration-guard-validation.json")), "validations"),
+  });
+  await runScript("scripts/forecast-calibration-guard-default-plan.ts", [
+    "--validation-report",
+    resolve(validationDir, "calibration-guard-validation.json"),
+    "--validation-report-dir",
+    validationDir,
+    "--out-dir",
+    outputDir,
+  ]);
+  const staleReport = readRecord(await readJson(resolve(outputDir, "calibration-guard-default-plan.json")));
+  const staleSummary = readRecord(staleReport, "summary");
+  const staleIssues = readArray(staleReport, "issues");
+  const staleMarkdown = await readFile(resolve(outputDir, "calibration-guard-default-plan.md"), "utf8");
+  assert(readNumber(staleSummary, "issues") === 1, "stale default plan should report one artifact issue");
+  assert(staleIssues.some((issue) => readString(issue, "kind") === "validation_report_stale"), "default plan missing stale validation report issue");
+  assert(staleMarkdown.includes("validation_report_stale"), "default plan markdown missing stale validation report issue");
+  return "held-out default promotions become explicit manual implementation plans with validation freshness issues";
 });
 
 await check("forecast attention backlog filters batch review status", async () => {
@@ -1995,6 +2021,8 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_candidate_brier_delta"), "calibration default plan Brier delta metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_skipped_rows_total"), "calibration default plan skipped-row metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_skipped_row_info"), "calibration default plan skipped-row metadata metric missing");
+  assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_issues_total"), "calibration default plan issue metric missing");
+  assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_issue_info"), "calibration default plan issue metadata metric missing");
   assert(metricsSource.includes("open_superforecaster_source_bank_domains_total"), "source-bank domain count metric missing");
   assert(metricsSource.includes("open_superforecaster_source_bank_domain_entries"), "source-bank domain entry metric missing");
   assert(metricsSource.includes("open_superforecaster_source_bank_domain_used_in_final_entries"), "source-bank domain final-use metric missing");
@@ -2021,6 +2049,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(smokeSource.includes("open_superforecaster_source_bank_domains_total"), "smoke check does not require source-bank domain metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_default_plan_skipped_rows_total"), "smoke check does not require calibration default-plan skipped-row metric");
+  assert(smokeSource.includes("open_superforecaster_calibration_guard_default_plan_issues_total"), "smoke check does not require calibration default-plan issue metric");
   assert(metricsRouteSource.includes("renderPrometheusMetrics"), "metrics route does not render Prometheus metrics");
   assert(metricsRouteSource.includes("text/plain; version=0.0.4"), "metrics route missing Prometheus content type");
   return "binary calibration health, candidate guard rules, and validation outcomes are visible in Prometheus metrics";
@@ -2037,6 +2066,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("osf_calibration_guard_validations"), "DuckDB sync missing calibration guard validation mart");
   assert(syncSource.includes("osf_calibration_guard_default_plan_candidates"), "DuckDB sync missing calibration guard default plan mart");
   assert(syncSource.includes("osf_calibration_guard_default_plan_skipped_rows"), "DuckDB sync missing calibration guard default plan skipped-row mart");
+  assert(syncSource.includes("osf_calibration_guard_default_plan_issues"), "DuckDB sync missing calibration guard default plan issue mart");
   assert(syncSource.includes("osf_forecast_attention_items"), "DuckDB sync missing forecast attention item mart");
   assert(syncSource.includes("data/reports/forecast-attention-backlog"), "DuckDB sync does not merge generated forecast attention backlog items");
   assert(syncSource.includes("isExportCompatibleAttentionBacklog"), "DuckDB sync does not guard generated forecast attention backlog compatibility");

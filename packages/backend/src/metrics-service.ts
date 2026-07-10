@@ -83,6 +83,15 @@ type CalibrationGuardDefaultPlanSkippedMetricRow = {
   reason: string | null;
 };
 
+type CalibrationGuardDefaultPlanIssueMetricRow = {
+  reportPath: string;
+  generatedAt: string | null;
+  severity: string | null;
+  kind: string | null;
+  validationReport: string | null;
+  latestValidationReport: string | null;
+};
+
 type ForecastAttentionMetricRow = {
   reportPath: string;
   batchId: string | null;
@@ -1606,6 +1615,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     const defaultPlanRows = await readCalibrationGuardDefaultPlanMetricRows(options.root);
     const defaultPlanCandidateRows = defaultPlanRows.candidateRows;
     const defaultPlanSkippedRows = defaultPlanRows.skippedRows;
+    const defaultPlanIssueRows = defaultPlanRows.issueRows;
     const attentionRows = await readForecastAttentionMetricRows(options.root);
     const batchHealth = readLatestForecastBatchHealth(options.root);
     const validationReportPaths = uniqueStrings(validationRows.map((row) => row.reportPath));
@@ -1801,6 +1811,11 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       "Local calibration guard default plan skipped validation row count by reason.",
       defaultPlanSkippedRows.length,
     );
+    metrics.gauge(
+      "open_superforecaster_calibration_guard_default_plan_issues_total",
+      "Local calibration guard default plan artifact issue count by kind and severity.",
+      defaultPlanIssueRows.length,
+    );
     for (const [key, count] of countBy(defaultPlanSkippedRows, (row) =>
       labelKey({
         reason: row.reason ?? "unknown",
@@ -1864,6 +1879,27 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
         validation_mode: skipped.validationMode ?? "unknown",
         recommendation: skipped.recommendation ?? "unknown",
         reason: skipped.reason ?? "unknown",
+      });
+    }
+    for (const [key, count] of countBy(defaultPlanIssueRows, (row) =>
+      labelKey({
+        severity: row.severity ?? "unknown",
+        kind: row.kind ?? "unknown",
+      }),
+    )) {
+      metrics.gauge(
+        "open_superforecaster_calibration_guard_default_plan_issues_total",
+        "Local calibration guard default plan artifact issue count by kind and severity.",
+        count,
+        parseLabelKey(key),
+      );
+    }
+    for (const issue of defaultPlanIssueRows.slice(-50)) {
+      metrics.gauge("open_superforecaster_calibration_guard_default_plan_issue_info", "Recent calibration guard default plan artifact issue metadata.", 1, {
+        severity: issue.severity ?? "unknown",
+        kind: issue.kind ?? "unknown",
+        validation_report: issue.validationReport ?? "none",
+        latest_validation_report: issue.latestValidationReport ?? "none",
       });
     }
   }
@@ -2236,10 +2272,12 @@ async function readCalibrationGuardDefaultPlanMetricRows(root: string): Promise<
   reportPaths: string[];
   candidateRows: CalibrationGuardDefaultPlanMetricRow[];
   skippedRows: CalibrationGuardDefaultPlanSkippedMetricRow[];
+  issueRows: CalibrationGuardDefaultPlanIssueMetricRow[];
 }> {
   const reportPaths = await listFilesNamed(resolve(root, "data/reports/forecast-calibration-guard-default-plan"), "calibration-guard-default-plan.json");
   const candidateRows: CalibrationGuardDefaultPlanMetricRow[] = [];
   const skippedRows: CalibrationGuardDefaultPlanSkippedMetricRow[] = [];
+  const issueRows: CalibrationGuardDefaultPlanIssueMetricRow[] = [];
   for (const reportPath of reportPaths) {
     let payload: Record<string, unknown> | null;
     try {
@@ -2275,16 +2313,27 @@ async function readCalibrationGuardDefaultPlanMetricRows(root: string): Promise<
         reason: readString(skipped, "reason"),
       });
     }
+    for (const issue of readRecordArray(payload, "issues")) {
+      issueRows.push({
+        reportPath,
+        generatedAt,
+        severity: readString(issue, "severity"),
+        kind: readString(issue, "kind"),
+        validationReport: readString(issue, "validationReport"),
+        latestValidationReport: readString(issue, "latestValidationReport"),
+      });
+    }
   }
-  const sortRows = <T extends CalibrationGuardDefaultPlanMetricRow | CalibrationGuardDefaultPlanSkippedMetricRow>(rows: T[]) => rows.sort((left, right) =>
+  const sortRows = <T extends CalibrationGuardDefaultPlanMetricRow | CalibrationGuardDefaultPlanSkippedMetricRow | CalibrationGuardDefaultPlanIssueMetricRow>(rows: T[]) => rows.sort((left, right) =>
     String(left.generatedAt ?? "").localeCompare(String(right.generatedAt ?? ""))
-    || String(left.proposalId ?? "").localeCompare(String(right.proposalId ?? ""))
+    || String("proposalId" in left ? left.proposalId ?? "" : left.kind ?? "").localeCompare(String("proposalId" in right ? right.proposalId ?? "" : right.kind ?? ""))
     || left.reportPath.localeCompare(right.reportPath)
   );
   return {
     reportPaths,
     candidateRows: sortRows(candidateRows),
     skippedRows: sortRows(skippedRows),
+    issueRows: sortRows(issueRows),
   };
 }
 
