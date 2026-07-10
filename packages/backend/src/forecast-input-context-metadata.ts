@@ -3,6 +3,8 @@ import { normalizeForecastInputRow } from "@open-superforecaster/workflow-contra
 export type ForecastInputContextSnapshot = {
   requestedForecastType: "binary" | "date" | "numeric" | "categorical" | "thresholded" | null;
   requestedForecastTypeBand: "specified" | "unspecified" | "unknown";
+  routedForecastType: "binary" | "date" | "numeric" | "categorical" | "thresholded" | "conditional" | null;
+  routedForecastTypeBand: "specified" | "unspecified" | "unknown";
   routingConfidence: number | null;
   routingConfidenceBand: "low" | "medium" | "high" | "unknown";
   questionLength: number | null;
@@ -70,6 +72,7 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   }
   const requestedForecastType = normalized.forecastType ?? null;
   const classification = asRecord(record?.classification);
+  const routedForecastType = readRoutedForecastType(classification ?? {});
   const routingConfidence = readNumber(classification ?? {}, "confidence");
   const questionLength = wordCount(normalized.question);
   const categoryCount = normalized.categories.length;
@@ -118,6 +121,8 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   return {
     requestedForecastType,
     requestedForecastTypeBand: requestedForecastTypeBand(requestedForecastType),
+    routedForecastType,
+    routedForecastTypeBand: forecastTypePresenceBand(routedForecastType),
     routingConfidence,
     routingConfidenceBand: routingConfidenceBand(routingConfidence),
     questionLength,
@@ -178,6 +183,8 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   }
   const requestedForecastType = readRequestedForecastType(value);
   const requestedForecastTypeBandValue = readString(value, "requestedForecastTypeBand");
+  const routedForecastType = readRoutedForecastType(value);
+  const routedForecastTypeBandValue = readString(value, "routedForecastTypeBand");
   const routingConfidence = readNumber(value, "routingConfidence");
   const routingConfidenceBandValue = readString(value, "routingConfidenceBand");
   const resolutionCriteriaLength = readNumber(value, "resolutionCriteriaLength");
@@ -213,6 +220,10 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
     requestedForecastTypeBand: isRequestedForecastTypeBand(requestedForecastTypeBandValue)
       ? requestedForecastTypeBandValue
       : requestedForecastTypeBand(requestedForecastType),
+    routedForecastType,
+    routedForecastTypeBand: isForecastTypePresenceBand(routedForecastTypeBandValue)
+      ? routedForecastTypeBandValue
+      : forecastTypePresenceBand(routedForecastType),
     routingConfidence,
     routingConfidenceBand: isRoutingConfidenceBand(routingConfidenceBandValue)
       ? routingConfidenceBandValue
@@ -333,7 +344,13 @@ export function resolutionCriteriaLengthBand(count: number | null): ForecastInpu
 export function requestedForecastTypeBand(
   requestedForecastType: ForecastInputContextSnapshot["requestedForecastType"],
 ): ForecastInputContextSnapshot["requestedForecastTypeBand"] {
-  return requestedForecastType ? "specified" : "unspecified";
+  return forecastTypePresenceBand(requestedForecastType);
+}
+
+export function forecastTypePresenceBand(
+  forecastType: ForecastInputContextSnapshot["routedForecastType"],
+): ForecastInputContextSnapshot["routedForecastTypeBand"] {
+  return forecastType ? "specified" : "unspecified";
 }
 
 export function routingConfidenceBand(confidence: number | null): ForecastInputContextSnapshot["routingConfidenceBand"] {
@@ -650,11 +667,20 @@ function readRequestedForecastType(value: Record<string, unknown>): ForecastInpu
   return raw === "binary" || raw === "date" || raw === "numeric" || raw === "categorical" || raw === "thresholded" ? raw : null;
 }
 
+function readRoutedForecastType(value: Record<string, unknown>): ForecastInputContextSnapshot["routedForecastType"] {
+  const raw = readString(value, "routedForecastType") ?? readString(value, "forecastType");
+  return raw === "binary" || raw === "date" || raw === "numeric" || raw === "categorical" || raw === "thresholded" || raw === "conditional" ? raw : null;
+}
+
 function isResolutionCriteriaLengthBand(value: string | null): value is ForecastInputContextSnapshot["resolutionCriteriaLengthBand"] {
   return value === "absent" || value === "thin" || value === "adequate" || value === "detailed" || value === "unknown";
 }
 
 function isRequestedForecastTypeBand(value: string | null): value is ForecastInputContextSnapshot["requestedForecastTypeBand"] {
+  return value === "specified" || value === "unspecified" || value === "unknown";
+}
+
+function isForecastTypePresenceBand(value: string | null): value is ForecastInputContextSnapshot["routedForecastTypeBand"] {
   return value === "specified" || value === "unspecified" || value === "unknown";
 }
 

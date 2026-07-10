@@ -1009,6 +1009,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Evidence uncertainty-count groups"), "performance Markdown missing evidence uncertainty-count group section");
   assert(resolutionSource.includes("## Evidence rationale-length groups"), "performance Markdown missing evidence rationale-length group section");
   assert(resolutionSource.includes("## Input requested-forecast-type groups"), "performance Markdown missing input requested-forecast-type group section");
+  assert(resolutionSource.includes("## Input routed-forecast-type groups"), "performance Markdown missing input routed-forecast-type group section");
   assert(resolutionSource.includes("## Input routing-confidence groups"), "performance Markdown missing input routing-confidence group section");
   assert(resolutionSource.includes("## Input context-completeness groups"), "performance Markdown missing input context-completeness group section");
   assert(resolutionSource.includes("## Input resolution-criteria-depth groups"), "performance Markdown missing input resolution-criteria-depth group section");
@@ -1112,6 +1113,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Evidence rationale outcomes"), "lab dashboard does not render evidence rationale performance groups");
   assert(dashboardSource.includes("byInputRequestedForecastType"), "lab dashboard does not read input requested-type performance groups");
   assert(dashboardSource.includes("Input requested-type outcomes"), "lab dashboard does not render input requested-type performance groups");
+  assert(dashboardSource.includes("byInputRoutedForecastType"), "lab dashboard does not read input routed-type performance groups");
+  assert(dashboardSource.includes("Input routed-type outcomes"), "lab dashboard does not render input routed-type performance groups");
   assert(dashboardSource.includes("byInputRoutingConfidence"), "lab dashboard does not read input routing-confidence performance groups");
   assert(dashboardSource.includes("Input routing-confidence outcomes"), "lab dashboard does not render input routing-confidence performance groups");
   assert(dashboardSource.includes("byInputContextCompleteness"), "lab dashboard does not read input context performance groups");
@@ -2246,6 +2249,7 @@ await check("forecast evidence coverage metadata reaches resolved score analytic
 await check("forecast input context metadata reaches resolved score analytics", async () => {
   const snapshot = readForecastInputContextSnapshot({
     classification: {
+      forecastType: "thresholded",
       confidence: 0.74,
     },
     forecastInput: {
@@ -2271,6 +2275,8 @@ await check("forecast input context metadata reaches resolved score analytics", 
   });
   assert(snapshot?.requestedForecastType === null, "input context requested forecast type mismatch");
   assert(snapshot?.requestedForecastTypeBand === "unspecified", "input context requested forecast type band mismatch");
+  assert(snapshot?.routedForecastType === "thresholded", "input context routed forecast type mismatch");
+  assert(snapshot?.routedForecastTypeBand === "specified", "input context routed forecast type band mismatch");
   assert(snapshot?.routingConfidence === 0.74, "input context routing confidence mismatch");
   assert(snapshot?.routingConfidenceBand === "medium", "input context routing confidence band mismatch");
   assert(snapshot?.questionLength === 11, "input context question length mismatch");
@@ -2334,6 +2340,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   const persistedSnapshot = readForecastInputContextSnapshot({ inputContext: snapshot });
   assert(persistedSnapshot?.contextCompletenessBand === "rich", "persisted input context snapshot was not readable");
   assert(persistedSnapshot?.requestedForecastTypeBand === "unspecified", "persisted input context requested forecast type band mismatch");
+  assert(persistedSnapshot?.routedForecastTypeBand === "specified", "persisted input context routed forecast type band mismatch");
   assert(persistedSnapshot?.routingConfidenceBand === "medium", "persisted input context routing confidence band mismatch");
   assert(persistedSnapshot?.resolutionCriteriaLengthBand === "thin", "persisted input context resolution criteria length band mismatch");
   assert(persistedSnapshot?.backgroundLengthBand === "thin", "persisted input context background band mismatch");
@@ -2359,6 +2366,8 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(resolutionSource.includes("readForecastInputContextSnapshot(task.configJson)"), "resolution scoring does not read input context from task config");
   assert(resolutionSource.includes("byInputRequestedForecastType"), "performance report does not group by requested forecast type");
   assert(resolutionSource.includes("context.requestedForecastType"), "attention queue does not use requested forecast type");
+  assert(resolutionSource.includes("byInputRoutedForecastType"), "performance report does not group by routed forecast type");
+  assert(resolutionSource.includes("context.routedForecastType"), "attention queue does not use routed forecast type");
   assert(resolutionSource.includes("byInputRoutingConfidence"), "performance report does not group by input routing confidence");
   assert(resolutionSource.includes("context.routingConfidenceBand"), "attention queue does not use input routing confidence");
   assert(resolutionSource.includes("byInputContextCompleteness"), "performance report does not group by input context completeness");
@@ -2393,6 +2402,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(resolutionSource.includes("context.unitSpecificityBand"), "attention queue does not use input unit specificity");
   assert(metricsSource.includes("open_superforecaster_input_context_scores_total"), "metrics missing input context score counts");
   assert(metricsSource.includes("requested_forecast_type_band"), "metrics missing requested forecast type labels");
+  assert(metricsSource.includes("routed_forecast_type_band"), "metrics missing routed forecast type labels");
   assert(metricsSource.includes("routing_confidence_band"), "metrics missing input routing-confidence labels");
   assert(metricsSource.includes("resolution_criteria_length_band"), "metrics missing input resolution-criteria labels");
   assert(metricsSource.includes("resolution_horizon_band"), "metrics missing input resolution-horizon labels");
@@ -2412,6 +2422,8 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(syncSource.includes("input_context_completeness_band"), "DuckDB forecast score mart missing input context completeness band");
   assert(syncSource.includes("input_requested_forecast_type"), "DuckDB forecast score mart missing requested forecast type");
   assert(syncSource.includes("input_requested_forecast_type_band"), "DuckDB forecast score mart missing requested forecast type band");
+  assert(syncSource.includes("input_routed_forecast_type"), "DuckDB forecast score mart missing routed forecast type");
+  assert(syncSource.includes("input_routed_forecast_type_band"), "DuckDB forecast score mart missing routed forecast type band");
   assert(syncSource.includes("input_routing_confidence"), "DuckDB forecast score mart missing input routing confidence");
   assert(syncSource.includes("input_routing_confidence_band"), "DuckDB forecast score mart missing input routing confidence band");
   assert(syncSource.includes("input_resolution_criteria_length"), "DuckDB forecast score mart missing input resolution criteria length");
@@ -2441,6 +2453,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(syncSource.includes("input_unit_specificity_band"), "DuckDB forecast score mart missing input unit specificity band");
   assert(syncSource.includes("input_has_resolution_criteria"), "DuckDB forecast score mart missing resolution criteria flag");
   assert(dashboardSource.includes("Input requested-type outcomes"), "lab dashboard does not render input requested type outcomes");
+  assert(dashboardSource.includes("Input routed-type outcomes"), "lab dashboard does not render input routed type outcomes");
   assert(dashboardSource.includes("Input routing-confidence outcomes"), "lab dashboard does not render input routing confidence outcomes");
   assert(dashboardSource.includes("Input context outcomes"), "lab dashboard does not render input context outcomes");
   assert(dashboardSource.includes("Input resolution-criteria outcomes"), "lab dashboard does not render input resolution criteria outcomes");

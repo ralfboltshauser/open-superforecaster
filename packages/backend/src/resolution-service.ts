@@ -441,6 +441,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byEvidenceUncertaintyCount = groupScores(aggregateScores, evidenceUncertaintyCountGroupKey);
   const byEvidenceRationaleLength = groupScores(aggregateScores, evidenceRationaleLengthGroupKey);
   const byInputRequestedForecastType = groupScores(aggregateScores, inputRequestedForecastTypeGroupKey);
+  const byInputRoutedForecastType = groupScores(aggregateScores, inputRoutedForecastTypeGroupKey);
   const byInputRoutingConfidence = groupScores(aggregateScores, inputRoutingConfidenceGroupKey);
   const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
   const byInputResolutionCriteriaDepth = groupScores(aggregateScores, inputResolutionCriteriaDepthGroupKey);
@@ -547,6 +548,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
       byInputRequestedForecastType,
+      byInputRoutedForecastType,
       byInputRoutingConfidence,
       byInputContextCompleteness,
       byInputResolutionCriteriaDepth,
@@ -643,6 +645,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
       byInputRequestedForecastType,
+      byInputRoutedForecastType,
       byInputRoutingConfidence,
       byInputContextCompleteness,
       byInputResolutionCriteriaDepth,
@@ -1663,6 +1666,13 @@ function inputRequestedForecastTypeGroupKey(score: typeof forecastScores.$inferS
     : `input_requested_type:${inputContext?.requestedForecastTypeBand ?? "unrecorded"}`;
 }
 
+function inputRoutedForecastTypeGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return inputContext?.routedForecastType
+    ? `input_routed_type:${inputContext.routedForecastType}`
+    : `input_routed_type:${inputContext?.routedForecastTypeBand ?? "unrecorded"}`;
+}
+
 function inputRoutingConfidenceGroupKey(score: typeof forecastScores.$inferSelect) {
   const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
   return `input_routing_confidence:${inputContext?.routingConfidenceBand ?? "unrecorded"}`;
@@ -2652,6 +2662,13 @@ function inputContextMissSignal(item: PerformanceCase): { reason: string; delta:
       severity: "high",
     };
   }
+  if (context.routedForecastType && context.routedForecastType !== item.forecastType) {
+    return {
+      reason: `input router selected ${context.routedForecastType} forecast but scored as ${item.forecastType}`,
+      delta: context.routingConfidence,
+      severity: "high",
+    };
+  }
   if (context.routingConfidenceBand === "low") {
     return {
       reason: `low-confidence forecast routing (${formatNullableMetric(context.routingConfidence)})`,
@@ -2981,6 +2998,7 @@ function renderPerformanceMarkdown(input: {
   byEvidenceUncertaintyCount: PerformanceGroup[];
   byEvidenceRationaleLength: PerformanceGroup[];
   byInputRequestedForecastType: PerformanceGroup[];
+  byInputRoutedForecastType: PerformanceGroup[];
   byInputRoutingConfidence: PerformanceGroup[];
   byInputContextCompleteness: PerformanceGroup[];
   byInputResolutionCriteriaDepth: PerformanceGroup[];
@@ -3172,6 +3190,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input requested-forecast-type groups",
     ...renderGroupTable(input.byInputRequestedForecastType),
+    "",
+    "## Input routed-forecast-type groups",
+    ...renderGroupTable(input.byInputRoutedForecastType),
     "",
     "## Input routing-confidence groups",
     ...renderGroupTable(input.byInputRoutingConfidence),
