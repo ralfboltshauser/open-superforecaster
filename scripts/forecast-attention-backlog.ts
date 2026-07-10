@@ -41,6 +41,17 @@ type BacklogItem = {
   sourcePath: string;
 };
 
+type ForecastTypeBreakdown = {
+  forecastType: string;
+  items: number;
+  open: number;
+  deferred: number;
+  reviewed: number;
+  high: number;
+  medium: number;
+  low: number;
+};
+
 type BacklogReport = {
   reportType: "forecast_attention_backlog";
   generatedAt: string;
@@ -57,6 +68,7 @@ type BacklogReport = {
     medium: number;
     low: number;
   };
+  byForecastType: ForecastTypeBreakdown[];
   items: BacklogItem[];
   paths: {
     json: string;
@@ -330,6 +342,7 @@ function buildReport(
       medium: countSeverity(items, "medium"),
       low: countSeverity(items, "low"),
     },
+    byForecastType: summarizeByForecastType(items),
     items,
     paths: {
       json: jsonPath,
@@ -359,12 +372,29 @@ function renderMarkdown(report: BacklogReport) {
     `- Medium severity: ${report.counts.medium}`,
     `- Low severity: ${report.counts.low}`,
     "",
+    "## Forecast Types",
+    "",
+    ...renderForecastTypeTable(report.byForecastType),
+    "",
     "## Items",
     "",
     ...renderItemsTable(report.items),
     "",
   ];
   return `${lines.join("\n")}\n`;
+}
+
+function renderForecastTypeTable(rows: ForecastTypeBreakdown[]) {
+  if (rows.length === 0) {
+    return ["No forecast type counts matched the filters."];
+  }
+  return [
+    "| Forecast type | Items | Open | Deferred | Reviewed | High | Medium | Low |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...rows.map((row) =>
+      `| ${escapeMarkdownCell(row.forecastType)} | ${row.items} | ${row.open} | ${row.deferred} | ${row.reviewed} | ${row.high} | ${row.medium} | ${row.low} |`,
+    ),
+  ];
 }
 
 function renderItemsTable(items: BacklogItem[]) {
@@ -422,6 +452,37 @@ function countStatus(items: BacklogItem[], status: ReviewStatus) {
 
 function countSeverity(items: BacklogItem[], severity: string) {
   return items.filter((item) => item.severity === severity).length;
+}
+
+function summarizeByForecastType(items: BacklogItem[]) {
+  const grouped = new Map<string, BacklogItem[]>();
+  for (const item of items) {
+    const forecastType = item.forecastType ?? "unknown";
+    const rows = grouped.get(forecastType);
+    if (rows) {
+      rows.push(item);
+    } else {
+      grouped.set(forecastType, [item]);
+    }
+  }
+  return [...grouped.entries()]
+    .map(([forecastType, rows]) => ({
+      forecastType,
+      items: rows.length,
+      open: countStatus(rows, "open"),
+      deferred: countStatus(rows, "deferred"),
+      reviewed: countStatus(rows, "reviewed"),
+      high: countSeverity(rows, "high"),
+      medium: countSeverity(rows, "medium"),
+      low: countSeverity(rows, "low"),
+    }))
+    .sort(
+      (left, right) =>
+        right.items - left.items
+        || right.high - left.high
+        || right.medium - left.medium
+        || left.forecastType.localeCompare(right.forecastType),
+    );
 }
 
 function statusRank(status: ReviewStatus) {

@@ -394,7 +394,8 @@ The attention backlog writes JSON and Markdown to
 `data/reports/forecast-attention-backlog` and only reads the local
 `batch-index.json` outputs. Batch-index and backlog Markdown tables include the
 forecast type beside each attention item so mixed forecast batches can be
-reviewed without opening the raw JSON.
+reviewed without opening the raw JSON. The backlog summary also breaks open,
+deferred, reviewed, and severity counts down by forecast type.
 For a one-screen health summary of the latest indexed batch:
 
 ```bash
