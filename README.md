@@ -392,7 +392,9 @@ bun run forecast:attention -- --batch-id july-smoke --status open
 
 The attention backlog writes JSON and Markdown to
 `data/reports/forecast-attention-backlog` and only reads the local
-`batch-index.json` outputs.
+`batch-index.json` outputs. Batch-index and backlog Markdown tables include the
+forecast type beside each attention item so mixed forecast batches can be
+reviewed without opening the raw JSON.
 For a one-screen health summary of the latest indexed batch:
 
 ```bash

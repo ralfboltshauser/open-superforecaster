@@ -372,10 +372,10 @@ function renderItemsTable(items: BacklogItem[]) {
     return ["No attention items matched the filters."];
   }
   return [
-    "| Status | Severity | Batch | Kind | Metric | Score | Delta | Task | Reason | Recommended action | Note | Source |",
-    "| --- | --- | --- | --- | --- | ---: | ---: | --- | --- | --- | --- | --- |",
+    "| Status | Severity | Batch | Kind | Forecast type | Metric | Score | Delta | Task | Reason | Recommended action | Note | Source |",
+    "| --- | --- | --- | --- | --- | --- | ---: | ---: | --- | --- | --- | --- | --- |",
     ...items.map((item) =>
-      `| ${item.reviewStatus} | ${item.severity} | ${item.batchId} | ${item.kind} | ${item.metric} | ${formatNumber(item.score)} | ${
+      `| ${item.reviewStatus} | ${item.severity} | ${item.batchId} | ${item.kind} | ${item.forecastType ?? "unknown"} | ${item.metric} | ${formatNumber(item.score)} | ${
         formatNumber(item.delta)
       } | ${escapeMarkdownCell(item.taskLabel ?? item.taskId ?? "")} | ${escapeMarkdownCell(item.reason)} | ${escapeMarkdownCell(item.recommendedActions[0] ?? "")} | ${
         escapeMarkdownCell(item.reviewNote ?? "")

@@ -216,7 +216,9 @@ await check("forecast batch index joins all batch phases", async () => {
   assert(attentionItems.length === 1, "attention item was not copied into audit");
   assert(readString(attentionItems[0], "reviewStatus") === "reviewed", "review status was not merged");
   assert(markdown.includes("Reason | Recommended action"), "batch index markdown missing attention reason column");
+  assert(markdown.includes("Kind | Forecast type | Metric"), "batch index markdown missing attention forecast type column");
   assert(markdown.includes("brier exceeded review threshold"), "batch index markdown does not render attention reason");
+  assert(markdown.includes("poor_resolved_forecast | binary | brier"), "batch index markdown does not render attention forecast type");
   assert(candidateGuardRules.length === 1, "candidate calibration guard was not copied into audit");
   assert(readString(candidateGuardRules[0], "reviewStatus") === "deferred", "candidate calibration guard review status was not merged");
   return "batch index joins ops, resolution, and performance phases";
@@ -616,7 +618,9 @@ await check("forecast attention backlog filters batch review status", async () =
   assert(readNumber(counts, "items") === 3, "filtered item count mismatch");
   assert(readNumber(counts, "deferred") === 3, "deferred item count mismatch");
   assert(markdown.includes("Reason | Recommended action"), "attention backlog markdown missing reason column");
+  assert(markdown.includes("Kind | Forecast type | Metric"), "attention backlog markdown missing forecast type column");
   assert(markdown.includes("log score worsened"), "attention backlog markdown does not render attention reason");
+  assert(markdown.includes("forecast_score_regression | numeric | logScore"), "attention backlog markdown does not render attention forecast type");
   assert(items.length === 3, `expected 3 backlog items, got ${items.length}`);
   assert(items.some((item) => readString(item, "id") === "drift:task-2:log"), "deferred attention item missing");
   const guardItem = items.find((item) => readString(item, "id") === "candidate-guard:80-100%");
