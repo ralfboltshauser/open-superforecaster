@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { DuckDBInstance, type DuckDBAppender, type DuckDBConnection } from "@duckdb/node-api";
 import postgres from "postgres";
 import { readCalibrationDefaultPlanArtifacts } from "../packages/backend/src/calibration-default-plan-artifacts";
+import { readCalibrationGuardValidationArtifacts } from "../packages/backend/src/calibration-guard-validation-artifacts";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
 import { isExportCompatibleAttentionBacklog } from "../packages/backend/src/forecast-attention-backlog";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
@@ -2042,34 +2043,28 @@ function readTaskString(task: TaskMartRow, key: keyof TaskMartRow) {
 }
 
 async function readCalibrationGuardValidationRows(reportRoot: string): Promise<CalibrationGuardValidationMartRow[]> {
-  const paths = await listFilesNamed(reportRoot, "calibration-guard-validation.json");
+  const reports = await readCalibrationGuardValidationArtifacts(root, { reportRoot });
   const rows: CalibrationGuardValidationMartRow[] = [];
-  for (const path of paths) {
-    const payload = await readJsonRecord(path);
-    if (!payload) {
-      continue;
-    }
-    const generatedAt = readString(payload, "generatedAt");
-    const pathsRecord = readRecord(payload, "paths");
-    for (const validation of readRecordArray(payload, "validations")) {
+  for (const report of reports) {
+    for (const validation of report.validations) {
       rows.push({
-        report_path: path,
-        generated_at: generatedAt,
-        validation_mode: readString(validation, "validationMode"),
-        proposal_id: readString(validation, "proposalId"),
-        source_candidate_guard_id: readString(validation, "sourceCandidateGuardId"),
-        bucket_label: readString(validation, "bucketLabel"),
-        suggested_adjustment: readNumber(validation, "suggestedAdjustment"),
-        matched_rows: readNumber(validation, "matchedRows"),
-        baseline_mean_brier: readNumber(validation, "baselineMeanBrier"),
-        candidate_mean_brier: readNumber(validation, "candidateMeanBrier"),
-        brier_delta: readNumber(validation, "brierDelta"),
-        baseline_calibration_error: readNumber(validation, "baselineCalibrationError"),
-        candidate_calibration_error: readNumber(validation, "candidateCalibrationError"),
-        calibration_error_delta: readNumber(validation, "calibrationErrorDelta"),
-        recommendation: readString(validation, "recommendation"),
-        proposals_path: readString(pathsRecord, "proposals"),
-        performance_report_path: readString(pathsRecord, "performanceReport"),
+        report_path: report.reportPath,
+        generated_at: report.generatedAt,
+        validation_mode: validation.validationMode,
+        proposal_id: validation.proposalId,
+        source_candidate_guard_id: validation.sourceCandidateGuardId,
+        bucket_label: validation.bucketLabel,
+        suggested_adjustment: validation.suggestedAdjustment,
+        matched_rows: validation.matchedRows,
+        baseline_mean_brier: validation.baselineMeanBrier,
+        candidate_mean_brier: validation.candidateMeanBrier,
+        brier_delta: validation.brierDelta,
+        baseline_calibration_error: validation.baselineCalibrationError,
+        candidate_calibration_error: validation.candidateCalibrationError,
+        calibration_error_delta: validation.calibrationErrorDelta,
+        recommendation: validation.recommendation,
+        proposals_path: report.paths.proposals,
+        performance_report_path: report.paths.performanceReport,
       });
     }
   }

@@ -1,7 +1,5 @@
-import { readdir, readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
-
-type JsonRecord = Record<string, unknown>;
+import { listFilesNamed, readJsonRecord, readNumber, readRecord, readRecordArray, readString, readStringArray, timestampValue, type JsonRecord } from "./json-artifacts";
 
 export type CalibrationDefaultPlanArtifact = {
   reportPath: string;
@@ -159,87 +157,4 @@ function readCalibrationDefaultPlanArtifact(reportPath: string, payload: JsonRec
       validationReportDir: readString(paths, "validationReportDir"),
     },
   };
-}
-
-async function readJsonRecord(path: string) {
-  try {
-    const parsed = JSON.parse(await readFile(path, "utf8"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as JsonRecord : null;
-  } catch {
-    return null;
-  }
-}
-
-async function listFilesNamed(path: string, name: string): Promise<string[]> {
-  try {
-    const info = await stat(path);
-    if (info.isFile()) {
-      return path.endsWith(name) ? [path] : [];
-    }
-    if (!info.isDirectory()) {
-      return [];
-    }
-  } catch {
-    return [];
-  }
-  const children = await readdir(path, { withFileTypes: true });
-  const nested = await Promise.all(children.map((child) => {
-    const childPath = resolve(path, child.name);
-    return child.isDirectory()
-      ? listFilesNamed(childPath, name)
-      : child.name === name
-        ? Promise.resolve([childPath])
-        : Promise.resolve([]);
-  }));
-  return nested.flat();
-}
-
-function readRecord(value: unknown, key: string) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const raw = (value as JsonRecord)[key];
-  return raw && typeof raw === "object" && !Array.isArray(raw) ? raw as JsonRecord : null;
-}
-
-function readRecordArray(value: unknown, key: string) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return [];
-  }
-  const raw = (value as JsonRecord)[key];
-  return Array.isArray(raw)
-    ? raw.filter((item): item is JsonRecord => Boolean(item) && typeof item === "object" && !Array.isArray(item))
-    : [];
-}
-
-function readString(value: unknown, key: string) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const raw = (value as JsonRecord)[key];
-  return typeof raw === "string" ? raw : null;
-}
-
-function readStringArray(value: unknown, key: string) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return [];
-  }
-  const raw = (value as JsonRecord)[key];
-  return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string") : [];
-}
-
-function readNumber(value: unknown, key: string) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const raw = (value as JsonRecord)[key];
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
-}
-
-function timestampValue(value: string | null) {
-  if (!value) {
-    return 0;
-  }
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? timestamp : 0;
 }

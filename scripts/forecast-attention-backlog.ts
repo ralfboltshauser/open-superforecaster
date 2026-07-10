@@ -7,6 +7,7 @@ import {
   type AttentionReviewStatus,
 } from "./lib/forecast-attention-reviews";
 import { readCalibrationDefaultPlanArtifacts, type CalibrationDefaultPlanSkippedRow } from "../packages/backend/src/calibration-default-plan-artifacts";
+import { readCalibrationGuardValidationArtifacts, type CalibrationGuardValidationRow } from "../packages/backend/src/calibration-guard-validation-artifacts";
 import {
   listFilesNamed,
   readArgValue,
@@ -163,14 +164,10 @@ async function readBacklogItems(
       }
     }
   }
-  const validationPaths = await listFilesNamed(validationRoot, "calibration-guard-validation.json");
-  for (const path of validationPaths) {
-    const payload = readRecord(await readJson(path));
-    if (!payload) {
-      continue;
-    }
-    for (const validation of readRecordArray(payload, "validations")) {
-      const rawBacklogItem = readCalibrationGuardValidationBacklogItem(validation, path);
+  const validationReports = await readCalibrationGuardValidationArtifacts(root, { reportRoot: validationRoot });
+  for (const report of validationReports) {
+    for (const validation of report.validations) {
+      const rawBacklogItem = readCalibrationGuardValidationBacklogItem(validation, report.reportPath);
       const backlogItem = rawBacklogItem ? withReview(rawBacklogItem, reviewsByItemId.get(rawBacklogItem.id)) : null;
       if (backlogItem && statuses.includes(backlogItem.reviewStatus) && (batchIds.size === 0 || batchIds.has(backlogItem.batchId))) {
         items.push(backlogItem);
@@ -263,17 +260,17 @@ function readCandidateCalibrationGuardBacklogItem(item: JsonRecord, batchId: str
   };
 }
 
-function readCalibrationGuardValidationBacklogItem(item: JsonRecord, sourcePath: string): BacklogItem | null {
-  const proposalId = readString(item, "proposalId");
-  const recommendation = readString(item, "recommendation");
+function readCalibrationGuardValidationBacklogItem(item: CalibrationGuardValidationRow, sourcePath: string): BacklogItem | null {
+  const proposalId = item.proposalId;
+  const recommendation = item.recommendation;
   if (!proposalId || !recommendation || recommendation === "reject") {
     return null;
   }
   const batchId = batchIdFromProposalId(proposalId) ?? "unknown-batch";
-  const bucketLabel = readString(item, "bucketLabel") ?? "calibration bucket";
-  const brierDelta = readNumber(item, "brierDelta");
-  const calibrationErrorDelta = readNumber(item, "calibrationErrorDelta");
-  const matchedRows = readNumber(item, "matchedRows");
+  const bucketLabel = item.bucketLabel ?? "calibration bucket";
+  const brierDelta = item.brierDelta;
+  const calibrationErrorDelta = item.calibrationErrorDelta;
+  const matchedRows = item.matchedRows;
   return {
     batchId,
     id: `calibration-validation:${proposalId}`,

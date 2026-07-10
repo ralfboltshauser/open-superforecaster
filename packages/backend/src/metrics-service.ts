@@ -20,6 +20,7 @@ import {
   workflowProposalValidationReadiness,
 } from "./benchmark-service";
 import { readCalibrationDefaultPlanArtifacts } from "./calibration-default-plan-artifacts";
+import { readCalibrationGuardValidationArtifacts } from "./calibration-guard-validation-artifacts";
 import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
 import { aggregateSideAgreementBand, attemptCountBand, readAggregateStatsSnapshot } from "./aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "./baseline-sanity-metadata";
@@ -2237,28 +2238,21 @@ function readRecord(value: Record<string, unknown> | null | undefined, ...keys: 
 }
 
 async function readCalibrationGuardValidationMetricRows(root: string): Promise<CalibrationGuardValidationMetricRow[]> {
-  const reportPaths = await listFilesNamed(resolve(root, "data/reports/forecast-calibration-guard-validation"), "calibration-guard-validation.json");
+  const reports = await readCalibrationGuardValidationArtifacts(root);
   const rows: CalibrationGuardValidationMetricRow[] = [];
-  for (const reportPath of reportPaths) {
-    let payload: Record<string, unknown> | null;
-    try {
-      payload = asRecord(JSON.parse(await readFile(reportPath, "utf8")));
-    } catch {
-      continue;
-    }
-    const generatedAt = readString(payload, "generatedAt");
-    for (const validation of readRecordArray(payload, "validations")) {
+  for (const report of reports) {
+    for (const validation of report.validations) {
       rows.push({
-        reportPath,
-        generatedAt,
-        validationMode: readString(validation, "validationMode"),
-        proposalId: readString(validation, "proposalId"),
-        sourceCandidateGuardId: readString(validation, "sourceCandidateGuardId"),
-        bucketLabel: readString(validation, "bucketLabel"),
-        matchedRows: readNumber(validation, "matchedRows"),
-        brierDelta: readNumber(validation, "brierDelta"),
-        calibrationErrorDelta: readNumber(validation, "calibrationErrorDelta"),
-        recommendation: readString(validation, "recommendation"),
+        reportPath: report.reportPath,
+        generatedAt: report.generatedAt,
+        validationMode: validation.validationMode,
+        proposalId: validation.proposalId,
+        sourceCandidateGuardId: validation.sourceCandidateGuardId,
+        bucketLabel: validation.bucketLabel,
+        matchedRows: validation.matchedRows,
+        brierDelta: validation.brierDelta,
+        calibrationErrorDelta: validation.calibrationErrorDelta,
+        recommendation: validation.recommendation,
       });
     }
   }

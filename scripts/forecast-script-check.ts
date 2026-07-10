@@ -674,9 +674,14 @@ await check("forecast attention backlog filters batch review status", async () =
   assert(report, "backlog report is not an object");
   assert(readString(report, "reportType") === "forecast_attention_backlog", "report type mismatch");
   assert(readString(readRecord(report, "paths"), "defaultPlanReportDir") === defaultPlanRoot, "backlog report missing default-plan report path");
+  assert(backlogSource.includes("readCalibrationGuardValidationArtifacts"), "attention backlog does not use the shared calibration validation artifact reader");
+  assert(backlogSource.includes("reportRoot: validationRoot"), "attention backlog does not pass its configured validation report directory to the shared reader");
+  assert(!backlogSource.includes("listFilesNamed(validationRoot"), "attention backlog should not keep a local validation artifact scanner");
   assert(backlogSource.includes("readCalibrationDefaultPlanArtifacts"), "attention backlog does not use the shared default-plan artifact reader");
   assert(backlogSource.includes("reportRoot: defaultPlanRoot"), "attention backlog does not pass its configured default-plan report directory to the shared reader");
   assert(!backlogSource.includes("listFilesNamed(defaultPlanRoot"), "attention backlog should not keep a local default-plan artifact scanner");
+  const validationReaderSource = await readFile(resolve(root, "packages/backend/src/calibration-guard-validation-artifacts.ts"), "utf8");
+  assert(validationReaderSource.includes("reportRoot?: string"), "shared calibration validation reader does not support custom report roots");
   assert(defaultPlanReaderSource.includes("reportRoot?: string"), "shared default-plan reader does not support custom report roots");
   assert(counts, "backlog counts missing");
   assert(readNumber(counts, "items") === 3, "filtered item count mismatch");
@@ -2032,6 +2037,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "calibration validation report metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_validation_brier_delta"), "calibration validation Brier delta metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_validation_calibration_error_delta"), "calibration validation calibration error delta metric missing");
+  assert(metricsSource.includes("readCalibrationGuardValidationArtifacts"), "metrics do not use shared calibration validation artifact reader");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_candidates_total"), "calibration default plan candidate metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_candidate_brier_delta"), "calibration default plan Brier delta metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_skipped_rows_total"), "calibration default plan skipped-row metric missing");
@@ -2083,6 +2089,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("osf_calibration_guard_default_plan_candidates"), "DuckDB sync missing calibration guard default plan mart");
   assert(syncSource.includes("osf_calibration_guard_default_plan_skipped_rows"), "DuckDB sync missing calibration guard default plan skipped-row mart");
   assert(syncSource.includes("osf_calibration_guard_default_plan_issues"), "DuckDB sync missing calibration guard default plan issue mart");
+  assert(syncSource.includes("readCalibrationGuardValidationArtifacts"), "DuckDB sync does not use shared calibration validation artifact reader");
   assert(syncSource.includes("readCalibrationDefaultPlanArtifacts"), "DuckDB sync does not use shared calibration default-plan artifact reader");
   assert(syncSource.includes("osf_forecast_attention_items"), "DuckDB sync missing forecast attention item mart");
   assert(syncSource.includes("data/reports/forecast-attention-backlog"), "DuckDB sync does not merge generated forecast attention backlog items");
