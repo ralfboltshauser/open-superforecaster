@@ -42,7 +42,10 @@ import {
   blockerValidationResultIncomplete,
 } from "../packages/backend/src/workflow-proposal-policy";
 import { isExportCompatibleAttentionBacklogArtifact } from "../packages/backend/src/forecast-attention-backlog";
-import { readForecastAttentionBacklogArtifacts } from "../packages/backend/src/forecast-attention-backlog-artifacts";
+import {
+  readForecastAttentionBacklogArtifacts,
+  type ForecastAttentionBacklogBreakdownCounts,
+} from "../packages/backend/src/forecast-attention-backlog-artifacts";
 import { readForecastBatchIndexArtifacts } from "../packages/backend/src/forecast-batch-index-artifacts";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "../packages/backend/src/forecast-batch-health";
@@ -908,6 +911,9 @@ try {
   await replaceTable(duck, "osf_calibration_guard_default_plan_issues", calibrationGuardDefaultPlanIssueColumns, calibrationGuardDefaultPlanIssues);
   const forecastAttentionItems = await readForecastAttentionItemRows(root);
   await replaceTable(duck, "osf_forecast_attention_items", forecastAttentionItemColumns, forecastAttentionItems);
+  const forecastAttentionBacklogBreakdowns = await readForecastAttentionBacklogBreakdownRows(root);
+  await replaceTable(duck, "osf_forecast_attention_backlog_types", forecastAttentionBacklogTypeColumns, forecastAttentionBacklogBreakdowns.typeRows);
+  await replaceTable(duck, "osf_forecast_attention_backlog_kinds", forecastAttentionBacklogKindColumns, forecastAttentionBacklogBreakdowns.kindRows);
   const forecastBatchHealthSnapshot = readLatestForecastBatchHealth(root);
   const forecastBatchHealth = buildForecastBatchHealthMartRows(forecastBatchHealthSnapshot);
   await replaceTable(duck, "osf_forecast_batch_health", forecastBatchHealthColumns, forecastBatchHealth);
@@ -941,6 +947,8 @@ try {
     osf_calibration_guard_default_plan_skipped_rows: calibrationGuardDefaultPlanSkippedRows.length,
     osf_calibration_guard_default_plan_issues: calibrationGuardDefaultPlanIssues.length,
     osf_forecast_attention_items: forecastAttentionItems.length,
+    osf_forecast_attention_backlog_types: forecastAttentionBacklogBreakdowns.typeRows.length,
+    osf_forecast_attention_backlog_kinds: forecastAttentionBacklogBreakdowns.kindRows.length,
     osf_forecast_batch_health: forecastBatchHealth.length,
     osf_forecast_batch_health_issues: forecastBatchHealthIssues.length,
     osf_forecast_batch_health_attention_items: forecastBatchHealthAttentionItems.length,
@@ -973,6 +981,8 @@ try {
       "select proposal_id, bucket_label, validation_mode, recommendation, reason from osf_calibration_guard_default_plan_skipped_rows order by generated_at desc limit 10;",
       "select severity, kind, validation_report_path, latest_validation_report_path from osf_calibration_guard_default_plan_issues order by generated_at desc, kind limit 10;",
       "select batch_id, review_status, severity, kind, metric, score, task_label from osf_forecast_attention_items order by generated_at desc, severity limit 10;",
+      "select forecast_type, items, unresolved_items, high_items from osf_forecast_attention_backlog_types order by generated_at desc, unresolved_items desc limit 10;",
+      "select kind, items, unresolved_items, high_items from osf_forecast_attention_backlog_kinds order by generated_at desc, unresolved_items desc limit 10;",
       "select batch_id, status, unresolved_attention_items, unresolved_candidate_calibration_guard_rules, issue_count from osf_forecast_batch_health;",
       "select batch_id, severity, kind, message from osf_forecast_batch_health_issues order by severity, kind;",
       "select batch_id, review_status, severity, kind, metric, task_label, source_path from osf_forecast_batch_health_attention_items order by review_status, severity limit 10;",
@@ -1669,6 +1679,34 @@ const forecastAttentionItemColumns = [
   { name: "source_path", type: "VARCHAR" },
 ] satisfies DuckColumn[];
 
+const forecastAttentionBacklogTypeColumns = [
+  { name: "report_path", type: "VARCHAR" },
+  { name: "generated_at", type: "VARCHAR" },
+  { name: "forecast_type", type: "VARCHAR" },
+  { name: "items", type: "INTEGER" },
+  { name: "open_items", type: "INTEGER" },
+  { name: "deferred_items", type: "INTEGER" },
+  { name: "reviewed_items", type: "INTEGER" },
+  { name: "unresolved_items", type: "INTEGER" },
+  { name: "high_items", type: "INTEGER" },
+  { name: "medium_items", type: "INTEGER" },
+  { name: "low_items", type: "INTEGER" },
+] satisfies DuckColumn[];
+
+const forecastAttentionBacklogKindColumns = [
+  { name: "report_path", type: "VARCHAR" },
+  { name: "generated_at", type: "VARCHAR" },
+  { name: "kind", type: "VARCHAR" },
+  { name: "items", type: "INTEGER" },
+  { name: "open_items", type: "INTEGER" },
+  { name: "deferred_items", type: "INTEGER" },
+  { name: "reviewed_items", type: "INTEGER" },
+  { name: "unresolved_items", type: "INTEGER" },
+  { name: "high_items", type: "INTEGER" },
+  { name: "medium_items", type: "INTEGER" },
+  { name: "low_items", type: "INTEGER" },
+] satisfies DuckColumn[];
+
 const forecastBatchHealthColumns = [
   { name: "report_path", type: "VARCHAR" },
   { name: "report_exists", type: "BOOLEAN" },
@@ -1825,6 +1863,8 @@ type CalibrationGuardDefaultPlanMartRow = RowFor<typeof calibrationGuardDefaultP
 type CalibrationGuardDefaultPlanSkippedMartRow = RowFor<typeof calibrationGuardDefaultPlanSkippedColumns>;
 type CalibrationGuardDefaultPlanIssueMartRow = RowFor<typeof calibrationGuardDefaultPlanIssueColumns>;
 type ForecastAttentionItemMartRow = RowFor<typeof forecastAttentionItemColumns>;
+type ForecastAttentionBacklogTypeMartRow = RowFor<typeof forecastAttentionBacklogTypeColumns>;
+type ForecastAttentionBacklogKindMartRow = RowFor<typeof forecastAttentionBacklogKindColumns>;
 type ForecastBatchHealthMartRow = RowFor<typeof forecastBatchHealthColumns>;
 type ForecastBatchHealthIssueMartRow = RowFor<typeof forecastBatchHealthIssueColumns>;
 type ForecastBatchHealthAttentionItemMartRow = RowFor<typeof forecastBatchHealthAttentionItemColumns>;
@@ -2250,6 +2290,57 @@ async function readForecastAttentionItemRows(root: string): Promise<ForecastAtte
     || String(left.attention_item_id ?? "").localeCompare(String(right.attention_item_id ?? ""))
     || String(left.report_path ?? "").localeCompare(String(right.report_path ?? ""))
   );
+}
+
+async function readForecastAttentionBacklogBreakdownRows(root: string): Promise<{
+  typeRows: ForecastAttentionBacklogTypeMartRow[];
+  kindRows: ForecastAttentionBacklogKindMartRow[];
+}> {
+  const typeRows: ForecastAttentionBacklogTypeMartRow[] = [];
+  const kindRows: ForecastAttentionBacklogKindMartRow[] = [];
+  for (const report of await readForecastAttentionBacklogArtifacts(root)) {
+    if (!(await isExportCompatibleAttentionBacklogArtifact(root, report))) {
+      continue;
+    }
+    for (const row of report.byForecastType) {
+      typeRows.push({
+        report_path: report.reportPath,
+        generated_at: report.generatedAt,
+        forecast_type: row.forecastType,
+        ...toForecastAttentionBacklogBreakdownMartCounts(row),
+      });
+    }
+    for (const row of report.byKind) {
+      kindRows.push({
+        report_path: report.reportPath,
+        generated_at: report.generatedAt,
+        kind: row.kind,
+        ...toForecastAttentionBacklogBreakdownMartCounts(row),
+      });
+    }
+  }
+  const sortRows = <T extends ForecastAttentionBacklogTypeMartRow | ForecastAttentionBacklogKindMartRow>(rows: T[]) => rows.sort((left, right) =>
+    String(left.generated_at ?? "").localeCompare(String(right.generated_at ?? ""))
+    || String("forecast_type" in left ? left.forecast_type ?? "" : left.kind ?? "").localeCompare(String("forecast_type" in right ? right.forecast_type ?? "" : right.kind ?? ""))
+    || String(left.report_path ?? "").localeCompare(String(right.report_path ?? ""))
+  );
+  return {
+    typeRows: sortRows(typeRows),
+    kindRows: sortRows(kindRows),
+  };
+}
+
+function toForecastAttentionBacklogBreakdownMartCounts(row: ForecastAttentionBacklogBreakdownCounts) {
+  return {
+    items: row.items,
+    open_items: row.open,
+    deferred_items: row.deferred,
+    reviewed_items: row.reviewed,
+    unresolved_items: row.unresolved,
+    high_items: row.high,
+    medium_items: row.medium,
+    low_items: row.low,
+  };
 }
 
 function buildForecastBatchHealthMartRows(health: ForecastBatchHealthSnapshot): ForecastBatchHealthMartRow[] {

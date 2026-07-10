@@ -33,7 +33,10 @@ import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
 import { isExportCompatibleAttentionBacklogArtifact } from "./forecast-attention-backlog";
-import { readForecastAttentionBacklogArtifacts } from "./forecast-attention-backlog-artifacts";
+import {
+  readForecastAttentionBacklogArtifacts,
+  type ForecastAttentionBacklogBreakdownCounts,
+} from "./forecast-attention-backlog-artifacts";
 import { readForecastBatchIndexArtifacts } from "./forecast-batch-index-artifacts";
 import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "./forecast-batch-health";
 import { readForecastInputContextSnapshot } from "./forecast-input-context-metadata";
@@ -109,6 +112,21 @@ type ForecastAttentionMetricRow = {
   delta: number | null;
   forecastType: string | null;
   taskId: string | null;
+};
+
+type ForecastAttentionBacklogBreakdownMetricRow = {
+  reportPath: string;
+  generatedAt: string | null;
+  dimension: "forecast_type" | "kind";
+  value: string;
+  items: number | null;
+  open: number | null;
+  deferred: number | null;
+  reviewed: number | null;
+  unresolved: number | null;
+  high: number | null;
+  medium: number | null;
+  low: number | null;
 };
 
 export async function renderPrometheusMetrics(db: Db, options: { root?: string } = {}) {
@@ -1622,6 +1640,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     const defaultPlanSkippedRows = defaultPlanRows.skippedRows;
     const defaultPlanIssueRows = defaultPlanRows.issueRows;
     const attentionRows = await readForecastAttentionMetricRows(options.root);
+    const attentionBacklogBreakdownRows = await readForecastAttentionBacklogBreakdownMetricRows(options.root);
     const batchHealth = readLatestForecastBatchHealth(options.root);
     const validationReportPaths = uniqueStrings(validationRows.map((row) => row.reportPath));
     const defaultPlanReportPaths = defaultPlanRows.reportPaths;
@@ -1736,6 +1755,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
         parseLabelKey(key),
       );
     }
+    emitForecastAttentionBacklogBreakdownMetrics(metrics, attentionBacklogBreakdownRows);
     for (const item of attentionRows.slice(-50)) {
       const labels = {
         batch_id: item.batchId ?? "unknown",
@@ -2154,6 +2174,43 @@ function emitOptionalGauge(
   }
 }
 
+function emitForecastAttentionBacklogBreakdownMetrics(
+  metrics: MetricsBuilder,
+  rows: ForecastAttentionBacklogBreakdownMetricRow[],
+) {
+  metrics.gauge(
+    "open_superforecaster_forecast_attention_backlog_breakdowns_total",
+    "Local generated forecast attention backlog summary row count.",
+    rows.length,
+  );
+  for (const row of rows) {
+    const labels = {
+      report_path: row.reportPath,
+      generated_at: row.generatedAt ?? "unknown",
+      dimension: row.dimension,
+      value: row.value,
+    };
+    for (const [countKind, value] of Object.entries({
+      items: row.items,
+      open: row.open,
+      deferred: row.deferred,
+      reviewed: row.reviewed,
+      unresolved: row.unresolved,
+      high: row.high,
+      medium: row.medium,
+      low: row.low,
+    })) {
+      emitOptionalGauge(
+        metrics,
+        "open_superforecaster_forecast_attention_backlog_breakdown_items",
+        "Local generated forecast attention backlog item count by artifact summary dimension.",
+        value,
+        { ...labels, count_kind: countKind },
+      );
+    }
+  }
+}
+
 type ForecastBatchHealthAttentionBreakdownRow = {
   items: number | null;
   open: number | null;
@@ -2386,6 +2443,52 @@ async function readForecastAttentionMetricRows(root: string): Promise<ForecastAt
     || String(left.attentionItemId ?? "").localeCompare(String(right.attentionItemId ?? ""))
     || left.reportPath.localeCompare(right.reportPath)
   );
+}
+
+async function readForecastAttentionBacklogBreakdownMetricRows(root: string): Promise<ForecastAttentionBacklogBreakdownMetricRow[]> {
+  const rows: ForecastAttentionBacklogBreakdownMetricRow[] = [];
+  for (const report of await readForecastAttentionBacklogArtifacts(root)) {
+    if (!(await isExportCompatibleAttentionBacklogArtifact(root, report))) {
+      continue;
+    }
+    for (const row of report.byForecastType) {
+      rows.push({
+        reportPath: report.reportPath,
+        generatedAt: report.generatedAt,
+        dimension: "forecast_type",
+        value: row.forecastType,
+        ...toForecastAttentionBacklogBreakdownMetricCounts(row),
+      });
+    }
+    for (const row of report.byKind) {
+      rows.push({
+        reportPath: report.reportPath,
+        generatedAt: report.generatedAt,
+        dimension: "kind",
+        value: row.kind,
+        ...toForecastAttentionBacklogBreakdownMetricCounts(row),
+      });
+    }
+  }
+  return rows.sort((left, right) =>
+    String(left.generatedAt ?? "").localeCompare(String(right.generatedAt ?? ""))
+    || left.dimension.localeCompare(right.dimension)
+    || left.value.localeCompare(right.value)
+    || left.reportPath.localeCompare(right.reportPath)
+  );
+}
+
+function toForecastAttentionBacklogBreakdownMetricCounts(row: ForecastAttentionBacklogBreakdownCounts) {
+  return {
+    items: row.items,
+    open: row.open,
+    deferred: row.deferred,
+    reviewed: row.reviewed,
+    unresolved: row.unresolved,
+    high: row.high,
+    medium: row.medium,
+    low: row.low,
+  };
 }
 
 function readRecordArray(value: Record<string, unknown> | null | undefined, key: string) {

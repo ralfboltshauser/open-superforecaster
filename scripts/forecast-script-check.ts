@@ -2254,6 +2254,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("readCalibrationGuardValidationMetricRows"), "metrics exporter does not read calibration guard validation reports");
   assert(metricsSource.includes("readCalibrationGuardDefaultPlanMetricRows"), "metrics exporter does not read calibration guard default plan reports");
   assert(metricsSource.includes("readForecastAttentionMetricRows"), "metrics exporter does not read forecast attention items");
+  assert(metricsSource.includes("readForecastAttentionBacklogBreakdownMetricRows"), "metrics exporter does not read forecast attention backlog breakdowns");
   assert(metricsSource.includes("readForecastBatchIndexArtifacts"), "metrics exporter does not use shared batch-index reader for forecast attention items");
   assert(metricsSource.includes("readForecastAttentionBacklogArtifacts"), "metrics exporter does not use shared attention backlog artifact reader");
   assert(metricsSource.includes("isExportCompatibleAttentionBacklogArtifact"), "metrics exporter does not guard generated forecast attention backlog artifact compatibility");
@@ -2268,6 +2269,10 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_forecast_attention_reports_total"), "forecast attention report metric missing");
   assert(metricsSource.includes("open_superforecaster_forecast_attention_items_total"), "forecast attention item count metric missing");
   assert(metricsSource.includes("forecast_type: row.forecastType"), "forecast attention item count metric missing forecast type labels");
+  assert(metricsSource.includes("open_superforecaster_forecast_attention_backlog_breakdowns_total"), "forecast attention backlog breakdown row-count metric missing");
+  assert(metricsSource.includes("open_superforecaster_forecast_attention_backlog_breakdown_items"), "forecast attention backlog breakdown metric missing");
+  assert(metricsSource.includes("dimension: \"forecast_type\""), "forecast attention backlog breakdown metric missing forecast-type rows");
+  assert(metricsSource.includes("dimension: \"kind\""), "forecast attention backlog breakdown metric missing kind rows");
   assert(metricsSource.includes("open_superforecaster_forecast_attention_item_info"), "forecast attention item info metric missing");
   assert(metricsSource.includes("open_superforecaster_forecast_attention_item_score"), "forecast attention item score metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "calibration validation report metric missing");
@@ -2303,6 +2308,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(smokeSource.includes("open_superforecaster_input_context_scores_total"), "smoke check does not require input context metric");
   assert(smokeSource.includes("open_superforecaster_run_metadata_scores_total"), "smoke check does not require run metadata metric");
   assert(smokeSource.includes("open_superforecaster_forecast_attention_items_total"), "smoke check does not require forecast attention metric");
+  assert(smokeSource.includes("open_superforecaster_forecast_attention_backlog_breakdowns_total"), "smoke check does not require forecast attention backlog breakdown row-count metric");
   assert(smokeSource.includes("open_superforecaster_forecast_batch_health_attention_breakdown_items"), "smoke check does not require forecast batch health attention breakdown metric");
   assert(smokeSource.includes("open_superforecaster_source_bank_domains_total"), "smoke check does not require source-bank domain metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
@@ -2328,12 +2334,17 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("readCalibrationGuardValidationArtifacts"), "DuckDB sync does not use shared calibration validation artifact reader");
   assert(syncSource.includes("readCalibrationDefaultPlanArtifacts"), "DuckDB sync does not use shared calibration default-plan artifact reader");
   assert(syncSource.includes("osf_forecast_attention_items"), "DuckDB sync missing forecast attention item mart");
+  assert(syncSource.includes("osf_forecast_attention_backlog_types"), "DuckDB sync missing forecast attention backlog forecast-type mart");
+  assert(syncSource.includes("osf_forecast_attention_backlog_kinds"), "DuckDB sync missing forecast attention backlog kind mart");
+  assert(syncSource.includes("readForecastAttentionBacklogBreakdownRows"), "DuckDB sync does not read forecast attention backlog breakdowns");
   assert(syncSource.includes("readForecastBatchIndexArtifacts"), "DuckDB sync does not use shared batch-index reader for forecast attention items");
   assert(syncSource.includes("readForecastAttentionBacklogArtifacts"), "DuckDB sync does not use shared attention backlog artifact reader");
   assert(syncSource.includes("isExportCompatibleAttentionBacklogArtifact"), "DuckDB sync does not guard generated forecast attention backlog artifact compatibility");
   assert(syncSource.includes("../packages/backend/src/forecast-attention-backlog"), "DuckDB sync does not use the shared attention backlog compatibility helper");
   assert(!syncSource.includes("listFilesNamed(resolve(root, \"data/reports/forecast-attention-backlog\")"), "DuckDB sync should not keep a local attention backlog scanner");
   assert(!syncSource.includes("readRecordArray(payload, \"items\")"), "DuckDB sync should not parse generated attention backlog rows from raw JSON");
+  assert(!syncSource.includes("readRecordArray(payload, \"byForecastType\")"), "DuckDB sync should not parse generated attention backlog forecast-type breakdowns from raw JSON");
+  assert(!syncSource.includes("readRecordArray(payload, \"byKind\")"), "DuckDB sync should not parse generated attention backlog kind breakdowns from raw JSON");
   assert(attentionBacklogSource.includes("readAttentionBacklogReviewsUpdatedAt"), "shared attention backlog helper does not reject review-stale generated attention backlog items");
   assert(!syncSource.includes("function readAttentionBacklogReviewsUpdatedAt"), "DuckDB sync should not keep a local attention backlog freshness reader");
   assert(syncSource.includes("osf_source_bank_domains"), "DuckDB sync missing source-bank domain mart");
