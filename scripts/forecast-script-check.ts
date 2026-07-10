@@ -1968,7 +1968,8 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_calibration_guard_rule_impact_brier_delta"), "rule-level calibration guard impact Brier delta metric missing");
   assert(metricsSource.includes("readCalibrationGuardValidationMetricRows"), "metrics exporter does not read calibration guard validation reports");
   assert(metricsSource.includes("readCalibrationGuardDefaultPlanMetricRows"), "metrics exporter does not read calibration guard default plan reports");
-  assert(metricsSource.includes("readForecastAttentionMetricRows"), "metrics exporter does not read forecast attention batch indexes");
+  assert(metricsSource.includes("readForecastAttentionMetricRows"), "metrics exporter does not read forecast attention items");
+  assert(metricsSource.includes("data/reports/forecast-attention-backlog"), "metrics exporter does not read generated forecast attention backlog items");
   assert(metricsSource.includes("emitForecastBatchHealthAttentionBreakdownMetrics"), "metrics exporter does not emit batch-health attention breakdowns from the shared health snapshot");
   assert(metricsSource.includes("open_superforecaster_forecast_batch_health_attention_breakdown_items"), "forecast batch health attention breakdown metric missing");
   assert(metricsSource.includes("open_superforecaster_forecast_attention_reports_total"), "forecast attention report metric missing");
@@ -2025,6 +2026,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("osf_calibration_guard_default_plan_candidates"), "DuckDB sync missing calibration guard default plan mart");
   assert(syncSource.includes("osf_calibration_guard_default_plan_skipped_rows"), "DuckDB sync missing calibration guard default plan skipped-row mart");
   assert(syncSource.includes("osf_forecast_attention_items"), "DuckDB sync missing forecast attention item mart");
+  assert(syncSource.includes("data/reports/forecast-attention-backlog"), "DuckDB sync does not merge generated forecast attention backlog items");
   assert(syncSource.includes("osf_source_bank_domains"), "DuckDB sync missing source-bank domain mart");
   assert(syncSource.includes("osf_smithers_token_usage"), "DuckDB sync missing detailed token-usage mart");
   assert(syncSource.includes("osf_smithers_token_usage_by_task"), "DuckDB sync missing task token-usage summary mart");

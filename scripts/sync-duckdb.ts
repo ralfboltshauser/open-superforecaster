@@ -863,7 +863,7 @@ try {
   const calibrationGuardDefaultPlanSkippedRows = calibrationGuardDefaultPlan.skippedRows;
   await replaceTable(duck, "osf_calibration_guard_default_plan_candidates", calibrationGuardDefaultPlanColumns, calibrationGuardDefaultPlanCandidates);
   await replaceTable(duck, "osf_calibration_guard_default_plan_skipped_rows", calibrationGuardDefaultPlanSkippedColumns, calibrationGuardDefaultPlanSkippedRows);
-  const forecastAttentionItems = await readForecastAttentionItemRows(resolve(root, "data/reports/forecast-batches"));
+  const forecastAttentionItems = await readForecastAttentionItemRows(root);
   await replaceTable(duck, "osf_forecast_attention_items", forecastAttentionItemColumns, forecastAttentionItems);
   const forecastBatchHealthSnapshot = readLatestForecastBatchHealth(root);
   const forecastBatchHealth = buildForecastBatchHealthMartRows(forecastBatchHealthSnapshot);
@@ -2120,10 +2120,9 @@ async function readCalibrationGuardDefaultPlanRows(reportRoot: string): Promise<
   };
 }
 
-async function readForecastAttentionItemRows(reportRoot: string): Promise<ForecastAttentionItemMartRow[]> {
-  const paths = await listFilesNamed(reportRoot, "batch-index.json");
+async function readForecastAttentionItemRows(root: string): Promise<ForecastAttentionItemMartRow[]> {
   const rowsByKey = new Map<string, ForecastAttentionItemMartRow>();
-  for (const path of paths) {
+  for (const path of await listFilesNamed(resolve(root, "data/reports/forecast-batches"), "batch-index.json")) {
     const payload = await readJsonRecord(path);
     if (!payload) {
       continue;
@@ -2156,6 +2155,42 @@ async function readForecastAttentionItemRows(reportRoot: string): Promise<Foreca
         reviewer: readString(item, "reviewer"),
         reviewed_at: readString(item, "reviewedAt"),
         source_path: path,
+      });
+    }
+  }
+  for (const path of await listFilesNamed(resolve(root, "data/reports/forecast-attention-backlog"), "attention-backlog.json")) {
+    const payload = await readJsonRecord(path);
+    if (!payload) {
+      continue;
+    }
+    const generatedAt = readString(payload, "generatedAt");
+    for (const item of readRecordArray(payload, "items")) {
+      const batchId = readString(item, "batchId");
+      const attentionItemId = readString(item, "id");
+      if (!batchId || !attentionItemId) {
+        continue;
+      }
+      const key = `${batchId}:${attentionItemId}`;
+      rowsByKey.set(key, {
+        report_path: path,
+        batch_id: batchId,
+        generated_at: generatedAt,
+        attention_item_id: attentionItemId,
+        review_status: readString(item, "reviewStatus"),
+        severity: readString(item, "severity"),
+        kind: readString(item, "kind"),
+        metric: readString(item, "metric"),
+        score: readNumber(item, "score"),
+        delta: readNumber(item, "delta"),
+        forecast_type: readString(item, "forecastType"),
+        task_id: readString(item, "taskId"),
+        task_label: readString(item, "taskLabel"),
+        reason: readString(item, "reason"),
+        recommended_actions_json: JSON.stringify(readStringArray(item, "recommendedActions")),
+        review_note: readString(item, "reviewNote"),
+        reviewer: readString(item, "reviewer"),
+        reviewed_at: readString(item, "reviewedAt"),
+        source_path: readString(item, "sourcePath") ?? path,
       });
     }
   }

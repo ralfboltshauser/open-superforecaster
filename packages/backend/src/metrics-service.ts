@@ -2288,9 +2288,8 @@ async function readCalibrationGuardDefaultPlanMetricRows(root: string): Promise<
 }
 
 async function readForecastAttentionMetricRows(root: string): Promise<ForecastAttentionMetricRow[]> {
-  const reportPaths = await listFilesNamed(resolve(root, "data/reports/forecast-batches"), "batch-index.json");
   const rowsByKey = new Map<string, ForecastAttentionMetricRow>();
-  for (const reportPath of reportPaths) {
+  for (const reportPath of await listFilesNamed(resolve(root, "data/reports/forecast-batches"), "batch-index.json")) {
     let payload: Record<string, unknown> | null;
     try {
       payload = asRecord(JSON.parse(await readFile(reportPath, "utf8")));
@@ -2300,6 +2299,36 @@ async function readForecastAttentionMetricRows(root: string): Promise<ForecastAt
     const batchId = readString(payload, "batchId");
     const generatedAt = readString(payload, "generatedAt");
     for (const item of readRecordArray(payload, "attentionItems")) {
+      const attentionItemId = readString(item, "id");
+      if (!batchId || !attentionItemId) {
+        continue;
+      }
+      rowsByKey.set(`${batchId}:${attentionItemId}`, {
+        reportPath,
+        batchId,
+        generatedAt,
+        attentionItemId,
+        reviewStatus: readString(item, "reviewStatus"),
+        severity: readString(item, "severity"),
+        kind: readString(item, "kind"),
+        metric: readString(item, "metric"),
+        score: readNumber(item, "score"),
+        delta: readNumber(item, "delta"),
+        forecastType: readString(item, "forecastType"),
+        taskId: readString(item, "taskId"),
+      });
+    }
+  }
+  for (const reportPath of await listFilesNamed(resolve(root, "data/reports/forecast-attention-backlog"), "attention-backlog.json")) {
+    let payload: Record<string, unknown> | null;
+    try {
+      payload = asRecord(JSON.parse(await readFile(reportPath, "utf8")));
+    } catch {
+      continue;
+    }
+    const generatedAt = readString(payload, "generatedAt");
+    for (const item of readRecordArray(payload, "items")) {
+      const batchId = readString(item, "batchId");
       const attentionItemId = readString(item, "id");
       if (!batchId || !attentionItemId) {
         continue;
