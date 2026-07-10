@@ -1,0 +1,88 @@
+---
+import LogoMark from "../components/LogoMark.astro"
+import SiteHeader from "../components/SiteHeader.astro"
+import WorkflowExplorer, { WorkflowRouteMatrix } from "../components/WorkflowExplorer"
+import Base from "../layouts/Base.astro"
+import { buildWorkflowCatalog } from "../lib/workflow-source-parser"
+
+const catalog = buildWorkflowCatalog()
+const primaryWorkflows = catalog.workflows.filter((workflow) =>
+  ["deep-research", "binary-forecast", "agent-map", "rank", "merge", "dedupe"].includes(workflow.id),
+)
+---
+
+<Base>
+  <SiteHeader />
+  <main id="main" class="workflow-page">
+    <section class="workflow-hero">
+      <div class="container workflow-hero-inner">
+        <div class="workflow-hero-copy">
+          <div class="hero-logo-wrap workflow-hero-mark">
+            <LogoMark class="hero-logo" />
+          </div>
+          <p class="fs-eyebrow">source-derived workflows</p>
+          <h1>Research, forecasting, and table workflows as executable graphs.</h1>
+          <p>
+            The diagrams below are parsed from the Smithers TSX workflow files at build time. The marketing surface follows the same source
+            files that launch runs: `Workflow`, `Sequence`, `Parallel`, `Loop`, and `Task` JSX.
+          </p>
+        </div>
+        <div class="workflow-hero-metrics" aria-label="Workflow catalog summary">
+          <article>
+            <strong>{catalog.workflows.length}</strong>
+            <span>workflow files</span>
+          </article>
+          <article>
+            <strong>{catalog.workflows.reduce((sum, workflow) => sum + workflow.stats.taskCount, 0)}</strong>
+            <span>explicit tasks</span>
+          </article>
+          <article>
+            <strong>{catalog.workflows.reduce((sum, workflow) => sum + workflow.stats.dynamicTaskSets, 0)}</strong>
+            <span>task maps</span>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="container workflow-focus-grid" aria-label="Core workflow families">
+      {
+        primaryWorkflows.map((workflow, index) => (
+          <article class="workflow-focus-card">
+            <span class="module-index">{String(index + 1).padStart(2, "0")}</span>
+            <h2>{workflow.title}</h2>
+            <p>{workflow.sourcePath}</p>
+            <div class="workflow-focus-stats">
+              <span>{workflow.stats.taskCount} tasks</span>
+              <span>{workflow.stats.dynamicTaskSets} dynamic sets</span>
+              <span>{workflow.stats.outputTypes.slice(0, 2).join(", ") || "no output schema"}</span>
+            </div>
+          </article>
+        ))
+      }
+    </section>
+
+    <section class="container workflow-section">
+      <div class="workflow-section-heading">
+        <span class="fs-eyebrow">live source graph</span>
+        <h2>Smithers workflow topology</h2>
+        <p>
+          Static TSX structure becomes node topology. Dynamic `.map()` task creation is preserved as a generated task set, so changing
+          research roles, row processors, or forecast specialists changes this visualization on the next marketing build.
+        </p>
+      </div>
+      <WorkflowExplorer catalog={catalog} client:load />
+    </section>
+
+    <section class="container workflow-section">
+      <div class="workflow-section-heading">
+        <span class="fs-eyebrow">classification router</span>
+        <h2>How prompts become workflows</h2>
+        <p>
+          The route matrix is derived from `packages/backend/src/mode-classifier.ts`: explicit workflow choices win, table operations route to
+          table workflows, forecast-like prompts route through forecast type inference, and open-ended prompts fall back to deep research.
+        </p>
+      </div>
+      <WorkflowRouteMatrix catalog={catalog} client:load />
+    </section>
+  </main>
+</Base>
