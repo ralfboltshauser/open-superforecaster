@@ -46,6 +46,8 @@ async function runSmokeChecks() {
     const settings = readRecord(diagnostics, "settings");
     const objectStorage = readRecord(diagnostics, "objectStorage");
     const evalDatasets = readRecord(diagnostics, "evalDatasets");
+    const benchmarkPromotion = readRecord(diagnostics, "benchmarkPromotion");
+    const items = readArray(diagnostics, "items").filter(isRecord);
     const commands = readArray(diagnostics, "commands");
     if (!settings || !readString(settings, "codexModel") || !readString(settings, "smithersStateDir")) {
       throw new Error("diagnostics settings are incomplete");
@@ -59,10 +61,20 @@ async function runSmokeChecks() {
     if (typeof evalDatasets?.suiteCount !== "number" || typeof evalDatasets.caseCount !== "number") {
       throw new Error("diagnostics eval dataset summary is incomplete");
     }
+    const benchmarkPromotionItem = items.find((item) => readString(item, "key") === "benchmark_promotion_gate");
+    if (!benchmarkPromotion || !benchmarkPromotionItem || !readString(benchmarkPromotionItem, "status")) {
+      throw new Error("diagnostics benchmark promotion summary is incomplete");
+    }
+    if (typeof benchmarkPromotion.recentRuns !== "number" || typeof benchmarkPromotion.sourceRiskBlockedRuns !== "number") {
+      throw new Error("diagnostics benchmark promotion counts are incomplete");
+    }
+    if (!Array.isArray(benchmarkPromotion.latestGateBlockers)) {
+      throw new Error("diagnostics benchmark promotion blockers are incomplete");
+    }
     if (!commands.some((command) => isRecord(command) && readString(command, "command") === "bun run export-local")) {
       throw new Error("diagnostics command list is missing export-local");
     }
-    return `${evalDatasets.suiteCount} suite(s), ${evalDatasets.caseCount} case(s), ${commands.length} command(s)`;
+    return `${evalDatasets.suiteCount} suite(s), ${evalDatasets.caseCount} case(s), promotion ${readString(benchmarkPromotion, "latestGateStatus") ?? "unknown"}, ${commands.length} command(s)`;
   });
 
   await check("maintenance action API", async () => {

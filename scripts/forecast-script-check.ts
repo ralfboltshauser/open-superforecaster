@@ -953,6 +953,7 @@ await check("diagnostics surface latest forecast batch health", async () => {
   const health = readLatestForecastBatchHealth(fixtureRoot);
   const diagnosticsSource = await readFile(resolve(root, "packages/backend/src/diagnostics-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const smokeSource = await readFile(resolve(root, "scripts/smoke-check.ts"), "utf8");
   const sourceDomainSummarySource = await readFile(resolve(root, "packages/backend/src/source-domain-summary.ts"), "utf8");
   const dashboardHookSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/use-lab-dashboard.ts"), "utf8");
   const dashboardShellSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard.tsx"), "utf8");
@@ -976,6 +977,9 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(diagnosticsSource.includes("benchmarkPromotionDiagnostic"), "diagnostics does not turn benchmark promotion status into a check item");
   assert(diagnosticsSource.includes("sourceRiskBlockedRuns"), "diagnostics does not expose source-risk-blocked benchmark runs");
   assert(diagnosticsSource.includes("source_concentration") && diagnosticsSource.includes("low_quality_sources"), "diagnostics does not preserve source-risk blocker context");
+  assert(smokeSource.includes("benchmarkPromotion"), "smoke check does not validate benchmark promotion diagnostics");
+  assert(smokeSource.includes("benchmark_promotion_gate"), "smoke check does not require the benchmark promotion diagnostic item");
+  assert(smokeSource.includes("sourceRiskBlockedRuns"), "smoke check does not require source-risk benchmark promotion counts");
   assert(diagnosticsSource.includes("unresolvedAttentionItems"), "diagnostics does not expose unresolved attention count");
   assert(diagnosticsSource.includes("unresolvedCandidateCalibrationGuardRules"), "diagnostics does not expose unresolved candidate guard count");
   assert(diagnosticsSource.includes("summarizeSourceDomains(sourceRows)"), "diagnostics does not summarize source-bank domains");
