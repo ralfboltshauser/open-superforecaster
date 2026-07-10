@@ -616,7 +616,7 @@ function WorkflowProposalSummary({
   const reviewedBy = typeof proposal.reviewedBy === "string" ? proposal.reviewedBy : null
   const reviewedAt = typeof proposal.reviewedAt === "string" ? proposal.reviewedAt : null
   const canUpdate = Boolean(benchmarkRunId && proposalId)
-  const canMarkImplemented = validationResultStatus === "completed"
+  const canMarkImplemented = validationResultStatus === "completed" && validationGateStatus === "review_for_promotion" && !validationGateBlockers.length
   const updateStatus = (
     nextStatus: WorkflowChangeProposalStatus,
     nextImplementationStatus?: WorkflowChangeProposalImplementationStatus,

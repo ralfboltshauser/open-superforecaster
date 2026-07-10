@@ -1404,10 +1404,16 @@ function assertWorkflowChangeProposalStatusTransitionAllowed(
   if (status !== "implemented") {
     return;
   }
-  if (proposal.validationResultStatus === "completed") {
-    return;
+  if (proposal.validationResultStatus !== "completed") {
+    throw new Error("Cannot mark workflow change proposal implemented until validation result status is completed.");
   }
-  throw new Error("Cannot mark workflow change proposal implemented until validation result status is completed.");
+  if (proposal.validationGateStatus !== "review_for_promotion") {
+    throw new Error("Cannot mark workflow change proposal implemented until validation gate is review_for_promotion.");
+  }
+  const gateBlockers = Array.isArray(proposal.validationGateBlockers) ? proposal.validationGateBlockers.filter(Boolean) : [];
+  if (gateBlockers.length > 0) {
+    throw new Error("Cannot mark workflow change proposal implemented while validation gate blockers remain.");
+  }
 }
 
 function implementationStatusForProposalTransition(
