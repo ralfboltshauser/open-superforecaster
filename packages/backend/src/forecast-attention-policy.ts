@@ -159,6 +159,18 @@ export function attentionKindIdPrefix(kind: PerformanceAttentionKind) {
   return kind.replace(/_/g, "-");
 }
 
+export function poorResolvedForecastAttentionKind(): PerformanceAttentionKind {
+  return "poor_resolved_forecast";
+}
+
+export function worseningTrendAttentionKind(): PerformanceAttentionKind {
+  return "worsening_trend";
+}
+
+export function calibrationGuardRegressionAttentionKind(): PerformanceAttentionKind {
+  return "calibration_guard_regression";
+}
+
 export function candidateCalibrationGuardAttentionKind(): SupplementalForecastAttentionKind {
   return "candidate_calibration_guard";
 }

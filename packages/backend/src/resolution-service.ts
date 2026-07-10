@@ -23,8 +23,11 @@ import { readDateForecastSnapshot, type DateForecastSnapshot } from "./date-fore
 import { readEvidenceCoverageSnapshot, type EvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
 import {
   attentionKindIdPrefix,
+  calibrationGuardRegressionAttentionKind,
   performanceAttentionSeverityRank,
+  poorResolvedForecastAttentionKind,
   recommendPerformanceAttentionActions,
+  worseningTrendAttentionKind,
   type PerformanceAttentionKind,
   type PerformanceAttentionSeverity,
 } from "./forecast-attention-policy";
@@ -2040,16 +2043,17 @@ function buildNeedsAttentionQueue(
   const caseItems = worstCases.slice(0, 5).map((item, index) => {
     const threshold = poorScoreThreshold(item.primaryMetric);
     const exceedsThreshold = threshold !== null && item.primaryScore >= threshold;
+    const kind = poorResolvedForecastAttentionKind();
     const reason = exceedsThreshold
       ? `${item.primaryMetric} ${roundMetric(item.primaryScore)} exceeds review threshold ${threshold}`
       : `Among the worst resolved aggregate forecasts by ${item.primaryMetric}`;
     return {
       id: `poor:${item.taskId}:${item.primaryMetric}`,
-      kind: "poor_resolved_forecast" as const,
+      kind,
       severity: exceedsThreshold ? "high" as const : "medium" as const,
       reason,
       recommendedActions: recommendPerformanceAttentionActions({
-        kind: "poor_resolved_forecast",
+        kind,
         metric: item.primaryMetric,
         severity: exceedsThreshold ? "high" : "medium",
         forecastType: item.forecastType,
@@ -2066,25 +2070,29 @@ function buildNeedsAttentionQueue(
 
   const trendItems = trends
     .filter((trend) => trend.direction === "worse" && trend.delta !== null && trend.recentCount > 0 && trend.baselineCount > 0)
-    .map((trend) => ({
-      id: `trend:${trend.key}`,
-      kind: "worsening_trend" as const,
-      severity: Math.abs(trend.delta ?? 0) >= trendDeltaHighThreshold(trend.metric) ? "high" as const : "medium" as const,
-      reason: `${trend.metric} worsened over ${trend.label}: recent ${formatNullableMetric(trend.recentMean)}, baseline ${formatNullableMetric(trend.baselineMean)}`,
-      recommendedActions: recommendPerformanceAttentionActions({
-        kind: "worsening_trend",
+    .map((trend) => {
+      const kind = worseningTrendAttentionKind();
+      const severity = Math.abs(trend.delta ?? 0) >= trendDeltaHighThreshold(trend.metric) ? "high" as const : "medium" as const;
+      return {
+        id: `trend:${trend.key}`,
+        kind,
+        severity,
+        reason: `${trend.metric} worsened over ${trend.label}: recent ${formatNullableMetric(trend.recentMean)}, baseline ${formatNullableMetric(trend.baselineMean)}`,
+        recommendedActions: recommendPerformanceAttentionActions({
+          kind,
+          metric: trend.metric,
+          severity,
+          forecastType: null,
+        }),
         metric: trend.metric,
-        severity: Math.abs(trend.delta ?? 0) >= trendDeltaHighThreshold(trend.metric) ? "high" : "medium",
+        score: trend.recentMean,
+        delta: trend.delta,
+        taskId: null,
+        taskLabel: null,
         forecastType: null,
-      }),
-      metric: trend.metric,
-      score: trend.recentMean,
-      delta: trend.delta,
-      taskId: null,
-      taskLabel: null,
-      forecastType: null,
-      rank: 100 + trend.recentDays,
-    }));
+        rank: 100 + trend.recentDays,
+      };
+    });
 
   const baselineSanityCandidates = worstCases.flatMap((item) => {
     const threshold = poorScoreThreshold(item.primaryMetric);
@@ -2641,15 +2649,16 @@ function buildNeedsAttentionQueue(
     rank: 200 - diagnostic.score,
   }));
 
+  const guardRegressionKind = calibrationGuardRegressionAttentionKind();
   const overallGuardImpactItems = calibrationGuardImpact.status === "worse" && calibrationGuardImpact.brierDelta !== null
     ? [{
         id: "calibration-guard-impact:worse-brier",
-        kind: "calibration_guard_regression" as const,
+        kind: guardRegressionKind,
         severity: "high" as const,
         reason:
           `Guarded aggregate forecasts have worse mean Brier than unguarded aggregates by ${formatSignedMetric(calibrationGuardImpact.brierDelta)}.`,
         recommendedActions: recommendPerformanceAttentionActions({
-          kind: "calibration_guard_regression",
+          kind: guardRegressionKind,
           metric: "brier",
           severity: "high",
           forecastType: "binary",
@@ -2668,12 +2677,12 @@ function buildNeedsAttentionQueue(
     .slice(0, 5)
     .map((impact, index) => ({
       id: `calibration-guard-impact:${impact.ruleId}:worse-brier`,
-      kind: "calibration_guard_regression" as const,
+      kind: guardRegressionKind,
       severity: "high" as const,
       reason:
         `${impact.ruleId} guarded aggregate forecasts have worse mean Brier than unguarded aggregates by ${formatSignedMetric(impact.brierDelta ?? 0)}.`,
       recommendedActions: recommendPerformanceAttentionActions({
-        kind: "calibration_guard_regression",
+        kind: guardRegressionKind,
         metric: "brier",
         severity: "high",
         forecastType: "binary",

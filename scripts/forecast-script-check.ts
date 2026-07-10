@@ -1775,7 +1775,7 @@ await check("forecast performance reports surface candidate calibration guards",
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
   assert(resolutionSource.includes("candidateCalibrationGuardRules: calibrationReport.candidateCalibrationGuardRules"), "performance report missing candidate calibration guard rules");
   assert(resolutionSource.includes("calibrationGuardImpact"), "performance report missing calibration guard impact summary");
-  assert(resolutionSource.includes("calibration_guard_regression"), "performance report does not turn worse guard impact into attention");
+  assert(resolutionSource.includes("calibrationGuardRegressionAttentionKind"), "performance report does not use shared calibration guard regression attention kind");
   assert(attentionPolicySource.includes("guarded-vs-unguarded Brier delta recovers"), "calibration guard regression action missing");
   assert(resolutionSource.includes("calibrationGuardImpact.byRule"), "performance report does not inspect rule-level guard impact");
   assert(resolutionSource.includes("calibrationReplayRows: calibrationReplayRows(aggregateBrierScores)"), "performance report missing calibration replay rows");
@@ -1786,6 +1786,9 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(!resolutionSource.includes("function isProbabilityMetric("), "performance report should not keep local probability metric policy");
   assert(!resolutionSource.includes("function recommendAttentionActions("), "performance report should not keep local attention actions");
   assert(!resolutionSource.includes("function attentionKindIdPrefix("), "performance report should not keep local attention kind id policy");
+  assert(!resolutionSource.includes("kind: \"poor_resolved_forecast\""), "performance report should not keep local poor resolved forecast attention kind");
+  assert(!resolutionSource.includes("kind: \"worsening_trend\""), "performance report should not keep local worsening trend attention kind");
+  assert(!resolutionSource.includes("kind: \"calibration_guard_regression\""), "performance report should not keep local calibration guard regression attention kind");
   assert((await readFile(resolve(root, "packages/backend/src/forecast-score-policy.ts"), "utf8")).includes("selectPrimaryScoreMetric"), "shared forecast score policy does not expose primary metric selection");
   assert(attentionPolicySource.includes("recommendPerformanceAttentionActions"), "shared forecast attention policy does not expose recommendation actions");
   assert(attentionPolicySource.includes("forecastAttentionReviewStatuses"), "shared forecast attention policy does not expose review statuses");
@@ -1794,6 +1797,9 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(attentionPolicySource.includes("isForecastAttentionReviewDeferred"), "shared forecast attention policy does not expose deferred review policy");
   assert(attentionPolicySource.includes("isForecastAttentionReviewUnresolved"), "shared forecast attention policy does not expose unresolved review policy");
   assert(attentionPolicySource.includes("unresolved: open + deferred"), "shared forecast attention policy does not summarize unresolved review counts");
+  assert(attentionPolicySource.includes("poorResolvedForecastAttentionKind"), "shared forecast attention policy does not expose poor resolved forecast attention kind");
+  assert(attentionPolicySource.includes("worseningTrendAttentionKind"), "shared forecast attention policy does not expose worsening trend attention kind");
+  assert(attentionPolicySource.includes("calibrationGuardRegressionAttentionKind"), "shared forecast attention policy does not expose calibration guard regression attention kind");
   assert(attentionPolicySource.includes("isForecastScoreRegressionAttentionKind"), "shared forecast attention policy does not expose score-regression attention kind policy");
   assert(attentionPolicySource.includes("isCalibrationGuardRegressionAttentionKind"), "shared forecast attention policy does not expose calibration-guard regression attention kind policy");
   assert(attentionPolicySource.includes("candidateCalibrationGuardAttentionKind"), "shared forecast attention policy does not expose candidate guard attention kind policy");
