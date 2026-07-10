@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
-import { desc } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import {
+  artifactRows,
   artifacts,
   benchmarkCases,
   benchmarkRuns,
@@ -9,12 +10,13 @@ import {
   forecastScores,
   sourceBankEntries,
   tasks,
+  workflowChangeProposals,
   type createDb,
 } from "@open-superforecaster/db";
 import type { AppConfig } from "@open-superforecaster/config";
 import { formatAgentRef, loadAgentPolicy } from "@open-superforecaster/config";
 import { buildHealthSnapshot } from "./health";
-import { listBenchmarkRuns } from "./benchmark-service";
+import { listBenchmarkRuns, workflowProposalValidationReadiness } from "./benchmark-service";
 import { listMaintenanceActions, listMaintenanceJobs } from "./maintenance-service";
 import { createObjectStorageTargets, tryHeadBucket } from "./object-storage";
 import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "./forecast-batch-health";
@@ -30,6 +32,21 @@ type DiagnosticItem = {
   detail: string;
 };
 
+type WorkflowProposalDiagnosticRow = {
+  id: string;
+  sourceBenchmarkRunId: string | null;
+  targetWorkflowId: string;
+  status: string;
+  implementationStatus: string;
+  validationBenchmarkRunId: string | null;
+  validationComparisonReportArtifactId: string | null;
+  validationResultStatus: string | null;
+  validationCompletedCases: number | null;
+  validationGateStatus: string | null;
+  validationGateBlockers: unknown;
+  createdAt: Date | null;
+};
+
 export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input: { root: string }) {
   const agentPolicy = loadAgentPolicy(process.env, input.root);
   const [
@@ -37,13 +54,14 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
     suites,
     cases,
     taskRows,
-    artifactRows,
+    artifactRecords,
     benchmarkRunRows,
     sourceRows,
     scoreRows,
     cleanupJobRows,
     recentMaintenanceJobs,
     recentBenchmarkRuns,
+    recentWorkflowChangeProposals,
   ] = await Promise.all([
     buildHealthSnapshot(config),
     db.select().from(benchmarkSuites).orderBy(desc(benchmarkSuites.createdAt)),
@@ -56,6 +74,25 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
     db.select().from(cleanupJobs),
     listMaintenanceJobs(db, 5),
     listBenchmarkRuns(db, 8),
+    db
+      .select({
+        id: workflowChangeProposals.id,
+        sourceBenchmarkRunId: workflowChangeProposals.sourceBenchmarkRunId,
+        targetWorkflowId: workflowChangeProposals.targetWorkflowId,
+        status: workflowChangeProposals.status,
+        implementationStatus: workflowChangeProposals.implementationStatus,
+        validationBenchmarkRunId: workflowChangeProposals.validationBenchmarkRunId,
+        validationComparisonReportArtifactId: benchmarkRuns.comparisonReportArtifactId,
+        validationResultStatus: workflowChangeProposals.validationResultStatus,
+        validationCompletedCases: workflowChangeProposals.validationCompletedCases,
+        validationGateStatus: workflowChangeProposals.validationGateStatus,
+        validationGateBlockers: workflowChangeProposals.validationGateBlockers,
+        createdAt: workflowChangeProposals.createdAt,
+      })
+      .from(workflowChangeProposals)
+      .leftJoin(benchmarkRuns, eq(workflowChangeProposals.validationBenchmarkRunId, benchmarkRuns.id))
+      .orderBy(desc(workflowChangeProposals.createdAt))
+      .limit(25),
   ]);
 
   const objectStorage = createObjectStorageTargets(config);
@@ -67,6 +104,25 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
   const forecastBatchHealth = readLatestForecastBatchHealth(input.root);
   const sourceDomains = summarizeSourceDomains(sourceRows);
   const benchmarkPromotion = benchmarkPromotionDiagnostics(recentBenchmarkRuns);
+  const validationComparisonReportArtifactIds = recentWorkflowChangeProposals
+    .map((proposal) => proposal.validationComparisonReportArtifactId)
+    .filter((id): id is string => typeof id === "string");
+  const validationComparisonRows = validationComparisonReportArtifactIds.length
+    ? await db
+        .select({
+          artifactId: artifactRows.artifactId,
+          rowJson: artifactRows.rowJson,
+        })
+        .from(artifactRows)
+        .where(and(eq(artifactRows.rowIndex, 0), inArray(artifactRows.artifactId, validationComparisonReportArtifactIds)))
+    : [];
+  const validationComparisonReportsByArtifactId = new Map(validationComparisonRows.map((row) => [row.artifactId, row.rowJson]));
+  const caseCountByBenchmarkRunId = new Map(benchmarkRunRows.map((run) => [run.id, run.caseCount]));
+  const workflowProposalReadiness = workflowProposalReadinessDiagnostics(
+    recentWorkflowChangeProposals,
+    caseCountByBenchmarkRunId,
+    validationComparisonReportsByArtifactId,
+  );
   const items: DiagnosticItem[] = [
     {
       key: "service_health",
@@ -80,6 +136,7 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
     bucketDiagnostic("exports_bucket", "Exports bucket", exportsBucket),
     forecastBatchHealthDiagnostic(forecastBatchHealth),
     benchmarkPromotionDiagnostic(benchmarkPromotion),
+    workflowProposalReadinessDiagnostic(workflowProposalReadiness),
   ];
 
   const caseCountBySuiteId = cases.reduce((counts, row) => {
@@ -138,6 +195,7 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
     items,
     forecastBatchHealth,
     benchmarkPromotion,
+    workflowProposalReadiness,
     evalDatasets: {
       suiteCount: suites.length,
       caseCount: cases.length,
@@ -147,7 +205,7 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
     },
     localState: {
       taskCount: taskRows.length,
-      artifactCount: artifactRows.length,
+      artifactCount: artifactRecords.length,
       benchmarkRunCount: benchmarkRunRows.length,
       sourceBankEntryCount: sourceRows.length,
       sourceDomainCount: sourceDomains.length,
@@ -222,6 +280,74 @@ function benchmarkPromotionDiagnostic(promotion: ReturnType<typeof benchmarkProm
     detail: hasLatestRun
       ? `Latest benchmark ${promotion.latestBenchmarkRunId} gate is ${promotion.latestGateStatus} with ${promotion.latestGateBlockers.length} blocker(s)${sourceRiskDetail}.`
       : "No benchmark run has been recorded yet.",
+  };
+}
+
+function workflowProposalReadinessDiagnostics(
+  proposals: WorkflowProposalDiagnosticRow[],
+  sourceBenchmarkCaseCounts: Map<string, number>,
+  validationComparisonReportsByArtifactId: Map<string, Record<string, unknown>>,
+) {
+  const rows = proposals.map((proposal) => {
+    const validationComparisonReport = proposal.validationComparisonReportArtifactId
+      ? validationComparisonReportsByArtifactId.get(proposal.validationComparisonReportArtifactId) ?? null
+      : null;
+    const readiness = workflowProposalValidationReadiness({
+      resultStatus: proposal.validationResultStatus,
+      gateStatus: proposal.validationGateStatus,
+      gateBlockers: proposal.validationGateBlockers,
+      completedCases: proposal.validationCompletedCases,
+      sourceBenchmarkCaseCount: proposal.sourceBenchmarkRunId ? sourceBenchmarkCaseCounts.get(proposal.sourceBenchmarkRunId) ?? null : null,
+      comparisonReport: validationComparisonReport,
+    });
+    return {
+      proposalId: proposal.id,
+      sourceBenchmarkRunId: proposal.sourceBenchmarkRunId,
+      targetWorkflowId: proposal.targetWorkflowId,
+      status: proposal.status,
+      implementationStatus: proposal.implementationStatus,
+      validationBenchmarkRunId: proposal.validationBenchmarkRunId,
+      validationGateStatus: proposal.validationGateStatus,
+      validationCompletedCases: readiness.coverage.completedCases,
+      validationRequiredCases: readiness.coverage.requiredCases,
+      validationCoverageRatio: Math.round(readiness.coverage.coverageRatio * 1000) / 1000,
+      primaryBaselinePairedCaseCount: readiness.primaryEvidence.pairedCaseCount,
+      primaryBaselinePairedHoldoutCaseCount: readiness.primaryEvidence.pairedHoldoutCaseCount,
+      passed: readiness.passed,
+      blockers: readiness.blockers,
+      createdAt: proposal.createdAt?.toISOString?.() ?? null,
+    };
+  });
+  const activeRows = rows.filter((row) => row.status !== "rejected" && row.status !== "implemented");
+  const blockedRows = activeRows.filter((row) => !row.passed);
+  const validatedRows = rows.filter((row) => row.passed);
+  const latestBlocked = blockedRows[0] ?? null;
+  return {
+    recentProposals: rows.length,
+    activeProposals: activeRows.length,
+    validatedProposals: validatedRows.length,
+    blockedActiveProposals: blockedRows.length,
+    latestBlockedProposalId: latestBlocked?.proposalId ?? null,
+    latestBlockedTargetWorkflowId: latestBlocked?.targetWorkflowId ?? null,
+    latestBlockedReadinessBlockers: latestBlocked?.blockers ?? [],
+    proposals: rows.slice(0, 8),
+  };
+}
+
+function workflowProposalReadinessDiagnostic(readiness: ReturnType<typeof workflowProposalReadinessDiagnostics>): DiagnosticItem {
+  const hasProposals = readiness.recentProposals > 0;
+  return {
+    key: "workflow_proposal_readiness",
+    label: "Workflow proposal readiness",
+    ok: hasProposals ? readiness.blockedActiveProposals === 0 : true,
+    status: hasProposals
+      ? readiness.blockedActiveProposals === 0
+        ? "ready"
+        : "blocked"
+      : "none",
+    detail: hasProposals
+      ? `${readiness.blockedActiveProposals} blocked active proposal(s), ${readiness.validatedProposals} validated proposal(s) in the latest ${readiness.recentProposals}.`
+      : "No workflow change proposals have been recorded yet.",
   };
 }
 

@@ -115,6 +115,10 @@ export function DiagnosticsCard({ diagnosticCounts, diagnostics }: { diagnosticC
   const latestGateStatus = typeof benchmarkPromotion?.latestGateStatus === "string" ? benchmarkPromotion.latestGateStatus : null
   const latestGateBlockers = readArray(benchmarkPromotion, "latestGateBlockers").filter((blocker): blocker is string => typeof blocker === "string")
   const sourceRiskBlockedRuns = readNumber(benchmarkPromotion, "sourceRiskBlockedRuns")
+  const workflowProposalReadiness = isRecord(diagnostics?.workflowProposalReadiness) ? diagnostics.workflowProposalReadiness : null
+  const latestProposalBlockers = readArray(workflowProposalReadiness, "latestBlockedReadinessBlockers").filter(
+    (blocker): blocker is string => typeof blocker === "string",
+  )
   return (
     <Card id="diagnostics">
       <CardHeader>
@@ -156,6 +160,24 @@ export function DiagnosticsCard({ diagnosticCounts, diagnostics }: { diagnosticC
             </p>
             {latestGateBlockers.length ? (
               <p className="mt-1 line-clamp-2 text-muted-foreground">latest blockers {latestGateBlockers.slice(0, 4).join(" · ")}</p>
+            ) : null}
+          </div>
+        ) : null}
+        {workflowProposalReadiness ? (
+          <div className="rounded-md border px-3 py-2 text-xs">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium">Proposal readiness</span>
+              <Badge variant={(readNumber(workflowProposalReadiness, "blockedActiveProposals") ?? 0) === 0 ? "outline" : "secondary"}>
+                {formatCount(readNumber(workflowProposalReadiness, "blockedActiveProposals") ?? 0)} blocked
+              </Badge>
+            </div>
+            <p className="mt-1 text-muted-foreground">
+              {formatCount(readNumber(workflowProposalReadiness, "activeProposals") ?? 0)} active ·{" "}
+              {formatCount(readNumber(workflowProposalReadiness, "validatedProposals") ?? 0)} validated of{" "}
+              {formatCount(readNumber(workflowProposalReadiness, "recentProposals") ?? 0)} recent
+            </p>
+            {latestProposalBlockers.length ? (
+              <p className="mt-1 line-clamp-2 text-muted-foreground">latest blockers {latestProposalBlockers.slice(0, 4).join(" · ")}</p>
             ) : null}
           </div>
         ) : null}

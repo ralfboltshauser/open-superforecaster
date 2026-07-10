@@ -403,7 +403,10 @@ for local audit queries. The lab proposal card also shows the concrete
 implementation-readiness blockers when validation evidence is not yet enough to
 promote a patch, plus paired and held-out case counts for the primary validation
 baseline. Metrics and DuckDB also expose those recommendation-level paired
-evidence counts for proposal validation audits.
+evidence counts for proposal validation audits. `/api/diagnostics` and the lab
+diagnostics card summarize the same workflow-proposal readiness contract,
+including blocked active proposal counts and the latest validation-readiness
+blockers, so weak patches are visible before anyone promotes them.
 The local DuckDB sync also derives `osf_source_bank_domains` from persisted
 source-bank entries so source concentration, final-use count, source-type mix,
 and mean source quality can be audited by domain. Prometheus metrics expose the

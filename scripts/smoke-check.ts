@@ -47,6 +47,7 @@ async function runSmokeChecks() {
     const objectStorage = readRecord(diagnostics, "objectStorage");
     const evalDatasets = readRecord(diagnostics, "evalDatasets");
     const benchmarkPromotion = readRecord(diagnostics, "benchmarkPromotion");
+    const workflowProposalReadiness = readRecord(diagnostics, "workflowProposalReadiness");
     const items = readArray(diagnostics, "items").filter(isRecord);
     const commands = readArray(diagnostics, "commands");
     if (!settings || !readString(settings, "codexModel") || !readString(settings, "smithersStateDir")) {
@@ -62,6 +63,7 @@ async function runSmokeChecks() {
       throw new Error("diagnostics eval dataset summary is incomplete");
     }
     const benchmarkPromotionItem = items.find((item) => readString(item, "key") === "benchmark_promotion_gate");
+    const workflowProposalReadinessItem = items.find((item) => readString(item, "key") === "workflow_proposal_readiness");
     if (!benchmarkPromotion || !benchmarkPromotionItem || !readString(benchmarkPromotionItem, "status")) {
       throw new Error("diagnostics benchmark promotion summary is incomplete");
     }
@@ -70,6 +72,16 @@ async function runSmokeChecks() {
     }
     if (!Array.isArray(benchmarkPromotion.latestGateBlockers)) {
       throw new Error("diagnostics benchmark promotion blockers are incomplete");
+    }
+    if (!workflowProposalReadiness || !workflowProposalReadinessItem || !readString(workflowProposalReadinessItem, "status")) {
+      throw new Error("diagnostics workflow proposal readiness summary is incomplete");
+    }
+    if (
+      typeof workflowProposalReadiness.recentProposals !== "number" ||
+      typeof workflowProposalReadiness.blockedActiveProposals !== "number" ||
+      !Array.isArray(workflowProposalReadiness.latestBlockedReadinessBlockers)
+    ) {
+      throw new Error("diagnostics workflow proposal readiness counts are incomplete");
     }
     if (!commands.some((command) => isRecord(command) && readString(command, "command") === "bun run export-local")) {
       throw new Error("diagnostics command list is missing export-local");
