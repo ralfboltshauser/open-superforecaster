@@ -1193,11 +1193,12 @@ export async function startWorkflowChangeProposalValidation(
   }
   const launchedBy = input.launchedBy?.trim() || "local-user";
   const implementationExperimentLabel = existing.implementationExperimentLabel || `proposal-${existing.id.slice(0, 8)}`;
+  const validationMaxCases = input.maxCases ?? Math.max(sourceRun.caseCount, 1);
   const validationRun = await startBenchmarkRun(db, {
     root: input.root,
     evalMode: sourceRun.evalMode || evalModeForProposalTargetWorkflow(existing.targetWorkflowId),
     suiteId: sourceRun.suiteId,
-    maxCases: input.maxCases ?? 1,
+    maxCases: validationMaxCases,
     rollouts: input.rollouts,
     experimentLabel: implementationExperimentLabel,
   });
@@ -1208,7 +1209,7 @@ export async function startWorkflowChangeProposalValidation(
       implementationStatus: existing.implementationStatus === "validated" ? "validated" : "in_progress",
       implementationUpdatedBy: launchedBy,
       implementationUpdatedAt: new Date(),
-      implementationNote: `Validation benchmark ${validationRun.benchmarkRunId} launched for implementation evidence.`,
+      implementationNote: `Validation benchmark ${validationRun.benchmarkRunId} launched with up to ${validationMaxCases} case(s) for implementation evidence.`,
       validationBenchmarkRunId: validationRun.benchmarkRunId,
       validationLaunchedBy: launchedBy,
       validationLaunchedAt: new Date(),

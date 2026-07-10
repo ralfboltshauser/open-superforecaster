@@ -3363,6 +3363,8 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(backendSource.includes("startWorkflowChangeProposalValidation"), "backend missing proposal validation launcher");
   assert(backendSource.includes("evalModeForProposalTargetWorkflow"), "backend missing proposal target workflow mapper");
   assert(backendSource.includes("suiteId: sourceRun.suiteId"), "proposal validation does not reuse source benchmark suite");
+  assert(backendSource.includes("validationMaxCases = input.maxCases ?? Math.max(sourceRun.caseCount, 1)"), "proposal validation does not default to source benchmark case count");
+  assert(backendSource.includes("launched with up to ${validationMaxCases} case(s)"), "proposal validation launch note does not record validation case count");
   assert(backendSource.includes("validationBenchmarkRunId"), "backend missing validation benchmark linkage");
   assert(backendSource.includes("already has validation benchmark run"), "backend does not block duplicate proposal validation launches");
   assert(backendSource.includes("createWorkflowProposalValidationComparison"), "backend missing proposal validation comparison helper");
@@ -3377,6 +3379,7 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(routeSource.includes("reviewNote"), "proposal lifecycle API route missing review note");
   assert(routeSource.includes("implementationStatus"), "proposal lifecycle API route missing implementation status");
   assert(validationRouteSource.includes("startWorkflowChangeProposalValidation"), "proposal validation API route missing backend launch call");
+  assert(validationRouteSource.includes("maxCases: Number.isFinite(Number(body.maxCases)) ? Number(body.maxCases) : undefined"), "proposal validation API route should allow backend default case coverage");
   return "workflow proposal status changes keep reviewer context and benchmark ownership";
 });
 
