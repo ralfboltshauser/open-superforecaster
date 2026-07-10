@@ -17,6 +17,7 @@ import { buildHealthSnapshot } from "./health";
 import { listMaintenanceActions, listMaintenanceJobs } from "./maintenance-service";
 import { createObjectStorageTargets, tryHeadBucket } from "./object-storage";
 import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "./forecast-batch-health";
+import { summarizeSourceDomains } from "./source-domain-summary";
 
 type Db = ReturnType<typeof createDb>["db"];
 
@@ -196,41 +197,6 @@ function forecastBatchHealthDiagnostic(health: ForecastBatchHealthSnapshot): Dia
     status: health.status,
     detail: `${health.batchId ?? "latest batch"} has ${unresolved} unresolved attention item(s) and ${candidateRules} unresolved candidate calibration guard rule(s).`,
   };
-}
-
-function summarizeSourceDomains(rows: Array<typeof sourceBankEntries.$inferSelect>) {
-  const grouped = new Map<string, Array<typeof sourceBankEntries.$inferSelect>>();
-  for (const row of rows) {
-    const domain = row.domain || "unknown";
-    const group = grouped.get(domain);
-    if (group) {
-      group.push(row);
-    } else {
-      grouped.set(domain, [row]);
-    }
-  }
-  return [...grouped.entries()]
-    .map(([domain, domainRows]) => {
-      const qualityScores = domainRows
-        .map((row) => row.qualityScore)
-        .filter((score): score is number => typeof score === "number" && Number.isFinite(score));
-      return {
-        domain,
-        entries: domainRows.length,
-        usedInFinalEntries: domainRows.filter((row) => row.usedInFinal).length,
-        taskCount: new Set(domainRows.map((row) => row.taskId).filter(Boolean)).size,
-        meanQualityScore: qualityScores.length ? average(qualityScores) : null,
-      };
-    })
-    .sort((left, right) =>
-      right.entries - left.entries
-      || right.usedInFinalEntries - left.usedInFinalEntries
-      || left.domain.localeCompare(right.domain)
-    );
-}
-
-function average(values: number[]) {
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 function directoryStatus(path: string) {

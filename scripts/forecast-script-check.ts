@@ -953,6 +953,7 @@ await check("diagnostics surface latest forecast batch health", async () => {
   const health = readLatestForecastBatchHealth(fixtureRoot);
   const diagnosticsSource = await readFile(resolve(root, "packages/backend/src/diagnostics-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const sourceDomainSummarySource = await readFile(resolve(root, "packages/backend/src/source-domain-summary.ts"), "utf8");
   const dashboardHookSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/use-lab-dashboard.ts"), "utf8");
   const dashboardShellSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard.tsx"), "utf8");
   const dashboardPanelSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
@@ -973,8 +974,13 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(diagnosticsSource.includes("unresolvedAttentionItems"), "diagnostics does not expose unresolved attention count");
   assert(diagnosticsSource.includes("unresolvedCandidateCalibrationGuardRules"), "diagnostics does not expose unresolved candidate guard count");
   assert(diagnosticsSource.includes("summarizeSourceDomains(sourceRows)"), "diagnostics does not summarize source-bank domains");
+  assert(diagnosticsSource.includes("./source-domain-summary"), "diagnostics does not use the shared source-domain summary helper");
+  assert(!diagnosticsSource.includes("function summarizeSourceDomains"), "diagnostics should not keep a local source-domain summarizer");
   assert(diagnosticsSource.includes("sourceDomainCount"), "diagnostics does not expose source-domain count");
   assert(diagnosticsSource.includes("sourceDomains.slice(0, 8)"), "diagnostics does not cap source-domain summary");
+  assert(sourceDomainSummarySource.includes("source_type"), "shared source-domain summary helper does not support mart source-type rows");
+  assert(sourceDomainSummarySource.includes("used_in_final"), "shared source-domain summary helper does not support mart final-use rows");
+  assert(sourceDomainSummarySource.includes("quality_score"), "shared source-domain summary helper does not support mart quality-score rows");
   assert(metricsSource.includes("readLatestForecastBatchHealth"), "metrics do not read latest forecast batch health through the shared reader");
   assert(metricsSource.includes("open_superforecaster_forecast_batch_health_status"), "metrics do not expose batch health status");
   assert(metricsSource.includes("open_superforecaster_forecast_batch_health_unresolved_attention_items"), "metrics do not expose unresolved attention count");
@@ -1428,6 +1434,8 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_source_bank_domain_task_count"), "source-bank domain task-count metric missing");
   assert(metricsSource.includes("open_superforecaster_source_bank_domain_quality_score_mean"), "source-bank domain quality metric missing");
   assert(metricsSource.includes("summarizeSourceDomains(sourceRows)"), "metrics exporter does not use source-domain summary");
+  assert(metricsSource.includes("./source-domain-summary"), "metrics exporter does not use the shared source-domain summary helper");
+  assert(!metricsSource.includes("function summarizeSourceDomains"), "metrics exporter should not keep a local source-domain summarizer");
   assert(smokeSource.includes("open_superforecaster_binary_calibration_status"), "smoke check does not require calibration status metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_impact_status"), "smoke check does not require calibration guard impact metric");
   assert(smokeSource.includes("open_superforecaster_aggregate_quality_scores_total"), "smoke check does not require aggregate quality metric");
@@ -1473,6 +1481,8 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("buildForecastBatchHealthAttentionTypeMartRows"), "DuckDB sync missing batch health attention-type mapper");
   assert(syncSource.includes("buildForecastBatchHealthCandidateGuardMartRows"), "DuckDB sync missing batch health candidate guard mapper");
   assert(syncSource.includes("buildSourceDomainMartRows"), "DuckDB sync missing source-bank domain mapper");
+  assert(syncSource.includes("source-domain-summary"), "DuckDB sync does not use the shared source-domain summary helper");
+  assert(syncSource.includes("summarizeSourceDomains(sources)"), "DuckDB source-domain mart does not use the shared summary builder");
   assert(syncSource.includes("calibration_guard_adjustment"), "forecast score mart missing calibration guard adjustment");
   assert(syncSource.includes("calibration_guard_rules_json"), "forecast score mart missing calibration guard rules");
   assert(syncSource.includes("unresolved_attention_items"), "batch health mart missing unresolved attention count");

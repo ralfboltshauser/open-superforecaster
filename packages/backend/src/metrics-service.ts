@@ -34,6 +34,7 @@ import { readNumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport } from "./performance-calibration";
 import { readResolutionBoundarySnapshot } from "./resolution-boundary-metadata";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
+import { summarizeSourceDomains } from "./source-domain-summary";
 import { readThresholdedForecastSnapshot } from "./thresholded-forecast-metadata";
 import { readUncertaintyRangeSnapshot } from "./uncertainty-range-metadata";
 
@@ -1772,37 +1773,6 @@ function groupBy<T>(rows: T[], keyFn: (row: T) => string) {
   return groups;
 }
 
-function summarizeSourceDomains(
-  rows: Array<{ domain: string | null; taskId: string | null; usedInFinal: boolean; qualityScore: number | null }>,
-) {
-  const grouped = new Map<string, typeof rows>();
-  for (const row of rows) {
-    const domain = row.domain || "unknown";
-    const group = grouped.get(domain);
-    if (group) {
-      group.push(row);
-    } else {
-      grouped.set(domain, [row]);
-    }
-  }
-  return [...grouped.entries()]
-    .map(([domain, domainRows]) => {
-      const qualityScores = domainRows.filter((row) => typeof row.qualityScore === "number").map((row) => row.qualityScore as number);
-      return {
-        domain,
-        entries: domainRows.length,
-        usedInFinalEntries: domainRows.filter((row) => row.usedInFinal).length,
-        taskCount: new Set(domainRows.map((row) => row.taskId).filter(Boolean)).size,
-        meanQualityScore: qualityScores.length ? average(qualityScores) : null,
-      };
-    })
-    .sort((left, right) =>
-      right.entries - left.entries
-      || right.usedInFinalEntries - left.usedInFinalEntries
-      || left.domain.localeCompare(right.domain)
-    );
-}
-
 function labelKey(labels: Record<string, string>) {
   return Object.entries(labels)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -1821,10 +1791,6 @@ function parseLabelKey(key: string) {
 
 function uniqueStrings(values: string[]) {
   return [...new Set(values.filter(Boolean))];
-}
-
-function average(values: number[]) {
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 function emitOptionalGauge(

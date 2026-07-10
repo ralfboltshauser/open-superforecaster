@@ -6,6 +6,7 @@ import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "../packages/backend/src/forecast-batch-health";
 import { buildBinaryCalibrationReport, type BinaryCalibrationInput } from "../packages/backend/src/performance-calibration";
+import { summarizeSourceDomains } from "../packages/backend/src/source-domain-summary";
 import { loadAppConfig } from "../packages/config/src/index";
 import { listFilesNamed, readJson, readRecord, readString, type JsonRecord } from "./lib/forecast-script-utils";
 
@@ -1562,35 +1563,14 @@ function scoreToCalibrationInput(score: ForecastScoreMartRow): BinaryCalibration
 }
 
 function buildSourceDomainMartRows(sources: SourceMartRow[]): SourceDomainMartRow[] {
-  const grouped = new Map<string, SourceMartRow[]>();
-  for (const source of sources) {
-    const domain = String(source.domain ?? "unknown") || "unknown";
-    const rows = grouped.get(domain);
-    if (rows) {
-      rows.push(source);
-    } else {
-      grouped.set(domain, [source]);
-    }
-  }
-  return [...grouped.entries()]
-    .map(([domain, rows]) => {
-      const qualityScores = rows
-        .map((row) => typeof row.quality_score === "number" && Number.isFinite(row.quality_score) ? row.quality_score : null)
-        .filter((value): value is number => value !== null);
-      return {
-        domain,
-        entries: rows.length,
-        used_in_final_entries: rows.filter((row) => row.used_in_final === true).length,
-        task_count: new Set(rows.map((row) => row.task_id).filter(Boolean)).size,
-        source_types_json: JSON.stringify([...new Set(rows.map((row) => row.source_type).filter(Boolean))].sort()),
-        mean_quality_score: qualityScores.length ? average(qualityScores) : null,
-      };
-    })
-    .sort((left, right) =>
-      Number(right.entries ?? 0) - Number(left.entries ?? 0)
-      || Number(right.used_in_final_entries ?? 0) - Number(left.used_in_final_entries ?? 0)
-      || String(left.domain ?? "").localeCompare(String(right.domain ?? ""))
-    );
+  return summarizeSourceDomains(sources).map((row) => ({
+    domain: row.domain,
+    entries: row.entries,
+    used_in_final_entries: row.usedInFinalEntries,
+    task_count: row.taskCount,
+    source_types_json: JSON.stringify(row.sourceTypes),
+    mean_quality_score: row.meanQualityScore,
+  }));
 }
 
 async function readCalibrationGuardValidationRows(reportRoot: string): Promise<CalibrationGuardValidationMartRow[]> {
@@ -1826,10 +1806,6 @@ function readNumber(value: unknown, key: string) {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
-}
-
-function average(values: number[]) {
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 function readBoolean(value: unknown, key: string) {
