@@ -23,6 +23,32 @@ import {
 } from "@open-superforecaster/db";
 import { scoreBinaryForecast } from "@open-superforecaster/evals";
 import type { ObjectStorageTarget } from "@open-superforecaster/artifact-store";
+import {
+  benchmarkComparisonStatusBlocker,
+  benchmarkHoldoutSplitIds,
+  benchmarkPromotionGateStatusNeedsMoreEvidence,
+  benchmarkPromotionGateStatusReview,
+  blockerBenchmarkStillRunning,
+  blockerFailedOrReviewCasesPresent,
+  blockerHumanForecastLeakage,
+  blockerInsufficientHoldoutEvidence,
+  blockerLargeProbabilityMisses,
+  blockerLowQualitySources,
+  blockerMissingAggregateRationale,
+  blockerMissingBaselineSanity,
+  blockerMissingComparisonReport,
+  blockerMissingTraceBundles,
+  blockerSchemaOrScoringFailures,
+  blockerSourceConcentration,
+  blockerSourceCutoffLeakage,
+  blockerTooFewCasesForPromotion,
+  blockerUnexplainedComponentDisagreement,
+  blockerWeakTraceCompleteness,
+  blockerWorseThanBaselineCases,
+  minimumPromotionHoldoutCases,
+  minimumPromotionPairedCases,
+  minimumPromotionResultCases,
+} from "./benchmark-promotion-policy";
 import { createBootstrapArtifact, createQueuedWorkflowTask, markTaskFailed, markTaskRunning } from "./run-service";
 import { launchSmithersDetached } from "./smithers-launcher";
 import { summarizeSourceDomainCounts } from "./source-domain-summary";
@@ -81,57 +107,6 @@ type BenchmarkPromotionComparisonStatus =
   | "wait_for_completion"
   | string;
 
-export const benchmarkPromotionGateBlockerIds = [
-  "benchmark_still_running",
-  "too_few_cases_for_promotion",
-  "missing_trace_bundles",
-  "failed_or_review_cases_present",
-  "missing_comparison_report",
-  "missing_baseline_sanity",
-  "unexplained_component_disagreement",
-  "large_probability_misses",
-  "worse_than_baseline_cases",
-  "insufficient_holdout_evidence",
-  "source_cutoff_leakage",
-  "human_forecast_leakage",
-  "source_concentration",
-  "low_quality_sources",
-  "weak_trace_completeness",
-  "schema_or_scoring_failures",
-  "missing_aggregate_rationale",
-] as const;
-
-const [
-  blockerBenchmarkStillRunning,
-  blockerTooFewCasesForPromotion,
-  blockerMissingTraceBundles,
-  blockerFailedOrReviewCasesPresent,
-  blockerMissingComparisonReport,
-  blockerMissingBaselineSanity,
-  blockerUnexplainedComponentDisagreement,
-  blockerLargeProbabilityMisses,
-  blockerWorseThanBaselineCases,
-  blockerInsufficientHoldoutEvidence,
-  blockerSourceCutoffLeakage,
-  blockerHumanForecastLeakage,
-  blockerSourceConcentration,
-  blockerLowQualitySources,
-  blockerWeakTraceCompleteness,
-  blockerSchemaOrScoringFailures,
-  blockerMissingAggregateRationale,
-] = benchmarkPromotionGateBlockerIds;
-
-export const benchmarkPromotionSourceRiskBlockerIds = [
-  blockerSourceCutoffLeakage,
-  blockerHumanForecastLeakage,
-  blockerSourceConcentration,
-  blockerLowQualitySources,
-] as const;
-
-export const benchmarkHoldoutSplitIds = ["holdout", "test", "validation", "eval", "evaluation"] as const;
-const minimumPromotionPairedCases = 10;
-const minimumPromotionHoldoutCases = 10;
-
 export type BenchmarkPromotionGateEvidenceInput = {
   runStatus: string;
   resultCount: number;
@@ -151,7 +126,7 @@ export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotio
   if (input.runStatus === "running" || input.runStatus === "queued") {
     blockers.push(blockerBenchmarkStillRunning);
   }
-  if (input.resultCount < 10) {
+  if (input.resultCount < minimumPromotionResultCases) {
     blockers.push(blockerTooFewCasesForPromotion);
   }
   if (input.traceMissing > 0) {
@@ -163,7 +138,7 @@ export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotio
   if (!input.comparisonStatus) {
     blockers.push(blockerMissingComparisonReport);
   } else if (input.comparisonStatus !== "candidate_better") {
-    blockers.push(`comparison_${input.comparisonStatus}`);
+    blockers.push(benchmarkComparisonStatusBlocker(input.comparisonStatus));
   }
   if (readFindingCount(input.baselineSanityFindings, "missingBaselineSanityCases", "missing_baseline_sanity_cases") > 0) {
     blockers.push(blockerMissingBaselineSanity);
@@ -214,7 +189,7 @@ export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotio
     blockers.push(blockerMissingAggregateRationale);
   }
   return {
-    status: blockers.length === 0 ? "review_for_promotion" : "needs_more_evidence",
+    status: blockers.length === 0 ? benchmarkPromotionGateStatusReview : benchmarkPromotionGateStatusNeedsMoreEvidence,
     blockers: uniqueStrings(blockers),
     recommendationStatus: input.comparisonStatus,
     summary:
@@ -228,7 +203,7 @@ export function assertBenchmarkPromotionDecisionAllowed(
   state: WorkflowPromotionState,
   promotionGate: ReturnType<typeof summarizeBenchmarkPromotionGateEvidence>,
 ) {
-  if (!isPromotedState(state) || promotionGate.status === "review_for_promotion") {
+  if (!isPromotedState(state) || promotionGate.status === benchmarkPromotionGateStatusReview) {
     return;
   }
   const blockers = promotionGate.blockers.length ? promotionGate.blockers.join(", ") : "unknown";
@@ -1509,7 +1484,7 @@ function assertWorkflowChangeProposalStatusTransitionAllowed(
     if (proposal.validationResultStatus !== "completed") {
       throw new Error("Cannot mark workflow change proposal implemented until validation result status is completed.");
     }
-    if (proposal.validationGateStatus !== "review_for_promotion") {
+    if (proposal.validationGateStatus !== benchmarkPromotionGateStatusReview) {
       throw new Error("Cannot mark workflow change proposal implemented until validation gate is review_for_promotion.");
     }
     if (readiness.gateBlockers.length) {
@@ -1567,7 +1542,7 @@ export function workflowProposalValidationGatePassed(input: {
 }) {
   return (
     input.resultStatus === "completed" &&
-    input.gateStatus === "review_for_promotion" &&
+    input.gateStatus === benchmarkPromotionGateStatusReview &&
     workflowProposalValidationGateBlockers(input.gateBlockers).length === 0
   );
 }
@@ -1632,7 +1607,7 @@ export function workflowProposalValidationReadiness(input: {
   const primaryEvidence = workflowProposalValidationPrimaryEvidence(input.comparisonReport);
   const blockers = [
     input.resultStatus === "completed" ? null : "validation_result_incomplete",
-    input.gateStatus === "review_for_promotion" ? null : "validation_gate_not_passing",
+    input.gateStatus === benchmarkPromotionGateStatusReview ? null : "validation_gate_not_passing",
     ...gateBlockers,
     coverage.hasCoverage ? null : "insufficient_validation_case_coverage",
     ...primaryEvidence.blockers,

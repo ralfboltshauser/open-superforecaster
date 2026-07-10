@@ -1,4 +1,5 @@
 export * from "./benchmark-service";
+export * from "./benchmark-promotion-policy";
 export * from "./btf2-importer";
 export * from "./calibration-default-plan-artifacts";
 export * from "./calibration-guard-proposal-artifacts";

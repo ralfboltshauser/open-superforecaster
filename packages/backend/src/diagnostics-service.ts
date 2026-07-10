@@ -16,7 +16,8 @@ import {
 import type { AppConfig } from "@open-superforecaster/config";
 import { formatAgentRef, loadAgentPolicy } from "@open-superforecaster/config";
 import { buildHealthSnapshot } from "./health";
-import { benchmarkPromotionSourceRiskBlockerIds, listBenchmarkRuns, workflowProposalValidationReadiness } from "./benchmark-service";
+import { listBenchmarkRuns, workflowProposalValidationReadiness } from "./benchmark-service";
+import { benchmarkPromotionSourceRiskBlockerIds } from "./benchmark-promotion-policy";
 import { readLatestCalibrationDefaultPlan, type LatestCalibrationDefaultPlanSnapshot } from "./calibration-default-plan-artifacts";
 import { listMaintenanceActions, listMaintenanceJobs } from "./maintenance-service";
 import { createObjectStorageTargets, tryHeadBucket } from "./object-storage";

@@ -2,10 +2,15 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   assertBenchmarkPromotionDecisionAllowed,
-  benchmarkHoldoutSplitIds,
-  benchmarkPromotionGateBlockerIds,
   summarizeBenchmarkPromotionGateEvidence,
 } from "../packages/backend/src/benchmark-service";
+import {
+  benchmarkHoldoutSplitIds,
+  benchmarkPromotionGateBlockerIds,
+  benchmarkPromotionGateStatusNeedsMoreEvidence,
+  benchmarkPromotionGateStatusReview,
+  minimumPromotionResultCases,
+} from "../packages/backend/src/benchmark-promotion-policy";
 import { qualityIssueCountBand, readAggregateQualitySnapshot, roundsUsedBand } from "../packages/backend/src/aggregate-quality-metadata";
 import { adjustmentFromMedianBand, aggregateSideAgreementBand, attemptCountBand, finalAdjustmentDirection, finalComponentPositionBand, finalConfidenceShiftBand, finalInsideViewDeltaBand, insideViewDeltaBand, meanConfidenceDistanceBand, readAggregateStatsSnapshot } from "../packages/backend/src/aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "../packages/backend/src/baseline-sanity-metadata";
@@ -1551,6 +1556,7 @@ await check("diagnostics surface latest forecast batch health", async () => {
   const health = readLatestForecastBatchHealth(fixtureRoot);
   const diagnosticsSource = await readFile(resolve(root, "packages/backend/src/diagnostics-service.ts"), "utf8");
   const benchmarkServiceSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
+  const benchmarkPromotionPolicySource = await readFile(resolve(root, "packages/backend/src/benchmark-promotion-policy.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const smokeSource = await readFile(resolve(root, "scripts/smoke-check.ts"), "utf8");
   const sourceDomainSummarySource = await readFile(resolve(root, "packages/backend/src/source-domain-summary.ts"), "utf8");
@@ -1578,9 +1584,9 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(diagnosticsSource.includes("benchmarkPromotionDiagnostics"), "diagnostics does not summarize benchmark promotion gates");
   assert(diagnosticsSource.includes("benchmarkPromotionDiagnostic"), "diagnostics does not turn benchmark promotion status into a check item");
   assert(diagnosticsSource.includes("sourceRiskBlockedRuns"), "diagnostics does not expose source-risk-blocked benchmark runs");
-  assert(benchmarkServiceSource.includes("benchmarkPromotionSourceRiskBlockerIds"), "backend does not keep source-risk promotion blockers with the promotion blocker contract");
+  assert(benchmarkPromotionPolicySource.includes("benchmarkPromotionSourceRiskBlockerIds"), "backend does not keep source-risk promotion blockers with the promotion blocker contract");
   assert(diagnosticsSource.includes("benchmarkPromotionSourceRiskBlockerIds"), "diagnostics does not derive source-risk blockers from the promotion blocker contract");
-  assert(benchmarkServiceSource.includes("blockerSourceCutoffLeakage") && benchmarkServiceSource.includes("blockerHumanForecastLeakage"), "promotion source-risk contract does not include leakage blockers");
+  assert(benchmarkPromotionPolicySource.includes("blockerSourceCutoffLeakage") && benchmarkPromotionPolicySource.includes("blockerHumanForecastLeakage"), "promotion source-risk contract does not include leakage blockers");
   assert(diagnosticsSource.includes("gateBlockers"), "diagnostics does not expose benchmark promotion blocker breakdowns");
   assert(smokeSource.includes("benchmarkPromotion"), "smoke check does not validate benchmark promotion diagnostics");
   assert(smokeSource.includes("benchmark_promotion_gate"), "smoke check does not require the benchmark promotion diagnostic item");
@@ -3824,14 +3830,16 @@ await check("benchmark analysis summarizes measured cost findings", async () => 
 
 await check("benchmark promotion blocks source independence failures", async () => {
   const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
+  const promotionPolicySource = await readFile(resolve(root, "packages/backend/src/benchmark-promotion-policy.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
   const smokeSource = await readFile(resolve(root, "scripts/smoke-check.ts"), "utf8");
   assert(backendSource.includes("sourceQualityFindings"), "benchmark promotion gate does not read source quality findings");
-  assert(backendSource.includes("source_cutoff_leakage"), "source cutoff leakage blocker missing");
-  assert(backendSource.includes("human_forecast_leakage"), "human forecast leakage blocker missing");
-  assert(backendSource.includes("source_concentration"), "source concentration blocker missing");
-  assert(backendSource.includes("low_quality_sources"), "low-quality source blocker missing");
+  assert(promotionPolicySource.includes("source_cutoff_leakage"), "source cutoff leakage blocker missing");
+  assert(promotionPolicySource.includes("human_forecast_leakage"), "human forecast leakage blocker missing");
+  assert(promotionPolicySource.includes("source_concentration"), "source concentration blocker missing");
+  assert(promotionPolicySource.includes("low_quality_sources"), "low-quality source blocker missing");
+  assert(backendSource.includes("blockerSourceCutoffLeakage") && backendSource.includes("blockerHumanForecastLeakage"), "benchmark gate does not use shared source-risk blockers");
   assert(backendSource.includes("summarizeSourceDomainCounts"), "benchmark source audit does not reuse the shared source-domain reducer");
   assert(backendSource.includes("./source-domain-summary"), "benchmark source audit does not import shared source-domain utilities");
   assert(!backendSource.includes("function sourceDomainCountsForAudit"), "benchmark source audit should not keep a local source-domain reducer");
@@ -3853,12 +3861,14 @@ await check("benchmark promotion blocks source independence failures", async () 
 
 await check("benchmark promotion blocks trace and schema failures", async () => {
   const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
+  const promotionPolicySource = await readFile(resolve(root, "packages/backend/src/benchmark-promotion-policy.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
   assert(backendSource.includes("traceQualityFindings"), "benchmark promotion gate does not read trace quality findings");
   assert(backendSource.includes("missingScoreRowsCases"), "trace quality summary does not count missing score rows");
   assert(backendSource.includes("missingAggregateRationaleCases"), "trace quality summary does not count missing rationale");
-  assert(backendSource.includes("schema_or_scoring_failures"), "schema/scoring blocker missing");
+  assert(promotionPolicySource.includes("schema_or_scoring_failures"), "schema/scoring blocker missing");
+  assert(backendSource.includes("blockerSchemaOrScoringFailures"), "benchmark gate does not use shared schema/scoring blocker");
   assert(metricsSource.includes("traceQualityFindings"), "metrics promotion gate does not read trace quality findings");
   assert(dashboardSource.includes("trace quality"), "lab dashboard does not surface trace quality findings");
   return "trace completeness, schema, scoring, and rationale failures block benchmark promotion";
@@ -3866,6 +3876,7 @@ await check("benchmark promotion blocks trace and schema failures", async () => 
 
 await check("benchmark promotion requires held-out case evidence", async () => {
   const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
+  const promotionPolicySource = await readFile(resolve(root, "packages/backend/src/benchmark-promotion-policy.ts"), "utf8");
   const importerSource = await readFile(resolve(root, "packages/backend/src/btf2-importer.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
   assert(backendSource.includes("benchmarkSplitSummaryForResults"), "benchmark split summary helper missing");
@@ -3874,8 +3885,9 @@ await check("benchmark promotion requires held-out case evidence", async () => {
   assert(importerSource.includes('split: "test"'), "BTF import does not persist dataset split metadata");
   assert(dashboardSource.includes("holdout evidence"), "lab dashboard does not surface holdout evidence");
   for (const splitId of benchmarkHoldoutSplitIds) {
-    assert(backendSource.includes(splitId), `benchmark holdout split ${splitId} missing from backend contract`);
+    assert(promotionPolicySource.includes(splitId), `benchmark holdout split ${splitId} missing from backend contract`);
   }
+  assert(backendSource.includes("benchmarkHoldoutSplitIds"), "benchmark split evaluation does not use shared holdout split policy");
   return "promotion review requires held-out benchmark evidence";
 });
 
@@ -3956,6 +3968,11 @@ await check("workflow change proposal lifecycle is exported as metrics", async (
 
 await check("benchmark promotion gate blockers are exported to DuckDB", async () => {
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  assert(syncSource.includes("../packages/backend/src/benchmark-promotion-policy"), "DuckDB sync does not import shared benchmark promotion policy");
+  assert(syncSource.includes("minimumPromotionResultCases"), "DuckDB sync does not use shared minimum result case policy");
+  assert(syncSource.includes("minimumPromotionHoldoutCases"), "DuckDB sync does not use shared minimum holdout case policy");
+  assert(syncSource.includes("benchmarkPromotionGateStatusReview"), "DuckDB sync does not use shared promotion review status");
+  assert(syncSource.includes("benchmarkPromotionGateStatusNeedsMoreEvidence"), "DuckDB sync does not use shared promotion blocked status");
   assert(syncSource.includes("promotion_gate_status"), "DuckDB benchmark run mart missing promotion gate status");
   assert(syncSource.includes("promotion_gate_blockers"), "DuckDB benchmark run mart missing promotion gate blockers");
   assert(syncSource.includes("missing_baseline_sanity_cases"), "DuckDB benchmark run mart missing baseline sanity count");
@@ -3971,8 +3988,8 @@ await check("benchmark promotion gate blockers are exported to DuckDB", async ()
   assert(syncSource.includes("top_source_domain_share"), "DuckDB benchmark run mart missing top source-domain share");
   assert(syncSource.includes("low_quality_source_entries"), "DuckDB benchmark run mart missing low-quality source entries");
   assert(syncSource.includes("low_quality_final_source_entries"), "DuckDB benchmark run mart missing final-use low-quality source entries");
-  assert(syncSource.includes("'source_concentration'"), "DuckDB promotion gate export missing source concentration blocker");
-  assert(syncSource.includes("'low_quality_sources'"), "DuckDB promotion gate export missing low-quality source blocker");
+  assert(syncSource.includes("blockerSourceConcentration"), "DuckDB promotion gate export missing source concentration blocker");
+  assert(syncSource.includes("blockerLowQualitySources"), "DuckDB promotion gate export missing low-quality source blocker");
   assert(syncSource.includes("weak_trace_completeness_cases"), "DuckDB benchmark run mart missing weak trace count");
   assert(syncSource.includes("missing_probability_cases"), "DuckDB benchmark run mart missing missing probability count");
   assert(syncSource.includes("missing_score_rows_cases"), "DuckDB benchmark run mart missing missing score rows count");
@@ -3998,7 +4015,8 @@ await check("benchmark promotion gate blockers are exported to DuckDB", async ()
   assert(syncSource.includes("from osf_benchmark_cost_status"), "DuckDB examples do not show status-level benchmark cost queries");
   assert(syncSource.includes("from osf_benchmark_cost_outliers"), "DuckDB examples do not show benchmark cost outlier queries");
   for (const blockerId of benchmarkPromotionGateBlockerIds) {
-    assert(syncSource.includes(blockerId), `DuckDB promotion gate export missing blocker ${blockerId}`);
+    const constName = blockerId.replace(/(^|_)([a-z])/g, (_match, _separator, letter: string) => letter.toUpperCase());
+    assert(syncSource.includes(`blocker${constName}`), `DuckDB promotion gate export missing blocker ${blockerId}`);
   }
   return "promotion gate blockers are visible in local DuckDB analytics";
 });
@@ -4137,7 +4155,7 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(backendSource.includes("assertWorkflowChangeProposalStatusTransitionAllowed"), "backend missing workflow proposal transition guard");
   assert(backendSource.includes("assertWorkflowChangeProposalImplementationStatusAllowed"), "backend missing workflow proposal implementation status guard");
   assert(backendSource.includes("validationResultStatus !== \"completed\""), "backend implemented transition does not require completed validation");
-  assert(backendSource.includes("validationGateStatus !== \"review_for_promotion\""), "backend implemented transition does not require a passing validation gate");
+  assert(backendSource.includes("validationGateStatus !== benchmarkPromotionGateStatusReview"), "backend implemented transition does not require a passing validation gate");
   assert(backendSource.includes("workflowProposalValidationGatePassed"), "backend missing shared validation gate pass helper");
   assert(backendSource.includes("workflowProposalValidationReadiness"), "backend missing shared validation readiness helper");
   assert(backendSource.includes("workflowProposalValidationPrimaryEvidence"), "backend missing primary paired validation evidence helper");

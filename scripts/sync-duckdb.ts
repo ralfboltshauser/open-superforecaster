@@ -5,6 +5,29 @@ import postgres from "postgres";
 import { readCalibrationDefaultPlanArtifacts } from "../packages/backend/src/calibration-default-plan-artifacts";
 import { readCalibrationGuardValidationArtifacts } from "../packages/backend/src/calibration-guard-validation-artifacts";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
+import {
+  benchmarkPromotionGateStatusNeedsMoreEvidence,
+  benchmarkPromotionGateStatusReview,
+  blockerBenchmarkStillRunning,
+  blockerFailedOrReviewCasesPresent,
+  blockerHumanForecastLeakage,
+  blockerInsufficientHoldoutEvidence,
+  blockerLargeProbabilityMisses,
+  blockerLowQualitySources,
+  blockerMissingAggregateRationale,
+  blockerMissingBaselineSanity,
+  blockerMissingComparisonReport,
+  blockerMissingTraceBundles,
+  blockerSchemaOrScoringFailures,
+  blockerSourceConcentration,
+  blockerSourceCutoffLeakage,
+  blockerTooFewCasesForPromotion,
+  blockerUnexplainedComponentDisagreement,
+  blockerWeakTraceCompleteness,
+  blockerWorseThanBaselineCases,
+  minimumPromotionHoldoutCases,
+  minimumPromotionResultCases,
+} from "../packages/backend/src/benchmark-promotion-policy";
 import { isExportCompatibleAttentionBacklogArtifact } from "../packages/backend/src/forecast-attention-backlog";
 import { readForecastAttentionBacklogArtifacts } from "../packages/backend/src/forecast-attention-backlog-artifacts";
 import { readForecastBatchIndexArtifacts } from "../packages/backend/src/forecast-batch-index-artifacts";
@@ -183,7 +206,7 @@ try {
           coalesce(nullif(ar.row_json #>> '{forecastErrorFindings,largeProbabilityMissCases}', '')::integer, 0) as large_probability_miss_cases,
           coalesce(nullif(ar.row_json #>> '{forecastErrorFindings,worseThanBaselineCases}', '')::integer, 0) as worse_than_baseline_cases,
           coalesce(nullif(ar.row_json #>> '{splitFindings,holdoutCaseResults}', '')::integer, 0) as holdout_case_results,
-          coalesce(nullif(ar.row_json #>> '{splitFindings,requiredHoldoutCaseResults}', '')::integer, 10) as required_holdout_case_results,
+          coalesce(nullif(ar.row_json #>> '{splitFindings,requiredHoldoutCaseResults}', '')::integer, ${minimumPromotionHoldoutCases}) as required_holdout_case_results,
           coalesce(nullif(ar.row_json #>> '{splitFindings,unspecifiedCaseResults}', '')::integer, 0) as unspecified_case_results,
           coalesce(nullif(ar.row_json #>> '{sourceQualityFindings,sourceLeakageCases}', '')::integer, 0) as source_leakage_cases,
           coalesce(nullif(ar.row_json #>> '{sourceQualityFindings,informationAdvantageCases}', '')::integer, 0) as information_advantage_cases,
@@ -210,24 +233,24 @@ try {
           counts.*,
           findings.*,
           array_remove(array[
-            case when br.status::text in ('running', 'queued') then 'benchmark_still_running' end,
-            case when counts.result_count < 10 then 'too_few_cases_for_promotion' end,
-            case when counts.trace_missing_count > 0 then 'missing_trace_bundles' end,
-            case when counts.review_or_failed_count > 0 then 'failed_or_review_cases_present' end,
-            case when cr.row_json #>> '{recommendation,status}' is null then 'missing_comparison_report' end,
+            case when br.status::text in ('running', 'queued') then ${blockerBenchmarkStillRunning} end,
+            case when counts.result_count < ${minimumPromotionResultCases} then ${blockerTooFewCasesForPromotion} end,
+            case when counts.trace_missing_count > 0 then ${blockerMissingTraceBundles} end,
+            case when counts.review_or_failed_count > 0 then ${blockerFailedOrReviewCasesPresent} end,
+            case when cr.row_json #>> '{recommendation,status}' is null then ${blockerMissingComparisonReport} end,
             case when cr.row_json #>> '{recommendation,status}' is not null and cr.row_json #>> '{recommendation,status}' <> 'candidate_better' then 'comparison_' || (cr.row_json #>> '{recommendation,status}') end,
-            case when findings.missing_baseline_sanity_cases > 0 then 'missing_baseline_sanity' end,
-            case when findings.unexplained_component_disagreement_cases > 0 then 'unexplained_component_disagreement' end,
-            case when findings.large_probability_miss_cases > 0 then 'large_probability_misses' end,
-            case when findings.worse_than_baseline_cases > 0 then 'worse_than_baseline_cases' end,
-            case when findings.holdout_case_results < findings.required_holdout_case_results then 'insufficient_holdout_evidence' end,
-            case when findings.source_leakage_cases > 0 or findings.post_cutoff_source_cases > 0 then 'source_cutoff_leakage' end,
-            case when findings.information_advantage_cases > 0 or findings.human_forecast_source_cases > 0 then 'human_forecast_leakage' end,
-            case when findings.dominant_source_domain_cases > 0 then 'source_concentration' end,
-            case when findings.low_quality_final_source_entries > 0 or findings.low_quality_source_cases > 0 then 'low_quality_sources' end,
-            case when findings.weak_trace_completeness_cases > 0 then 'weak_trace_completeness' end,
-            case when findings.missing_probability_cases > 0 or findings.missing_score_rows_cases > 0 then 'schema_or_scoring_failures' end,
-            case when findings.missing_aggregate_rationale_cases > 0 then 'missing_aggregate_rationale' end
+            case when findings.missing_baseline_sanity_cases > 0 then ${blockerMissingBaselineSanity} end,
+            case when findings.unexplained_component_disagreement_cases > 0 then ${blockerUnexplainedComponentDisagreement} end,
+            case when findings.large_probability_miss_cases > 0 then ${blockerLargeProbabilityMisses} end,
+            case when findings.worse_than_baseline_cases > 0 then ${blockerWorseThanBaselineCases} end,
+            case when findings.holdout_case_results < findings.required_holdout_case_results then ${blockerInsufficientHoldoutEvidence} end,
+            case when findings.source_leakage_cases > 0 or findings.post_cutoff_source_cases > 0 then ${blockerSourceCutoffLeakage} end,
+            case when findings.information_advantage_cases > 0 or findings.human_forecast_source_cases > 0 then ${blockerHumanForecastLeakage} end,
+            case when findings.dominant_source_domain_cases > 0 then ${blockerSourceConcentration} end,
+            case when findings.low_quality_final_source_entries > 0 or findings.low_quality_source_cases > 0 then ${blockerLowQualitySources} end,
+            case when findings.weak_trace_completeness_cases > 0 then ${blockerWeakTraceCompleteness} end,
+            case when findings.missing_probability_cases > 0 or findings.missing_score_rows_cases > 0 then ${blockerSchemaOrScoringFailures} end,
+            case when findings.missing_aggregate_rationale_cases > 0 then ${blockerMissingAggregateRationale} end
           ]::text[], null) as blocker_values
         from counts, findings
       )
@@ -261,7 +284,7 @@ try {
         missing_probability_cases,
         missing_score_rows_cases,
         missing_aggregate_rationale_cases,
-        case when cardinality(blocker_values) = 0 then 'review_for_promotion' else 'needs_more_evidence' end as promotion_gate_status,
+        case when cardinality(blocker_values) = 0 then ${benchmarkPromotionGateStatusReview} else ${benchmarkPromotionGateStatusNeedsMoreEvidence} end as promotion_gate_status,
         array_to_string(blocker_values, ',') as promotion_gate_blockers
       from blockers
     ) gate on true
