@@ -51,6 +51,13 @@ export type ForecastAttentionReviewStatus = typeof forecastAttentionReviewStatus
 
 export const defaultForecastAttentionReviewStatus: ForecastAttentionReviewStatus = "open";
 
+export type ForecastAttentionReviewStatusCounts = {
+  items: number;
+  open: number;
+  deferred: number;
+  reviewed: number;
+};
+
 export type SupplementalForecastAttentionKind =
   | "candidate_calibration_guard"
   | "calibration_guard_default_candidate"
@@ -74,6 +81,17 @@ export function forecastAttentionReviewStatusRank(status: ForecastAttentionRevie
     return 1;
   }
   return 2;
+}
+
+export function summarizeForecastAttentionReviewStatuses<T extends { reviewStatus: string | null | undefined }>(
+  items: T[],
+): ForecastAttentionReviewStatusCounts {
+  return {
+    items: items.length,
+    open: items.filter((item) => item.reviewStatus === "open").length,
+    deferred: items.filter((item) => item.reviewStatus === "deferred").length,
+    reviewed: items.filter((item) => item.reviewStatus === "reviewed").length,
+  };
 }
 
 export function forecastAttentionSeveritySortRank(severity: string | null | undefined) {

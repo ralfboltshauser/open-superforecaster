@@ -9,6 +9,7 @@ import {
   forecastAttentionSeveritySortRank,
   forecastAttentionReviewStatusRank,
   isForecastAttentionReviewStatus,
+  summarizeForecastAttentionReviewStatuses,
   type ForecastAttentionReviewStatus,
 } from "../packages/backend/src/forecast-attention-policy";
 import {
@@ -248,6 +249,8 @@ async function buildHealthReport(
     candidateCalibrationGuardRules,
     readSupplementalAttentionItems(compatibleAttentionBacklog, batchId),
   );
+  const attentionReviewCounts = summarizeForecastAttentionReviewStatuses(attentionItems);
+  const candidateGuardReviewCounts = summarizeForecastAttentionReviewStatuses(candidateCalibrationGuardRules);
   const summary = {
     entries: readNumber(counts, "entries") ?? 0,
     forecastOps: readNumber(counts, "forecastOps") ?? 0,
@@ -259,16 +262,16 @@ async function buildHealthReport(
     failedResolutions: readNumber(counts, "failedResolutions") ?? 0,
     performanceScoreRows: readNumber(counts, "performanceScoreRows"),
     attentionItems: attentionItems.length,
-    openAttentionItems: countStatus(attentionItems, "open"),
-    deferredAttentionItems: countStatus(attentionItems, "deferred"),
-    reviewedAttentionItems: countStatus(attentionItems, "reviewed"),
+    openAttentionItems: attentionReviewCounts.open,
+    deferredAttentionItems: attentionReviewCounts.deferred,
+    reviewedAttentionItems: attentionReviewCounts.reviewed,
     unresolvedAttentionItems: 0,
     scoreRegressionItems: countScoreRegressions(attentionItems),
     calibrationGuardRegressionItems: countCalibrationGuardRegressions(attentionItems),
     candidateCalibrationGuardRules: readNumber(counts, "candidateCalibrationGuardRules") ?? candidateCalibrationGuardRules.length,
-    openCandidateCalibrationGuardRules: readNumber(counts, "openCandidateCalibrationGuardRules") ?? countCandidateRuleStatus(candidateCalibrationGuardRules, "open"),
-    deferredCandidateCalibrationGuardRules: readNumber(counts, "deferredCandidateCalibrationGuardRules") ?? countCandidateRuleStatus(candidateCalibrationGuardRules, "deferred"),
-    reviewedCandidateCalibrationGuardRules: readNumber(counts, "reviewedCandidateCalibrationGuardRules") ?? countCandidateRuleStatus(candidateCalibrationGuardRules, "reviewed"),
+    openCandidateCalibrationGuardRules: readNumber(counts, "openCandidateCalibrationGuardRules") ?? candidateGuardReviewCounts.open,
+    deferredCandidateCalibrationGuardRules: readNumber(counts, "deferredCandidateCalibrationGuardRules") ?? candidateGuardReviewCounts.deferred,
+    reviewedCandidateCalibrationGuardRules: readNumber(counts, "reviewedCandidateCalibrationGuardRules") ?? candidateGuardReviewCounts.reviewed,
     unresolvedCandidateCalibrationGuardRules: 0,
   };
   summary.unresolvedAttentionItems = summary.openAttentionItems + summary.deferredAttentionItems;
@@ -713,14 +716,6 @@ function countPhase(summary: HealthReport["summary"], phase: BatchPhase) {
   return summary.performanceReports;
 }
 
-function countStatus(items: HealthAttentionItem[], status: ReviewStatus) {
-  return items.filter((item) => item.reviewStatus === status).length;
-}
-
-function countCandidateRuleStatus(items: HealthCandidateCalibrationGuardRule[], status: ReviewStatus) {
-  return items.filter((item) => item.reviewStatus === status).length;
-}
-
 function countScoreRegressions(items: HealthAttentionItem[]) {
   return items.filter((item) =>
     item.reviewStatus !== "reviewed" &&
@@ -734,16 +729,19 @@ function countCalibrationGuardRegressions(items: HealthAttentionItem[]) {
 
 function summarizeAttentionByKind(items: HealthAttentionItem[]): AttentionKindBreakdown[] {
   return [...groupBy(items, (item) => item.kind).entries()]
-    .map(([kind, rows]) => ({
-      kind,
-      items: rows.length,
-      open: countStatus(rows, "open"),
-      deferred: countStatus(rows, "deferred"),
-      reviewed: countStatus(rows, "reviewed"),
-      high: countSeverity(rows, "high"),
-      medium: countSeverity(rows, "medium"),
-      low: countSeverity(rows, "low"),
-    }))
+    .map(([kind, rows]) => {
+      const reviewCounts = summarizeForecastAttentionReviewStatuses(rows);
+      return {
+        kind,
+        items: rows.length,
+        open: reviewCounts.open,
+        deferred: reviewCounts.deferred,
+        reviewed: reviewCounts.reviewed,
+        high: countSeverity(rows, "high"),
+        medium: countSeverity(rows, "medium"),
+        low: countSeverity(rows, "low"),
+      };
+    })
     .sort((left, right) =>
       (right.open + right.deferred) - (left.open + left.deferred)
       || forecastAttentionSeveritySortRank(left.high > 0 ? "high" : left.medium > 0 ? "medium" : "low") - forecastAttentionSeveritySortRank(right.high > 0 ? "high" : right.medium > 0 ? "medium" : "low")
@@ -753,28 +751,34 @@ function summarizeAttentionByKind(items: HealthAttentionItem[]): AttentionKindBr
 
 function summarizeAttentionBySeverity(items: HealthAttentionItem[]): AttentionSeverityBreakdown[] {
   return [...groupBy(items, (item) => item.severity).entries()]
-    .map(([severity, rows]) => ({
-      severity,
-      items: rows.length,
-      open: countStatus(rows, "open"),
-      deferred: countStatus(rows, "deferred"),
-      reviewed: countStatus(rows, "reviewed"),
-    }))
+    .map(([severity, rows]) => {
+      const reviewCounts = summarizeForecastAttentionReviewStatuses(rows);
+      return {
+        severity,
+        items: rows.length,
+        open: reviewCounts.open,
+        deferred: reviewCounts.deferred,
+        reviewed: reviewCounts.reviewed,
+      };
+    })
     .sort((left, right) => forecastAttentionSeveritySortRank(left.severity) - forecastAttentionSeveritySortRank(right.severity) || left.severity.localeCompare(right.severity));
 }
 
 function summarizeAttentionByForecastType(items: HealthAttentionItem[]): AttentionForecastTypeBreakdown[] {
   return [...groupBy(items, (item) => item.forecastType).entries()]
-    .map(([forecastType, rows]) => ({
-      forecastType,
-      items: rows.length,
-      open: countStatus(rows, "open"),
-      deferred: countStatus(rows, "deferred"),
-      reviewed: countStatus(rows, "reviewed"),
-      high: countSeverity(rows, "high"),
-      medium: countSeverity(rows, "medium"),
-      low: countSeverity(rows, "low"),
-    }))
+    .map(([forecastType, rows]) => {
+      const reviewCounts = summarizeForecastAttentionReviewStatuses(rows);
+      return {
+        forecastType,
+        items: rows.length,
+        open: reviewCounts.open,
+        deferred: reviewCounts.deferred,
+        reviewed: reviewCounts.reviewed,
+        high: countSeverity(rows, "high"),
+        medium: countSeverity(rows, "medium"),
+        low: countSeverity(rows, "low"),
+      };
+    })
     .sort((left, right) =>
       (right.open + right.deferred) - (left.open + left.deferred)
       || forecastAttentionSeveritySortRank(left.high > 0 ? "high" : left.medium > 0 ? "medium" : "low") - forecastAttentionSeveritySortRank(right.high > 0 ? "high" : right.medium > 0 ? "medium" : "low")

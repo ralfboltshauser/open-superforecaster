@@ -5,7 +5,10 @@ import {
   normalizeCalibrationGuardActivationStatus,
   type CalibrationGuardActivationStatus,
 } from "../packages/backend/src/calibration-guard-activation-policy";
-import { defaultForecastAttentionReviewStatus } from "../packages/backend/src/forecast-attention-policy";
+import {
+  defaultForecastAttentionReviewStatus,
+  summarizeForecastAttentionReviewStatuses,
+} from "../packages/backend/src/forecast-attention-policy";
 import {
   readArgValue,
   readJson,
@@ -275,6 +278,8 @@ function buildAudit(
   const candidateCalibrationGuardRules = sortedEntries
     .flatMap((entry) => entry.candidateCalibrationGuardRules)
     .map((rule) => withCandidateRuleReview(rule, reviewsByItemId.get(rule.id)));
+  const attentionReviewCounts = summarizeForecastAttentionReviewStatuses(attentionItems);
+  const candidateGuardReviewCounts = summarizeForecastAttentionReviewStatuses(candidateCalibrationGuardRules);
   return {
     batchId,
     generatedAt: new Date().toISOString(),
@@ -292,13 +297,13 @@ function buildAudit(
       failedResolutions: sumSummary(sortedEntries, "forecast_resolution", "failed"),
       performanceScoreRows: latestNumberSummary(sortedEntries, "forecast_performance", "productScoreRows"),
       attentionItems: attentionItems.length,
-      openAttentionItems: attentionItems.filter((item) => item.reviewStatus === "open").length,
-      reviewedAttentionItems: attentionItems.filter((item) => item.reviewStatus === "reviewed").length,
-      deferredAttentionItems: attentionItems.filter((item) => item.reviewStatus === "deferred").length,
+      openAttentionItems: attentionReviewCounts.open,
+      reviewedAttentionItems: attentionReviewCounts.reviewed,
+      deferredAttentionItems: attentionReviewCounts.deferred,
       candidateCalibrationGuardRules: candidateCalibrationGuardRules.length,
-      openCandidateCalibrationGuardRules: candidateCalibrationGuardRules.filter((rule) => rule.reviewStatus === "open").length,
-      reviewedCandidateCalibrationGuardRules: candidateCalibrationGuardRules.filter((rule) => rule.reviewStatus === "reviewed").length,
-      deferredCandidateCalibrationGuardRules: candidateCalibrationGuardRules.filter((rule) => rule.reviewStatus === "deferred").length,
+      openCandidateCalibrationGuardRules: candidateGuardReviewCounts.open,
+      reviewedCandidateCalibrationGuardRules: candidateGuardReviewCounts.reviewed,
+      deferredCandidateCalibrationGuardRules: candidateGuardReviewCounts.deferred,
     },
     attentionItems,
     candidateCalibrationGuardRules,

@@ -250,6 +250,8 @@ await check("forecast batch index joins all batch phases", async () => {
   assert(markdown.includes("poor_resolved_forecast | binary | brier"), "batch index markdown does not render attention forecast type");
   assert(candidateGuardRules.length === 1, "candidate calibration guard was not copied into audit");
   assert(readString(candidateGuardRules[0], "reviewStatus") === "deferred", "candidate calibration guard review status was not merged");
+  const batchIndexSource = await readFile(resolve(root, "scripts/forecast-batch-index.ts"), "utf8");
+  assert(batchIndexSource.includes("summarizeForecastAttentionReviewStatuses"), "batch index does not use shared attention review status counts");
   return "batch index joins ops, resolution, and performance phases";
 });
 
@@ -1766,18 +1768,23 @@ await check("forecast performance reports surface candidate calibration guards",
   assert((await readFile(resolve(root, "packages/backend/src/index.ts"), "utf8")).includes("forecast-attention-policy"), "backend package barrel does not export forecast attention policy");
   assert(attentionBacklogSource.includes("recommendCalibrationValidationActions"), "attention backlog does not use shared validation backlog actions");
   assert(attentionBacklogSource.includes("forecastAttentionReviewStatusRank"), "attention backlog does not use shared review status rank");
+  assert(attentionBacklogSource.includes("summarizeForecastAttentionReviewStatuses"), "attention backlog does not use shared review status counts");
   assert(attentionBacklogSource.includes("forecastAttentionSeveritySortRank"), "attention backlog does not use shared attention severity rank");
   assert(attentionBacklogSource.includes("calibrationGuardActivationSeverity"), "attention backlog does not use shared candidate guard activation severity");
   assert(!attentionBacklogSource.includes("function recommendedActionsForCalibrationValidation("), "attention backlog should not keep local validation actions");
   assert(!attentionBacklogSource.includes("function recommendedActionsForDefaultPlanSkipped("), "attention backlog should not keep local default-plan actions");
   assert(!attentionBacklogSource.includes("function statusRank("), "attention backlog should not keep local review status rank");
+  assert(!attentionBacklogSource.includes("function countStatus("), "attention backlog should not keep local review status counter");
   assert(!attentionBacklogSource.includes("function severityRank("), "attention backlog should not keep local severity rank");
   assert(batchHealthSource.includes("forecastAttentionReviewStatusRank"), "batch health does not use shared review status rank");
+  assert(batchHealthSource.includes("summarizeForecastAttentionReviewStatuses"), "batch health does not use shared review status counts");
   assert(batchHealthSource.includes("forecastAttentionSeveritySortRank"), "batch health does not use shared attention severity rank");
   assert(batchHealthSource.includes("calibrationGuardActivationSeverity"), "batch health does not use shared candidate guard activation severity");
   assert(backendBatchHealthSource.includes("normalizeCalibrationGuardActivationStatus"), "shared batch health reader does not normalize candidate guard activation status");
   assert(batchIndexSource.includes("normalizeCalibrationGuardActivationStatus"), "batch index does not normalize candidate guard activation status");
   assert(!batchHealthSource.includes("function statusRank("), "batch health should not keep local review status rank");
+  assert(!batchHealthSource.includes("function countStatus("), "batch health should not keep local review status counter");
+  assert(!batchHealthSource.includes("function countCandidateRuleStatus("), "batch health should not keep local candidate guard review status counter");
   assert(!batchHealthSource.includes("function severityRank("), "batch health should not keep local severity rank");
   assert(resolutionSource.includes("performanceAttentionSeverityRank"), "performance report does not use shared performance severity rank");
   assert(calibrationProposalSource.includes("normalizeForecastAttentionReviewStatus"), "calibration proposals do not use shared review status normalization");

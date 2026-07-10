@@ -20,6 +20,7 @@ import {
   recommendCalibrationDefaultPlanSkippedActions,
   recommendCalibrationValidationActions,
   recommendCandidateCalibrationGuardActions,
+  summarizeForecastAttentionReviewStatuses,
   type ForecastAttentionReviewStatus,
 } from "../packages/backend/src/forecast-attention-policy";
 import {
@@ -339,6 +340,7 @@ function buildReport(
   defaultPlanDir: string,
   reviewPath: string,
 ): BacklogReport {
+  const reviewCounts = summarizeForecastAttentionReviewStatuses(items);
   return {
     reportType: "forecast_attention_backlog",
     generatedAt: new Date().toISOString(),
@@ -348,9 +350,9 @@ function buildReport(
     },
     counts: {
       items: items.length,
-      open: countStatus(items, "open"),
-      deferred: countStatus(items, "deferred"),
-      reviewed: countStatus(items, "reviewed"),
+      open: reviewCounts.open,
+      deferred: reviewCounts.deferred,
+      reviewed: reviewCounts.reviewed,
       high: countSeverity(items, "high"),
       medium: countSeverity(items, "medium"),
       low: countSeverity(items, "low"),
@@ -461,10 +463,6 @@ function batchIdFromProposalId(proposalId: string) {
   return match?.[1] ?? null;
 }
 
-function countStatus(items: BacklogItem[], status: ReviewStatus) {
-  return items.filter((item) => item.reviewStatus === status).length;
-}
-
 function countSeverity(items: BacklogItem[], severity: string) {
   return items.filter((item) => item.severity === severity).length;
 }
@@ -509,11 +507,12 @@ function summarizeBacklogGroups(items: BacklogItem[], keyFor: (item: BacklogItem
 }
 
 function countBreakdown(items: BacklogItem[]): BacklogBreakdownCounts {
+  const reviewCounts = summarizeForecastAttentionReviewStatuses(items);
   return {
     items: items.length,
-    open: countStatus(items, "open"),
-    deferred: countStatus(items, "deferred"),
-    reviewed: countStatus(items, "reviewed"),
+    open: reviewCounts.open,
+    deferred: reviewCounts.deferred,
+    reviewed: reviewCounts.reviewed,
     high: countSeverity(items, "high"),
     medium: countSeverity(items, "medium"),
     low: countSeverity(items, "low"),
