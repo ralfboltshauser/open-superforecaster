@@ -5,6 +5,7 @@ export type ForecastInputContextSnapshot = {
   requestedForecastTypeBand: "specified" | "unspecified" | "unknown";
   routedForecastType: "binary" | "date" | "numeric" | "categorical" | "thresholded" | "conditional" | null;
   routedForecastTypeBand: "specified" | "unspecified" | "unknown";
+  requestedRoutedTypeBand: "match" | "mismatch" | "requested_only" | "routed_only" | "both_missing" | "unknown";
   routingConfidence: number | null;
   routingConfidenceBand: "low" | "medium" | "high" | "unknown";
   inputSource: string | null;
@@ -134,6 +135,7 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     requestedForecastTypeBand: requestedForecastTypeBand(requestedForecastType),
     routedForecastType,
     routedForecastTypeBand: forecastTypePresenceBand(routedForecastType),
+    requestedRoutedTypeBand: requestedRoutedTypeBand({ requestedForecastType, routedForecastType }),
     routingConfidence,
     routingConfidenceBand: routingConfidenceBand(routingConfidence),
     inputSource,
@@ -200,6 +202,7 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   const requestedForecastTypeBandValue = readString(value, "requestedForecastTypeBand");
   const routedForecastType = readRoutedForecastType(value);
   const routedForecastTypeBandValue = readString(value, "routedForecastTypeBand");
+  const requestedRoutedTypeBandValue = readString(value, "requestedRoutedTypeBand");
   const routingConfidence = readNumber(value, "routingConfidence");
   const routingConfidenceBandValue = readString(value, "routingConfidenceBand");
   const inputSource = readString(value, "inputSource");
@@ -244,6 +247,9 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
     routedForecastTypeBand: isForecastTypePresenceBand(routedForecastTypeBandValue)
       ? routedForecastTypeBandValue
       : forecastTypePresenceBand(routedForecastType),
+    requestedRoutedTypeBand: isRequestedRoutedTypeBand(requestedRoutedTypeBandValue)
+      ? requestedRoutedTypeBandValue
+      : requestedRoutedTypeBand({ requestedForecastType, routedForecastType }),
     routingConfidence,
     routingConfidenceBand: isRoutingConfidenceBand(routingConfidenceBandValue)
       ? routingConfidenceBandValue
@@ -379,6 +385,22 @@ export function forecastTypePresenceBand(
   forecastType: ForecastInputContextSnapshot["routedForecastType"],
 ): ForecastInputContextSnapshot["routedForecastTypeBand"] {
   return forecastType ? "specified" : "unspecified";
+}
+
+export function requestedRoutedTypeBand(input: {
+  requestedForecastType: ForecastInputContextSnapshot["requestedForecastType"];
+  routedForecastType: ForecastInputContextSnapshot["routedForecastType"];
+}): ForecastInputContextSnapshot["requestedRoutedTypeBand"] {
+  if (!input.requestedForecastType && !input.routedForecastType) {
+    return "both_missing";
+  }
+  if (input.requestedForecastType && !input.routedForecastType) {
+    return "requested_only";
+  }
+  if (!input.requestedForecastType && input.routedForecastType) {
+    return "routed_only";
+  }
+  return input.requestedForecastType === input.routedForecastType ? "match" : "mismatch";
 }
 
 export function routingConfidenceBand(confidence: number | null): ForecastInputContextSnapshot["routingConfidenceBand"] {
@@ -768,6 +790,10 @@ function isRequestedForecastTypeBand(value: string | null): value is ForecastInp
 
 function isForecastTypePresenceBand(value: string | null): value is ForecastInputContextSnapshot["routedForecastTypeBand"] {
   return value === "specified" || value === "unspecified" || value === "unknown";
+}
+
+function isRequestedRoutedTypeBand(value: string | null): value is ForecastInputContextSnapshot["requestedRoutedTypeBand"] {
+  return value === "match" || value === "mismatch" || value === "requested_only" || value === "routed_only" || value === "both_missing" || value === "unknown";
 }
 
 function isRoutingConfidenceBand(value: string | null): value is ForecastInputContextSnapshot["routingConfidenceBand"] {

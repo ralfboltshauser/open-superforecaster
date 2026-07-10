@@ -351,8 +351,9 @@ aggregates. They also share canonical evidence aggregation with source-bank
 persistence, so repeated citations are deduped before source-count analytics and
 attempt-level key uncertainties are preserved on aggregate forecasts. New forecast runs also preserve
 structured input context in score rows, including resolution criteria/date,
-resolution-criteria depth, evidence as-of date, resolution horizon, requested and routed forecast
-type, routing confidence, input source, market price and market-price recency, background, background depth,
+resolution-criteria depth, evidence as-of date, resolution horizon, requested
+and routed forecast type plus their alignment, routing confidence, input source,
+market price and market-price recency, background, background depth,
 market metadata and market creation age, option counts and coverage, threshold counts, values,
 direction and bands, condition/unit flags, unit specificity,
 condition-criteria coverage, condition depth, condition-criteria depth, and
