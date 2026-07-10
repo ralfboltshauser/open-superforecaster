@@ -538,6 +538,7 @@ await check("forecast calibration default plan requires held-out promotion", asy
   const validationDir = resolve(fixtureRoot, "validation");
   const outputDir = resolve(fixtureRoot, "out");
   const defaultPlanSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-default-plan.ts"), "utf8");
+  const defaultPlanArtifactSource = await readFile(resolve(root, "packages/backend/src/calibration-default-plan-artifacts.ts"), "utf8");
   const validationPolicySource = await readFile(resolve(root, "packages/backend/src/calibration-guard-validation-policy.ts"), "utf8");
   await mkdir(validationDir, { recursive: true });
   await writeJson(resolve(validationDir, "calibration-guard-validation.json"), {
@@ -633,14 +634,20 @@ await check("forecast calibration default plan requires held-out promotion", asy
   assert(defaultPlanSource.includes("isCalibrationGuardDefaultPromotionCandidate"), "default-plan generator does not use shared default promotion predicate");
   assert(defaultPlanSource.includes("buildCalibrationGuardDefaultPlanCandidate"), "default-plan generator does not use shared default candidate builder");
   assert(defaultPlanSource.includes("calibrationGuardDefaultPlanSkippedReasonForValidation"), "default-plan generator does not use shared skipped-row reason policy");
+  assert(defaultPlanSource.includes("buildCalibrationDefaultPlanArtifactIssues"), "default-plan generator does not use shared artifact issue policy");
   assert(validationPolicySource.includes("calibrationGuardDefaultPlanTargetWorkflowId"), "calibration validation policy does not expose default-plan target workflow");
   assert(validationPolicySource.includes("calibrationGuardDefaultPlanTargetFile"), "calibration validation policy does not expose default-plan target file");
   assert(validationPolicySource.includes("calibrationGuardDefaultPlanManualReviewStatus"), "calibration validation policy does not expose default-plan manual review status");
   assert(validationPolicySource.includes("buildCalibrationGuardDefaultPlanCandidate"), "calibration validation policy does not expose default-plan candidate builder");
+  assert(defaultPlanArtifactSource.includes("calibrationDefaultPlanIssueValidationReportTimestampMissing"), "default-plan artifact reader does not expose timestamp-missing issue kind");
+  assert(defaultPlanArtifactSource.includes("calibrationDefaultPlanIssueValidationReportStale"), "default-plan artifact reader does not expose stale validation issue kind");
+  assert(defaultPlanArtifactSource.includes("buildCalibrationDefaultPlanArtifactIssues"), "default-plan artifact reader does not expose artifact issue policy");
   assert(defaultPlanSource.includes("reportRoot: validationReportDir"), "default-plan generator does not pass its configured validation directory to the shared reader");
   assert(!defaultPlanSource.includes("listFilesNamed(validationRoot"), "default-plan generator should not keep a local validation artifact scanner");
   assert(!defaultPlanSource.includes("readRecordArray(input.validationPayload"), "default-plan generator should not parse validation rows from raw JSON");
   assert(!defaultPlanSource.includes("function buildDefaultCandidate("), "default-plan generator should not keep local default candidate policy");
+  assert(!defaultPlanSource.includes("function defaultPlanIssues("), "default-plan generator should not keep local artifact issue policy");
+  assert(!defaultPlanSource.includes("function timestampValue("), "default-plan generator should not keep local timestamp parsing");
   assert(!defaultPlanSource.includes("targetWorkflowId: \"binary-calibration-guard\""), "default-plan generator should not keep local target workflow policy");
   assert(!defaultPlanSource.includes("targetFile: \"packages/workflows/src/binary-calibration-guard.ts\""), "default-plan generator should not keep local target file policy");
   assert(!defaultPlanSource.includes("implementationStatus: \"manual_review_required\""), "default-plan generator should not keep local implementation status policy");

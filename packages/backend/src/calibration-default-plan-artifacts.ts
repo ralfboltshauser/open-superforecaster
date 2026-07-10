@@ -51,6 +51,21 @@ export type CalibrationDefaultPlanIssue = {
   latestValidationReport: string | null;
 };
 
+export const calibrationDefaultPlanIssueValidationReportTimestampMissing = "validation_report_timestamp_missing";
+export const calibrationDefaultPlanIssueValidationReportStale = "validation_report_stale";
+
+export type CalibrationDefaultPlanIssueKind =
+  | typeof calibrationDefaultPlanIssueValidationReportTimestampMissing
+  | typeof calibrationDefaultPlanIssueValidationReportStale;
+
+export type CalibrationDefaultPlanGeneratedIssue = {
+  severity: "medium";
+  kind: CalibrationDefaultPlanIssueKind;
+  message: string;
+  validationReport: string | null;
+  latestValidationReport: string | null;
+};
+
 export type LatestCalibrationDefaultPlanSnapshot = {
   exists: boolean;
   path: string;
@@ -61,6 +76,39 @@ export type LatestCalibrationDefaultPlanSnapshot = {
 };
 
 const defaultPlanReportPath = "data/reports/forecast-calibration-guard-default-plan/calibration-guard-default-plan.json";
+
+export function buildCalibrationDefaultPlanArtifactIssues(input: {
+  validationReportPath: string | null;
+  validationReportGeneratedAt: string | null;
+  latestValidationReportPath: string | null;
+  latestValidationReportGeneratedAt: string | null;
+}): CalibrationDefaultPlanGeneratedIssue[] {
+  if (!input.validationReportPath) {
+    return [];
+  }
+  const issues: CalibrationDefaultPlanGeneratedIssue[] = [];
+  const validationTimestamp = timestampValue(input.validationReportGeneratedAt);
+  const latestTimestamp = timestampValue(input.latestValidationReportGeneratedAt);
+  if (validationTimestamp === 0) {
+    issues.push({
+      severity: "medium",
+      kind: calibrationDefaultPlanIssueValidationReportTimestampMissing,
+      message: "Selected calibration validation report has no parseable generatedAt timestamp; review before using default-plan output.",
+      validationReport: input.validationReportPath,
+      latestValidationReport: input.latestValidationReportPath,
+    });
+  }
+  if (validationTimestamp > 0 && latestTimestamp > 0 && latestTimestamp > validationTimestamp) {
+    issues.push({
+      severity: "medium",
+      kind: calibrationDefaultPlanIssueValidationReportStale,
+      message: "Selected calibration validation report is older than the latest validation report in the configured directory.",
+      validationReport: input.validationReportPath,
+      latestValidationReport: input.latestValidationReportPath,
+    });
+  }
+  return issues;
+}
 
 export async function readCalibrationDefaultPlanArtifacts(root: string, input: { reportRoot?: string } = {}): Promise<CalibrationDefaultPlanArtifact[]> {
   const reportRoot = input.reportRoot ?? resolve(root, "data/reports/forecast-calibration-guard-default-plan");

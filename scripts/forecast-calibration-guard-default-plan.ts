@@ -1,6 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
+  buildCalibrationDefaultPlanArtifactIssues,
+  type CalibrationDefaultPlanGeneratedIssue,
+} from "../packages/backend/src/calibration-default-plan-artifacts";
+import {
   readCalibrationGuardValidationArtifacts,
   type CalibrationGuardValidationArtifact,
   type CalibrationGuardValidationRow,
@@ -59,13 +63,7 @@ type DefaultPlanReport = {
   };
 };
 
-type DefaultPlanIssue = {
-  severity: "medium";
-  kind: "validation_report_timestamp_missing" | "validation_report_stale";
-  message: string;
-  validationReport: string | null;
-  latestValidationReport: string | null;
-};
+type DefaultPlanIssue = CalibrationDefaultPlanGeneratedIssue;
 
 const root = resolve(import.meta.dir, "..");
 const args = Bun.argv.slice(2);
@@ -112,7 +110,12 @@ function buildDefaultPlanReport(input: {
   markdownPath: string;
 }): DefaultPlanReport {
   const validationRows = (input.validationReport?.validations ?? []).flatMap(readValidationRow);
-  const issues = defaultPlanIssues(input);
+  const issues = buildCalibrationDefaultPlanArtifactIssues({
+    validationReportPath: input.validationReport?.reportPath ?? null,
+    validationReportGeneratedAt: input.validationReport?.generatedAt ?? null,
+    latestValidationReportPath: input.latestValidationReportPath,
+    latestValidationReportGeneratedAt: input.latestValidationReportGeneratedAt,
+  });
   const defaultCandidates = validationRows
     .filter(isCalibrationGuardDefaultPromotionCandidate)
     .map(buildCalibrationGuardDefaultPlanCandidate);
@@ -145,39 +148,6 @@ function buildDefaultPlanReport(input: {
       validationReportDir: input.validationReportDir,
     },
   };
-}
-
-function defaultPlanIssues(input: {
-  validationReport: CalibrationGuardValidationArtifact | null;
-  latestValidationReportPath: string | null;
-  latestValidationReportGeneratedAt: string | null;
-}): DefaultPlanIssue[] {
-  if (!input.validationReport) {
-    return [];
-  }
-  const issues: DefaultPlanIssue[] = [];
-  const validationGeneratedAt = input.validationReport.generatedAt;
-  const validationTimestamp = timestampValue(validationGeneratedAt);
-  const latestTimestamp = timestampValue(input.latestValidationReportGeneratedAt);
-  if (validationTimestamp === 0) {
-    issues.push({
-      severity: "medium",
-      kind: "validation_report_timestamp_missing",
-      message: "Selected calibration validation report has no parseable generatedAt timestamp; review before using default-plan output.",
-      validationReport: input.validationReport.reportPath,
-      latestValidationReport: input.latestValidationReportPath,
-    });
-  }
-  if (validationTimestamp > 0 && latestTimestamp > 0 && latestTimestamp > validationTimestamp) {
-    issues.push({
-      severity: "medium",
-      kind: "validation_report_stale",
-      message: "Selected calibration validation report is older than the latest validation report in the configured directory.",
-      validationReport: input.validationReport.reportPath,
-      latestValidationReport: input.latestValidationReportPath,
-    });
-  }
-  return issues;
 }
 
 function renderMarkdown(report: DefaultPlanReport) {
@@ -281,11 +251,6 @@ function readValidationRow(value: CalibrationGuardValidationRow): ValidationRow[
     calibrationErrorDelta: value.calibrationErrorDelta,
     recommendation,
   }];
-}
-
-function timestampValue(value: string | null) {
-  const time = value ? new Date(value).getTime() : 0;
-  return Number.isFinite(time) ? time : 0;
 }
 
 function roundMetric(value: number) {
