@@ -374,7 +374,9 @@ performance reports group by each run-lineage signal so quality changes can be
 compared against runtime and variant changes.
 The local DuckDB sync also derives `osf_source_bank_domains` from persisted
 source-bank entries so source concentration, final-use count, source-type mix,
-and mean source quality can be audited by domain.
+and mean source quality can be audited by domain. Prometheus metrics expose the
+distinct source-domain count and the top source domains by source volume, final
+use, task count, and mean quality score.
 
 To consolidate those local artifacts into one audit file:
 

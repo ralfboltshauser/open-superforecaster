@@ -1417,6 +1417,12 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_calibration_guard_validation_calibration_error_delta"), "calibration validation calibration error delta metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_candidates_total"), "calibration default plan candidate metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_candidate_brier_delta"), "calibration default plan Brier delta metric missing");
+  assert(metricsSource.includes("open_superforecaster_source_bank_domains_total"), "source-bank domain count metric missing");
+  assert(metricsSource.includes("open_superforecaster_source_bank_domain_entries"), "source-bank domain entry metric missing");
+  assert(metricsSource.includes("open_superforecaster_source_bank_domain_used_in_final_entries"), "source-bank domain final-use metric missing");
+  assert(metricsSource.includes("open_superforecaster_source_bank_domain_task_count"), "source-bank domain task-count metric missing");
+  assert(metricsSource.includes("open_superforecaster_source_bank_domain_quality_score_mean"), "source-bank domain quality metric missing");
+  assert(metricsSource.includes("summarizeSourceDomains(sourceRows)"), "metrics exporter does not use source-domain summary");
   assert(smokeSource.includes("open_superforecaster_binary_calibration_status"), "smoke check does not require calibration status metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_impact_status"), "smoke check does not require calibration guard impact metric");
   assert(smokeSource.includes("open_superforecaster_aggregate_quality_scores_total"), "smoke check does not require aggregate quality metric");
@@ -1431,6 +1437,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(smokeSource.includes("open_superforecaster_input_context_scores_total"), "smoke check does not require input context metric");
   assert(smokeSource.includes("open_superforecaster_run_metadata_scores_total"), "smoke check does not require run metadata metric");
   assert(smokeSource.includes("open_superforecaster_forecast_attention_items_total"), "smoke check does not require forecast attention metric");
+  assert(smokeSource.includes("open_superforecaster_source_bank_domains_total"), "smoke check does not require source-bank domain metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
   assert(metricsRouteSource.includes("renderPrometheusMetrics"), "metrics route does not render Prometheus metrics");
   assert(metricsRouteSource.includes("text/plain; version=0.0.4"), "metrics route missing Prometheus content type");

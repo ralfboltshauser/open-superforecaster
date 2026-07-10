@@ -161,7 +161,16 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       })
       .from(forecastScores),
     db.select({ id: forecastResolutions.id, annulled: forecastResolutions.annulled }).from(forecastResolutions),
-    db.select({ id: sourceBankEntries.id, sourceType: sourceBankEntries.sourceType, usedInFinal: sourceBankEntries.usedInFinal }).from(sourceBankEntries),
+    db
+      .select({
+        id: sourceBankEntries.id,
+        taskId: sourceBankEntries.taskId,
+        sourceType: sourceBankEntries.sourceType,
+        usedInFinal: sourceBankEntries.usedInFinal,
+        domain: sourceBankEntries.domain,
+        qualityScore: sourceBankEntries.qualityScore,
+      })
+      .from(sourceBankEntries),
     db
       .select({
         id: workflowChangeProposals.id,
@@ -1712,6 +1721,17 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
   )) {
     metrics.gauge("open_superforecaster_source_bank_entries_total", "Source bank entry count by source type.", count, parseLabelKey(key));
   }
+  const sourceDomainRows = summarizeSourceDomains(sourceRows);
+  metrics.gauge("open_superforecaster_source_bank_domains_total", "Distinct source-bank domains.", sourceDomainRows.length);
+  for (const row of sourceDomainRows.slice(0, 20)) {
+    const labels = { domain: row.domain };
+    metrics.gauge("open_superforecaster_source_bank_domain_entries", "Top source-bank domain entry count.", row.entries, labels);
+    metrics.gauge("open_superforecaster_source_bank_domain_used_in_final_entries", "Top source-bank domain final-use entry count.", row.usedInFinalEntries, labels);
+    metrics.gauge("open_superforecaster_source_bank_domain_task_count", "Top source-bank domain task count.", row.taskCount, labels);
+    if (row.meanQualityScore !== null) {
+      metrics.gauge("open_superforecaster_source_bank_domain_quality_score_mean", "Top source-bank domain mean quality score.", row.meanQualityScore, labels);
+    }
+  }
 
   return metrics.render();
 }
@@ -1752,6 +1772,37 @@ function groupBy<T>(rows: T[], keyFn: (row: T) => string) {
   return groups;
 }
 
+function summarizeSourceDomains(
+  rows: Array<{ domain: string | null; taskId: string | null; usedInFinal: boolean; qualityScore: number | null }>,
+) {
+  const grouped = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const domain = row.domain || "unknown";
+    const group = grouped.get(domain);
+    if (group) {
+      group.push(row);
+    } else {
+      grouped.set(domain, [row]);
+    }
+  }
+  return [...grouped.entries()]
+    .map(([domain, domainRows]) => {
+      const qualityScores = domainRows.filter((row) => typeof row.qualityScore === "number").map((row) => row.qualityScore as number);
+      return {
+        domain,
+        entries: domainRows.length,
+        usedInFinalEntries: domainRows.filter((row) => row.usedInFinal).length,
+        taskCount: new Set(domainRows.map((row) => row.taskId).filter(Boolean)).size,
+        meanQualityScore: qualityScores.length ? average(qualityScores) : null,
+      };
+    })
+    .sort((left, right) =>
+      right.entries - left.entries
+      || right.usedInFinalEntries - left.usedInFinalEntries
+      || left.domain.localeCompare(right.domain)
+    );
+}
+
 function labelKey(labels: Record<string, string>) {
   return Object.entries(labels)
     .sort(([left], [right]) => left.localeCompare(right))
@@ -1770,6 +1821,10 @@ function parseLabelKey(key: string) {
 
 function uniqueStrings(values: string[]) {
   return [...new Set(values.filter(Boolean))];
+}
+
+function average(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 function emitOptionalGauge(
