@@ -1,6 +1,10 @@
 import { readJson, readRecord, readString, timestampLabel, type JsonRecord } from "./forecast-script-utils";
+import {
+  isForecastAttentionReviewStatus,
+  type ForecastAttentionReviewStatus,
+} from "../../packages/backend/src/forecast-attention-policy";
 
-export type AttentionReviewStatus = "open" | "reviewed" | "deferred";
+export type AttentionReviewStatus = ForecastAttentionReviewStatus;
 
 export type AttentionReviewRecord = {
   attentionItemId: string;
@@ -33,7 +37,7 @@ export function upsertAttentionReview(reviews: AttentionReviewRecord[], nextRevi
 }
 
 export function isAttentionReviewStatus(value: string | undefined | null): value is AttentionReviewStatus {
-  return value === "open" || value === "reviewed" || value === "deferred";
+  return isForecastAttentionReviewStatus(value);
 }
 
 function reviewsByItemId(reviews: AttentionReviewRecord[]) {

@@ -1693,6 +1693,10 @@ await check("forecast performance calibration diagnostics flag bucket drift", as
 await check("forecast performance reports surface candidate calibration guards", async () => {
   const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
   const attentionPolicySource = await readFile(resolve(root, "packages/backend/src/forecast-attention-policy.ts"), "utf8");
+  const attentionBacklogSource = await readFile(resolve(root, "scripts/forecast-attention-backlog.ts"), "utf8");
+  const batchHealthSource = await readFile(resolve(root, "scripts/forecast-batch-health.ts"), "utf8");
+  const calibrationProposalSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-proposals.ts"), "utf8");
+  const attentionReviewSource = await readFile(resolve(root, "scripts/lib/forecast-attention-reviews.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
   assert(resolutionSource.includes("candidateCalibrationGuardRules: calibrationReport.candidateCalibrationGuardRules"), "performance report missing candidate calibration guard rules");
   assert(resolutionSource.includes("calibrationGuardImpact"), "performance report missing calibration guard impact summary");
@@ -1709,8 +1713,20 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(!resolutionSource.includes("function attentionKindIdPrefix("), "performance report should not keep local attention kind id policy");
   assert((await readFile(resolve(root, "packages/backend/src/forecast-score-policy.ts"), "utf8")).includes("selectPrimaryScoreMetric"), "shared forecast score policy does not expose primary metric selection");
   assert(attentionPolicySource.includes("recommendPerformanceAttentionActions"), "shared forecast attention policy does not expose recommendation actions");
+  assert(attentionPolicySource.includes("forecastAttentionReviewStatuses"), "shared forecast attention policy does not expose review statuses");
+  assert(attentionPolicySource.includes("recommendCalibrationValidationActions"), "shared forecast attention policy does not expose validation backlog actions");
+  assert(attentionPolicySource.includes("recommendCalibrationDefaultPlanSkippedActions"), "shared forecast attention policy does not expose default-plan backlog actions");
   assert((await readFile(resolve(root, "packages/backend/src/index.ts"), "utf8")).includes("forecast-score-policy"), "backend package barrel does not export forecast score policy");
   assert((await readFile(resolve(root, "packages/backend/src/index.ts"), "utf8")).includes("forecast-attention-policy"), "backend package barrel does not export forecast attention policy");
+  assert(attentionBacklogSource.includes("recommendCalibrationValidationActions"), "attention backlog does not use shared validation backlog actions");
+  assert(attentionBacklogSource.includes("forecastAttentionReviewStatusRank"), "attention backlog does not use shared review status rank");
+  assert(!attentionBacklogSource.includes("function recommendedActionsForCalibrationValidation("), "attention backlog should not keep local validation actions");
+  assert(!attentionBacklogSource.includes("function recommendedActionsForDefaultPlanSkipped("), "attention backlog should not keep local default-plan actions");
+  assert(!attentionBacklogSource.includes("function statusRank("), "attention backlog should not keep local review status rank");
+  assert(batchHealthSource.includes("forecastAttentionReviewStatusRank"), "batch health does not use shared review status rank");
+  assert(!batchHealthSource.includes("function statusRank("), "batch health should not keep local review status rank");
+  assert(calibrationProposalSource.includes("normalizeForecastAttentionReviewStatus"), "calibration proposals do not use shared review status normalization");
+  assert(attentionReviewSource.includes("isForecastAttentionReviewStatus"), "attention review parser does not use shared review status validation");
   assert(resolutionSource.includes("evidence_coverage_miss"), "performance report does not turn weak evidence coverage into attention");
   assert(resolutionSource.includes("input_context_miss"), "performance report does not turn weak input context into attention");
   assert(resolutionSource.includes("run_metadata_miss"), "performance report does not turn suspicious run metadata into attention");

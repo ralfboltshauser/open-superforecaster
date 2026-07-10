@@ -6,12 +6,16 @@ import {
   type ForecastBatchIndexCandidateCalibrationGuardRule,
 } from "../packages/backend/src/forecast-batch-index-artifacts";
 import {
+  normalizeForecastAttentionReviewStatus,
+  type ForecastAttentionReviewStatus,
+} from "../packages/backend/src/forecast-attention-policy";
+import {
   hasArg,
   readArgValue,
   writeJson,
 } from "./lib/forecast-script-utils";
 
-type ReviewStatus = "open" | "reviewed" | "deferred";
+type ReviewStatus = ForecastAttentionReviewStatus;
 
 type CandidateCalibrationGuardRule = {
   id: string;
@@ -306,7 +310,7 @@ function readCandidateRule(rule: ForecastBatchIndexCandidateCalibrationGuardRule
 }
 
 function readReviewStatus(value: string | null): ReviewStatus {
-  return value === "reviewed" || value === "deferred" ? value : "open";
+  return normalizeForecastAttentionReviewStatus(value);
 }
 
 function timestampValue(value: string | null) {

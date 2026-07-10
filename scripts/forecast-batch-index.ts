@@ -1,6 +1,7 @@
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { isAttentionReviewStatus, loadAttentionReviews, type AttentionReviewRecord } from "./lib/forecast-attention-reviews";
+import { defaultForecastAttentionReviewStatus } from "../packages/backend/src/forecast-attention-policy";
 import {
   readArgValue,
   readJson,
@@ -393,7 +394,7 @@ function readCandidateCalibrationGuardRules(payload: JsonRecord): CandidateCalib
 function withReview(item: AttentionItem, review: AttentionReview | undefined): ReviewedAttentionItem {
   return {
     ...item,
-    reviewStatus: review?.status ?? "open",
+    reviewStatus: review?.status ?? defaultForecastAttentionReviewStatus,
     reviewNote: review?.note,
     reviewer: review?.reviewer,
     reviewedAt: review?.updatedAt,
@@ -406,7 +407,7 @@ function withCandidateRuleReview(
 ): ReviewedCandidateCalibrationGuardRule {
   return {
     ...rule,
-    reviewStatus: review?.status ?? "open",
+    reviewStatus: review?.status ?? defaultForecastAttentionReviewStatus,
     reviewNote: review?.note,
     reviewer: review?.reviewer,
     reviewedAt: review?.updatedAt,

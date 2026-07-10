@@ -4,7 +4,6 @@ import {
   isAttentionReviewStatus,
   loadAttentionReviews,
   type AttentionReviewRecord,
-  type AttentionReviewStatus,
 } from "./lib/forecast-attention-reviews";
 import { readCalibrationDefaultPlanArtifacts, type CalibrationDefaultPlanSkippedRow } from "../packages/backend/src/calibration-default-plan-artifacts";
 import { readCalibrationGuardValidationArtifacts, type CalibrationGuardValidationRow } from "../packages/backend/src/calibration-guard-validation-artifacts";
@@ -14,12 +13,21 @@ import {
   type ForecastBatchIndexCandidateCalibrationGuardRule,
 } from "../packages/backend/src/forecast-batch-index-artifacts";
 import {
+  calibrationDefaultPlanSkippedAttentionKind,
+  calibrationValidationAttentionKind,
+  forecastAttentionReviewStatusRank,
+  recommendCalibrationDefaultPlanSkippedActions,
+  recommendCalibrationValidationActions,
+  recommendCandidateCalibrationGuardActions,
+  type ForecastAttentionReviewStatus,
+} from "../packages/backend/src/forecast-attention-policy";
+import {
   readArgValue,
   readArgValues,
   writeJson,
 } from "./lib/forecast-script-utils";
 
-type ReviewStatus = AttentionReviewStatus;
+type ReviewStatus = ForecastAttentionReviewStatus;
 
 type AttentionReview = AttentionReviewRecord;
 
@@ -239,9 +247,7 @@ function readCandidateCalibrationGuardBacklogItem(item: ForecastBatchIndexCandid
     severity: activationStatus === "ready_for_review" ? "high" : "medium",
     kind: "candidate_calibration_guard",
     reason: item.rationale ?? `${bucketLabel} has ${direction} and needs calibration guard review.`,
-    recommendedActions: [
-      `Review candidate ${bucketLabel} guard${suggestedAdjustment === null ? "" : ` (${formatSignedNumber(suggestedAdjustment)} pts)`} before changing live calibration.`,
-    ],
+    recommendedActions: recommendCandidateCalibrationGuardActions({ bucketLabel, suggestedAdjustment }),
     metric: "calibration_error",
     score: item.calibrationError,
     delta: suggestedAdjustment,
@@ -271,9 +277,9 @@ function readCalibrationGuardValidationBacklogItem(item: CalibrationGuardValidat
     id: `calibration-validation:${proposalId}`,
     reviewStatus: "open",
     severity: recommendation === "promote_for_holdout" || recommendation === "promote_for_default" ? "high" : "medium",
-    kind: kindForCalibrationValidationRecommendation(recommendation),
+    kind: calibrationValidationAttentionKind(recommendation),
     reason: `${bucketLabel} calibration guard validation recommendation: ${recommendation}.`,
-    recommendedActions: recommendedActionsForCalibrationValidation(recommendation, bucketLabel),
+    recommendedActions: recommendCalibrationValidationActions({ recommendation, bucketLabel }),
     metric: "validation_brier_delta",
     score: brierDelta,
     delta: calibrationErrorDelta,
@@ -282,26 +288,6 @@ function readCalibrationGuardValidationBacklogItem(item: CalibrationGuardValidat
     forecastType: "binary",
     sourcePath,
   };
-}
-
-function kindForCalibrationValidationRecommendation(recommendation: string) {
-  if (recommendation === "promote_for_default") {
-    return "calibration_guard_default_candidate";
-  }
-  if (recommendation === "promote_for_holdout") {
-    return "calibration_guard_holdout_candidate";
-  }
-  return "calibration_guard_needs_more_evidence";
-}
-
-function recommendedActionsForCalibrationValidation(recommendation: string, bucketLabel: string) {
-  if (recommendation === "promote_for_default") {
-    return [`Run forecast:calibration-default-plan, then review this held-out ${bucketLabel} validation before enabling the calibration guard as a default.`];
-  }
-  if (recommendation === "promote_for_holdout") {
-    return [`Run a held-out resolved batch before enabling this ${bucketLabel} calibration guard candidate.`];
-  }
-  return [`Collect more resolved binary forecasts before acting on this ${bucketLabel} calibration guard candidate.`];
 }
 
 function readCalibrationGuardDefaultPlanSkippedBacklogItem(item: CalibrationDefaultPlanSkippedRow, sourcePath: string): BacklogItem | null {
@@ -319,9 +305,9 @@ function readCalibrationGuardDefaultPlanSkippedBacklogItem(item: CalibrationDefa
     id: `calibration-default-plan-skipped:${proposalId}`,
     reviewStatus: "open",
     severity: reason === "not_holdout_replay" ? "low" : "medium",
-    kind: `calibration_guard_default_plan_${reason}`,
+    kind: calibrationDefaultPlanSkippedAttentionKind(reason),
     reason: `${bucketLabel} default-plan row skipped: ${reason} (${validationMode}, ${recommendation}).`,
-    recommendedActions: recommendedActionsForDefaultPlanSkipped(reason, bucketLabel),
+    recommendedActions: recommendCalibrationDefaultPlanSkippedActions({ reason, bucketLabel }),
     metric: "default_plan_skip",
     score: null,
     delta: null,
@@ -330,16 +316,6 @@ function readCalibrationGuardDefaultPlanSkippedBacklogItem(item: CalibrationDefa
     forecastType: "binary",
     sourcePath,
   };
-}
-
-function recommendedActionsForDefaultPlanSkipped(reason: string, bucketLabel: string) {
-  if (reason === "not_holdout_replay") {
-    return [`Run a held-out calibration validation before considering ${bucketLabel} as a default calibration guard.`];
-  }
-  if (reason === "not_promoted_for_default") {
-    return [`Keep ${bucketLabel} out of default calibration guards unless held-out validation improves both Brier score and calibration error.`];
-  }
-  return [`Review why ${bucketLabel} was skipped before changing calibration guard defaults.`];
 }
 
 function buildReport(
@@ -462,7 +438,7 @@ function renderItemsTable(items: BacklogItem[]) {
 
 function sortBacklog(items: BacklogItem[]) {
   return [...items].sort((left, right) =>
-    statusRank(left.reviewStatus) - statusRank(right.reviewStatus)
+    forecastAttentionReviewStatusRank(left.reviewStatus) - forecastAttentionReviewStatusRank(right.reviewStatus)
     || severityRank(left.severity) - severityRank(right.severity)
     || left.batchId.localeCompare(right.batchId)
     || (left.taskLabel ?? left.taskId ?? "").localeCompare(right.taskLabel ?? right.taskId ?? "")
@@ -534,16 +510,6 @@ function countBreakdown(items: BacklogItem[]): BacklogBreakdownCounts {
   };
 }
 
-function statusRank(status: ReviewStatus) {
-  if (status === "open") {
-    return 0;
-  }
-  if (status === "deferred") {
-    return 1;
-  }
-  return 2;
-}
-
 function severityRank(severity: string) {
   if (severity === "high") {
     return 0;
@@ -559,11 +525,6 @@ function severityRank(severity: string) {
 
 function formatNumber(value: number | null) {
   return value === null ? "" : String(Math.round(value * 10_000) / 10_000);
-}
-
-function formatSignedNumber(value: number) {
-  const formatted = formatNumber(value);
-  return value >= 0 ? `+${formatted}` : formatted;
 }
 
 function isReviewStatus(value: string | undefined | null): value is ReviewStatus {

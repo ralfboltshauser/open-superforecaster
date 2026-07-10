@@ -1,6 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
+  forecastAttentionReviewStatusRank,
+  isForecastAttentionReviewStatus,
+  type ForecastAttentionReviewStatus,
+} from "../packages/backend/src/forecast-attention-policy";
+import {
   evaluateAttentionBacklogArtifactCompatibility,
   type AttentionBacklogCompatibilityIssue,
 } from "../packages/backend/src/forecast-attention-backlog";
@@ -23,7 +28,7 @@ import {
 } from "./lib/forecast-script-utils";
 
 type BatchPhase = "forecast_ops" | "forecast_resolution" | "forecast_performance";
-type ReviewStatus = "open" | "reviewed" | "deferred";
+type ReviewStatus = ForecastAttentionReviewStatus;
 
 type HealthStatus = "healthy" | "watch" | "needs_attention";
 
@@ -678,7 +683,7 @@ function renderCandidateCalibrationGuardTable(items: HealthCandidateCalibrationG
 
 function sortAttentionItems(items: HealthAttentionItem[]) {
   return [...items].sort((left, right) =>
-    statusRank(left.reviewStatus) - statusRank(right.reviewStatus)
+    forecastAttentionReviewStatusRank(left.reviewStatus) - forecastAttentionReviewStatusRank(right.reviewStatus)
     || severityRank(left.severity) - severityRank(right.severity)
     || left.id.localeCompare(right.id)
   );
@@ -686,7 +691,7 @@ function sortAttentionItems(items: HealthAttentionItem[]) {
 
 function sortCandidateCalibrationGuardRules(items: HealthCandidateCalibrationGuardRule[]) {
   return [...items].sort((left, right) =>
-    statusRank(left.reviewStatus) - statusRank(right.reviewStatus)
+    forecastAttentionReviewStatusRank(left.reviewStatus) - forecastAttentionReviewStatusRank(right.reviewStatus)
     || severityRank(left.activationStatus === "ready_for_review" ? "high" : "medium") - severityRank(right.activationStatus === "ready_for_review" ? "high" : "medium")
     || left.id.localeCompare(right.id)
   );
@@ -801,16 +806,6 @@ function healthStatus(issues: HealthIssue[]): HealthStatus {
   return "healthy";
 }
 
-function statusRank(status: ReviewStatus) {
-  if (status === "open") {
-    return 0;
-  }
-  if (status === "deferred") {
-    return 1;
-  }
-  return 2;
-}
-
 function severityRank(severity: string) {
   if (severity === "high") {
     return 0;
@@ -837,7 +832,7 @@ function formatNumber(value: number | null) {
 }
 
 function isReviewStatus(value: string | undefined | null): value is ReviewStatus {
-  return value === "open" || value === "reviewed" || value === "deferred";
+  return isForecastAttentionReviewStatus(value);
 }
 
 function escapeMarkdownCell(value: string) {

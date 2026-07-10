@@ -35,8 +35,87 @@ export type PerformanceAttentionKind =
 
 export type PerformanceAttentionSeverity = "high" | "medium";
 
+export const forecastAttentionReviewStatuses = ["open", "reviewed", "deferred"] as const;
+
+export type ForecastAttentionReviewStatus = typeof forecastAttentionReviewStatuses[number];
+
+export const defaultForecastAttentionReviewStatus: ForecastAttentionReviewStatus = "open";
+
+export type SupplementalForecastAttentionKind =
+  | "candidate_calibration_guard"
+  | "calibration_guard_default_candidate"
+  | "calibration_guard_holdout_candidate"
+  | "calibration_guard_needs_more_evidence"
+  | `calibration_guard_default_plan_${string}`;
+
+export function isForecastAttentionReviewStatus(value: string | null | undefined): value is ForecastAttentionReviewStatus {
+  return forecastAttentionReviewStatuses.includes(value as ForecastAttentionReviewStatus);
+}
+
+export function normalizeForecastAttentionReviewStatus(value: string | null | undefined): ForecastAttentionReviewStatus {
+  return isForecastAttentionReviewStatus(value) ? value : defaultForecastAttentionReviewStatus;
+}
+
+export function forecastAttentionReviewStatusRank(status: ForecastAttentionReviewStatus) {
+  if (status === "open") {
+    return 0;
+  }
+  if (status === "deferred") {
+    return 1;
+  }
+  return 2;
+}
+
 export function attentionKindIdPrefix(kind: PerformanceAttentionKind) {
   return kind.replace(/_/g, "-");
+}
+
+export function calibrationValidationAttentionKind(recommendation: string): SupplementalForecastAttentionKind {
+  if (recommendation === "promote_for_default") {
+    return "calibration_guard_default_candidate";
+  }
+  if (recommendation === "promote_for_holdout") {
+    return "calibration_guard_holdout_candidate";
+  }
+  return "calibration_guard_needs_more_evidence";
+}
+
+export function recommendCalibrationValidationActions(input: {
+  recommendation: string;
+  bucketLabel: string;
+}) {
+  if (input.recommendation === "promote_for_default") {
+    return [`Run forecast:calibration-default-plan, then review this held-out ${input.bucketLabel} validation before enabling the calibration guard as a default.`];
+  }
+  if (input.recommendation === "promote_for_holdout") {
+    return [`Run a held-out resolved batch before enabling this ${input.bucketLabel} calibration guard candidate.`];
+  }
+  return [`Collect more resolved binary forecasts before acting on this ${input.bucketLabel} calibration guard candidate.`];
+}
+
+export function calibrationDefaultPlanSkippedAttentionKind(reason: string): SupplementalForecastAttentionKind {
+  return `calibration_guard_default_plan_${reason}`;
+}
+
+export function recommendCalibrationDefaultPlanSkippedActions(input: {
+  reason: string;
+  bucketLabel: string;
+}) {
+  if (input.reason === "not_holdout_replay") {
+    return [`Run a held-out calibration validation before considering ${input.bucketLabel} as a default calibration guard.`];
+  }
+  if (input.reason === "not_promoted_for_default") {
+    return [`Keep ${input.bucketLabel} out of default calibration guards unless held-out validation improves both Brier score and calibration error.`];
+  }
+  return [`Review why ${input.bucketLabel} was skipped before changing calibration guard defaults.`];
+}
+
+export function recommendCandidateCalibrationGuardActions(input: {
+  bucketLabel: string;
+  suggestedAdjustment: number | null;
+}) {
+  const adjustment = input.suggestedAdjustment === null ? "" : ` (${formatSignedNumber(input.suggestedAdjustment)} pts)`;
+  return [`Review candidate ${input.bucketLabel} guard${adjustment} before changing live calibration.`];
 }
 
 export function recommendPerformanceAttentionActions(input: {
@@ -164,4 +243,9 @@ export function recommendPerformanceAttentionActions(input: {
     actions.add("Add or update a benchmark case that captures this failure before promoting related workflow changes.");
   }
   return [...actions].slice(0, 5);
+}
+
+function formatSignedNumber(value: number) {
+  const rounded = String(Math.round(value * 10_000) / 10_000);
+  return value >= 0 ? `+${rounded}` : rounded;
 }
