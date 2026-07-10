@@ -7,6 +7,7 @@ import {
 } from "../packages/backend/src/forecast-batch-index-artifacts";
 import {
   normalizeForecastAttentionReviewStatus,
+  summarizeForecastAttentionReviewStatuses,
   type ForecastAttentionReviewStatus,
 } from "../packages/backend/src/forecast-attention-policy";
 import {
@@ -145,6 +146,7 @@ function buildProposalReport(
 ): ProposalReport {
   const batchId = batchIndex.batchId;
   const candidateRules = batchIndex.candidateCalibrationGuardRules.flatMap(readCandidateRule);
+  const reviewCounts = summarizeForecastAttentionReviewStatuses(candidateRules);
   const eligibleRules = candidateRules.filter((rule) => isEligibleCandidateRule(rule, includeOpenRules));
   const proposalDrafts = eligibleRules.map((rule) => buildProposal(batchId, rule));
   return {
@@ -155,8 +157,8 @@ function buildProposalReport(
       candidateCalibrationGuardRules: candidateRules.length,
       eligibleCandidateCalibrationGuardRules: eligibleRules.length,
       proposalDrafts: proposalDrafts.length,
-      skippedOpen: includeOpenRules ? 0 : candidateRules.filter((rule) => rule.reviewStatus === "open").length,
-      skippedDeferred: candidateRules.filter((rule) => rule.reviewStatus === "deferred").length,
+      skippedOpen: includeOpenRules ? 0 : reviewCounts.open,
+      skippedDeferred: reviewCounts.deferred,
       skippedNeedsMoreResolvedForecasts: candidateRules.filter((rule) => !isCalibrationGuardReadyForReview(rule.activationStatus)).length,
     },
     proposalDrafts,
@@ -295,7 +297,7 @@ function readCandidateRule(rule: ForecastBatchIndexCandidateCalibrationGuardRule
   if (!id) {
     return [];
   }
-  const reviewStatus = readReviewStatus(rule.reviewStatus);
+  const reviewStatus = normalizeForecastAttentionReviewStatus(rule.reviewStatus);
   return [{
     id,
     reviewStatus,
@@ -312,10 +314,6 @@ function readCandidateRule(rule: ForecastBatchIndexCandidateCalibrationGuardRule
     activationStatus: normalizeCalibrationGuardActivationStatus(rule.activationStatus),
     rationale: rule.rationale ?? "",
   }];
-}
-
-function readReviewStatus(value: string | null): ReviewStatus {
-  return normalizeForecastAttentionReviewStatus(value);
 }
 
 function timestampValue(value: string | null) {

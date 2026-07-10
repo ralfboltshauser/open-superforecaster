@@ -378,12 +378,17 @@ await check("forecast calibration guard proposals require reviewed ready candida
   assert(readNumber(summary, "candidateCalibrationGuardRules") === 3, "candidate guard input count mismatch");
   assert(readNumber(summary, "eligibleCandidateCalibrationGuardRules") === 1, "eligible candidate count mismatch");
   assert(readNumber(summary, "proposalDrafts") === 1, "proposal draft count mismatch");
+  assert(readNumber(summary, "skippedOpen") === 1, "skipped open candidate count mismatch");
+  assert(readNumber(summary, "skippedDeferred") === 1, "skipped deferred candidate count mismatch");
   assert(readString(proposals[0], "sourceCandidateGuardId") === "candidate-guard:80-100%", "wrong candidate guard became a proposal");
   assert(readString(proposals[0], "targetWorkflowId") === "binary-calibration-guard", "proposal target workflow mismatch");
   assert(proposalSource.includes("readForecastBatchIndexArtifacts"), "calibration guard proposal generator does not use the shared batch-index artifact reader");
+  assert(proposalSource.includes("summarizeForecastAttentionReviewStatuses"), "calibration guard proposal generator does not use shared review status counts");
+  assert(proposalSource.includes("normalizeForecastAttentionReviewStatus"), "calibration guard proposal generator does not use shared review status normalization");
   assert(proposalSource.includes("reportRoot: batchRoot"), "calibration guard proposal generator does not pass its configured batch-index directory to the shared reader");
   assert(!proposalSource.includes("listFilesNamed(batchRoot"), "calibration guard proposal generator should not keep a local batch-index scanner");
   assert(!proposalSource.includes("readRecordArray(batchIndex"), "calibration guard proposal generator should not parse candidate rules from raw batch-index JSON");
+  assert(!proposalSource.includes("function readReviewStatus("), "calibration guard proposal generator should not keep a local review status reader");
   assert(batchIndexReaderSource.includes("candidateCalibrationGuardRules"), "shared batch-index reader does not expose candidate calibration guard rules");
   return "reviewed ready calibration guard candidates become proposal drafts";
 });
