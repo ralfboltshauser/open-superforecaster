@@ -33,6 +33,7 @@ import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
 import { isExportCompatibleAttentionBacklog } from "./forecast-attention-backlog";
+import { readForecastBatchIndexArtifacts } from "./forecast-batch-index-artifacts";
 import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "./forecast-batch-health";
 import { readForecastInputContextSnapshot } from "./forecast-input-context-metadata";
 import { readForecastRunSnapshot } from "./forecast-run-metadata";
@@ -2328,33 +2329,25 @@ async function readCalibrationGuardDefaultPlanMetricRows(root: string): Promise<
 
 async function readForecastAttentionMetricRows(root: string): Promise<ForecastAttentionMetricRow[]> {
   const rowsByKey = new Map<string, ForecastAttentionMetricRow>();
-  for (const reportPath of await listFilesNamed(resolve(root, "data/reports/forecast-batches"), "batch-index.json")) {
-    let payload: Record<string, unknown> | null;
-    try {
-      payload = asRecord(JSON.parse(await readFile(reportPath, "utf8")));
-    } catch {
-      continue;
-    }
-    const batchId = readString(payload, "batchId");
-    const generatedAt = readString(payload, "generatedAt");
-    for (const item of readRecordArray(payload, "attentionItems")) {
-      const attentionItemId = readString(item, "id");
-      if (!batchId || !attentionItemId) {
+  for (const report of await readForecastBatchIndexArtifacts(root)) {
+    for (const item of report.attentionItems) {
+      const attentionItemId = item.id;
+      if (!attentionItemId) {
         continue;
       }
-      rowsByKey.set(`${batchId}:${attentionItemId}`, {
-        reportPath,
-        batchId,
-        generatedAt,
+      rowsByKey.set(`${report.batchId}:${attentionItemId}`, {
+        reportPath: report.reportPath,
+        batchId: report.batchId,
+        generatedAt: report.generatedAt,
         attentionItemId,
-        reviewStatus: readString(item, "reviewStatus"),
-        severity: readString(item, "severity"),
-        kind: readString(item, "kind"),
-        metric: readString(item, "metric"),
-        score: readNumber(item, "score"),
-        delta: readNumber(item, "delta"),
-        forecastType: readString(item, "forecastType"),
-        taskId: readString(item, "taskId"),
+        reviewStatus: item.reviewStatus,
+        severity: item.severity,
+        kind: item.kind,
+        metric: item.metric,
+        score: item.score,
+        delta: item.delta,
+        forecastType: item.forecastType,
+        taskId: item.taskId,
       });
     }
   }

@@ -6,6 +6,7 @@ import { readCalibrationDefaultPlanArtifacts } from "../packages/backend/src/cal
 import { readCalibrationGuardValidationArtifacts } from "../packages/backend/src/calibration-guard-validation-artifacts";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
 import { isExportCompatibleAttentionBacklog } from "../packages/backend/src/forecast-attention-backlog";
+import { readForecastBatchIndexArtifacts } from "../packages/backend/src/forecast-batch-index-artifacts";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "../packages/backend/src/forecast-batch-health";
 import { buildBinaryCalibrationReport, type BinaryCalibrationInput } from "../packages/backend/src/performance-calibration";
@@ -2142,39 +2143,33 @@ async function readCalibrationGuardDefaultPlanRows(root: string): Promise<{
 
 async function readForecastAttentionItemRows(root: string): Promise<ForecastAttentionItemMartRow[]> {
   const rowsByKey = new Map<string, ForecastAttentionItemMartRow>();
-  for (const path of await listFilesNamed(resolve(root, "data/reports/forecast-batches"), "batch-index.json")) {
-    const payload = await readJsonRecord(path);
-    if (!payload) {
-      continue;
-    }
-    const batchId = readString(payload, "batchId");
-    const generatedAt = readString(payload, "generatedAt");
-    for (const item of readRecordArray(payload, "attentionItems")) {
-      const attentionItemId = readString(item, "id");
-      if (!batchId || !attentionItemId) {
+  for (const report of await readForecastBatchIndexArtifacts(root)) {
+    for (const item of report.attentionItems) {
+      const attentionItemId = item.id;
+      if (!attentionItemId) {
         continue;
       }
-      const key = `${batchId}:${attentionItemId}`;
+      const key = `${report.batchId}:${attentionItemId}`;
       rowsByKey.set(key, {
-        report_path: path,
-        batch_id: batchId,
-        generated_at: generatedAt,
+        report_path: report.reportPath,
+        batch_id: report.batchId,
+        generated_at: report.generatedAt,
         attention_item_id: attentionItemId,
-        review_status: readString(item, "reviewStatus"),
-        severity: readString(item, "severity"),
-        kind: readString(item, "kind"),
-        metric: readString(item, "metric"),
-        score: readNumber(item, "score"),
-        delta: readNumber(item, "delta"),
-        forecast_type: readString(item, "forecastType"),
-        task_id: readString(item, "taskId"),
-        task_label: readString(item, "taskLabel"),
-        reason: readString(item, "reason"),
-        recommended_actions_json: JSON.stringify(readStringArray(item, "recommendedActions")),
-        review_note: readString(item, "reviewNote"),
-        reviewer: readString(item, "reviewer"),
-        reviewed_at: readString(item, "reviewedAt"),
-        source_path: path,
+        review_status: item.reviewStatus,
+        severity: item.severity,
+        kind: item.kind,
+        metric: item.metric,
+        score: item.score,
+        delta: item.delta,
+        forecast_type: item.forecastType,
+        task_id: item.taskId,
+        task_label: item.taskLabel,
+        reason: item.reason,
+        recommended_actions_json: JSON.stringify(item.recommendedActions),
+        review_note: item.reviewNote,
+        reviewer: item.reviewer,
+        reviewed_at: item.reviewedAt,
+        source_path: report.reportPath,
       });
     }
   }

@@ -2036,6 +2036,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("readCalibrationGuardValidationMetricRows"), "metrics exporter does not read calibration guard validation reports");
   assert(metricsSource.includes("readCalibrationGuardDefaultPlanMetricRows"), "metrics exporter does not read calibration guard default plan reports");
   assert(metricsSource.includes("readForecastAttentionMetricRows"), "metrics exporter does not read forecast attention items");
+  assert(metricsSource.includes("readForecastBatchIndexArtifacts"), "metrics exporter does not use shared batch-index reader for forecast attention items");
   assert(metricsSource.includes("data/reports/forecast-attention-backlog"), "metrics exporter does not read generated forecast attention backlog items");
   assert(metricsSource.includes("isExportCompatibleAttentionBacklog"), "metrics exporter does not guard generated forecast attention backlog compatibility");
   assert(metricsSource.includes("./forecast-attention-backlog"), "metrics exporter does not use the shared attention backlog compatibility helper");
@@ -2107,6 +2108,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("readCalibrationGuardValidationArtifacts"), "DuckDB sync does not use shared calibration validation artifact reader");
   assert(syncSource.includes("readCalibrationDefaultPlanArtifacts"), "DuckDB sync does not use shared calibration default-plan artifact reader");
   assert(syncSource.includes("osf_forecast_attention_items"), "DuckDB sync missing forecast attention item mart");
+  assert(syncSource.includes("readForecastBatchIndexArtifacts"), "DuckDB sync does not use shared batch-index reader for forecast attention items");
   assert(syncSource.includes("data/reports/forecast-attention-backlog"), "DuckDB sync does not merge generated forecast attention backlog items");
   assert(syncSource.includes("isExportCompatibleAttentionBacklog"), "DuckDB sync does not guard generated forecast attention backlog compatibility");
   assert(syncSource.includes("../packages/backend/src/forecast-attention-backlog"), "DuckDB sync does not use the shared attention backlog compatibility helper");
