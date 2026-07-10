@@ -133,6 +133,7 @@ type PerformanceAttentionItem = {
     | "component_envelope_miss"
     | "inside_view_shift_miss"
     | "aggregate_adjustment_miss"
+    | "aggregate_direction_miss"
     | "evidence_coverage_miss"
     | "input_context_miss"
     | "run_metadata_miss";
@@ -408,6 +409,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byAggregateFinalComponentPosition = groupScores(aggregateScores, aggregateFinalComponentPositionGroupKey);
   const byAggregateInsideViewShift = groupScores(aggregateScores, aggregateInsideViewShiftGroupKey);
   const byAggregateFinalInsideViewAdjustment = groupScores(aggregateScores, aggregateFinalInsideViewAdjustmentGroupKey);
+  const byAggregateFinalAdjustmentDirection = groupScores(aggregateScores, aggregateFinalAdjustmentDirectionGroupKey);
   const byAggregationAnchor = groupScores(aggregateScores, aggregationAnchorGroupKey);
   const byResearchDepth = groupScores(aggregateScores, researchDepthGroupKey);
   const byForecasterPanelSize = groupScores(aggregateScores, forecasterPanelSizeGroupKey);
@@ -521,6 +523,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byAggregateFinalComponentPosition,
       byAggregateInsideViewShift,
       byAggregateFinalInsideViewAdjustment,
+      byAggregateFinalAdjustmentDirection,
       byAggregationAnchor,
       byResearchDepth,
       byForecasterPanelSize,
@@ -624,6 +627,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byAggregateFinalComponentPosition,
       byAggregateInsideViewShift,
       byAggregateFinalInsideViewAdjustment,
+      byAggregateFinalAdjustmentDirection,
       byAggregationAnchor,
       byResearchDepth,
       byForecasterPanelSize,
@@ -1415,6 +1419,11 @@ function aggregateInsideViewShiftGroupKey(score: typeof forecastScores.$inferSel
 function aggregateFinalInsideViewAdjustmentGroupKey(score: typeof forecastScores.$inferSelect) {
   const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
   return `aggregate_adjustment:${aggregateStats?.finalInsideViewDeltaBand ?? "unrecorded"}`;
+}
+
+function aggregateFinalAdjustmentDirectionGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `aggregate_direction:${aggregateStats?.finalAdjustmentDirection ?? "unrecorded"}`;
 }
 
 function aggregationAnchorGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2373,6 +2382,36 @@ function buildNeedsAttentionQueue(
       rank: 76 + index,
     }));
 
+  const aggregateDirectionCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const signal = aggregateDirectionMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
+      return [];
+    }
+    return [{ item, signal }];
+  });
+  const aggregateDirectionItems = aggregateDirectionCandidates
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `aggregate-direction:${item.taskId}:${item.primaryMetric}`,
+      kind: "aggregate_direction_miss" as const,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
+      recommendedActions: recommendAttentionActions({
+        kind: "aggregate_direction_miss",
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 78 + index,
+    }));
+
   const evidenceCoverageItems = buildMetadataAttentionItems({
     worstCases,
     idPrefix: "evidence-coverage",
@@ -2469,6 +2508,7 @@ function buildNeedsAttentionQueue(
     ...componentEnvelopeItems,
     ...insideViewShiftItems,
     ...aggregateAdjustmentItems,
+    ...aggregateDirectionItems,
     ...evidenceCoverageItems,
     ...inputContextItems,
     ...runMetadataItems,
@@ -2748,6 +2788,21 @@ function aggregateAdjustmentMissSignal(item: PerformanceCase): { reason: string;
     reason: `large final aggregation adjustment of ${formatSignedMetric(stats.finalInsideViewDelta ?? 0)} points from mean inside view ${formatNullableMetric(stats.meanInsideViewProbability)} to final probability ${formatNullableMetric(item.probability)}`,
     delta: stats.finalInsideViewDelta,
     severity: "medium",
+  };
+}
+
+function aggregateDirectionMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  if (item.forecastType !== "binary" || !stats) {
+    return null;
+  }
+  if (stats.finalAdjustmentDirection !== "reverses_inside_view" && stats.finalAdjustmentDirection !== "final_only_shift") {
+    return null;
+  }
+  return {
+    reason: `final aggregation ${stats.finalAdjustmentDirection.replace(/_/g, " ")} after an inside-view shift of ${formatSignedMetric(stats.insideViewDelta ?? 0)} points and final adjustment of ${formatSignedMetric(stats.finalInsideViewDelta ?? 0)} points`,
+    delta: stats.finalInsideViewDelta,
+    severity: stats.finalAdjustmentDirection === "reverses_inside_view" ? "high" : "medium",
   };
 }
 
@@ -3052,6 +3107,9 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "aggregate_adjustment_miss") {
     actions.add("Audit why final aggregation moved far away from the mean inside-view estimate.");
     actions.add("Compare component rationales, aggregation anchor, and final probability before changing aggregation defaults.");
+  } else if (input.kind === "aggregate_direction_miss") {
+    actions.add("Audit whether final aggregation should have reversed or introduced movement beyond the inside-view estimate.");
+    actions.add("Compare base-rate, inside-view, and final probability direction before changing aggregation defaults.");
   } else if (input.kind === "evidence_coverage_miss") {
     actions.add("Audit cited sources, dated-source coverage, uncertainty notes, and rationale depth before changing model or aggregation defaults.");
     actions.add("Add a benchmark case if sparse evidence repeatedly accompanies poor resolved forecasts in this forecast type.");
@@ -3172,6 +3230,7 @@ function renderPerformanceMarkdown(input: {
   byAggregateFinalComponentPosition: PerformanceGroup[];
   byAggregateInsideViewShift: PerformanceGroup[];
   byAggregateFinalInsideViewAdjustment: PerformanceGroup[];
+  byAggregateFinalAdjustmentDirection: PerformanceGroup[];
   byAggregationAnchor: PerformanceGroup[];
   byResearchDepth: PerformanceGroup[];
   byForecasterPanelSize: PerformanceGroup[];
@@ -3298,6 +3357,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Final aggregation adjustment groups",
     ...renderGroupTable(input.byAggregateFinalInsideViewAdjustment),
+    "",
+    "## Final aggregation direction groups",
+    ...renderGroupTable(input.byAggregateFinalAdjustmentDirection),
     "",
     "## Aggregation anchor groups",
     ...renderGroupTable(input.byAggregationAnchor),

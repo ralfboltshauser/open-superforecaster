@@ -628,6 +628,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byAggregateFinalComponentPosition = readArray(groups, "byAggregateFinalComponentPosition").filter(isRecord)
   const byAggregateInsideViewShift = readArray(groups, "byAggregateInsideViewShift").filter(isRecord)
   const byAggregateFinalInsideViewAdjustment = readArray(groups, "byAggregateFinalInsideViewAdjustment").filter(isRecord)
+  const byAggregateFinalAdjustmentDirection = readArray(groups, "byAggregateFinalAdjustmentDirection").filter(isRecord)
   const byAggregationAnchor = readArray(groups, "byAggregationAnchor").filter(isRecord)
   const byResearchDepth = readArray(groups, "byResearchDepth").filter(isRecord)
   const byForecasterPanelSize = readArray(groups, "byForecasterPanelSize").filter(isRecord)
@@ -750,6 +751,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byAggregateFinalComponentPosition.length ? <PerformancePlanShapeGroupList groups={byAggregateFinalComponentPosition} title="Component envelope outcomes" skipKey="component_envelope:unrecorded" fallback="component envelope" /> : null}
         {byAggregateInsideViewShift.length ? <PerformancePlanShapeGroupList groups={byAggregateInsideViewShift} title="Inside-view shift outcomes" skipKey="inside_view_shift:unrecorded" fallback="inside-view shift" /> : null}
         {byAggregateFinalInsideViewAdjustment.length ? <PerformancePlanShapeGroupList groups={byAggregateFinalInsideViewAdjustment} title="Final aggregation adjustment outcomes" skipKey="aggregate_adjustment:unrecorded" fallback="aggregate adjustment" /> : null}
+        {byAggregateFinalAdjustmentDirection.length ? <PerformancePlanShapeGroupList groups={byAggregateFinalAdjustmentDirection} title="Final aggregation direction outcomes" skipKey="aggregate_direction:unrecorded" fallback="aggregate direction" /> : null}
         {byAggregationAnchor.length ? <PerformanceAggregationAnchorGroupList groups={byAggregationAnchor} /> : null}
         {byResearchDepth.length ? <PerformancePlanShapeGroupList groups={byResearchDepth} title="Research depth outcomes" skipKey="research_depth:unrecorded" fallback="research depth" /> : null}
         {byForecasterPanelSize.length ? <PerformancePlanShapeGroupList groups={byForecasterPanelSize} title="Panel size outcomes" skipKey="forecaster_panel:unrecorded" fallback="panel size" /> : null}

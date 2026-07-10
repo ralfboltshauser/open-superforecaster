@@ -10,6 +10,7 @@ export type AggregateStatsSnapshot = {
   insideViewDeltaBand: "near_base_rate" | "moderate_shift" | "large_shift" | "missing_components" | "unknown";
   finalInsideViewDelta: number | null;
   finalInsideViewDeltaBand: "near_inside_view" | "moderate_adjustment" | "large_adjustment" | "missing_components" | "unknown";
+  finalAdjustmentDirection: "near_base_rate" | "keeps_inside_view" | "amplifies_inside_view" | "dampens_inside_view" | "reverses_inside_view" | "final_only_shift" | "missing_components" | "unknown";
   disagreement: number | null;
   disagreementBand: "low" | "moderate" | "high" | "extreme" | "unknown";
   aggregationAnchor: string | null;
@@ -37,6 +38,7 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
   const explicitInsideViewDeltaBand = readInsideViewDeltaBand(aggregateStats);
   const finalInsideViewDelta = readNumber(aggregateStats, "finalInsideViewDelta", "final_inside_view_delta") ?? delta(finalProbability, meanInsideViewProbability);
   const explicitFinalInsideViewDeltaBand = readFinalInsideViewDeltaBand(aggregateStats);
+  const explicitFinalAdjustmentDirection = readFinalAdjustmentDirection(aggregateStats);
   const disagreement = readNumber(aggregateStats, "disagreement");
   const aggregationAnchor = readString(aggregateStats, "aggregationAnchor", "aggregation_anchor");
   const adjustmentFromMedian = readNumber(aggregateStats, "adjustmentFromMedian", "adjustment_from_median");
@@ -81,6 +83,7 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
       finalProbability === null && finalInsideViewDelta === null ? 0 : 1,
       componentInsideViews.length || (meanInsideViewProbability === null ? 0 : 1),
     ),
+    finalAdjustmentDirection: explicitFinalAdjustmentDirection ?? finalAdjustmentDirection(insideViewDelta, finalInsideViewDelta),
     disagreement,
     disagreementBand: aggregateDisagreementBand(disagreement),
     aggregationAnchor,
@@ -129,6 +132,39 @@ export function finalInsideViewDeltaBand(
     return "moderate_adjustment";
   }
   return "near_inside_view";
+}
+
+export function finalAdjustmentDirection(
+  insideViewDelta: number | null,
+  finalInsideViewDelta: number | null,
+): AggregateStatsSnapshot["finalAdjustmentDirection"] {
+  if (insideViewDelta === null || finalInsideViewDelta === null) {
+    return "missing_components";
+  }
+  if (!Number.isFinite(insideViewDelta) || !Number.isFinite(finalInsideViewDelta)) {
+    return "unknown";
+  }
+  const materialThreshold = 3;
+  const insideMagnitude = Math.abs(insideViewDelta);
+  const adjustmentMagnitude = Math.abs(finalInsideViewDelta);
+  if (insideMagnitude < materialThreshold && adjustmentMagnitude < materialThreshold) {
+    return "near_base_rate";
+  }
+  if (insideMagnitude < materialThreshold) {
+    return "final_only_shift";
+  }
+  if (adjustmentMagnitude < materialThreshold) {
+    return "keeps_inside_view";
+  }
+  const insideDirection = Math.sign(insideViewDelta);
+  const finalBaseRateDelta = insideViewDelta + finalInsideViewDelta;
+  if (Math.sign(finalInsideViewDelta) === insideDirection) {
+    return "amplifies_inside_view";
+  }
+  if (Math.abs(finalBaseRateDelta) >= materialThreshold && Math.sign(finalBaseRateDelta) !== insideDirection) {
+    return "reverses_inside_view";
+  }
+  return "dampens_inside_view";
 }
 
 export function finalComponentPositionBand(input: {
@@ -205,6 +241,23 @@ function readFinalInsideViewDeltaBand(value: unknown): AggregateStatsSnapshot["f
     band === "unknown"
   ) {
     return band;
+  }
+  return null;
+}
+
+function readFinalAdjustmentDirection(value: unknown): AggregateStatsSnapshot["finalAdjustmentDirection"] | null {
+  const direction = readString(value, "finalAdjustmentDirection", "final_adjustment_direction");
+  if (
+    direction === "near_base_rate" ||
+    direction === "keeps_inside_view" ||
+    direction === "amplifies_inside_view" ||
+    direction === "dampens_inside_view" ||
+    direction === "reverses_inside_view" ||
+    direction === "final_only_shift" ||
+    direction === "missing_components" ||
+    direction === "unknown"
+  ) {
+    return direction;
   }
   return null;
 }
