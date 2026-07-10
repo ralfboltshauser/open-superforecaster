@@ -1,13 +1,18 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import {
+  readCalibrationGuardProposalArtifacts,
+  type CalibrationGuardProposalArtifact,
+  type CalibrationGuardProposalDraft,
+} from "../packages/backend/src/calibration-guard-proposal-artifacts";
+import {
+  readForecastPerformanceArtifacts,
+  type ForecastPerformanceArtifact,
+  type ForecastPerformanceCalibrationReplayRow,
+} from "../packages/backend/src/forecast-performance-artifacts";
 import { BINARY_CALIBRATION_POLICY } from "../packages/backend/src/performance-calibration";
 import {
-  listFilesNamed,
   readArgValue,
-  readJson,
-  readRecord,
-  readString,
-  type JsonRecord,
   writeJson,
 } from "./lib/forecast-script-utils";
 
@@ -87,16 +92,16 @@ const outputDir = resolve(root, readArgValue(args, "--out-dir") ?? "data/reports
 const jsonPath = resolve(outputDir, "calibration-guard-validation.json");
 const markdownPath = resolve(outputDir, "calibration-guard-validation.md");
 
-const proposalsPayload = await readOptionalRecord(proposalsPath);
-const performancePayload = performanceReportPath ? await readOptionalRecord(performanceReportPath) : null;
-const holdoutPerformancePayload = holdoutPerformanceReportPath ? await readOptionalRecord(holdoutPerformanceReportPath) : null;
+const proposalsArtifact = await readExplicitProposalArtifact(proposalsPath);
+const performanceArtifact = performanceReportPath ? await readExplicitPerformanceArtifact(performanceReportPath) : null;
+const holdoutPerformanceArtifact = holdoutPerformanceReportPath ? await readExplicitPerformanceArtifact(holdoutPerformanceReportPath) : null;
 const report = buildValidationReport({
   proposalsPath,
   performanceReportPath,
   holdoutPerformanceReportPath,
-  proposalsPayload,
-  performancePayload,
-  holdoutPerformancePayload,
+  proposalsArtifact,
+  performanceArtifact,
+  holdoutPerformanceArtifact,
   jsonPath,
   markdownPath,
 });
@@ -111,41 +116,35 @@ console.log(`Promote for default: ${report.summary.promoteForDefault}`);
 console.log(`Output: ${jsonPath}`);
 
 async function latestPerformanceReportPath(performanceRoot: string) {
-  const paths = await listFilesNamed(performanceRoot, "forecast-performance.json");
-  const candidates: { path: string; generatedAt: string | null }[] = [];
-  for (const path of paths) {
-    const payload = await readOptionalRecord(path);
-    if (!payload) {
-      continue;
-    }
-    candidates.push({ path, generatedAt: readString(payload, "generatedAt") });
-  }
-  candidates.sort((left, right) => timestampValue(right.generatedAt) - timestampValue(left.generatedAt) || right.path.localeCompare(left.path));
-  return candidates[0]?.path ?? null;
+  const artifacts = await readForecastPerformanceArtifacts(root, { reportRoot: performanceRoot });
+  const latest = artifacts[artifacts.length - 1] ?? null;
+  return latest?.reportPath ?? null;
 }
 
-async function readOptionalRecord(path: string) {
-  try {
-    return readRecord(await readJson(path));
-  } catch {
-    return null;
-  }
+async function readExplicitProposalArtifact(path: string) {
+  const artifacts = await readCalibrationGuardProposalArtifacts(root, { reportRoot: path });
+  return artifacts[artifacts.length - 1] ?? null;
+}
+
+async function readExplicitPerformanceArtifact(path: string) {
+  const artifacts = await readForecastPerformanceArtifacts(root, { reportRoot: path });
+  return artifacts[artifacts.length - 1] ?? null;
 }
 
 function buildValidationReport(input: {
   proposalsPath: string;
   performanceReportPath: string | null;
   holdoutPerformanceReportPath: string | null;
-  proposalsPayload: JsonRecord | null;
-  performancePayload: JsonRecord | null;
-  holdoutPerformancePayload: JsonRecord | null;
+  proposalsArtifact: CalibrationGuardProposalArtifact | null;
+  performanceArtifact: ForecastPerformanceArtifact | null;
+  holdoutPerformanceArtifact: ForecastPerformanceArtifact | null;
   jsonPath: string;
   markdownPath: string;
 }): ValidationReport {
-  const proposals = readRecordArray(input.proposalsPayload, "proposalDrafts").flatMap(readProposalDraft);
-  const sourceReplayRows = readRecordArray(input.performancePayload, "calibrationReplayRows").flatMap(readReplayRow);
-  const holdoutReplayRows = readRecordArray(input.holdoutPerformancePayload, "calibrationReplayRows").flatMap(readReplayRow);
-  const validationMode: ValidationMode = input.holdoutPerformancePayload ? "holdout_replay" : "source_replay";
+  const proposals = (input.proposalsArtifact?.proposalDrafts ?? []).flatMap(readProposalDraft);
+  const sourceReplayRows = (input.performanceArtifact?.calibrationReplayRows ?? []).flatMap(readReplayRow);
+  const holdoutReplayRows = (input.holdoutPerformanceArtifact?.calibrationReplayRows ?? []).flatMap(readReplayRow);
+  const validationMode: ValidationMode = input.holdoutPerformanceArtifact ? "holdout_replay" : "source_replay";
   const replayRows = validationMode === "holdout_replay" ? holdoutReplayRows : sourceReplayRows;
   const validations = proposals.flatMap((proposal) => validateProposal(proposal, replayRows, validationMode));
   return {
@@ -165,9 +164,9 @@ function buildValidationReport(input: {
     paths: {
       json: input.jsonPath,
       markdown: input.markdownPath,
-      proposals: input.proposalsPayload ? input.proposalsPath : null,
-      performanceReport: input.performancePayload ? input.performanceReportPath : null,
-      holdoutPerformanceReport: input.holdoutPerformancePayload ? input.holdoutPerformanceReportPath : null,
+      proposals: input.proposalsArtifact ? input.proposalsPath : null,
+      performanceReport: input.performanceArtifact ? input.performanceReportPath : null,
+      holdoutPerformanceReport: input.holdoutPerformanceArtifact ? input.holdoutPerformanceReportPath : null,
     },
   };
 }
@@ -273,37 +272,31 @@ function renderValidationTable(rows: ValidationRow[]) {
   ];
 }
 
-function readProposalDraft(value: JsonRecord): ProposalDraft[] {
-  const id = readString(value, "id");
-  const sourceCandidateGuardId = readString(value, "sourceCandidateGuardId");
-  const targetWorkflowId = readString(value, "targetWorkflowId");
-  const evidence = readRecord(value, "calibrationEvidence");
-  if (!id || !sourceCandidateGuardId || !targetWorkflowId || !evidence) {
+function readProposalDraft(value: CalibrationGuardProposalDraft): ProposalDraft[] {
+  if (!value.id || !value.sourceCandidateGuardId || !value.targetWorkflowId) {
     return [];
   }
   return [{
-    id,
-    sourceCandidateGuardId,
-    targetWorkflowId,
+    id: value.id,
+    sourceCandidateGuardId: value.sourceCandidateGuardId,
+    targetWorkflowId: value.targetWorkflowId,
     calibrationEvidence: {
-      bucketLabel: readString(evidence, "bucketLabel") ?? "",
-      suggestedAdjustment: readNumber(evidence, "suggestedAdjustment"),
+      bucketLabel: value.calibrationEvidence.bucketLabel ?? "",
+      suggestedAdjustment: value.calibrationEvidence.suggestedAdjustment,
     },
   }];
 }
 
-function readReplayRow(value: JsonRecord): ReplayRow[] {
-  const probability = readNumber(value, "probability");
-  const resolved = readBoolean(value, "resolved");
-  if (probability === null || resolved === null) {
+function readReplayRow(value: ForecastPerformanceCalibrationReplayRow): ReplayRow[] {
+  if (value.probability === null || value.resolved === null) {
     return [];
   }
   return [{
-    id: readString(value, "id"),
-    taskId: readString(value, "taskId"),
-    probability,
-    resolved,
-    score: readNumber(value, "score"),
+    id: value.id,
+    taskId: value.taskId,
+    probability: value.probability,
+    resolved: value.resolved,
+    score: value.score,
   }];
 }
 
@@ -343,27 +336,6 @@ function delta(candidate: number | null, baseline: number | null) {
 
 function clampProbability(value: number) {
   return Math.min(100, Math.max(0, Math.round(value * 10) / 10));
-}
-
-function readRecordArray(value: unknown, key: string) {
-  const record = readRecord(value);
-  const raw = record?.[key];
-  return Array.isArray(raw) ? raw.filter((item): item is JsonRecord => Boolean(readRecord(item))) : [];
-}
-
-function readNumber(value: unknown, key: string) {
-  const raw = readRecord(value)?.[key];
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
-}
-
-function readBoolean(value: unknown, key: string) {
-  const raw = readRecord(value)?.[key];
-  return typeof raw === "boolean" ? raw : null;
-}
-
-function timestampValue(value: string | null) {
-  const time = value ? new Date(value).getTime() : 0;
-  return Number.isFinite(time) ? time : 0;
 }
 
 function roundMetric(value: number) {

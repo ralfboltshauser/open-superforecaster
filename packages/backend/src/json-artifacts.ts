@@ -78,6 +78,14 @@ export function readNumber(value: unknown, key: string) {
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
 
+export function readBoolean(value: unknown, key: string) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const raw = (value as JsonRecord)[key];
+  return typeof raw === "boolean" ? raw : null;
+}
+
 export function timestampValue(value: string | null) {
   if (!value) {
     return 0;

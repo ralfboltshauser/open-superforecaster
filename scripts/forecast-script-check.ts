@@ -361,6 +361,9 @@ await check("forecast calibration guard validation replays proposal impact", asy
   const performanceDir = resolve(fixtureRoot, "performance", "contract-batch");
   const holdoutPerformanceDir = resolve(fixtureRoot, "performance", "holdout-batch");
   const outputDir = resolve(fixtureRoot, "out");
+  const validationSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-validation.ts"), "utf8");
+  const proposalReaderSource = await readFile(resolve(root, "packages/backend/src/calibration-guard-proposal-artifacts.ts"), "utf8");
+  const performanceReaderSource = await readFile(resolve(root, "packages/backend/src/forecast-performance-artifacts.ts"), "utf8");
   await mkdir(proposalsDir, { recursive: true });
   await mkdir(performanceDir, { recursive: true });
   await mkdir(holdoutPerformanceDir, { recursive: true });
@@ -434,6 +437,14 @@ await check("forecast calibration guard validation replays proposal impact", asy
   assert(readNumber(holdoutSummary, "promoteForDefault") === 1, "holdout validation should promote for default");
   assert(readString(holdoutValidations[0], "validationMode") === "holdout_replay", "holdout validation mode mismatch");
   assert(readString(holdoutValidations[0], "recommendation") === "promote_for_default", "holdout recommendation mismatch");
+  assert(validationSource.includes("readCalibrationGuardProposalArtifacts"), "calibration validation does not use the shared proposal artifact reader");
+  assert(validationSource.includes("readForecastPerformanceArtifacts"), "calibration validation does not use the shared performance artifact reader");
+  assert(validationSource.includes("reportRoot: performanceRoot"), "calibration validation does not pass the configured performance directory to the shared reader");
+  assert(!validationSource.includes("listFilesNamed(performanceRoot"), "calibration validation should not keep a local performance artifact scanner");
+  assert(!validationSource.includes("readRecordArray(input.proposals"), "calibration validation should not parse proposal drafts from raw JSON");
+  assert(!validationSource.includes("readRecordArray(input.performance"), "calibration validation should not parse replay rows from raw JSON");
+  assert(proposalReaderSource.includes("proposalDrafts"), "shared proposal reader does not expose proposal drafts");
+  assert(performanceReaderSource.includes("calibrationReplayRows"), "shared performance reader does not expose calibration replay rows");
   return "calibration guard proposals are replayed before promotion";
 });
 
