@@ -233,6 +233,12 @@ export function ForecastBatchHealthCard({ forecastBatchHealth }: { forecastBatch
                 </div>
                 <p className="mt-1 line-clamp-2 text-muted-foreground">{String(item.reason ?? "")}</p>
                 {item.recommendedAction ? <p className="mt-1 line-clamp-1 text-muted-foreground">{String(item.recommendedAction)}</p> : null}
+                {item.reviewNote ? (
+                  <p className="mt-1 line-clamp-1 text-muted-foreground">
+                    note: {String(item.reviewNote)}
+                    {item.reviewer ? ` · ${String(item.reviewer)}` : ""}
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>
@@ -249,6 +255,12 @@ export function ForecastBatchHealthCard({ forecastBatchHealth }: { forecastBatch
                 <p className="mt-1 truncate text-muted-foreground">
                   adjustment {formatSignedCount(readNumber(rule, "suggestedAdjustment"))} pts · n={formatCount(readNumber(rule, "sampleSize") ?? 0)}
                 </p>
+                {rule.reviewNote ? (
+                  <p className="mt-1 line-clamp-1 text-muted-foreground">
+                    note: {String(rule.reviewNote)}
+                    {rule.reviewer ? ` · ${String(rule.reviewer)}` : ""}
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>

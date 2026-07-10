@@ -410,7 +410,9 @@ and forecast type, so mixed binary, numeric, date, thresholded, conditional, and
 categorical batches can be triaged without opening every item. Calibration guard
 regressions are called out separately when guarded aggregates are scoring worse
 than unguarded aggregates; baseline-sanity misses remain in the same unresolved
-attention lane as other forecast postmortems. The latest local health report is also exposed through
+attention lane as other forecast postmortems. Health reports preserve local
+review notes, reviewer, and review timestamps for attention items and candidate
+guard rules. The latest local health report is also exposed through
 `/api/diagnostics` and Prometheus batch-health series, so unresolved attention
 can be monitored without opening the raw JSON artifact. `bun run duckdb:sync`
 also exports the latest batch-health summary and issue rows into

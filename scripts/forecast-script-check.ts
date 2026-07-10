@@ -802,6 +802,9 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
         taskLabel: "Sparse evidence forecast",
         forecastType: "binary",
         reviewStatus: "open",
+        reviewNote: "Investigate thin source coverage before rerun.",
+        reviewer: "contract-check",
+        reviewedAt: "2026-07-09T00:06:00.000Z",
       },
     ],
     candidateCalibrationGuardRules: [
@@ -817,6 +820,9 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
         calibrationError: 90,
         activationStatus: "ready_for_review",
         rationale: "80-100% binary aggregates are overforecasting.",
+        reviewNote: "Validate on a held-out batch first.",
+        reviewer: "contract-check",
+        reviewedAt: "2026-07-09T00:07:00.000Z",
       },
     ],
   });
@@ -833,6 +839,8 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   const attentionByKind = readArray(report, "attentionByKind");
   const attentionBySeverity = readArray(report, "attentionBySeverity");
   const attentionByForecastType = readArray(report, "attentionByForecastType");
+  const attentionItems = readArray(report, "attentionItems");
+  const candidateRules = readArray(report, "candidateCalibrationGuardRules");
   const markdown = await readFile(resolve(outputDir, "batch-health.md"), "utf8");
   assert(report, "health report is not an object");
   assert(readString(report, "reportType") === "forecast_batch_health", "health report type mismatch");
@@ -858,8 +866,16 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   assert(readNumber(numericType, "deferred") === 1, "attention forecast-type numeric deferred count mismatch");
   assert(markdown.includes("## Attention Breakdown"), "health markdown missing attention breakdown");
   assert(markdown.includes("## Attention Forecast Types"), "health markdown missing attention forecast-type breakdown");
+  assert(markdown.includes("Review note"), "health markdown missing review note column");
+  assert(markdown.includes("Investigate thin source coverage before rerun."), "health markdown missing attention review note");
+  assert(markdown.includes("Validate on a held-out batch first."), "health markdown missing candidate guard review note");
   assert(markdown.includes("evidence_coverage_miss"), "health markdown missing attention kind row");
   assert(markdown.includes("| numeric | 1 | 0 | 1 | 0 | 0 | 1 | 0 |"), "health markdown missing numeric forecast-type row");
+  const evidenceItem = attentionItems.find((item) => readString(item, "id") === "evidence-coverage:task-4:brier");
+  const candidateRule = candidateRules.find((rule) => readString(rule, "id") === "candidate-guard:80-100%");
+  assert(evidenceItem && readString(evidenceItem, "reviewNote") === "Investigate thin source coverage before rerun.", "health report did not preserve attention review note");
+  assert(evidenceItem && readString(evidenceItem, "reviewer") === "contract-check", "health report did not preserve attention reviewer");
+  assert(candidateRule && readString(candidateRule, "reviewNote") === "Validate on a held-out batch first.", "health report did not preserve candidate guard review note");
   assert(missingPhases.includes("forecast_performance"), "missing performance phase was not reported");
   assert(issues.some((issue) => readString(issue, "kind") === "failed_forecasts"), "failed forecast issue missing");
   assert(issues.some((issue) => readString(issue, "kind") === "calibration_guard_regression"), "calibration guard regression issue missing");
@@ -910,6 +926,9 @@ await check("diagnostics surface latest forecast batch health", async () => {
         forecastType: "binary",
         taskId: "task-1",
         taskLabel: "Sparse evidence forecast",
+        reviewNote: "Investigate thin source coverage before rerun.",
+        reviewer: "contract-check",
+        reviewedAt: "2026-07-09T00:06:00.000Z",
       },
     ],
     candidateCalibrationGuardRules: [
@@ -925,6 +944,9 @@ await check("diagnostics surface latest forecast batch health", async () => {
         calibrationError: 90,
         activationStatus: "ready_for_review",
         rationale: "80-100% binary aggregates are overforecasting.",
+        reviewNote: "Validate on a held-out batch first.",
+        reviewer: "contract-check",
+        reviewedAt: "2026-07-09T00:07:00.000Z",
       },
     ],
   });
@@ -943,8 +965,8 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(health.attentionByKind.some((row) => row.kind === "evidence_coverage_miss" && row.open === 2), "shared batch health reader did not expose attention kind breakdowns");
   assert(health.attentionBySeverity.some((row) => row.severity === "high" && row.deferred === 1), "shared batch health reader did not expose attention severity breakdowns");
   assert(health.attentionByForecastType.some((row) => row.forecastType === "binary" && row.open === 1), "shared batch health reader did not expose attention forecast-type breakdowns");
-  assert(health.attentionItems.some((item) => item.id === "evidence-coverage:task-1:brier" && item.recommendedAction === "Audit cited sources." && item.forecastType === "binary"), "shared batch health reader did not expose actionable attention items");
-  assert(health.candidateCalibrationGuardRules.some((rule) => rule.id === "candidate-guard:80-100%" && rule.suggestedAdjustment === -15), "shared batch health reader did not expose candidate guard rules");
+  assert(health.attentionItems.some((item) => item.id === "evidence-coverage:task-1:brier" && item.recommendedAction === "Audit cited sources." && item.forecastType === "binary" && item.reviewNote === "Investigate thin source coverage before rerun."), "shared batch health reader did not expose actionable attention review context");
+  assert(health.candidateCalibrationGuardRules.some((rule) => rule.id === "candidate-guard:80-100%" && rule.suggestedAdjustment === -15 && rule.reviewNote === "Validate on a held-out batch first."), "shared batch health reader did not expose candidate guard review context");
   assert(diagnosticsSource.includes("readLatestForecastBatchHealth"), "diagnostics does not read local forecast batch health through the shared reader");
   assert(diagnosticsSource.includes("forecastBatchHealthDiagnostic"), "diagnostics does not turn forecast batch health into a check item");
   assert(diagnosticsSource.includes("ForecastBatchHealthSnapshot"), "diagnostics does not type batch health from the shared reader");
@@ -966,6 +988,8 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(dashboardPanelSource.includes("Attention by forecast type"), "lab dashboard does not label attention forecast-type breakdowns");
   assert(dashboardPanelSource.includes("attentionItems"), "lab dashboard does not render actionable attention items");
   assert(dashboardPanelSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not render candidate guard rules from batch health");
+  assert(dashboardPanelSource.includes("item.reviewNote"), "lab dashboard does not render attention review notes from batch health");
+  assert(dashboardPanelSource.includes("rule.reviewNote"), "lab dashboard does not render candidate guard review notes from batch health");
   return "latest forecast batch health is shared by diagnostics and metrics";
 });
 

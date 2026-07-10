@@ -69,6 +69,9 @@ export type ForecastBatchAttentionItem = {
   kind: string;
   reason: string;
   recommendedAction: string | null;
+  reviewNote: string | null;
+  reviewer: string | null;
+  reviewedAt: string | null;
   metric: string;
   score: number | null;
   delta: number | null;
@@ -89,6 +92,9 @@ export type ForecastBatchCandidateCalibrationGuardRule = {
   calibrationError: number | null;
   activationStatus: string;
   rationale: string;
+  reviewNote: string | null;
+  reviewer: string | null;
+  reviewedAt: string | null;
 };
 
 export type ForecastBatchHealthSnapshot = {
@@ -258,6 +264,9 @@ function readAttentionItemArray(value: Record<string, unknown> | null, key: stri
     kind: readString(record, "kind") ?? "attention_item",
     reason: readString(record, "reason") ?? "",
     recommendedAction: readString(record, "recommendedAction"),
+    reviewNote: readString(record, "reviewNote"),
+    reviewer: readString(record, "reviewer"),
+    reviewedAt: readString(record, "reviewedAt"),
     metric: readString(record, "metric") ?? "metric",
     score: readNumber(record, "score"),
     delta: readNumber(record, "delta"),
@@ -280,6 +289,9 @@ function readCandidateCalibrationGuardRuleArray(value: Record<string, unknown> |
     calibrationError: readNumber(record, "calibrationError"),
     activationStatus: readString(record, "activationStatus") ?? "needs_review",
     rationale: readString(record, "rationale") ?? "",
+    reviewNote: readString(record, "reviewNote"),
+    reviewer: readString(record, "reviewer"),
+    reviewedAt: readString(record, "reviewedAt"),
   }));
 }
 

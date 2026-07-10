@@ -101,6 +101,9 @@ type HealthAttentionItem = {
   kind: string;
   reason: string;
   recommendedAction: string | null;
+  reviewNote: string | null;
+  reviewer: string | null;
+  reviewedAt: string | null;
   metric: string;
   score: number | null;
   delta: number | null;
@@ -121,6 +124,9 @@ type HealthCandidateCalibrationGuardRule = {
   calibrationError: number | null;
   activationStatus: string;
   rationale: string;
+  reviewNote: string | null;
+  reviewer: string | null;
+  reviewedAt: string | null;
 };
 
 const expectedPhases: BatchPhase[] = ["forecast_ops", "forecast_resolution", "forecast_performance"];
@@ -363,6 +369,9 @@ function readHealthAttentionItem(item: JsonRecord): HealthAttentionItem[] {
     kind: readString(item, "kind") ?? "attention_item",
     reason: readString(item, "reason") ?? "",
     recommendedAction: actions[0] ?? null,
+    reviewNote: readString(item, "reviewNote"),
+    reviewer: readString(item, "reviewer"),
+    reviewedAt: readString(item, "reviewedAt"),
     metric: readString(item, "metric") ?? "metric",
     score: readNumber(item, "score"),
     delta: readNumber(item, "delta"),
@@ -390,6 +399,9 @@ function readHealthCandidateCalibrationGuardRule(item: JsonRecord): HealthCandid
     calibrationError: readNumber(item, "calibrationError"),
     activationStatus: readString(item, "activationStatus") ?? "needs_review",
     rationale: readString(item, "rationale") ?? "",
+    reviewNote: readString(item, "reviewNote"),
+    reviewer: readString(item, "reviewer"),
+    reviewedAt: readString(item, "reviewedAt"),
   }];
 }
 
@@ -501,12 +513,14 @@ function renderAttentionTable(items: HealthAttentionItem[]) {
     return ["No attention items found."];
   }
   return [
-    "| Status | Severity | Kind | Forecast type | Metric | Score | Delta | Task | Recommended action |",
-    "| --- | --- | --- | --- | --- | ---: | ---: | --- | --- |",
+    "| Status | Severity | Kind | Forecast type | Metric | Score | Delta | Task | Recommended action | Review note |",
+    "| --- | --- | --- | --- | --- | ---: | ---: | --- | --- | --- |",
     ...items.map((item) =>
       `| ${item.reviewStatus} | ${item.severity} | ${item.kind} | ${item.forecastType} | ${item.metric} | ${formatNumber(item.score)} | ${
         formatNumber(item.delta)
-      } | ${escapeMarkdownCell(item.taskLabel ?? item.taskId ?? "")} | ${escapeMarkdownCell(item.recommendedAction ?? "")} |`,
+      } | ${escapeMarkdownCell(item.taskLabel ?? item.taskId ?? "")} | ${escapeMarkdownCell(item.recommendedAction ?? "")} | ${
+        escapeMarkdownCell(item.reviewNote ?? "")
+      } |`,
     ),
   ];
 }
@@ -516,14 +530,14 @@ function renderCandidateCalibrationGuardTable(items: HealthCandidateCalibrationG
     return ["No candidate calibration guard rules found."];
   }
   return [
-    "| Status | Bucket | Direction | Adjustment | Sample size | Forecast | Observed | Error | Activation |",
-    "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+    "| Status | Bucket | Direction | Adjustment | Sample size | Forecast | Observed | Error | Activation | Review note |",
+    "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
     ...items.map((item) =>
       `| ${item.reviewStatus} | ${escapeMarkdownCell(item.bucketLabel)} | ${item.direction} | ${
         formatNumber(item.suggestedAdjustment)
       } | ${formatNumber(item.sampleSize)} | ${formatNumber(item.meanForecast)} | ${formatNumber(item.observedRate)} | ${
         formatNumber(item.calibrationError)
-      } | ${escapeMarkdownCell(item.activationStatus)} |`,
+      } | ${escapeMarkdownCell(item.activationStatus)} | ${escapeMarkdownCell(item.reviewNote ?? "")} |`,
     ),
   ];
 }
