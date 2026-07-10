@@ -364,6 +364,7 @@ await check("forecast calibration guard validation replays proposal impact", asy
   const validationSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-validation.ts"), "utf8");
   const proposalReaderSource = await readFile(resolve(root, "packages/backend/src/calibration-guard-proposal-artifacts.ts"), "utf8");
   const performanceReaderSource = await readFile(resolve(root, "packages/backend/src/forecast-performance-artifacts.ts"), "utf8");
+  const backendIndexSource = await readFile(resolve(root, "packages/backend/src/index.ts"), "utf8");
   await mkdir(proposalsDir, { recursive: true });
   await mkdir(performanceDir, { recursive: true });
   await mkdir(holdoutPerformanceDir, { recursive: true });
@@ -445,6 +446,8 @@ await check("forecast calibration guard validation replays proposal impact", asy
   assert(!validationSource.includes("readRecordArray(input.performance"), "calibration validation should not parse replay rows from raw JSON");
   assert(proposalReaderSource.includes("proposalDrafts"), "shared proposal reader does not expose proposal drafts");
   assert(performanceReaderSource.includes("calibrationReplayRows"), "shared performance reader does not expose calibration replay rows");
+  assert(backendIndexSource.includes("calibration-guard-proposal-artifacts"), "backend package barrel does not export calibration proposal artifacts");
+  assert(backendIndexSource.includes("forecast-performance-artifacts"), "backend package barrel does not export forecast performance artifacts");
   return "calibration guard proposals are replayed before promotion";
 });
 
@@ -1087,7 +1090,10 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   assert(!healthSource.includes("readRecordArray(attentionBacklog"), "batch health should not parse supplemental attention backlog rows from raw JSON");
   assert(!healthSource.includes("function readAttentionBacklogReviewsUpdatedAt"), "batch health should not keep a local attention backlog freshness reader");
   assert(!healthSource.includes("readStringArray(filters"), "batch health should not keep local attention backlog filter compatibility parsing");
-  assert((await readFile(resolve(root, "packages/backend/src/forecast-attention-backlog-artifacts.ts"), "utf8")).includes("items: ForecastAttentionBacklogItem[]"), "shared attention backlog reader does not expose normalized items");
+  const attentionBacklogReaderSource = await readFile(resolve(root, "packages/backend/src/forecast-attention-backlog-artifacts.ts"), "utf8");
+  const backendIndexSource = await readFile(resolve(root, "packages/backend/src/index.ts"), "utf8");
+  assert(attentionBacklogReaderSource.includes("items: ForecastAttentionBacklogItem[]"), "shared attention backlog reader does not expose normalized items");
+  assert(backendIndexSource.includes("forecast-attention-backlog-artifacts"), "backend package barrel does not export forecast attention backlog artifacts");
   assert((await readFile(resolve(root, "packages/backend/src/forecast-batch-index-artifacts.ts"), "utf8")).includes("counts: ForecastBatchIndexCounts"), "shared batch-index reader does not expose normalized counts");
   return "batch health summarizes latest indexed batch issues";
 });
