@@ -41,8 +41,7 @@ type BacklogItem = {
   sourcePath: string;
 };
 
-type ForecastTypeBreakdown = {
-  forecastType: string;
+type BacklogBreakdownCounts = {
   items: number;
   open: number;
   deferred: number;
@@ -50,6 +49,14 @@ type ForecastTypeBreakdown = {
   high: number;
   medium: number;
   low: number;
+};
+
+type ForecastTypeBreakdown = BacklogBreakdownCounts & {
+  forecastType: string;
+};
+
+type KindBreakdown = BacklogBreakdownCounts & {
+  kind: string;
 };
 
 type BacklogReport = {
@@ -69,6 +76,7 @@ type BacklogReport = {
     low: number;
   };
   byForecastType: ForecastTypeBreakdown[];
+  byKind: KindBreakdown[];
   items: BacklogItem[];
   paths: {
     json: string;
@@ -343,6 +351,7 @@ function buildReport(
       low: countSeverity(items, "low"),
     },
     byForecastType: summarizeByForecastType(items),
+    byKind: summarizeByKind(items),
     items,
     paths: {
       json: jsonPath,
@@ -376,6 +385,10 @@ function renderMarkdown(report: BacklogReport) {
     "",
     ...renderForecastTypeTable(report.byForecastType),
     "",
+    "## Kinds",
+    "",
+    ...renderKindTable(report.byKind),
+    "",
     "## Items",
     "",
     ...renderItemsTable(report.items),
@@ -393,6 +406,19 @@ function renderForecastTypeTable(rows: ForecastTypeBreakdown[]) {
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...rows.map((row) =>
       `| ${escapeMarkdownCell(row.forecastType)} | ${row.items} | ${row.open} | ${row.deferred} | ${row.reviewed} | ${row.high} | ${row.medium} | ${row.low} |`,
+    ),
+  ];
+}
+
+function renderKindTable(rows: KindBreakdown[]) {
+  if (rows.length === 0) {
+    return ["No kind counts matched the filters."];
+  }
+  return [
+    "| Kind | Items | Open | Deferred | Reviewed | High | Medium | Low |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...rows.map((row) =>
+      `| ${escapeMarkdownCell(row.kind)} | ${row.items} | ${row.open} | ${row.deferred} | ${row.reviewed} | ${row.high} | ${row.medium} | ${row.low} |`,
     ),
   ];
 }
@@ -455,34 +481,54 @@ function countSeverity(items: BacklogItem[], severity: string) {
 }
 
 function summarizeByForecastType(items: BacklogItem[]) {
+  return summarizeBacklogGroups(items, (item) => item.forecastType ?? "unknown").map((row) => ({
+    forecastType: row.key,
+    ...row.counts,
+  }));
+}
+
+function summarizeByKind(items: BacklogItem[]) {
+  return summarizeBacklogGroups(items, (item) => item.kind || "unknown").map((row) => ({
+    kind: row.key,
+    ...row.counts,
+  }));
+}
+
+function summarizeBacklogGroups(items: BacklogItem[], keyFor: (item: BacklogItem) => string) {
   const grouped = new Map<string, BacklogItem[]>();
   for (const item of items) {
-    const forecastType = item.forecastType ?? "unknown";
-    const rows = grouped.get(forecastType);
+    const key = keyFor(item);
+    const rows = grouped.get(key);
     if (rows) {
       rows.push(item);
     } else {
-      grouped.set(forecastType, [item]);
+      grouped.set(key, [item]);
     }
   }
   return [...grouped.entries()]
-    .map(([forecastType, rows]) => ({
-      forecastType,
-      items: rows.length,
-      open: countStatus(rows, "open"),
-      deferred: countStatus(rows, "deferred"),
-      reviewed: countStatus(rows, "reviewed"),
-      high: countSeverity(rows, "high"),
-      medium: countSeverity(rows, "medium"),
-      low: countSeverity(rows, "low"),
+    .map(([key, rows]) => ({
+      key,
+      counts: countBreakdown(rows),
     }))
     .sort(
       (left, right) =>
-        right.items - left.items
-        || right.high - left.high
-        || right.medium - left.medium
-        || left.forecastType.localeCompare(right.forecastType),
+        right.counts.items - left.counts.items
+        || right.counts.high - left.counts.high
+        || right.counts.medium - left.counts.medium
+        || left.key.localeCompare(right.key),
     );
+}
+
+function countBreakdown(items: BacklogItem[]): BacklogBreakdownCounts {
+  return {
+    items: items.length,
+    open: countStatus(items, "open"),
+    deferred: countStatus(items, "deferred"),
+    reviewed: countStatus(items, "reviewed"),
+    high: countSeverity(items, "high"),
+    medium: countSeverity(items, "medium"),
+    low: countSeverity(items, "low"),
+  };
 }
 
 function statusRank(status: ReviewStatus) {
