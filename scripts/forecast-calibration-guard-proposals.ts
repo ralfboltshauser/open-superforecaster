@@ -15,6 +15,7 @@ import {
   summarizeCalibrationGuardProposalEligibility,
   type CalibrationGuardActivationStatus,
 } from "../packages/backend/src/calibration-guard-activation-policy";
+import { timestampValue } from "../packages/backend/src/json-artifacts";
 import {
   hasArg,
   readArgValue,
@@ -304,11 +305,6 @@ function readCandidateRule(rule: ForecastBatchIndexCandidateCalibrationGuardRule
     activationStatus: normalizeCalibrationGuardActivationStatus(rule.activationStatus),
     rationale: rule.rationale ?? "",
   }];
-}
-
-function timestampValue(value: string | null) {
-  const time = value ? new Date(value).getTime() : 0;
-  return Number.isFinite(time) ? time : 0;
 }
 
 function formatPercent(value: number | null) {

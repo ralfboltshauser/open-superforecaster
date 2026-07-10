@@ -38,6 +38,7 @@ import {
   determineForecastBatchHealthStatus,
   type ForecastBatchHealthDerivedStatus,
 } from "../packages/backend/src/forecast-batch-health";
+import { timestampValue } from "../packages/backend/src/json-artifacts";
 import {
   readArgValue,
   readRecord,
@@ -818,14 +819,6 @@ function groupBy<T>(items: T[], keyFor: (item: T) => string) {
 function readNumber(value: unknown, key: string) {
   const raw = readRecord(value)?.[key];
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
-}
-
-function timestampValue(value: string | null) {
-  if (!value) {
-    return 0;
-  }
-  const parsed = new Date(value).getTime();
-  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function formatNumber(value: number | null) {

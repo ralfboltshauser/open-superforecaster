@@ -403,6 +403,7 @@ await check("forecast calibration guard proposals require reviewed ready candida
   assert(proposalSource.includes("normalizeForecastAttentionReviewStatus"), "calibration guard proposal generator does not use shared review status normalization");
   assert(proposalSource.includes("summarizeCalibrationGuardProposalEligibility"), "calibration guard proposal generator does not use shared eligibility counts");
   assert(proposalSource.includes("isCalibrationGuardProposalEligible"), "calibration guard proposal generator does not use shared eligibility policy");
+  assert(proposalSource.includes("../packages/backend/src/json-artifacts"), "calibration guard proposal generator does not use shared timestamp parsing");
   assert(activationPolicySource.includes("summarizeCalibrationGuardProposalEligibility"), "calibration guard activation policy does not expose proposal eligibility counts");
   assert(activationPolicySource.includes("isCalibrationGuardProposalEligible"), "calibration guard activation policy does not expose proposal eligibility policy");
   assert(activationPolicySource.includes("summarizeForecastAttentionReviewStatuses"), "calibration guard activation policy does not use shared review status counts");
@@ -414,6 +415,7 @@ await check("forecast calibration guard proposals require reviewed ready candida
   assert(!proposalSource.includes("readRecordArray(batchIndex"), "calibration guard proposal generator should not parse candidate rules from raw batch-index JSON");
   assert(!proposalSource.includes("function readReviewStatus("), "calibration guard proposal generator should not keep a local review status reader");
   assert(!proposalSource.includes("function isEligibleCandidateRule("), "calibration guard proposal generator should not keep local eligibility policy");
+  assert(!proposalSource.includes("function timestampValue("), "calibration guard proposal generator should not keep local timestamp parsing");
   assert(!proposalSource.includes("reviewStatus === \"open\""), "calibration guard proposal generator should not keep local open review checks");
   assert(!proposalSource.includes("reviewStatus === \"deferred\""), "calibration guard proposal generator should not keep local deferred review checks");
   assert(!proposalSource.includes("reviewStatus === \"reviewed\""), "calibration guard proposal generator should not keep local resolved review checks");
@@ -1197,6 +1199,7 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   const healthSource = await readFile(resolve(root, "scripts/forecast-batch-health.ts"), "utf8");
   assert(healthSource.includes("evaluateAttentionBacklogArtifactCompatibility"), "batch health does not use the shared attention backlog artifact compatibility evaluator");
   assert(healthSource.includes("../packages/backend/src/forecast-attention-backlog"), "batch health does not import the shared attention backlog helper");
+  assert(healthSource.includes("../packages/backend/src/json-artifacts"), "batch health does not use shared timestamp parsing");
   assert(healthSource.includes("readForecastAttentionBacklogArtifacts"), "batch health does not use the shared attention backlog artifact reader");
   assert(healthSource.includes("readForecastBatchIndexArtifacts"), "batch health does not use the shared batch-index artifact reader");
   assert(healthSource.includes("unresolved: reviewCounts.unresolved"), "batch health does not persist shared unresolved review counts in breakdowns");
@@ -1213,9 +1216,13 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   assert(!healthSource.includes("readRecordArray(attentionBacklog"), "batch health should not parse supplemental attention backlog rows from raw JSON");
   assert(!healthSource.includes("function readAttentionBacklogReviewsUpdatedAt"), "batch health should not keep a local attention backlog freshness reader");
   assert(!healthSource.includes("readStringArray(filters"), "batch health should not keep local attention backlog filter compatibility parsing");
+  assert(!healthSource.includes("function timestampValue("), "batch health should not keep local timestamp parsing");
   const attentionBacklogReaderSource = await readFile(resolve(root, "packages/backend/src/forecast-attention-backlog-artifacts.ts"), "utf8");
+  const attentionBacklogSource = await readFile(resolve(root, "packages/backend/src/forecast-attention-backlog.ts"), "utf8");
   const backendIndexSource = await readFile(resolve(root, "packages/backend/src/index.ts"), "utf8");
   assert(attentionBacklogReaderSource.includes("items: ForecastAttentionBacklogItem[]"), "shared attention backlog reader does not expose normalized items");
+  assert(attentionBacklogSource.includes("./json-artifacts"), "attention backlog compatibility helper does not use shared timestamp parsing");
+  assert(!attentionBacklogSource.includes("function timestampValue("), "attention backlog compatibility helper should not keep local timestamp parsing");
   assert(backendIndexSource.includes("forecast-attention-backlog-artifacts"), "backend package barrel does not export forecast attention backlog artifacts");
   const batchIndexReaderSource = await readFile(resolve(root, "packages/backend/src/forecast-batch-index-artifacts.ts"), "utf8");
   assert(batchIndexReaderSource.includes("counts: ForecastBatchIndexCounts"), "shared batch-index reader does not expose normalized counts");

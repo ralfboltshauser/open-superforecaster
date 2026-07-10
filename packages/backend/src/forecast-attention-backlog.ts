@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import type { ForecastAttentionBacklogArtifact } from "./forecast-attention-backlog-artifacts";
+import { timestampValue } from "./json-artifacts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -124,14 +125,6 @@ function readString(value: unknown, key: string) {
 function readStringArray(value: JsonRecord | null, key: string) {
   const raw = value?.[key];
   return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string") : [];
-}
-
-function timestampValue(value: string | null) {
-  if (!value) {
-    return 0;
-  }
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function isRecord(value: unknown): value is JsonRecord {
