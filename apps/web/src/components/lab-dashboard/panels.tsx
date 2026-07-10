@@ -661,6 +661,10 @@ function WorkflowProposalSummary({
   const validationCostSummary = typeof proposal.validationCostSummary === "string" ? proposal.validationCostSummary : null
   const validationGateStatus = typeof proposal.validationGateStatus === "string" ? proposal.validationGateStatus : null
   const validationGateBlockers = readArray(proposal, "validationGateBlockers").filter((blocker): blocker is string => typeof blocker === "string")
+  const validationReadiness = isRecord(proposal.validationReadiness) ? proposal.validationReadiness : null
+  const validationCoverage = isRecord(validationReadiness?.coverage) ? validationReadiness.coverage : null
+  const validationPrimaryEvidence = isRecord(validationReadiness?.primaryEvidence) ? validationReadiness.primaryEvidence : null
+  const validationReadinessBlockerIds = readArray(validationReadiness, "blockers").filter((blocker): blocker is string => typeof blocker === "string")
   const validationComparisonReport = isRecord(proposal.validationComparisonReport) ? proposal.validationComparisonReport : null
   const validationRecommendation = isRecord(validationComparisonReport?.recommendation) ? validationComparisonReport.recommendation : null
   const validationRecommendationStatus = typeof validationRecommendation?.status === "string" ? validationRecommendation.status : null
@@ -678,22 +682,17 @@ function WorkflowProposalSummary({
   const reviewedBy = typeof proposal.reviewedBy === "string" ? proposal.reviewedBy : null
   const reviewedAt = typeof proposal.reviewedAt === "string" ? proposal.reviewedAt : null
   const canUpdate = Boolean(benchmarkRunId && proposalId)
-  const requiredValidationCases = sourceBenchmarkCaseCount === null ? 1 : Math.max(sourceBenchmarkCaseCount, 1)
-  const requiredValidationPairedCases = 10
-  const requiredValidationPairedHoldoutCases = 10
-  const hasValidationCoverage = (validationCompletedCases ?? 0) >= requiredValidationCases
-  const hasPrimaryPairedEvidence = (validationPrimaryPairedCaseCount ?? 0) >= requiredValidationPairedCases
-  const hasPrimaryPairedHoldoutEvidence = (validationPrimaryPairedHoldoutCaseCount ?? 0) >= requiredValidationPairedHoldoutCases
-  const validationReadinessBlockers = [
-    validationResultStatus === "completed" ? null : "validation incomplete",
-    validationGateStatus === "review_for_promotion" ? null : "gate not passing",
-    hasValidationCoverage ? null : `coverage ${validationCompletedCases ?? 0}/${requiredValidationCases}`,
-    validationRecommendationStatus === "candidate_better" ? null : "comparison not better",
-    hasPrimaryPairedEvidence ? null : `paired evidence ${validationPrimaryPairedCaseCount ?? 0}/${requiredValidationPairedCases}`,
-    hasPrimaryPairedHoldoutEvidence ? null : `holdout evidence ${validationPrimaryPairedHoldoutCaseCount ?? 0}/${requiredValidationPairedHoldoutCases}`,
-    validationGateBlockers.length ? `blockers ${validationGateBlockers.slice(0, 2).join(", ")}` : null,
-  ].filter((blocker): blocker is string => Boolean(blocker))
-  const canMarkImplemented = validationReadinessBlockers.length === 0
+  const requiredValidationCases = readNumber(validationCoverage, "requiredCases") ?? (sourceBenchmarkCaseCount === null ? 1 : Math.max(sourceBenchmarkCaseCount, 1))
+  const readinessCompletedCases = readNumber(validationCoverage, "completedCases")
+  const readinessPrimaryPairedCaseCount = readNumber(validationPrimaryEvidence, "pairedCaseCount")
+  const readinessPrimaryPairedHoldoutCaseCount = readNumber(validationPrimaryEvidence, "pairedHoldoutCaseCount")
+  const validationDisplayCompletedCases = readinessCompletedCases ?? validationCompletedCases
+  const validationDisplayPairedCaseCount = readinessPrimaryPairedCaseCount ?? validationPrimaryPairedCaseCount
+  const validationDisplayPairedHoldoutCaseCount = readinessPrimaryPairedHoldoutCaseCount ?? validationPrimaryPairedHoldoutCaseCount
+  const validationReadinessBlockers = validationReadiness
+    ? validationReadinessBlockerIds.map((blocker) => formatValidationReadinessBlocker(blocker, validationReadiness))
+    : ["readiness unavailable"]
+  const canMarkImplemented = validationReadiness?.passed === true
   const updateStatus = (
     nextStatus: WorkflowChangeProposalStatus,
     nextImplementationStatus?: WorkflowChangeProposalImplementationStatus,
@@ -740,7 +739,7 @@ function WorkflowProposalSummary({
           {validationBenchmarkRunId ? (
             <p className="mt-1 truncate">
               validation run {validationBenchmarkRunId}{validationResultStatus ? ` · ${validationResultStatus}` : ""}
-              {validationCompletedCases === null ? "" : ` · ${validationCompletedCases}/${requiredValidationCases} cases`}
+              {validationDisplayCompletedCases === null ? "" : ` · ${validationDisplayCompletedCases}/${requiredValidationCases} cases`}
               {validationMeanBrierDelta === null ? "" : ` · delta ${formatMetric(validationMeanBrierDelta)}`}
             </p>
           ) : null}
@@ -757,8 +756,8 @@ function WorkflowProposalSummary({
           {validationRecommendationStatus ? (
             <p className="mt-1 truncate">
               comparison {validationRecommendationStatus}
-              {validationPrimaryPairedCaseCount === null ? "" : ` · paired ${validationPrimaryPairedCaseCount}`}
-              {validationPrimaryPairedHoldoutCaseCount === null ? "" : ` · holdout ${validationPrimaryPairedHoldoutCaseCount}`}
+              {validationDisplayPairedCaseCount === null ? "" : ` · paired ${validationDisplayPairedCaseCount}`}
+              {validationDisplayPairedHoldoutCaseCount === null ? "" : ` · holdout ${validationDisplayPairedHoldoutCaseCount}`}
               {validationPairedMeanBrierDelta === null ? "" : ` · paired delta ${formatMetric(validationPairedMeanBrierDelta)}`}
             </p>
           ) : null}
@@ -843,6 +842,30 @@ function implementationStatusForAction(status: WorkflowChangeProposalStatus): Wo
     return "validated"
   }
   return undefined
+}
+
+function formatValidationReadinessBlocker(blocker: string, readiness: JsonRecord) {
+  const coverage = isRecord(readiness.coverage) ? readiness.coverage : null
+  const primaryEvidence = isRecord(readiness.primaryEvidence) ? readiness.primaryEvidence : null
+  if (blocker === "validation_result_incomplete") {
+    return "validation incomplete"
+  }
+  if (blocker === "validation_gate_not_passing") {
+    return "gate not passing"
+  }
+  if (blocker === "insufficient_validation_case_coverage") {
+    return `coverage ${formatCount(readNumber(coverage, "completedCases") ?? 0)}/${formatCount(readNumber(coverage, "requiredCases") ?? 1)}`
+  }
+  if (blocker === "validation_recommendation_not_candidate_better") {
+    return "comparison not better"
+  }
+  if (blocker === "insufficient_primary_paired_cases") {
+    return `paired evidence ${formatCount(readNumber(primaryEvidence, "pairedCaseCount") ?? 0)}/${formatCount(readNumber(primaryEvidence, "requiredPairedCases") ?? 0)}`
+  }
+  if (blocker === "insufficient_primary_paired_holdout_cases") {
+    return `holdout evidence ${formatCount(readNumber(primaryEvidence, "pairedHoldoutCaseCount") ?? 0)}/${formatCount(readNumber(primaryEvidence, "requiredPairedHoldoutCases") ?? 0)}`
+  }
+  return blocker.replaceAll("_", " ")
 }
 
 export function PerformanceCard({ performance }: { performance: JsonRecord | null }) {

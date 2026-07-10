@@ -336,6 +336,12 @@ async function runSmokeChecks() {
     if (runWithSourceRiskBlocker) {
       assertSourceRiskFindings(readRecord(runWithSourceRiskBlocker, "sourceQualityFindings"));
     }
+    const proposalMissingReadiness = benchmarkRunRecords
+      .flatMap((run) => readArray(run, "workflowChangeProposals").filter(isRecord))
+      .find((proposal) => !readRecord(proposal, "validationReadiness"));
+    if (proposalMissingReadiness) {
+      throw new Error("benchmark list proposal is missing validation readiness");
+    }
     return `${benchmarkRuns.length} run(s), ${benchmarkSuites.length} suite(s)`;
   });
 
@@ -353,6 +359,7 @@ async function runSmokeChecks() {
     const detail = readRecord(response, "benchmarkRun");
     const scorecard = readRecord(detail, "scorecard");
     const cases = readArray(detail, "cases").filter(isRecord);
+    const workflowChangeProposals = readArray(detail, "workflowChangeProposals").filter(isRecord);
     const reports = readRecord(detail, "reports");
     const promotionGate = readRecord(scorecard, "promotionGate");
     if (!scorecard || !promotionGate || cases.length === 0) {
@@ -369,6 +376,10 @@ async function runSmokeChecks() {
     }
     if (!reports || !("score" in reports) || !("analysis" in reports) || !("comparison" in reports)) {
       throw new Error("benchmark detail reports block is incomplete");
+    }
+    const proposalMissingReadiness = workflowChangeProposals.find((proposal) => !readRecord(proposal, "validationReadiness"));
+    if (proposalMissingReadiness) {
+      throw new Error("benchmark detail proposal is missing validation readiness");
     }
     return `${cases.length} case(s), gate ${readString(promotionGate, "status") ?? "unknown"}`;
   });

@@ -848,7 +848,15 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
       meanBrierDelta: meanScore(results, "baseline_delta_brier"),
       caseResults: results,
       analysis: analysis ?? null,
-      workflowChangeProposals: proposals,
+      workflowChangeProposals: proposals.map((proposal) =>
+        workflowChangeProposalWithValidationReadiness(
+          proposal,
+          row.caseCount,
+          proposal.validationComparisonReport && typeof proposal.validationComparisonReport === "object" && !Array.isArray(proposal.validationComparisonReport)
+            ? proposal.validationComparisonReport
+            : null,
+        ),
+      ),
     });
   }
 
@@ -885,6 +893,7 @@ export async function getBenchmarkRunDetail(db: Db, benchmarkRunId: string) {
 
   const benchmarkCaseIds = uniqueStrings(results.map((result) => result.benchmarkCaseId));
   const taskIds = uniqueStrings(results.map((result) => result.taskId).filter((id): id is string => Boolean(id)));
+  const validationBenchmarkRunIds = uniqueStrings(proposals.map((proposal) => proposal.validationBenchmarkRunId).filter((id): id is string => Boolean(id)));
   const artifactIds = uniqueStrings([
     ...results.map((result) => result.forecastOutputArtifactId).filter((id): id is string => Boolean(id)),
     run.scoreReportArtifactId,
@@ -892,18 +901,56 @@ export async function getBenchmarkRunDetail(db: Db, benchmarkRunId: string) {
     run.comparisonReportArtifactId,
   ].filter((id): id is string => Boolean(id)));
 
-  const [caseRows, taskRows, artifactRowsById, scoreReportRow, analysisReportRow, comparisonReportRow] = await Promise.all([
+  const [caseRows, taskRows, artifactRowsById, scoreReportRow, analysisReportRow, comparisonReportRow, validationRunRows] = await Promise.all([
     benchmarkCaseIds.length ? db.select().from(benchmarkCases).where(inArray(benchmarkCases.id, benchmarkCaseIds)) : [],
     taskIds.length ? db.select().from(tasks).where(inArray(tasks.id, taskIds)) : [],
     artifactIds.length ? db.select().from(artifacts).where(inArray(artifacts.id, artifactIds)) : [],
     readArtifactReportRow(db, run.scoreReportArtifactId),
     readArtifactReportRow(db, run.analysisReportArtifactId),
     readArtifactReportRow(db, run.comparisonReportArtifactId),
+    validationBenchmarkRunIds.length
+      ? db
+          .select({
+            id: benchmarkRuns.id,
+            comparisonReportArtifactId: benchmarkRuns.comparisonReportArtifactId,
+          })
+          .from(benchmarkRuns)
+          .where(inArray(benchmarkRuns.id, validationBenchmarkRunIds))
+      : [],
   ]);
+  const validationComparisonArtifactIds = uniqueStrings(
+    validationRunRows.map((validationRun) => validationRun.comparisonReportArtifactId).filter((id): id is string => Boolean(id)),
+  );
+  const validationComparisonRows = validationComparisonArtifactIds.length
+    ? await db
+        .select({
+          artifactId: artifactRows.artifactId,
+          rowJson: artifactRows.rowJson,
+        })
+        .from(artifactRows)
+        .where(and(eq(artifactRows.rowIndex, 0), inArray(artifactRows.artifactId, validationComparisonArtifactIds)))
+    : [];
 
   const casesById = new Map(caseRows.map((benchmarkCase) => [benchmarkCase.id, benchmarkCase]));
   const tasksById = new Map(taskRows.map((task) => [task.id, task]));
   const artifactsById = new Map(artifactRowsById.map((artifact) => [artifact.id, artifact]));
+  const validationRunById = new Map(validationRunRows.map((validationRun) => [validationRun.id, validationRun]));
+  const validationComparisonRowByArtifactId = new Map(validationComparisonRows.map((row) => [row.artifactId, row.rowJson]));
+  const proposalsWithReadiness = proposals.map((proposal) => {
+    const validationRun = proposal.validationBenchmarkRunId ? validationRunById.get(proposal.validationBenchmarkRunId) ?? null : null;
+    const validationComparisonReport = validationRun?.comparisonReportArtifactId
+      ? validationComparisonRowByArtifactId.get(validationRun.comparisonReportArtifactId) ?? null
+      : null;
+    return workflowChangeProposalWithValidationReadiness(
+      {
+        ...proposal,
+        validationComparisonReportArtifactId: validationRun?.comparisonReportArtifactId ?? null,
+        validationComparisonReport,
+      },
+      run.caseCount,
+      validationComparisonReport,
+    );
+  });
   const splitFindings = benchmarkSplitSummaryForResults({ results, casesById });
   const detailedCases = results.map((result) => {
     const benchmarkCase = casesById.get(result.benchmarkCaseId);
@@ -987,7 +1034,7 @@ export async function getBenchmarkRunDetail(db: Db, benchmarkRunId: string) {
     },
     cases: detailedCases,
     analysis: analysis ?? null,
-    workflowChangeProposals: proposals,
+    workflowChangeProposals: proposalsWithReadiness,
     promotionDecisions,
     reports: {
       score: run.scoreReportArtifactId ? { artifactId: run.scoreReportArtifactId, row: scoreReportRow } : null,
@@ -1589,6 +1636,27 @@ export function workflowProposalValidationReadiness(input: {
     gateBlockers,
     coverage,
     primaryEvidence,
+  };
+}
+
+function workflowChangeProposalWithValidationReadiness<
+  T extends {
+    validationResultStatus: string | null;
+    validationGateStatus: string | null;
+    validationGateBlockers: unknown;
+    validationCompletedCases: number | null;
+  },
+>(proposal: T, sourceBenchmarkCaseCount: number | null, validationComparisonReport: Record<string, unknown> | null) {
+  return {
+    ...proposal,
+    validationReadiness: workflowProposalValidationReadiness({
+      resultStatus: proposal.validationResultStatus,
+      gateStatus: proposal.validationGateStatus,
+      gateBlockers: proposal.validationGateBlockers,
+      completedCases: proposal.validationCompletedCases,
+      sourceBenchmarkCaseCount,
+      comparisonReport: validationComparisonReport,
+    }),
   };
 }
 

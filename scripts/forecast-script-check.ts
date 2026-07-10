@@ -3359,7 +3359,10 @@ await check("workflow change proposals are exported to DuckDB", async () => {
 });
 
 await check("workflow change proposals are visible in the lab dashboard", async () => {
+  const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  assert(backendSource.includes("workflowChangeProposalWithValidationReadiness"), "backend does not enrich workflow proposals with shared validation readiness");
+  assert(backendSource.includes("validationReadiness: workflowProposalValidationReadiness"), "backend proposal read model does not use shared validation readiness helper");
   assert(dashboardSource.includes("workflowChangeProposals"), "lab dashboard does not read workflow change proposals");
   assert(dashboardSource.includes("Workflow proposals"), "lab dashboard does not render a workflow proposal section");
   assert(dashboardSource.includes("targetWorkflowId"), "lab dashboard proposal section missing target workflow id");
@@ -3386,12 +3389,13 @@ await check("workflow change proposals are visible in the lab dashboard", async 
   assert(dashboardSource.includes("validationGateStatus"), "lab dashboard proposal section missing validation gate status");
   assert(dashboardSource.includes("validationGateBlockers"), "lab dashboard proposal section missing validation gate blockers");
   assert(dashboardSource.includes("canMarkImplemented"), "lab dashboard does not gate implemented action on validation result");
+  assert(dashboardSource.includes("proposal.validationReadiness"), "lab dashboard does not consume backend proposal validation readiness");
   assert(dashboardSource.includes("validationReadinessBlockers"), "lab dashboard does not explain blocked implementation readiness");
   assert(dashboardSource.includes("implementation blocked"), "lab dashboard does not render implementation readiness blockers");
-  assert(dashboardSource.includes("validationGateStatus === \"review_for_promotion\""), "lab dashboard does not require passing validation gate before implemented action");
-  assert(dashboardSource.includes("hasValidationCoverage"), "lab dashboard does not require validation case coverage before implemented action");
-  assert(dashboardSource.includes("hasPrimaryPairedEvidence"), "lab dashboard does not require primary paired validation evidence before implemented action");
-  assert(dashboardSource.includes("hasPrimaryPairedHoldoutEvidence"), "lab dashboard does not require primary paired holdout validation evidence before implemented action");
+  assert(dashboardSource.includes("validationReadiness?.passed === true"), "lab dashboard does not gate implemented action on backend validation readiness");
+  assert(!dashboardSource.includes("const requiredValidationPairedCases = 10"), "lab dashboard should not hardcode paired validation thresholds");
+  assert(!dashboardSource.includes("hasPrimaryPairedEvidence"), "lab dashboard should not duplicate backend paired evidence readiness logic");
+  assert(!dashboardSource.includes("hasPrimaryPairedHoldoutEvidence"), "lab dashboard should not duplicate backend holdout evidence readiness logic");
   return "benchmark-derived workflow proposals are visible where promotion blockers are reviewed";
 });
 
