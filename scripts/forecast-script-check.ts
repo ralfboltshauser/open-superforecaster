@@ -717,9 +717,11 @@ await check("forecast attention backlog filters batch review status", async () =
 
 await check("forecast batch health summarizes latest indexed batch", async () => {
   const batchIndexRoot = resolve(tempRoot, "batch-health", "batches");
+  const attentionBacklogRoot = resolve(tempRoot, "batch-health", "attention-backlog");
   const outputDir = resolve(tempRoot, "batch-health", "out");
   await mkdir(resolve(batchIndexRoot, "old-batch"), { recursive: true });
   await mkdir(resolve(batchIndexRoot, "latest-batch"), { recursive: true });
+  await mkdir(attentionBacklogRoot, { recursive: true });
   await writeJson(resolve(batchIndexRoot, "old-batch", "batch-index.json"), {
     reportType: "forecast_batch_index",
     batchId: "old-batch",
@@ -849,9 +851,104 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
       },
     ],
   });
+  await writeJson(resolve(attentionBacklogRoot, "attention-backlog.json"), {
+    reportType: "forecast_attention_backlog",
+    generatedAt: "2026-07-09T00:05:00.000Z",
+    filters: {
+      statuses: ["open", "deferred"],
+      batchIds: [],
+    },
+    counts: {
+      items: 4,
+      open: 3,
+      deferred: 1,
+      reviewed: 0,
+      high: 1,
+      medium: 2,
+      low: 1,
+    },
+    byForecastType: [],
+    byKind: [],
+    items: [
+      {
+        batchId: "latest-batch",
+        id: "calibration-default-plan-skipped:latest-batch:80-100%",
+        reviewStatus: "open",
+        severity: "low",
+        kind: "calibration_guard_default_plan_not_holdout_replay",
+        reason: "80-100% default-plan row skipped: not_holdout_replay.",
+        recommendedActions: ["Run a held-out calibration validation before considering 80-100% as a default calibration guard."],
+        metric: "default_plan_skip",
+        score: null,
+        delta: null,
+        taskId: null,
+        taskLabel: "80-100% default-plan skip",
+        forecastType: "binary",
+        sourcePath: "calibration-guard-default-plan.json",
+      },
+      {
+        batchId: "latest-batch",
+        id: "poor:task-1:brier",
+        reviewStatus: "open",
+        severity: "high",
+        kind: "poor_resolved_forecast",
+        reason: "duplicate batch-index item should not inflate health",
+        recommendedActions: ["Open the run report."],
+        metric: "brier",
+        score: 0.4,
+        delta: null,
+        taskId: "task-1",
+        taskLabel: "Hard forecast",
+        forecastType: "binary",
+        sourcePath: "batch-index.json",
+      },
+      {
+        batchId: "latest-batch",
+        id: "candidate-guard:80-100%",
+        reviewStatus: "open",
+        severity: "high",
+        kind: "candidate_calibration_guard",
+        reason: "duplicate candidate guard should stay in candidate guard table only",
+        recommendedActions: ["Review candidate guard."],
+        metric: "calibration_error",
+        score: 90,
+        delta: -15,
+        taskId: null,
+        taskLabel: "80-100% candidate calibration guard",
+        forecastType: "binary",
+        sourcePath: "batch-index.json",
+      },
+      {
+        batchId: "other-batch",
+        id: "calibration-default-plan-skipped:other-batch:60-80%",
+        reviewStatus: "open",
+        severity: "medium",
+        kind: "calibration_guard_default_plan_not_promoted_for_default",
+        reason: "other batch should not inflate latest batch health",
+        recommendedActions: ["Review other batch."],
+        metric: "default_plan_skip",
+        score: null,
+        delta: null,
+        taskId: null,
+        taskLabel: "60-80% default-plan skip",
+        forecastType: "binary",
+        sourcePath: "calibration-guard-default-plan.json",
+      },
+    ],
+    paths: {
+      json: resolve(attentionBacklogRoot, "attention-backlog.json"),
+      markdown: resolve(attentionBacklogRoot, "attention-backlog.md"),
+      batchIndexDir: batchIndexRoot,
+      validationReportDir: "validation",
+      defaultPlanReportDir: "default-plan",
+      reviews: "reviews.json",
+    },
+  });
   await runScript("scripts/forecast-batch-health.ts", [
     "--batch-index-dir",
     batchIndexRoot,
+    "--attention-backlog-dir",
+    attentionBacklogRoot,
     "--out-dir",
     outputDir,
   ]);
@@ -871,7 +968,7 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   assert(readString(report, "status") === "needs_attention", "health status mismatch");
   assert(summary, "health summary missing");
   assert(readNumber(summary, "failedForecasts") === 1, "failed forecast summary mismatch");
-  assert(readNumber(summary, "unresolvedAttentionItems") === 4, "unresolved attention summary mismatch");
+  assert(readNumber(summary, "unresolvedAttentionItems") === 5, "unresolved attention summary mismatch");
   assert(readNumber(summary, "scoreRegressionItems") === 1, "score regression summary mismatch");
   assert(readNumber(summary, "calibrationGuardRegressionItems") === 1, "calibration guard regression summary mismatch");
   assert(readNumber(summary, "unresolvedCandidateCalibrationGuardRules") === 1, "unresolved candidate calibration guard summary mismatch");
@@ -881,10 +978,13 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   const numericType = attentionByForecastType.find((row) => readString(row, "forecastType") === "numeric");
   assert(evidenceKind, "attention kind breakdown missing evidence coverage misses");
   assert(readNumber(evidenceKind, "open") === 1, "attention kind breakdown open count mismatch");
+  const defaultPlanKind = attentionByKind.find((row) => readString(row, "kind") === "calibration_guard_default_plan_not_holdout_replay");
+  assert(defaultPlanKind, "attention kind breakdown missing supplemental default-plan skipped row");
+  assert(readNumber(defaultPlanKind, "open") === 1, "supplemental default-plan skipped row open count mismatch");
   assert(highSeverity, "attention severity breakdown missing high severity");
   assert(readNumber(highSeverity, "open") === 3, "attention severity open count mismatch");
   assert(binaryType, "attention forecast-type breakdown missing binary rows");
-  assert(readNumber(binaryType, "open") === 3, "attention forecast-type binary open count mismatch");
+  assert(readNumber(binaryType, "open") === 4, "attention forecast-type binary open count mismatch");
   assert(numericType, "attention forecast-type breakdown missing numeric rows");
   assert(readNumber(numericType, "deferred") === 1, "attention forecast-type numeric deferred count mismatch");
   assert(markdown.includes("## Attention Breakdown"), "health markdown missing attention breakdown");
@@ -892,12 +992,19 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   assert(markdown.includes("Review note"), "health markdown missing review note column");
   assert(markdown.includes("Investigate thin source coverage before rerun."), "health markdown missing attention review note");
   assert(markdown.includes("Validate on a held-out batch first."), "health markdown missing candidate guard review note");
+  assert(markdown.includes("Attention backlog:"), "health markdown missing attention backlog path");
+  assert(markdown.includes("calibration_guard_default_plan_not_holdout_replay"), "health markdown missing supplemental default-plan skipped row");
   assert(markdown.includes("evidence_coverage_miss"), "health markdown missing attention kind row");
+  assert(markdown.includes("| binary | 4 | 4 | 0 | 0 | 3 | 0 | 1 |"), "health markdown missing binary forecast-type row with supplemental item");
   assert(markdown.includes("| numeric | 1 | 0 | 1 | 0 | 0 | 1 | 0 |"), "health markdown missing numeric forecast-type row");
   const evidenceItem = attentionItems.find((item) => readString(item, "id") === "evidence-coverage:task-4:brier");
+  const defaultPlanItem = attentionItems.find((item) => readString(item, "id") === "calibration-default-plan-skipped:latest-batch:80-100%");
   const candidateRule = candidateRules.find((rule) => readString(rule, "id") === "candidate-guard:80-100%");
   assert(evidenceItem && readString(evidenceItem, "reviewNote") === "Investigate thin source coverage before rerun.", "health report did not preserve attention review note");
   assert(evidenceItem && readString(evidenceItem, "reviewer") === "contract-check", "health report did not preserve attention reviewer");
+  assert(defaultPlanItem, "health report missing supplemental default-plan skipped item from attention backlog");
+  assert(attentionItems.filter((item) => readString(item, "id") === "poor:task-1:brier").length === 1, "health report duplicated batch-index attention item");
+  assert(!attentionItems.some((item) => readString(item, "id") === "candidate-guard:80-100%"), "health report duplicated candidate guard as attention item");
   assert(candidateRule && readString(candidateRule, "reviewNote") === "Validate on a held-out batch first.", "health report did not preserve candidate guard review note");
   assert(missingPhases.includes("forecast_performance"), "missing performance phase was not reported");
   assert(issues.some((issue) => readString(issue, "kind") === "failed_forecasts"), "failed forecast issue missing");

@@ -463,7 +463,11 @@ The health report flags missing artifact phases, failed forecast or resolution
 steps, unresolved attention items, open candidate calibration guard reviews, and
 score-regression attention signals. Attention is broken down by kind, severity,
 and forecast type, so mixed binary, numeric, date, thresholded, conditional, and
-categorical batches can be triaged without opening every item. Calibration guard
+categorical batches can be triaged without opening every item. When a generated
+attention backlog is present, health also merges supplemental report-derived
+items for the selected batch, such as calibration validation or default-plan
+skips that are not stored in the batch index, while deduplicating batch-index
+items and candidate guard rules. Calibration guard
 regressions are called out separately when guarded aggregates are scoring worse
 than unguarded aggregates; baseline-sanity misses remain in the same unresolved
 attention lane as other forecast postmortems. Health reports preserve local

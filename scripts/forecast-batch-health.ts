@@ -91,6 +91,8 @@ type HealthReport = {
     markdown: string;
     batchIndex: string | null;
     batchIndexDir: string;
+    attentionBacklog: string | null;
+    attentionBacklogDir: string;
   };
 };
 
@@ -133,15 +135,17 @@ const expectedPhases: BatchPhase[] = ["forecast_ops", "forecast_resolution", "fo
 const root = resolve(import.meta.dir, "..");
 const args = Bun.argv.slice(2);
 const batchIndexDir = resolve(root, readArgValue(args, "--batch-index-dir") ?? "data/reports/forecast-batches");
+const attentionBacklogDir = resolve(root, readArgValue(args, "--attention-backlog-dir") ?? "data/reports/forecast-attention-backlog");
 const outputDir = resolve(root, readArgValue(args, "--out-dir") ?? "data/reports/forecast-batch-health");
 const requestedBatchId = readArgValue(args, "--batch-id") ?? null;
 const jsonPath = resolve(outputDir, "batch-health.json");
 const markdownPath = resolve(outputDir, "batch-health.md");
 
 const selected = await selectBatchIndex(batchIndexDir, requestedBatchId);
+const selectedAttentionBacklog = await selectAttentionBacklog(attentionBacklogDir);
 const report = selected
-  ? buildHealthReport(selected.payload, selected.path, batchIndexDir, jsonPath, markdownPath)
-  : buildEmptyReport(batchIndexDir, jsonPath, markdownPath, requestedBatchId);
+  ? buildHealthReport(selected.payload, selected.path, selectedAttentionBacklog, batchIndexDir, attentionBacklogDir, jsonPath, markdownPath)
+  : buildEmptyReport(batchIndexDir, attentionBacklogDir, selectedAttentionBacklog?.path ?? null, jsonPath, markdownPath, requestedBatchId);
 
 await mkdir(outputDir, { recursive: true });
 await writeJson(jsonPath, report);
@@ -185,17 +189,45 @@ async function selectBatchIndex(batchRoot: string, batchId: string | null) {
   return candidates[0] ?? null;
 }
 
+async function selectAttentionBacklog(backlogRoot: string) {
+  const paths = await listFilesNamed(backlogRoot, "attention-backlog.json");
+  const candidates: { path: string; payload: JsonRecord; generatedAt: string | null }[] = [];
+  for (const path of paths) {
+    const payload = readRecord(await readJson(path));
+    if (!payload) {
+      continue;
+    }
+    candidates.push({
+      path,
+      payload,
+      generatedAt: readString(payload, "generatedAt"),
+    });
+  }
+  candidates.sort((left, right) =>
+    timestampValue(right.generatedAt) - timestampValue(left.generatedAt)
+    || right.path.localeCompare(left.path)
+  );
+  return candidates[0] ?? null;
+}
+
 function buildHealthReport(
   batchIndex: JsonRecord,
   batchIndexPath: string,
+  attentionBacklog: { path: string; payload: JsonRecord } | null,
   sourceDir: string,
+  backlogDir: string,
   reportJsonPath: string,
   reportMarkdownPath: string,
 ): HealthReport {
   const batchId = readString(batchIndex, "batchId");
   const counts = readRecord(batchIndex, "counts") ?? {};
-  const attentionItems = readRecordArray(batchIndex, "attentionItems").flatMap(readHealthAttentionItem);
+  const batchAttentionItems = readRecordArray(batchIndex, "attentionItems").flatMap(readHealthAttentionItem);
   const candidateCalibrationGuardRules = readRecordArray(batchIndex, "candidateCalibrationGuardRules").flatMap(readHealthCandidateCalibrationGuardRule);
+  const attentionItems = mergeSupplementalAttentionItems(
+    batchAttentionItems,
+    candidateCalibrationGuardRules,
+    readSupplementalAttentionItems(attentionBacklog, batchId),
+  );
   const summary = {
     entries: readNumber(counts, "entries") ?? 0,
     forecastOps: readNumber(counts, "forecastOps") ?? 0,
@@ -206,10 +238,10 @@ function buildHealthReport(
     resolvedCases: readNumber(counts, "resolvedCases") ?? 0,
     failedResolutions: readNumber(counts, "failedResolutions") ?? 0,
     performanceScoreRows: readNumber(counts, "performanceScoreRows"),
-    attentionItems: readNumber(counts, "attentionItems") ?? attentionItems.length,
-    openAttentionItems: readNumber(counts, "openAttentionItems") ?? countStatus(attentionItems, "open"),
-    deferredAttentionItems: readNumber(counts, "deferredAttentionItems") ?? countStatus(attentionItems, "deferred"),
-    reviewedAttentionItems: readNumber(counts, "reviewedAttentionItems") ?? countStatus(attentionItems, "reviewed"),
+    attentionItems: attentionItems.length,
+    openAttentionItems: countStatus(attentionItems, "open"),
+    deferredAttentionItems: countStatus(attentionItems, "deferred"),
+    reviewedAttentionItems: countStatus(attentionItems, "reviewed"),
     unresolvedAttentionItems: 0,
     scoreRegressionItems: countScoreRegressions(attentionItems),
     calibrationGuardRegressionItems: countCalibrationGuardRegressions(attentionItems),
@@ -244,12 +276,16 @@ function buildHealthReport(
       markdown: reportMarkdownPath,
       batchIndex: batchIndexPath,
       batchIndexDir: sourceDir,
+      attentionBacklog: attentionBacklog?.path ?? null,
+      attentionBacklogDir: backlogDir,
     },
   };
 }
 
 function buildEmptyReport(
   sourceDir: string,
+  backlogDir: string,
+  attentionBacklogPath: string | null,
   reportJsonPath: string,
   reportMarkdownPath: string,
   requestedBatchId: string | null,
@@ -297,6 +333,8 @@ function buildEmptyReport(
       markdown: reportMarkdownPath,
       batchIndex: null,
       batchIndexDir: sourceDir,
+      attentionBacklog: attentionBacklogPath,
+      attentionBacklogDir: backlogDir,
     },
   };
 }
@@ -381,6 +419,38 @@ function readHealthAttentionItem(item: JsonRecord): HealthAttentionItem[] {
   }];
 }
 
+function readSupplementalAttentionItems(
+  attentionBacklog: { path: string; payload: JsonRecord } | null,
+  batchId: string | null,
+): HealthAttentionItem[] {
+  if (!attentionBacklog || !batchId) {
+    return [];
+  }
+  return readRecordArray(attentionBacklog.payload, "items")
+    .filter((item) => readString(item, "batchId") === batchId)
+    .flatMap(readHealthAttentionItem);
+}
+
+function mergeSupplementalAttentionItems(
+  baseItems: HealthAttentionItem[],
+  candidateRules: HealthCandidateCalibrationGuardRule[],
+  supplementalItems: HealthAttentionItem[],
+) {
+  const seen = new Set([
+    ...baseItems.map((item) => item.id),
+    ...candidateRules.map((rule) => rule.id),
+  ]);
+  const merged = [...baseItems];
+  for (const item of supplementalItems) {
+    if (item.kind === "candidate_calibration_guard" || seen.has(item.id)) {
+      continue;
+    }
+    seen.add(item.id);
+    merged.push(item);
+  }
+  return merged;
+}
+
 function readHealthCandidateCalibrationGuardRule(item: JsonRecord): HealthCandidateCalibrationGuardRule[] {
   const id = readString(item, "id");
   const reviewStatus = readString(item, "reviewStatus");
@@ -412,6 +482,7 @@ function renderMarkdown(report: HealthReport) {
     `Generated: ${report.generatedAt}`,
     `Status: ${report.status}`,
     `Batch index: ${report.paths.batchIndex ?? "missing"}`,
+    `Attention backlog: ${report.paths.attentionBacklog ?? "missing"}`,
     "",
     "## Summary",
     "",
