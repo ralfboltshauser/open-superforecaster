@@ -185,6 +185,9 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
         validationBenchmarkRunId: workflowChangeProposals.validationBenchmarkRunId,
         validationComparisonReportArtifactId: benchmarkRuns.comparisonReportArtifactId,
         validationResultStatus: workflowChangeProposals.validationResultStatus,
+        validationCostTotalTokensDelta: workflowChangeProposals.validationCostTotalTokensDelta,
+        validationCostAgentCallsDelta: workflowChangeProposals.validationCostAgentCallsDelta,
+        validationCostMeanDurationSecondsDelta: workflowChangeProposals.validationCostMeanDurationSecondsDelta,
         validationGateStatus: workflowChangeProposals.validationGateStatus,
         createdAt: workflowChangeProposals.createdAt,
       })
@@ -433,6 +436,33 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       reviewed_by: proposal.reviewedBy ?? "none",
       reviewed: proposal.reviewedAt ? "true" : "false",
     });
+    const proposalLabels = {
+      proposal_id: proposal.id,
+      source_benchmark_run_id: proposal.sourceBenchmarkRunId ?? "none",
+      target_workflow_id: proposal.targetWorkflowId,
+      validation_benchmark_run_id: proposal.validationBenchmarkRunId ?? "none",
+    };
+    emitOptionalGauge(
+      metrics,
+      "open_superforecaster_workflow_change_proposal_validation_cost_total_tokens_delta",
+      "Validation benchmark total-token delta versus the source benchmark for a workflow proposal.",
+      proposal.validationCostTotalTokensDelta,
+      proposalLabels,
+    );
+    emitOptionalGauge(
+      metrics,
+      "open_superforecaster_workflow_change_proposal_validation_cost_agent_calls_delta",
+      "Validation benchmark agent-call delta versus the source benchmark for a workflow proposal.",
+      proposal.validationCostAgentCallsDelta,
+      proposalLabels,
+    );
+    emitOptionalGauge(
+      metrics,
+      "open_superforecaster_workflow_change_proposal_validation_cost_mean_duration_seconds_delta",
+      "Validation benchmark mean-duration delta versus the source benchmark for a workflow proposal.",
+      proposal.validationCostMeanDurationSecondsDelta,
+      proposalLabels,
+    );
   }
 
   for (const [key, count] of countBy(scoreRows, (row) =>

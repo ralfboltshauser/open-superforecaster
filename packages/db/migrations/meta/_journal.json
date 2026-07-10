@@ -50,6 +50,13 @@
       "when": 1783615368315,
       "tag": "0006_old_nebula",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783651984877,
+      "tag": "0007_fresh_nicolaos",
+      "breakpoints": true
     }
   ]
 }

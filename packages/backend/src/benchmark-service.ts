@@ -744,6 +744,10 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
         validationResultSummary: workflowChangeProposals.validationResultSummary,
         validationMeanBrierDelta: workflowChangeProposals.validationMeanBrierDelta,
         validationCompletedCases: workflowChangeProposals.validationCompletedCases,
+        validationCostTotalTokensDelta: workflowChangeProposals.validationCostTotalTokensDelta,
+        validationCostAgentCallsDelta: workflowChangeProposals.validationCostAgentCallsDelta,
+        validationCostMeanDurationSecondsDelta: workflowChangeProposals.validationCostMeanDurationSecondsDelta,
+        validationCostSummary: workflowChangeProposals.validationCostSummary,
         validationGateStatus: workflowChangeProposals.validationGateStatus,
         validationGateBlockers: workflowChangeProposals.validationGateBlockers,
         validationCompletedAt: workflowChangeProposals.validationCompletedAt,
@@ -1138,6 +1142,10 @@ export async function updateWorkflowChangeProposalStatus(
       validationResultSummary: workflowChangeProposals.validationResultSummary,
       validationMeanBrierDelta: workflowChangeProposals.validationMeanBrierDelta,
       validationCompletedCases: workflowChangeProposals.validationCompletedCases,
+      validationCostTotalTokensDelta: workflowChangeProposals.validationCostTotalTokensDelta,
+      validationCostAgentCallsDelta: workflowChangeProposals.validationCostAgentCallsDelta,
+      validationCostMeanDurationSecondsDelta: workflowChangeProposals.validationCostMeanDurationSecondsDelta,
+      validationCostSummary: workflowChangeProposals.validationCostSummary,
       validationGateStatus: workflowChangeProposals.validationGateStatus,
       validationGateBlockers: workflowChangeProposals.validationGateBlockers,
       validationCompletedAt: workflowChangeProposals.validationCompletedAt,
@@ -2331,6 +2339,7 @@ async function finalizeReadyBenchmarkRuns(db: Db, input: { root?: string } = {})
       resultSummary: summary,
       meanBrierDelta,
       completedCases,
+      costLatencyFindings,
       gateStatus: validationGate.status,
       gateBlockers: validationGate.blockers,
       completedAt: new Date(),
@@ -2364,11 +2373,16 @@ async function syncWorkflowProposalValidationEvidence(
     resultSummary: string;
     meanBrierDelta: number | null;
     completedCases: number;
+    costLatencyFindings: Record<string, unknown>;
     gateStatus: string;
     gateBlockers: string[];
     completedAt: Date;
   },
 ) {
+  const validationCostEvidence = await workflowProposalValidationCostEvidence(db, {
+    validationBenchmarkRunId: input.benchmarkRunId,
+    validationCostLatencyFindings: input.costLatencyFindings,
+  });
   await db
     .update(workflowChangeProposals)
     .set({
@@ -2376,6 +2390,10 @@ async function syncWorkflowProposalValidationEvidence(
       validationResultSummary: input.resultSummary,
       validationMeanBrierDelta: input.meanBrierDelta,
       validationCompletedCases: input.completedCases,
+      validationCostTotalTokensDelta: validationCostEvidence.totalTokensDelta,
+      validationCostAgentCallsDelta: validationCostEvidence.agentCallsDelta,
+      validationCostMeanDurationSecondsDelta: validationCostEvidence.meanDurationSecondsDelta,
+      validationCostSummary: validationCostEvidence.summary,
       validationGateStatus: input.gateStatus,
       validationGateBlockers: input.gateBlockers,
       validationCompletedAt: input.completedAt,
@@ -2388,6 +2406,71 @@ async function syncWorkflowProposalValidationEvidence(
       updatedAt: new Date(),
     })
     .where(eq(workflowChangeProposals.validationBenchmarkRunId, input.benchmarkRunId));
+}
+
+async function workflowProposalValidationCostEvidence(
+  db: Db,
+  input: {
+    validationBenchmarkRunId: string;
+    validationCostLatencyFindings: Record<string, unknown>;
+  },
+) {
+  const [proposal] = await db
+    .select({
+      sourceBenchmarkRunId: workflowChangeProposals.sourceBenchmarkRunId,
+    })
+    .from(workflowChangeProposals)
+    .where(eq(workflowChangeProposals.validationBenchmarkRunId, input.validationBenchmarkRunId))
+    .limit(1);
+  if (!proposal?.sourceBenchmarkRunId) {
+    return emptyValidationCostEvidence("No source benchmark run was linked to this validation.");
+  }
+  const [sourceAnalysis] = await db
+    .select({
+      costLatencyFindings: benchmarkAnalyses.costLatencyFindings,
+    })
+    .from(benchmarkAnalyses)
+    .where(eq(benchmarkAnalyses.benchmarkRunId, proposal.sourceBenchmarkRunId))
+    .orderBy(desc(benchmarkAnalyses.createdAt))
+    .limit(1);
+  if (!sourceAnalysis) {
+    return emptyValidationCostEvidence("No source benchmark cost analysis was available.");
+  }
+  const source = sourceAnalysis.costLatencyFindings;
+  const validation = input.validationCostLatencyFindings;
+  const totalTokensDelta = nullableDelta(readNumber(validation, "totalTokens"), readNumber(source, "totalTokens"));
+  const agentCallsDelta = nullableDelta(readNumber(validation, "totalAgentCalls"), readNumber(source, "totalAgentCalls"));
+  const meanDurationSecondsDelta = nullableDelta(readNumber(validation, "meanDurationSeconds"), readNumber(source, "meanDurationSeconds"));
+  const summary = [
+    "Validation cost delta versus source benchmark.",
+    totalTokensDelta === null ? null : `${formatSignedMetric(totalTokensDelta)} tokens`,
+    agentCallsDelta === null ? null : `${formatSignedMetric(agentCallsDelta)} agent calls`,
+    meanDurationSecondsDelta === null ? null : `${formatSignedMetric(meanDurationSecondsDelta)}s mean duration`,
+  ].filter((part): part is string => Boolean(part)).join("; ");
+  return {
+    totalTokensDelta,
+    agentCallsDelta,
+    meanDurationSecondsDelta,
+    summary: summary || "Validation and source benchmark cost summaries were not comparable.",
+  };
+}
+
+function emptyValidationCostEvidence(summary: string) {
+  return {
+    totalTokensDelta: null,
+    agentCallsDelta: null,
+    meanDurationSecondsDelta: null,
+    summary,
+  };
+}
+
+function nullableDelta(candidate: number | null, baseline: number | null) {
+  return candidate === null || baseline === null ? null : Math.round((candidate - baseline) * 10000) / 10000;
+}
+
+function formatSignedMetric(value: number) {
+  const formatted = formatMetric(value);
+  return value >= 0 ? `+${formatted}` : formatted;
 }
 
 type BenchmarkResultForAnalysis = {

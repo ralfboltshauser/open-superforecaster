@@ -596,6 +596,11 @@ function WorkflowProposalSummary({
   const validationResultStatus = typeof proposal.validationResultStatus === "string" ? proposal.validationResultStatus : null
   const validationResultSummary = typeof proposal.validationResultSummary === "string" ? proposal.validationResultSummary : null
   const validationMeanBrierDelta = typeof proposal.validationMeanBrierDelta === "number" ? proposal.validationMeanBrierDelta : null
+  const validationCostTotalTokensDelta = typeof proposal.validationCostTotalTokensDelta === "number" ? proposal.validationCostTotalTokensDelta : null
+  const validationCostAgentCallsDelta = typeof proposal.validationCostAgentCallsDelta === "number" ? proposal.validationCostAgentCallsDelta : null
+  const validationCostMeanDurationSecondsDelta =
+    typeof proposal.validationCostMeanDurationSecondsDelta === "number" ? proposal.validationCostMeanDurationSecondsDelta : null
+  const validationCostSummary = typeof proposal.validationCostSummary === "string" ? proposal.validationCostSummary : null
   const validationGateStatus = typeof proposal.validationGateStatus === "string" ? proposal.validationGateStatus : null
   const validationGateBlockers = readArray(proposal, "validationGateBlockers").filter((blocker): blocker is string => typeof blocker === "string")
   const validationComparisonReport = isRecord(proposal.validationComparisonReport) ? proposal.validationComparisonReport : null
@@ -662,6 +667,15 @@ function WorkflowProposalSummary({
             </p>
           ) : null}
           {validationResultSummary ? <p className="mt-1 line-clamp-2">{validationResultSummary}</p> : null}
+          {validationCostSummary ? <p className="mt-1 line-clamp-2">{validationCostSummary}</p> : null}
+          {validationCostTotalTokensDelta !== null || validationCostAgentCallsDelta !== null || validationCostMeanDurationSecondsDelta !== null ? (
+            <p className="mt-1 truncate">
+              cost delta
+              {validationCostTotalTokensDelta === null ? "" : ` · ${formatSignedMetric(validationCostTotalTokensDelta)} tokens`}
+              {validationCostAgentCallsDelta === null ? "" : ` · ${formatSignedMetric(validationCostAgentCallsDelta)} calls`}
+              {validationCostMeanDurationSecondsDelta === null ? "" : ` · ${formatSignedMetric(validationCostMeanDurationSecondsDelta)}s mean`}
+            </p>
+          ) : null}
           {validationRecommendationStatus ? (
             <p className="mt-1 truncate">
               comparison {validationRecommendationStatus}

@@ -3196,6 +3196,9 @@ await check("workflow change proposal lifecycle is exported as metrics", async (
   assert(metricsSource.includes("validation_recommendation_status"), "workflow proposal metric missing validation recommendation status label");
   assert(metricsSource.includes("validation_result_status"), "workflow proposal metric missing validation result status");
   assert(metricsSource.includes("validation_gate_status"), "workflow proposal metric missing validation gate status");
+  assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_cost_total_tokens_delta"), "workflow proposal metric missing validation token cost delta");
+  assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_cost_agent_calls_delta"), "workflow proposal metric missing validation agent-call delta");
+  assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_cost_mean_duration_seconds_delta"), "workflow proposal metric missing validation duration delta");
   assert(metricsSource.includes("reviewed_by"), "workflow proposal metric missing reviewer label");
   assert(metricsSource.includes("source_benchmark_run_id"), "workflow proposal metric missing source benchmark label");
   assert(smokeSource.includes("open_superforecaster_workflow_change_proposals_total"), "smoke check does not require workflow proposal metric");
@@ -3270,6 +3273,10 @@ await check("workflow change proposals are exported to DuckDB", async () => {
   assert(syncSource.includes("validation_result_status"), "workflow proposal mart missing validation result status");
   assert(syncSource.includes("validation_result_summary"), "workflow proposal mart missing validation result summary");
   assert(syncSource.includes("validation_mean_brier_delta"), "workflow proposal mart missing validation Brier delta");
+  assert(syncSource.includes("validation_cost_total_tokens_delta"), "workflow proposal mart missing validation total-token delta");
+  assert(syncSource.includes("validation_cost_agent_calls_delta"), "workflow proposal mart missing validation agent-call delta");
+  assert(syncSource.includes("validation_cost_mean_duration_seconds_delta"), "workflow proposal mart missing validation duration delta");
+  assert(syncSource.includes("validation_cost_summary"), "workflow proposal mart missing validation cost summary");
   assert(syncSource.includes("validation_completed_cases"), "workflow proposal mart missing validation completed case count");
   assert(syncSource.includes("validation_gate_status"), "workflow proposal mart missing validation gate status");
   assert(syncSource.includes("validation_gate_blockers_json"), "workflow proposal mart missing validation gate blockers");
@@ -3297,6 +3304,10 @@ await check("workflow change proposals are visible in the lab dashboard", async 
   assert(dashboardSource.includes("validationBenchmarkRunId"), "lab dashboard proposal section missing validation benchmark link");
   assert(dashboardSource.includes("validationResultSummary"), "lab dashboard proposal section missing validation result summary");
   assert(dashboardSource.includes("validationMeanBrierDelta"), "lab dashboard proposal section missing validation score delta");
+  assert(dashboardSource.includes("validationCostTotalTokensDelta"), "lab dashboard proposal section missing validation token cost delta");
+  assert(dashboardSource.includes("validationCostAgentCallsDelta"), "lab dashboard proposal section missing validation agent-call delta");
+  assert(dashboardSource.includes("validationCostMeanDurationSecondsDelta"), "lab dashboard proposal section missing validation duration delta");
+  assert(dashboardSource.includes("validationCostSummary"), "lab dashboard proposal section missing validation cost summary");
   assert(dashboardSource.includes("validationComparisonReport"), "lab dashboard proposal section missing validation comparison report");
   assert(dashboardSource.includes("validationRecommendationStatus"), "lab dashboard proposal section missing validation recommendation status");
   assert(dashboardSource.includes("validationPairedMeanBrierDelta"), "lab dashboard proposal section missing validation paired Brier delta");
@@ -3326,6 +3337,10 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(schemaSource.includes("validationBenchmarkRunId: uuid(\"validation_benchmark_run_id\")"), "workflow proposal schema missing validation benchmark run id");
   assert(schemaSource.includes("validationResultStatus: text(\"validation_result_status\")"), "workflow proposal schema missing validation result status");
   assert(schemaSource.includes("validationMeanBrierDelta: doublePrecision(\"validation_mean_brier_delta\")"), "workflow proposal schema missing validation Brier delta");
+  assert(schemaSource.includes("validationCostTotalTokensDelta: doublePrecision(\"validation_cost_total_tokens_delta\")"), "workflow proposal schema missing validation token cost delta");
+  assert(schemaSource.includes("validationCostAgentCallsDelta: doublePrecision(\"validation_cost_agent_calls_delta\")"), "workflow proposal schema missing validation agent-call delta");
+  assert(schemaSource.includes("validationCostMeanDurationSecondsDelta: doublePrecision(\"validation_cost_mean_duration_seconds_delta\")"), "workflow proposal schema missing validation duration delta");
+  assert(schemaSource.includes("validationCostSummary: text(\"validation_cost_summary\")"), "workflow proposal schema missing validation cost summary");
   assert(schemaSource.includes("validationGateStatus: text(\"validation_gate_status\")"), "workflow proposal schema missing validation gate status");
   assert(schemaSource.includes("validationGateBlockers: jsonb(\"validation_gate_blockers\")"), "workflow proposal schema missing validation gate blockers");
   assert(backendSource.includes("workflowChangeProposalStatuses"), "backend missing shared workflow proposal status set");
@@ -3351,6 +3366,9 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(backendSource.includes("baselineBenchmarkRunIds: [proposal.sourceBenchmarkRunId]"), "proposal validation comparison does not use source benchmark as baseline");
   assert(backendSource.includes("syncWorkflowProposalValidationEvidence"), "backend missing proposal validation evidence sync");
   assert(backendSource.includes("validationMeanBrierDelta"), "backend missing validation Brier delta sync");
+  assert(backendSource.includes("workflowProposalValidationCostEvidence"), "backend missing proposal validation cost evidence sync");
+  assert(backendSource.includes("validationCostTotalTokensDelta"), "backend missing validation token cost delta sync");
+  assert(backendSource.includes("validationCostMeanDurationSecondsDelta"), "backend missing validation duration delta sync");
   assert(backendSource.includes("gateBlockers: validationGate.blockers"), "backend missing validation gate blocker sync");
   assert(routeSource.includes("updateWorkflowChangeProposalStatus"), "proposal lifecycle API route missing backend update call");
   assert(routeSource.includes("reviewNote"), "proposal lifecycle API route missing review note");
