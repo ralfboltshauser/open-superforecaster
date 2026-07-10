@@ -111,6 +111,10 @@ export function DiagnosticsCard({ diagnosticCounts, diagnostics }: { diagnosticC
   const localState = isRecord(diagnostics?.localState) ? diagnostics.localState : {}
   const sourceDomains = readArray(localState, "sourceDomains").filter(isRecord)
   const sourceDomainCount = readNumber(localState, "sourceDomainCount") ?? sourceDomains.length
+  const benchmarkPromotion = isRecord(diagnostics?.benchmarkPromotion) ? diagnostics.benchmarkPromotion : null
+  const latestGateStatus = typeof benchmarkPromotion?.latestGateStatus === "string" ? benchmarkPromotion.latestGateStatus : null
+  const latestGateBlockers = readArray(benchmarkPromotion, "latestGateBlockers").filter((blocker): blocker is string => typeof blocker === "string")
+  const sourceRiskBlockedRuns = readNumber(benchmarkPromotion, "sourceRiskBlockedRuns")
   return (
     <Card id="diagnostics">
       <CardHeader>
@@ -138,6 +142,21 @@ export function DiagnosticsCard({ diagnosticCounts, diagnostics }: { diagnosticC
                 </span>
               </div>
             ))}
+          </div>
+        ) : null}
+        {benchmarkPromotion ? (
+          <div className="rounded-md border px-3 py-2 text-xs">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium">Benchmark promotion</span>
+              <Badge variant={latestGateStatus === "review_for_promotion" ? "outline" : "secondary"}>{latestGateStatus ?? "unknown"}</Badge>
+            </div>
+            <p className="mt-1 text-muted-foreground">
+              {formatCount(readNumber(benchmarkPromotion, "blockedRuns") ?? 0)} blocked of {formatCount(readNumber(benchmarkPromotion, "recentRuns") ?? 0)} recent
+              {sourceRiskBlockedRuns === null ? "" : ` · ${formatCount(sourceRiskBlockedRuns)} source-risk`}
+            </p>
+            {latestGateBlockers.length ? (
+              <p className="mt-1 line-clamp-2 text-muted-foreground">latest blockers {latestGateBlockers.slice(0, 4).join(" · ")}</p>
+            ) : null}
           </div>
         ) : null}
       </CardContent>

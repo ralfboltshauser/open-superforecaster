@@ -971,6 +971,11 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(diagnosticsSource.includes("readLatestForecastBatchHealth"), "diagnostics does not read local forecast batch health through the shared reader");
   assert(diagnosticsSource.includes("forecastBatchHealthDiagnostic"), "diagnostics does not turn forecast batch health into a check item");
   assert(diagnosticsSource.includes("ForecastBatchHealthSnapshot"), "diagnostics does not type batch health from the shared reader");
+  assert(diagnosticsSource.includes("listBenchmarkRuns(db, 8)"), "diagnostics does not reuse the benchmark read model for promotion gates");
+  assert(diagnosticsSource.includes("benchmarkPromotionDiagnostics"), "diagnostics does not summarize benchmark promotion gates");
+  assert(diagnosticsSource.includes("benchmarkPromotionDiagnostic"), "diagnostics does not turn benchmark promotion status into a check item");
+  assert(diagnosticsSource.includes("sourceRiskBlockedRuns"), "diagnostics does not expose source-risk-blocked benchmark runs");
+  assert(diagnosticsSource.includes("source_concentration") && diagnosticsSource.includes("low_quality_sources"), "diagnostics does not preserve source-risk blocker context");
   assert(diagnosticsSource.includes("unresolvedAttentionItems"), "diagnostics does not expose unresolved attention count");
   assert(diagnosticsSource.includes("unresolvedCandidateCalibrationGuardRules"), "diagnostics does not expose unresolved candidate guard count");
   assert(diagnosticsSource.includes("summarizeSourceDomains(sourceRows)"), "diagnostics does not summarize source-bank domains");
@@ -989,6 +994,8 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(dashboardHookSource.includes("...readArray(diagnostics, \"items\")"), "lab dashboard does not read diagnostics items");
   assert(dashboardHookSource.includes("forecastBatchHealth"), "lab dashboard does not expose forecast batch health from diagnostics");
   assert(dashboardShellSource.includes("ForecastBatchHealthCard"), "lab dashboard does not mount forecast batch health");
+  assert(dashboardPanelSource.includes("benchmarkPromotion"), "lab dashboard does not render benchmark promotion diagnostics");
+  assert(dashboardPanelSource.includes("sourceRiskBlockedRuns"), "lab dashboard does not render source-risk benchmark diagnostics");
   assert(dashboardPanelSource.includes("unresolvedCandidateCalibrationGuardRules"), "lab dashboard does not render candidate guard review count");
   assert(dashboardPanelSource.includes("calibrationGuardRegressionItems"), "lab dashboard does not render guard regression count");
   assert(dashboardPanelSource.includes("attentionByKind"), "lab dashboard does not render attention kind breakdowns");

@@ -14,6 +14,7 @@ import {
 import type { AppConfig } from "@open-superforecaster/config";
 import { formatAgentRef, loadAgentPolicy } from "@open-superforecaster/config";
 import { buildHealthSnapshot } from "./health";
+import { listBenchmarkRuns } from "./benchmark-service";
 import { listMaintenanceActions, listMaintenanceJobs } from "./maintenance-service";
 import { createObjectStorageTargets, tryHeadBucket } from "./object-storage";
 import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "./forecast-batch-health";
@@ -31,7 +32,19 @@ type DiagnosticItem = {
 
 export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input: { root: string }) {
   const agentPolicy = loadAgentPolicy(process.env, input.root);
-  const [health, suites, cases, taskRows, artifactRows, benchmarkRunRows, sourceRows, scoreRows, cleanupJobRows, recentMaintenanceJobs] = await Promise.all([
+  const [
+    health,
+    suites,
+    cases,
+    taskRows,
+    artifactRows,
+    benchmarkRunRows,
+    sourceRows,
+    scoreRows,
+    cleanupJobRows,
+    recentMaintenanceJobs,
+    recentBenchmarkRuns,
+  ] = await Promise.all([
     buildHealthSnapshot(config),
     db.select().from(benchmarkSuites).orderBy(desc(benchmarkSuites.createdAt)),
     db.select().from(benchmarkCases),
@@ -42,6 +55,7 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
     db.select().from(forecastScores),
     db.select().from(cleanupJobs),
     listMaintenanceJobs(db, 5),
+    listBenchmarkRuns(db, 8),
   ]);
 
   const objectStorage = createObjectStorageTargets(config);
@@ -52,6 +66,7 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
   ]);
   const forecastBatchHealth = readLatestForecastBatchHealth(input.root);
   const sourceDomains = summarizeSourceDomains(sourceRows);
+  const benchmarkPromotion = benchmarkPromotionDiagnostics(recentBenchmarkRuns);
   const items: DiagnosticItem[] = [
     {
       key: "service_health",
@@ -64,6 +79,7 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
     bucketDiagnostic("evals_bucket", "Evals bucket", evalsBucket),
     bucketDiagnostic("exports_bucket", "Exports bucket", exportsBucket),
     forecastBatchHealthDiagnostic(forecastBatchHealth),
+    benchmarkPromotionDiagnostic(benchmarkPromotion),
   ];
 
   const caseCountBySuiteId = cases.reduce((counts, row) => {
@@ -121,6 +137,7 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
     },
     items,
     forecastBatchHealth,
+    benchmarkPromotion,
     evalDatasets: {
       suiteCount: suites.length,
       caseCount: cases.length,
@@ -168,6 +185,46 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
   };
 }
 
+function benchmarkPromotionDiagnostics(runs: unknown[]) {
+  const latestRun = runs[0] ?? null;
+  const blockedRuns = runs.filter((run) => {
+    const gate = readRecord(run, "promotionGate");
+    return readString(gate, "status") === "needs_more_evidence";
+  });
+  const sourceRiskBlockedRuns = blockedRuns.filter((run) => {
+    const blockers = readStringArray(readRecord(run, "promotionGate"), "blockers");
+    return blockers.includes("source_concentration") || blockers.includes("low_quality_sources");
+  });
+  const latestGate = readRecord(latestRun, "promotionGate");
+  return {
+    latestBenchmarkRunId: readString(latestRun, "id"),
+    latestExperimentLabel: readString(latestRun, "experimentLabel"),
+    latestEvalMode: readString(latestRun, "evalMode"),
+    latestGateStatus: readString(latestGate, "status") ?? "unknown",
+    latestGateBlockers: readStringArray(latestGate, "blockers"),
+    recentRuns: runs.length,
+    blockedRuns: blockedRuns.length,
+    sourceRiskBlockedRuns: sourceRiskBlockedRuns.length,
+    latestSourceQualityFindings: readRecord(latestRun, "sourceQualityFindings"),
+  };
+}
+
+function benchmarkPromotionDiagnostic(promotion: ReturnType<typeof benchmarkPromotionDiagnostics>): DiagnosticItem {
+  const hasLatestRun = Boolean(promotion.latestBenchmarkRunId);
+  const sourceRiskDetail = promotion.sourceRiskBlockedRuns
+    ? `; ${promotion.sourceRiskBlockedRuns} recent run(s) blocked by source concentration or low-quality sources`
+    : "";
+  return {
+    key: "benchmark_promotion_gate",
+    label: "Benchmark promotion gate",
+    ok: hasLatestRun ? promotion.latestGateStatus === "review_for_promotion" : false,
+    status: hasLatestRun ? promotion.latestGateStatus : "missing",
+    detail: hasLatestRun
+      ? `Latest benchmark ${promotion.latestBenchmarkRunId} gate is ${promotion.latestGateStatus} with ${promotion.latestGateBlockers.length} blocker(s)${sourceRiskDetail}.`
+      : "No benchmark run has been recorded yet.",
+  };
+}
+
 function bucketDiagnostic(key: string, label: string, bucket: { ok: boolean; status: number | null; error?: string | null }): DiagnosticItem {
   return {
     key,
@@ -206,10 +263,26 @@ function directoryStatus(path: string) {
   };
 }
 
+function readRecord(value: unknown, key: string) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const raw = (value as Record<string, unknown>)[key];
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
+}
+
 function readString(value: unknown, key: string) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
   const raw = (value as Record<string, unknown>)[key];
   return typeof raw === "string" ? raw : null;
+}
+
+function readStringArray(value: unknown, key: string) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return [];
+  }
+  const raw = (value as Record<string, unknown>)[key];
+  return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string") : [];
 }
