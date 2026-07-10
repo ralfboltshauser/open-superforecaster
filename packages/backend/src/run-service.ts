@@ -19,8 +19,14 @@ import {
   traceEvents,
   type createDb,
 } from "@open-superforecaster/db";
-import type { OperationMode } from "@open-superforecaster/workflow-contracts";
+import { canonicalCitedSourceKey, type OperationMode } from "@open-superforecaster/workflow-contracts";
+import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
+import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
+import { readComponentWeightingSnapshot } from "./component-weighting-metadata";
+import { readMarketAnchorSnapshot } from "./market-anchor-metadata";
+import { readResolutionBoundarySnapshot } from "./resolution-boundary-metadata";
 import { inspectSmithersRun, launchSmithersDetached, readSmithersNodeOutput } from "./smithers-launcher";
+import { readUncertaintyRangeSnapshot } from "./uncertainty-range-metadata";
 
 type Db = ReturnType<typeof createDb>["db"];
 
@@ -450,6 +456,148 @@ export async function getTaskDetail(db: Db, taskId: string) {
   };
 }
 
+export async function getRunStatus(db: Db, taskId: string) {
+  const [task] = await db
+    .select({
+      id: tasks.id,
+      status: tasks.status,
+      label: tasks.label,
+      operationMode: tasks.operationMode,
+      operationSubmode: tasks.operationSubmode,
+      smithersRunId: tasks.smithersRunId,
+      outputArtifactId: tasks.outputArtifactId,
+      progressTotal: tasks.progressTotal,
+      progressPending: tasks.progressPending,
+      progressRunning: tasks.progressRunning,
+      progressCompleted: tasks.progressCompleted,
+      progressFailed: tasks.progressFailed,
+      activeWorkers: tasks.activeWorkers,
+      error: tasks.error,
+      createdAt: tasks.createdAt,
+      startedAt: tasks.startedAt,
+      completedAt: tasks.completedAt,
+      updatedAt: tasks.updatedAt,
+    })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .limit(1);
+  if (!task) {
+    throw new Error(`Task not found: ${taskId}`);
+  }
+
+  return {
+    taskId: task.id,
+    status: task.status,
+    label: task.label,
+    operationMode: task.operationMode,
+    operationSubmode: task.operationSubmode,
+    smithersRunId: task.smithersRunId,
+    outputArtifactId: task.outputArtifactId,
+    progress: {
+      total: task.progressTotal,
+      pending: task.progressPending,
+      running: task.progressRunning,
+      completed: task.progressCompleted,
+      failed: task.progressFailed,
+      activeWorkers: task.activeWorkers,
+    },
+    isComplete: task.status === "completed",
+    isFailed: task.status === "failed" || task.status === "cancelled" || task.status === "revoked",
+    isPending: task.status === "queued" || task.status === "running",
+    error: task.error,
+    createdAt: task.createdAt,
+    startedAt: task.startedAt,
+    completedAt: task.completedAt,
+    updatedAt: task.updatedAt,
+    links: runLinks(task.id),
+  };
+}
+
+export async function getRunResult(db: Db, taskId: string) {
+  const detail = await getTaskDetail(db, taskId);
+  const outputArtifactId = detail.task.outputArtifactId;
+  const outputArtifact = outputArtifactId
+    ? detail.artifacts.find((artifact) => artifact.id === outputArtifactId)
+    : detail.artifacts.find((artifact) => artifact.rows.some((row) => row.rowIndex === 0));
+  const outputRow = outputArtifact?.rows.find((row) => row.rowIndex === 0) ?? null;
+
+  return {
+    taskId: detail.task.id,
+    status: detail.task.status,
+    operationMode: detail.task.operationMode,
+    operationSubmode: detail.task.operationSubmode,
+    outputArtifactId: outputArtifact?.id ?? null,
+    result: outputRow?.rowJson ?? null,
+    rows: outputArtifact?.rows ?? [],
+    sourceCount: detail.sources.length,
+    citationCount: detail.citations.length,
+    links: runLinks(detail.task.id),
+  };
+}
+
+export async function ensureRunReportArtifact(db: Db, taskId: string) {
+  const detail = await getTaskDetail(db, taskId);
+  const report = buildRunReportPayload(detail);
+  const existing = detail.artifacts.find((artifact) => artifact.createdBy === "run-report-api");
+
+  if (existing) {
+    await db
+      .update(artifacts)
+      .set({
+        rowCount: 1,
+        schemaJson: runReportSchemaJson(),
+        storageUri: `runs/${detail.task.id}/decision-report.json`,
+        parentArtifactIds: detail.task.outputArtifactId ? [detail.task.outputArtifactId] : [],
+        updatedAt: new Date(),
+      })
+      .where(eq(artifacts.id, existing.id));
+    await db
+      .insert(artifactRows)
+      .values({
+        artifactId: existing.id,
+        rowIndex: 0,
+        rowJson: report,
+        status: detail.task.status === "completed" ? "completed" : "needs_review",
+        completedAt: detail.task.status === "completed" ? new Date() : null,
+      })
+      .onConflictDoUpdate({
+        target: [artifactRows.artifactId, artifactRows.rowIndex],
+        set: {
+          rowJson: report,
+          status: detail.task.status === "completed" ? "completed" : "needs_review",
+          completedAt: detail.task.status === "completed" ? new Date() : null,
+          updatedAt: new Date(),
+        },
+      });
+    return { artifactId: existing.id, report, links: runLinks(detail.task.id) };
+  }
+
+  const [artifact] = await db
+    .insert(artifacts)
+    .values({
+      taskId: detail.task.id,
+      sessionId: detail.task.sessionId,
+      artifactType: "report",
+      createdBy: "run-report-api",
+      schemaJson: runReportSchemaJson(),
+      rowCount: 1,
+      storageUri: `runs/${detail.task.id}/decision-report.json`,
+      parentArtifactIds: detail.task.outputArtifactId ? [detail.task.outputArtifactId] : [],
+      visibility: "private",
+    })
+    .returning({ id: artifacts.id });
+
+  await db.insert(artifactRows).values({
+    artifactId: artifact.id,
+    rowIndex: 0,
+    rowJson: report,
+    status: detail.task.status === "completed" ? "completed" : "needs_review",
+    completedAt: detail.task.status === "completed" ? new Date() : null,
+  });
+
+  return { artifactId: artifact.id, report, links: runLinks(detail.task.id) };
+}
+
 export async function getRunEventSnapshot(db: Db, taskId: string, afterSequenceNumber = 0) {
   const [task] = await db
     .select({
@@ -490,6 +638,519 @@ export async function getRunEventSnapshot(db: Db, taskId: string, afterSequenceN
     task,
     events,
     lastSequenceNumber: events.at(-1)?.sequenceNumber ?? afterSequenceNumber,
+  };
+}
+
+function buildRunReportPayload(detail: Awaited<ReturnType<typeof getTaskDetail>>) {
+  const outputArtifactId = detail.task.outputArtifactId;
+  const outputArtifact = outputArtifactId
+    ? detail.artifacts.find((artifact) => artifact.id === outputArtifactId)
+    : detail.artifacts.find((artifact) => artifact.rows.some((row) => row.rowIndex === 0));
+  const output = outputArtifact?.rows.find((row) => row.rowIndex === 0)?.rowJson ?? null;
+  const outputRecord = isRecord(output) ? output : {};
+  const aggregateRecord = detail.forecastAggregates.at(0)?.rawAggregate ?? outputRecord;
+  const config = isRecord(detail.task.configJson) ? detail.task.configJson : {};
+  const classification = isRecord(config.classification) ? config.classification : {};
+  const prompt = readString(config, "prompt") ?? readString(outputRecord, "question") ?? detail.task.label;
+  const forecastType = readString(aggregateRecord, "forecastType", "forecast_type") ?? readString(classification, "forecastType") ?? null;
+  const answer = summarizeForecastAnswer(aggregateRecord);
+  const resolution = summarizeResolution(config, outputRecord);
+  const distribution = summarizeDistribution(aggregateRecord);
+  const components = summarizeReportComponents(aggregateRecord, detail.forecastAttempts);
+  const uncertainty = summarizeUncertainty(aggregateRecord, detail.forecastAttempts);
+  const quality = summarizeReportQuality(aggregateRecord, detail);
+  const evidence = summarizeReportEvidence(detail);
+  const process = summarizeReportProcess(detail, aggregateRecord);
+  const links = runLinks(detail.task.id);
+  const headline = buildReportHeadline({ question: prompt, answer, forecastType });
+
+  const report = {
+    reportType: "run_decision_report",
+    version: 2,
+    headline,
+    task: {
+      id: detail.task.id,
+      label: detail.task.label,
+      status: detail.task.status,
+      operationMode: detail.task.operationMode,
+      operationSubmode: detail.task.operationSubmode,
+      smithersRunId: detail.task.smithersRunId,
+      createdAt: detail.task.createdAt,
+      completedAt: detail.task.completedAt,
+    },
+    question: prompt,
+    resolution,
+    forecastType,
+    answer,
+    distribution,
+    components,
+    uncertainty,
+    quality,
+    output,
+    evidence,
+    process,
+    links,
+  };
+  return {
+    ...report,
+    markdown: renderRunReportMarkdown(report),
+  };
+}
+
+function runReportSchemaJson() {
+  return {
+    type: "object",
+    properties: {
+      reportType: { const: "run_decision_report" },
+      version: { type: "number" },
+      headline: { type: "string" },
+      task: { type: "object" },
+      question: { type: "string" },
+      resolution: { type: "object" },
+      forecastType: { type: ["string", "null"] },
+      answer: { type: "object" },
+      distribution: { type: "object" },
+      components: { type: "object" },
+      uncertainty: { type: "object" },
+      quality: { type: "object" },
+      output: { type: ["object", "null"] },
+      evidence: { type: "object" },
+      process: { type: "object" },
+      links: { type: "object" },
+      markdown: { type: "string" },
+    },
+  };
+}
+
+function buildReportHeadline(input: { question: string; answer: Record<string, unknown>; forecastType: string | null }) {
+  const kind = readString(input.answer, "kind") ?? input.forecastType ?? "forecast";
+  const value = input.answer.value;
+  if (typeof value === "number") {
+    const unit = readString(input.answer, "unit");
+    return `${input.question} -> ${value}${unit === "percent" ? "%" : unit ? ` ${unit}` : ""}`;
+  }
+  if (typeof value === "string" && value.trim()) {
+    return `${input.question} -> ${value}`;
+  }
+  return `${input.question} -> ${kind} recorded`;
+}
+
+function summarizeResolution(config: Record<string, unknown>, output: Record<string, unknown>) {
+  return {
+    criteria: readString(config, "resolutionCriteria", "resolution_criteria") ?? readString(output, "resolutionCriteria", "resolution_criteria"),
+    date: readString(config, "resolutionDate", "resolution_date") ?? readString(output, "resolutionDate", "resolution_date"),
+    condition:
+      readString(config, "condition") ??
+      readString(output, "condition"),
+    conditionCriteria:
+      readString(config, "conditionResolutionCriteria", "condition_resolution_criteria") ??
+      readString(output, "conditionResolutionCriteria", "condition_resolution_criteria"),
+  };
+}
+
+function summarizeDistribution(output: Record<string, unknown>) {
+  const dateDistribution = readRecord(output, "dateDistribution", "date_distribution");
+  if (Object.keys(dateDistribution).length > 0) {
+    return { kind: "date_quantiles", quantiles: pickKeys(dateDistribution, ["p10", "p25", "p50", "p75", "p90"]) };
+  }
+  const numericDistribution = readRecord(output, "distribution");
+  if (["p10", "p25", "p50", "p75", "p90"].some((key) => numericDistribution[key] !== undefined)) {
+    return { kind: "numeric_quantiles", quantiles: pickKeys(numericDistribution, ["p10", "p25", "p50", "p75", "p90"]), unit: readString(output, "unit") };
+  }
+  const probabilities = readArray(output, "probabilities");
+  if (probabilities.length) {
+    return { kind: "probability_table", probabilities };
+  }
+  const range = readRecord(output, "probabilityRange", "probability_range");
+  if (Object.keys(range).length > 0) {
+    return { kind: "probability_range", range };
+  }
+  return { kind: "none" };
+}
+
+function summarizeReportComponents(output: Record<string, unknown>, attempts: Array<typeof forecastAttempts.$inferSelect>) {
+  const componentRecords = [
+    ...readArray(output, "componentProbabilities", "component_probabilities"),
+    ...readArray(output, "componentValues", "component_values"),
+    ...readArray(output, "componentDates", "component_dates"),
+    ...readArray(output, "componentCategories", "component_categories"),
+    ...readArray(output, "componentBranches", "component_branches"),
+    ...readArray(output, "componentCurves", "component_curves"),
+  ];
+  const attemptComponents = attempts.map((attempt) => ({
+    forecasterLabel: attempt.forecasterLabel,
+    forecastType: attempt.forecastType,
+    rationale: attempt.rationale,
+    premortem: attempt.premortem,
+    wildcards: attempt.wildcards,
+    parsedPrediction: attempt.parsedPrediction,
+  }));
+  return {
+    count: componentRecords.length || attemptComponents.length,
+    records: componentRecords.slice(0, 16),
+    attempts: attemptComponents.slice(0, 16),
+    agreement: summarizeComponentAgreement(output),
+  };
+}
+
+function summarizeComponentAgreement(output: Record<string, unknown>) {
+  const binary = readArray(output, "componentProbabilities", "component_probabilities")
+    .map((component) => readNumber(component, "probability"))
+    .filter((value): value is number => value !== null);
+  if (binary.length >= 2) {
+    return {
+      kind: "binary_spread",
+      count: binary.length,
+      min: Math.min(...binary),
+      max: Math.max(...binary),
+      spread: Math.round((Math.max(...binary) - Math.min(...binary)) * 10) / 10,
+    };
+  }
+  const categorical = readArray(output, "componentCategories", "component_categories")
+    .map((component) => readString(component, "topCategory", "top_category"))
+    .filter((value): value is string => Boolean(value));
+  if (categorical.length >= 2) {
+    const counts = countStrings(categorical);
+    const top = Object.entries(counts).sort((left, right) => right[1] - left[1])[0] ?? null;
+    return { kind: "categorical_votes", count: categorical.length, topCategory: top?.[0] ?? null, topCount: top?.[1] ?? 0, counts };
+  }
+  return { kind: "not_comparable" };
+}
+
+function summarizeUncertainty(output: Record<string, unknown>, attempts: Array<typeof forecastAttempts.$inferSelect>) {
+  return {
+    keyUncertainties: uniqueStrings([
+      ...readStringArray(output, "keyUncertainties", "key_uncertainties"),
+      ...attempts.flatMap((attempt) => readStringArray(attempt.parsedPrediction, "keyUncertainties", "key_uncertainties")),
+    ]).slice(0, 12),
+    premortems: uniqueStrings([
+      readString(output, "premortem"),
+      ...attempts.map((attempt) => attempt.premortem),
+    ]).slice(0, 8),
+    wildcards: uniqueStrings([
+      ...readStringArray(output, "wildcards"),
+      ...attempts.flatMap((attempt) => attempt.wildcards),
+    ]).slice(0, 12),
+    calibrationWarnings: uniqueStrings(readStringArray(output, "calibrationWarnings", "calibration_warnings")).slice(0, 12),
+    unresolvedDisagreement: readString(output, "unresolvedDisagreement", "unresolved_disagreement"),
+    decisiveIssue: readString(output, "decisiveIssue", "decisive_issue"),
+  };
+}
+
+function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited<ReturnType<typeof getTaskDetail>>) {
+  const warnings = readStringArray(output, "calibrationWarnings", "calibration_warnings", "qualityIssues", "quality_issues");
+  const calibrationGuard = readCalibrationGuardSnapshot(output);
+  const calibrationGuardRules = calibrationGuard?.appliedRules ?? [];
+  const baselineSanity = readRecord(output, "baselineSanity", "baseline_sanity");
+  const marketAnchor = readMarketAnchorSnapshot(output);
+  const resolutionBoundary = readResolutionBoundarySnapshot(output);
+  const uncertaintyRange = readUncertaintyRangeSnapshot(output);
+  const componentWeighting = readComponentWeightingSnapshot(output);
+  const aggregateQuality = readAggregateQualitySnapshot(output);
+  return {
+    status: detail.task.status,
+    outputPresent: Object.keys(output).length > 0,
+    rationalePresent: Boolean(readString(output, "rationale", "summary", "answer")),
+    warningCount: warnings.length,
+    warnings: warnings.slice(0, 20),
+    calibrationGuardAdjustment: calibrationGuard?.adjustment ?? null,
+    calibrationGuardRules,
+    calibrationGuardRuleCount: calibrationGuardRules.length,
+    baselineSanity: Object.keys(baselineSanity).length ? baselineSanity : null,
+    marketAnchor,
+    resolutionBoundary,
+    uncertaintyRange,
+    componentWeighting,
+    aggregateQuality,
+    sourceCount: detail.sources.length,
+    citationCount: detail.citations.length,
+    attemptCount: detail.forecastAttempts.length,
+    scoreCount: detail.forecastScores.length,
+  };
+}
+
+function summarizeReportEvidence(detail: Awaited<ReturnType<typeof getTaskDetail>>) {
+  const sources = detail.sources.slice(0, 25).map((source) => ({
+    title: source.title,
+    url: source.url,
+    domain: source.domain,
+    claim: source.contentSummary,
+    sourceType: source.sourceType,
+    publishedAt: source.publishedAt,
+    retrievedAt: source.retrievedAt,
+    usedInFinal: source.usedInFinal,
+    qualityScore: source.qualityScore,
+  }));
+  return {
+    sourceCount: detail.sources.length,
+    citationCount: detail.citations.length,
+    topDomains: Object.entries(countStrings(sources.map((source) => source.domain).filter((domain): domain is string => Boolean(domain))))
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 8)
+      .map(([domain, count]) => ({ domain, count })),
+    sources,
+  };
+}
+
+function summarizeReportProcess(detail: Awaited<ReturnType<typeof getTaskDetail>>, output: Record<string, unknown>) {
+  return {
+    method: readString(output, "method"),
+    attemptCount: detail.forecastAttempts.length,
+    aggregateCount: detail.forecastAggregates.length,
+    recentTraceEventCount: detail.traceEvents.length,
+    traceEvents: detail.traceEvents.slice(-10).map((event) => ({
+      eventType: event.eventType,
+      phase: event.phase,
+      agentLabel: event.agentLabel,
+      sequenceNumber: event.sequenceNumber,
+      createdAt: event.createdAt,
+    })),
+  };
+}
+
+function renderRunReportMarkdown(report: {
+  headline: string;
+  question: string;
+  forecastType: string | null;
+  answer: Record<string, unknown>;
+  resolution: Record<string, unknown>;
+  evidence: { sourceCount: number; citationCount: number; sources: Array<Record<string, unknown>> };
+  components: { count: number; agreement: Record<string, unknown> };
+  uncertainty: Record<string, unknown>;
+  quality: Record<string, unknown>;
+  links: Record<string, string>;
+}) {
+  const lines = [
+    `# ${report.headline}`,
+    "",
+    `Question: ${report.question}`,
+    `Forecast type: ${report.forecastType ?? "unknown"}`,
+    `Answer: ${formatReportAnswer(report.answer)}`,
+    "",
+    "## Resolution",
+    report.resolution.criteria ? `Criteria: ${String(report.resolution.criteria)}` : "Criteria: not recorded",
+    report.resolution.date ? `Date: ${String(report.resolution.date)}` : "Date: not recorded",
+    report.resolution.condition ? `Condition: ${String(report.resolution.condition)}` : "",
+    "",
+    "## Evidence",
+    `${report.evidence.sourceCount} source(s), ${report.evidence.citationCount} citation(s) persisted.`,
+    ...report.evidence.sources.slice(0, 8).map((source) => `- ${source.title ?? source.domain ?? "Source"}: ${source.claim ?? "No claim summary"}`),
+    "",
+    "## Components",
+    `${report.components.count} component record(s). Agreement: ${JSON.stringify(report.components.agreement)}`,
+    "",
+    "## Uncertainty",
+    ...markdownList("Key uncertainties", report.uncertainty.keyUncertainties),
+    ...markdownList("Wildcards", report.uncertainty.wildcards),
+    ...markdownList("Warnings", report.quality.warnings),
+    ...markdownList("Baseline sanity", readReportBaselineSanity(report.quality)),
+    ...markdownList("Market anchor", readReportMarketAnchor(report.quality)),
+    ...markdownList("Resolution boundary", readReportResolutionBoundary(report.quality)),
+    ...markdownList("Uncertainty range", readReportUncertaintyRange(report.quality)),
+    ...markdownList("Component weighting", readReportComponentWeighting(report.quality)),
+    ...markdownList("Aggregate quality", readReportAggregateQuality(report.quality)),
+    ...markdownList("Calibration guard rules", readReportGuardRules(report.quality)),
+    "",
+    "## Links",
+    `- Result: ${report.links.result}`,
+    `- Trace bundle: ${report.links.traceBundle}`,
+    `- Report page: ${report.links.reportPage}`,
+  ];
+  return `${lines.filter((line) => line !== "").join("\n")}\n`;
+}
+
+function readReportBaselineSanity(quality: Record<string, unknown>) {
+  const baselineSanity = readRecord(quality, "baselineSanity", "baseline_sanity");
+  if (Object.keys(baselineSanity).length === 0) {
+    return [];
+  }
+  const status = readString(baselineSanity, "status") ?? "unknown";
+  const baselineProbability = readNumber(baselineSanity, "baselineProbability", "baseline_probability");
+  const baselineDelta = readNumber(baselineSanity, "baselineDelta", "baseline_delta");
+  const note = readString(baselineSanity, "note");
+  return [
+    `${status}: baseline ${baselineProbability === null ? "n/a" : `${baselineProbability}%`}, delta ${baselineDelta === null ? "n/a" : `${baselineDelta >= 0 ? "+" : ""}${baselineDelta} pts`}${note ? `. ${note}` : ""}`,
+  ];
+}
+
+function readReportMarketAnchor(quality: Record<string, unknown>) {
+  const marketAnchor = readRecord(quality, "marketAnchor", "market_anchor");
+  if (Object.keys(marketAnchor).length === 0) {
+    return [];
+  }
+  const status = readString(marketAnchor, "status") ?? "unknown";
+  const marketPrice = readNumber(marketAnchor, "marketPrice", "market_price");
+  const marketDelta = readNumber(marketAnchor, "marketDelta", "market_delta");
+  const platform = readString(marketAnchor, "marketPlatform", "market_platform");
+  const note = readString(marketAnchor, "note");
+  return [
+    `${status}: market ${marketPrice === null ? "n/a" : `${marketPrice}%`}, delta ${marketDelta === null ? "n/a" : `${marketDelta >= 0 ? "+" : ""}${marketDelta} pts`}${platform ? ` (${platform})` : ""}${note ? `. ${note}` : ""}`,
+  ];
+}
+
+function readReportResolutionBoundary(quality: Record<string, unknown>) {
+  const resolutionBoundary = readRecord(quality, "resolutionBoundary", "resolution_boundary");
+  if (Object.keys(resolutionBoundary).length === 0) {
+    return [];
+  }
+  const status = readString(resolutionBoundary, "status") ?? "unknown";
+  const componentBoundaryCount = readNumber(resolutionBoundary, "componentBoundaryCount", "component_boundary_count");
+  const ambiguityFlagCount = readNumber(resolutionBoundary, "ambiguityFlagCount", "ambiguity_flag_count");
+  const note = readString(resolutionBoundary, "note");
+  return [
+    `${status}: ${componentBoundaryCount ?? 0} boundary review(s), ${ambiguityFlagCount ?? 0} ambiguity flag(s)${note ? `. ${note}` : ""}`,
+  ];
+}
+
+function readReportUncertaintyRange(quality: Record<string, unknown>) {
+  const uncertaintyRange = readRecord(quality, "uncertaintyRange", "uncertainty_range");
+  if (Object.keys(uncertaintyRange).length === 0) {
+    return [];
+  }
+  const status = readString(uncertaintyRange, "status") ?? "unknown";
+  const medianRangeWidth = readNumber(uncertaintyRange, "medianRangeWidth", "median_range_width");
+  const narrowRangeCount = readNumber(uncertaintyRange, "narrowRangeCount", "narrow_range_count");
+  const note = readString(uncertaintyRange, "note");
+  return [
+    `${status}: median width ${medianRangeWidth === null ? "n/a" : `${medianRangeWidth} pts`}, ${narrowRangeCount ?? 0} narrow component range(s)${note ? `. ${note}` : ""}`,
+  ];
+}
+
+function readReportComponentWeighting(quality: Record<string, unknown>) {
+  const componentWeighting = readRecord(quality, "componentWeighting", "component_weighting");
+  if (Object.keys(componentWeighting).length === 0) {
+    return [];
+  }
+  const status = readString(componentWeighting, "status") ?? "unknown";
+  const downweightCount = readNumber(componentWeighting, "downweightCount", "downweight_count");
+  const upweightCount = readNumber(componentWeighting, "upweightCount", "upweight_count");
+  const calibrationRiskCount = readNumber(componentWeighting, "calibrationRiskCount", "calibration_risk_count");
+  return [
+    `${status}: ${downweightCount ?? 0} downweighted, ${upweightCount ?? 0} upweighted, ${calibrationRiskCount ?? 0} calibration risk note(s)`,
+  ];
+}
+
+function readReportAggregateQuality(quality: Record<string, unknown>) {
+  const aggregateQuality = readRecord(quality, "aggregateQuality", "aggregate_quality");
+  if (Object.keys(aggregateQuality).length === 0) {
+    return [];
+  }
+  const convergenceStatus = readString(aggregateQuality, "convergenceStatus", "convergence_status") ?? "unknown";
+  const roundsUsed = readNumber(aggregateQuality, "roundsUsed", "rounds_used");
+  const qualityApproved = readBoolean(aggregateQuality, "qualityApproved", "quality_approved");
+  const maxIterationsReached = readBoolean(aggregateQuality, "maxIterationsReached", "max_iterations_reached");
+  const qualityIssueCount = readNumber(aggregateQuality, "qualityIssueCount", "quality_issue_count");
+  const finalReviewRationale = readString(aggregateQuality, "finalReviewRationale", "final_review_rationale");
+  return [
+    [
+      `${convergenceStatus.replace(/_/g, " ")}`,
+      roundsUsed === null ? "rounds n/a" : `${roundsUsed} round(s)`,
+      qualityApproved === null ? "approval n/a" : `approved ${qualityApproved ? "yes" : "no"}`,
+      maxIterationsReached === null ? "max iterations n/a" : `max iterations ${maxIterationsReached ? "yes" : "no"}`,
+      qualityIssueCount === null ? "issues n/a" : `${qualityIssueCount} issue(s)`,
+    ].join(", ") + (finalReviewRationale ? `. ${finalReviewRationale}` : ""),
+  ];
+}
+
+function readReportGuardRules(quality: Record<string, unknown>) {
+  const rules = Array.isArray(quality.calibrationGuardRules)
+    ? quality.calibrationGuardRules.filter(isRecord)
+    : [];
+  return rules.map((rule) => {
+    const id = readString(rule, "id") ?? "unknown";
+    const adjustment = readNumber(rule, "adjustment");
+    const note = readString(rule, "note") ?? "";
+    return `${id}${adjustment === null ? "" : ` (${adjustment >= 0 ? "+" : ""}${adjustment} pts)`}${note ? `: ${note}` : ""}`;
+  });
+}
+
+function formatReportAnswer(answer: Record<string, unknown>) {
+  const kind = readString(answer, "kind") ?? "answer";
+  const value = answer.value;
+  if (typeof value === "number") {
+    const unit = readString(answer, "unit");
+    return `${value}${unit === "percent" ? "%" : unit ? ` ${unit}` : ""}`;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return `${value.length} ${kind} item(s)`;
+  }
+  return kind;
+}
+
+function markdownList(label: string, raw: unknown) {
+  const values = Array.isArray(raw)
+    ? raw.map((value) => String(value ?? "").trim()).filter(Boolean)
+    : [];
+  if (values.length === 0) {
+    return [`${label}: none recorded`];
+  }
+  return [`${label}:`, ...values.slice(0, 8).map((value) => `- ${value}`)];
+}
+
+function pickKeys(record: Record<string, unknown>, keys: string[]) {
+  return Object.fromEntries(keys.filter((key) => record[key] !== undefined).map((key) => [key, record[key]]));
+}
+
+function countStrings(values: string[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const value of values) {
+    counts[value] = (counts[value] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+  return [...new Set(values.map((value) => value?.trim() ?? "").filter(Boolean))];
+}
+
+function summarizeForecastAnswer(output: unknown) {
+  if (!isRecord(output)) {
+    return { kind: "missing", value: null };
+  }
+  const probability = readNumber(output, "probability");
+  if (probability !== null) {
+    return { kind: "probability", value: probability, unit: "percent" };
+  }
+  const targetDate = readString(output, "targetDate", "target_date") ?? readString(readRecord(output, "dateDistribution", "date_distribution"), "p50");
+  if (targetDate) {
+    return { kind: "date", value: targetDate, neverProbability: readNumber(output, "neverProbability", "never_probability") };
+  }
+  const value = readNumber(output, "value");
+  if (value !== null) {
+    return { kind: "numeric", value, unit: readString(output, "unit") ?? null };
+  }
+  const topCategory = readString(output, "topCategory", "top_category");
+  if (topCategory) {
+    return { kind: "categorical", value: topCategory };
+  }
+  const probabilities = readArray(output, "probabilities");
+  if (probabilities.length) {
+    return { kind: "thresholded", value: probabilities };
+  }
+  return { kind: "recorded", value: null };
+}
+
+function readRecord(value: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const raw = value[key];
+    if (isRecord(raw)) {
+      return raw;
+    }
+  }
+  return {};
+}
+
+function runLinks(taskId: string) {
+  return {
+    detail: `/api/runs/${taskId}`,
+    status: `/api/runs/${taskId}/status`,
+    result: `/api/runs/${taskId}/result`,
+    reportArtifact: `/api/runs/${taskId}/report-artifact`,
+    reportPage: `/runs/${taskId}/report`,
+    traceBundle: `/api/runs/${taskId}/trace-bundle`,
   };
 }
 
@@ -1269,7 +1930,7 @@ function dedupeSources(sources: Array<{ title: string | null; url: string | null
   const seen = new Set<string>();
   const deduped = [];
   for (const source of sources) {
-    const key = canonicalSourceKey(source);
+    const key = canonicalCitedSourceKey(source);
     if (seen.has(key)) {
       continue;
     }
@@ -1277,20 +1938,6 @@ function dedupeSources(sources: Array<{ title: string | null; url: string | null
     deduped.push(source);
   }
   return deduped;
-}
-
-function canonicalSourceKey(source: { title: string | null; url: string | null; claim: string }) {
-  if (source.url) {
-    try {
-      const url = new URL(source.url);
-      url.hash = "";
-      url.searchParams.sort();
-      return `url:${url.toString().replace(/\/$/, "")}`;
-    } catch {
-      return `url:${source.url.trim().replace(/\/$/, "").toLowerCase()}`;
-    }
-  }
-  return `fallback:${(source.title ?? "").trim().toLowerCase()}::${source.claim.trim().toLowerCase()}`;
 }
 
 function uniqueDomains(sources: Array<{ url: string | null }>) {
@@ -1465,6 +2112,16 @@ function readNumber(value: Record<string, unknown>, ...keys: string[]) {
   for (const key of keys) {
     const raw = value[key];
     if (typeof raw === "number" && Number.isFinite(raw)) {
+      return raw;
+    }
+  }
+  return null;
+}
+
+function readBoolean(value: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const raw = value[key];
+    if (typeof raw === "boolean") {
       return raw;
     }
   }

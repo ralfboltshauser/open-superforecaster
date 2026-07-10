@@ -1,0 +1,522 @@
+export type AggregateStatsSnapshot = {
+  meanProbability: number | null;
+  medianProbability: number | null;
+  componentMinProbability: number | null;
+  componentMaxProbability: number | null;
+  finalComponentPositionBand: "below_components" | "inside_components" | "above_components" | "missing_components" | "unknown";
+  meanConfidenceDistance: number | null;
+  meanConfidenceDistanceBand: "near_even" | "likely" | "very_likely" | "extreme" | "unknown";
+  finalConfidenceShift: number | null;
+  finalConfidenceShiftBand: "dampened_confidence" | "near_panel_confidence" | "more_confident" | "much_more_confident" | "missing_components" | "unknown";
+  meanBaseRateProbability: number | null;
+  meanInsideViewProbability: number | null;
+  insideViewDelta: number | null;
+  insideViewDeltaBand: "near_base_rate" | "moderate_shift" | "large_shift" | "missing_components" | "unknown";
+  finalInsideViewDelta: number | null;
+  finalInsideViewDeltaBand: "near_inside_view" | "moderate_adjustment" | "large_adjustment" | "missing_components" | "unknown";
+  finalAdjustmentDirection: "near_base_rate" | "keeps_inside_view" | "amplifies_inside_view" | "dampens_inside_view" | "reverses_inside_view" | "final_only_shift" | "missing_components" | "unknown";
+  disagreement: number | null;
+  disagreementBand: "low" | "moderate" | "high" | "extreme" | "unknown";
+  aggregationAnchor: string | null;
+  adjustmentFromMedian: number | null;
+  adjustmentFromMedianBand: "near_median" | "moderate_adjustment" | "large_adjustment" | "missing_components" | "unknown";
+  attemptCount: number | null;
+  attemptCountBand: "single_attempt" | "few_attempts" | "many_attempts" | "unknown";
+};
+
+export type AggregateSideAgreementBand =
+  | "same_yes"
+  | "same_no"
+  | "final_flips_to_yes"
+  | "final_flips_to_no"
+  | "mean_near_even"
+  | "final_near_even"
+  | "missing_components"
+  | "unknown";
+
+export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapshot | null {
+  const record = asRecord(value);
+  const aggregateStats = asRecord(record?.aggregateStats) ?? record;
+  if (!aggregateStats) {
+    return null;
+  }
+  const meanProbability = readNumber(aggregateStats, "meanProbability", "mean_probability");
+  const medianProbability = readNumber(aggregateStats, "medianProbability", "median_probability");
+  const finalProbability = readNumber(aggregateStats, "probability", "finalProbability", "final_probability");
+  const componentProbabilities = readComponentProbabilities(aggregateStats);
+  const componentMinProbability = readNumber(aggregateStats, "componentMinProbability", "component_min_probability") ?? min(componentProbabilities);
+  const componentMaxProbability = readNumber(aggregateStats, "componentMaxProbability", "component_max_probability") ?? max(componentProbabilities);
+  const meanConfidenceDistance = readNumber(aggregateStats, "meanConfidenceDistance", "mean_confidence_distance") ?? confidenceDistance(meanProbability);
+  const explicitMeanConfidenceDistanceBand = readMeanConfidenceDistanceBand(aggregateStats);
+  const finalConfidenceShift = readNumber(aggregateStats, "finalConfidenceShift", "final_confidence_shift") ?? confidenceShift(finalProbability, meanProbability);
+  const explicitFinalConfidenceShiftBand = readFinalConfidenceShiftBand(aggregateStats);
+  const componentBaseRates = readComponentNumberArray(aggregateStats, "baseRateProbability", "base_rate_probability");
+  const componentInsideViews = readComponentNumberArray(aggregateStats, "insideViewProbability", "inside_view_probability");
+  const meanBaseRateProbability = readNumber(aggregateStats, "meanBaseRateProbability", "mean_base_rate_probability") ?? roundProbability(mean(componentBaseRates));
+  const meanInsideViewProbability = readNumber(aggregateStats, "meanInsideViewProbability", "mean_inside_view_probability") ?? roundProbability(mean(componentInsideViews));
+  const insideViewDelta = readNumber(aggregateStats, "insideViewDelta", "inside_view_delta") ?? delta(meanInsideViewProbability, meanBaseRateProbability);
+  const explicitInsideViewDeltaBand = readInsideViewDeltaBand(aggregateStats);
+  const finalInsideViewDelta = readNumber(aggregateStats, "finalInsideViewDelta", "final_inside_view_delta") ?? delta(finalProbability, meanInsideViewProbability);
+  const explicitFinalInsideViewDeltaBand = readFinalInsideViewDeltaBand(aggregateStats);
+  const explicitFinalAdjustmentDirection = readFinalAdjustmentDirection(aggregateStats);
+  const disagreement = readNumber(aggregateStats, "disagreement");
+  const aggregationAnchor = readString(aggregateStats, "aggregationAnchor", "aggregation_anchor");
+  const adjustmentFromMedian = readNumber(aggregateStats, "adjustmentFromMedian", "adjustment_from_median") ?? delta(finalProbability, medianProbability);
+  const explicitAdjustmentFromMedianBand = readAdjustmentFromMedianBand(aggregateStats);
+  const attemptCount = readNumber(aggregateStats, "attemptCount", "attempt_count");
+  const explicitAttemptCountBand = readAttemptCountBand(aggregateStats);
+  if (
+    meanProbability === null &&
+    medianProbability === null &&
+    componentMinProbability === null &&
+    componentMaxProbability === null &&
+    meanConfidenceDistance === null &&
+    finalConfidenceShift === null &&
+    meanBaseRateProbability === null &&
+    meanInsideViewProbability === null &&
+    insideViewDelta === null &&
+    finalInsideViewDelta === null &&
+    disagreement === null &&
+    aggregationAnchor === null &&
+    adjustmentFromMedian === null &&
+    attemptCount === null
+  ) {
+    return null;
+  }
+  return {
+    meanProbability,
+    medianProbability,
+    componentMinProbability,
+    componentMaxProbability,
+    finalComponentPositionBand: finalComponentPositionBand({
+      finalProbability,
+      componentMinProbability,
+      componentMaxProbability,
+    }),
+    meanConfidenceDistance,
+    meanConfidenceDistanceBand: explicitMeanConfidenceDistanceBand ?? meanConfidenceDistanceBand(meanConfidenceDistance),
+    finalConfidenceShift,
+    finalConfidenceShiftBand: explicitFinalConfidenceShiftBand ?? finalConfidenceShiftBand(
+      finalConfidenceShift,
+      finalProbability === null && finalConfidenceShift === null ? 0 : 1,
+      meanProbability === null && meanConfidenceDistance === null && finalConfidenceShift === null ? 0 : 1,
+    ),
+    meanBaseRateProbability,
+    meanInsideViewProbability,
+    insideViewDelta,
+    insideViewDeltaBand: explicitInsideViewDeltaBand ?? insideViewDeltaBand(
+      insideViewDelta,
+      componentBaseRates.length || (meanBaseRateProbability === null ? 0 : 1),
+      componentInsideViews.length || (meanInsideViewProbability === null ? 0 : 1),
+    ),
+    finalInsideViewDelta,
+    finalInsideViewDeltaBand: explicitFinalInsideViewDeltaBand ?? finalInsideViewDeltaBand(
+      finalInsideViewDelta,
+      finalProbability === null && finalInsideViewDelta === null ? 0 : 1,
+      componentInsideViews.length || (meanInsideViewProbability === null ? 0 : 1),
+    ),
+    finalAdjustmentDirection: explicitFinalAdjustmentDirection ?? finalAdjustmentDirection(insideViewDelta, finalInsideViewDelta),
+    disagreement,
+    disagreementBand: aggregateDisagreementBand(disagreement),
+    aggregationAnchor,
+    adjustmentFromMedian,
+    adjustmentFromMedianBand: explicitAdjustmentFromMedianBand ?? adjustmentFromMedianBand(
+      adjustmentFromMedian,
+      finalProbability === null && adjustmentFromMedian === null ? 0 : 1,
+      medianProbability === null && adjustmentFromMedian === null ? 0 : 1,
+    ),
+    attemptCount,
+    attemptCountBand: explicitAttemptCountBand ?? attemptCountBand(attemptCount),
+  };
+}
+
+export function insideViewDeltaBand(
+  insideViewDelta: number | null,
+  baseRateCount: number,
+  insideViewCount: number,
+): AggregateStatsSnapshot["insideViewDeltaBand"] {
+  if (baseRateCount === 0 || insideViewCount === 0) {
+    return "missing_components";
+  }
+  if (insideViewDelta === null || !Number.isFinite(insideViewDelta)) {
+    return "unknown";
+  }
+  const absoluteDelta = Math.abs(insideViewDelta);
+  if (absoluteDelta >= 25) {
+    return "large_shift";
+  }
+  if (absoluteDelta >= 10) {
+    return "moderate_shift";
+  }
+  return "near_base_rate";
+}
+
+export function finalInsideViewDeltaBand(
+  finalInsideViewDelta: number | null,
+  finalProbabilityCount: number,
+  insideViewCount: number,
+): AggregateStatsSnapshot["finalInsideViewDeltaBand"] {
+  if (finalProbabilityCount === 0 || insideViewCount === 0) {
+    return "missing_components";
+  }
+  if (finalInsideViewDelta === null || !Number.isFinite(finalInsideViewDelta)) {
+    return "unknown";
+  }
+  const absoluteDelta = Math.abs(finalInsideViewDelta);
+  if (absoluteDelta >= 20) {
+    return "large_adjustment";
+  }
+  if (absoluteDelta >= 8) {
+    return "moderate_adjustment";
+  }
+  return "near_inside_view";
+}
+
+export function finalAdjustmentDirection(
+  insideViewDelta: number | null,
+  finalInsideViewDelta: number | null,
+): AggregateStatsSnapshot["finalAdjustmentDirection"] {
+  if (insideViewDelta === null || finalInsideViewDelta === null) {
+    return "missing_components";
+  }
+  if (!Number.isFinite(insideViewDelta) || !Number.isFinite(finalInsideViewDelta)) {
+    return "unknown";
+  }
+  const materialThreshold = 3;
+  const insideMagnitude = Math.abs(insideViewDelta);
+  const adjustmentMagnitude = Math.abs(finalInsideViewDelta);
+  if (insideMagnitude < materialThreshold && adjustmentMagnitude < materialThreshold) {
+    return "near_base_rate";
+  }
+  if (insideMagnitude < materialThreshold) {
+    return "final_only_shift";
+  }
+  if (adjustmentMagnitude < materialThreshold) {
+    return "keeps_inside_view";
+  }
+  const insideDirection = Math.sign(insideViewDelta);
+  const finalBaseRateDelta = insideViewDelta + finalInsideViewDelta;
+  if (Math.sign(finalInsideViewDelta) === insideDirection) {
+    return "amplifies_inside_view";
+  }
+  if (Math.abs(finalBaseRateDelta) >= materialThreshold && Math.sign(finalBaseRateDelta) !== insideDirection) {
+    return "reverses_inside_view";
+  }
+  return "dampens_inside_view";
+}
+
+export function finalComponentPositionBand(input: {
+  finalProbability: number | null;
+  componentMinProbability: number | null;
+  componentMaxProbability: number | null;
+}): AggregateStatsSnapshot["finalComponentPositionBand"] {
+  if (input.componentMinProbability === null || input.componentMaxProbability === null) {
+    return "missing_components";
+  }
+  if (input.finalProbability === null || !Number.isFinite(input.finalProbability)) {
+    return "unknown";
+  }
+  if (input.finalProbability < input.componentMinProbability) {
+    return "below_components";
+  }
+  if (input.finalProbability > input.componentMaxProbability) {
+    return "above_components";
+  }
+  return "inside_components";
+}
+
+export function finalConfidenceShiftBand(
+  finalConfidenceShift: number | null,
+  finalProbabilityCount: number,
+  meanProbabilityCount: number,
+): AggregateStatsSnapshot["finalConfidenceShiftBand"] {
+  if (finalProbabilityCount === 0 || meanProbabilityCount === 0) {
+    return "missing_components";
+  }
+  if (finalConfidenceShift === null || !Number.isFinite(finalConfidenceShift)) {
+    return "unknown";
+  }
+  if (finalConfidenceShift <= -8) {
+    return "dampened_confidence";
+  }
+  if (finalConfidenceShift >= 20) {
+    return "much_more_confident";
+  }
+  if (finalConfidenceShift >= 8) {
+    return "more_confident";
+  }
+  return "near_panel_confidence";
+}
+
+export function meanConfidenceDistanceBand(meanConfidenceDistance: number | null): AggregateStatsSnapshot["meanConfidenceDistanceBand"] {
+  if (meanConfidenceDistance === null || !Number.isFinite(meanConfidenceDistance)) {
+    return "unknown";
+  }
+  if (meanConfidenceDistance >= 40) {
+    return "extreme";
+  }
+  if (meanConfidenceDistance >= 25) {
+    return "very_likely";
+  }
+  if (meanConfidenceDistance >= 10) {
+    return "likely";
+  }
+  return "near_even";
+}
+
+export function aggregateSideAgreementBand(finalProbability: number | null, meanProbability: number | null): AggregateSideAgreementBand {
+  if (finalProbability === null || meanProbability === null) {
+    return "missing_components";
+  }
+  const finalSide = probabilitySide(finalProbability);
+  const meanSide = probabilitySide(meanProbability);
+  if (finalSide === "unknown" || meanSide === "unknown") {
+    return "unknown";
+  }
+  if (meanSide === "near_even") {
+    return "mean_near_even";
+  }
+  if (finalSide === "near_even") {
+    return "final_near_even";
+  }
+  if (finalSide === meanSide) {
+    return finalSide === "yes" ? "same_yes" : "same_no";
+  }
+  return finalSide === "yes" ? "final_flips_to_yes" : "final_flips_to_no";
+}
+
+export function aggregateDisagreementBand(disagreement: number | null): AggregateStatsSnapshot["disagreementBand"] {
+  if (disagreement === null || !Number.isFinite(disagreement)) {
+    return "unknown";
+  }
+  if (disagreement >= 30) {
+    return "extreme";
+  }
+  if (disagreement >= 15) {
+    return "high";
+  }
+  if (disagreement >= 5) {
+    return "moderate";
+  }
+  return "low";
+}
+
+export function adjustmentFromMedianBand(
+  adjustmentFromMedian: number | null,
+  finalProbabilityCount: number,
+  medianProbabilityCount: number,
+): AggregateStatsSnapshot["adjustmentFromMedianBand"] {
+  if (finalProbabilityCount === 0 || medianProbabilityCount === 0) {
+    return "missing_components";
+  }
+  if (adjustmentFromMedian === null || !Number.isFinite(adjustmentFromMedian)) {
+    return "unknown";
+  }
+  const absoluteAdjustment = Math.abs(adjustmentFromMedian);
+  if (absoluteAdjustment >= 20) {
+    return "large_adjustment";
+  }
+  if (absoluteAdjustment >= 8) {
+    return "moderate_adjustment";
+  }
+  return "near_median";
+}
+
+export function attemptCountBand(attemptCount: number | null): AggregateStatsSnapshot["attemptCountBand"] {
+  if (attemptCount === null || !Number.isFinite(attemptCount)) {
+    return "unknown";
+  }
+  if (attemptCount >= 5) {
+    return "many_attempts";
+  }
+  if (attemptCount >= 2) {
+    return "few_attempts";
+  }
+  return "single_attempt";
+}
+
+function readString(value: unknown, ...keys: string[]) {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+  for (const key of keys) {
+    const raw = record[key];
+    if (typeof raw === "string" && raw.trim()) {
+      return raw.trim();
+    }
+  }
+  return null;
+}
+
+function readInsideViewDeltaBand(value: unknown): AggregateStatsSnapshot["insideViewDeltaBand"] | null {
+  const band = readString(value, "insideViewDeltaBand", "inside_view_delta_band");
+  if (
+    band === "near_base_rate" ||
+    band === "moderate_shift" ||
+    band === "large_shift" ||
+    band === "missing_components" ||
+    band === "unknown"
+  ) {
+    return band;
+  }
+  return null;
+}
+
+function readFinalConfidenceShiftBand(value: unknown): AggregateStatsSnapshot["finalConfidenceShiftBand"] | null {
+  const band = readString(value, "finalConfidenceShiftBand", "final_confidence_shift_band");
+  if (
+    band === "dampened_confidence" ||
+    band === "near_panel_confidence" ||
+    band === "more_confident" ||
+    band === "much_more_confident" ||
+    band === "missing_components" ||
+    band === "unknown"
+  ) {
+    return band;
+  }
+  return null;
+}
+
+function readMeanConfidenceDistanceBand(value: unknown): AggregateStatsSnapshot["meanConfidenceDistanceBand"] | null {
+  const band = readString(value, "meanConfidenceDistanceBand", "mean_confidence_distance_band");
+  if (band === "near_even" || band === "likely" || band === "very_likely" || band === "extreme" || band === "unknown") {
+    return band;
+  }
+  return null;
+}
+
+function readFinalInsideViewDeltaBand(value: unknown): AggregateStatsSnapshot["finalInsideViewDeltaBand"] | null {
+  const band = readString(value, "finalInsideViewDeltaBand", "final_inside_view_delta_band");
+  if (
+    band === "near_inside_view" ||
+    band === "moderate_adjustment" ||
+    band === "large_adjustment" ||
+    band === "missing_components" ||
+    band === "unknown"
+  ) {
+    return band;
+  }
+  return null;
+}
+
+function readFinalAdjustmentDirection(value: unknown): AggregateStatsSnapshot["finalAdjustmentDirection"] | null {
+  const direction = readString(value, "finalAdjustmentDirection", "final_adjustment_direction");
+  if (
+    direction === "near_base_rate" ||
+    direction === "keeps_inside_view" ||
+    direction === "amplifies_inside_view" ||
+    direction === "dampens_inside_view" ||
+    direction === "reverses_inside_view" ||
+    direction === "final_only_shift" ||
+    direction === "missing_components" ||
+    direction === "unknown"
+  ) {
+    return direction;
+  }
+  return null;
+}
+
+function readAdjustmentFromMedianBand(value: unknown): AggregateStatsSnapshot["adjustmentFromMedianBand"] | null {
+  const band = readString(value, "adjustmentFromMedianBand", "adjustment_from_median_band");
+  if (
+    band === "near_median" ||
+    band === "moderate_adjustment" ||
+    band === "large_adjustment" ||
+    band === "missing_components" ||
+    band === "unknown"
+  ) {
+    return band;
+  }
+  return null;
+}
+
+function readAttemptCountBand(value: unknown): AggregateStatsSnapshot["attemptCountBand"] | null {
+  const band = readString(value, "attemptCountBand", "attempt_count_band");
+  if (band === "single_attempt" || band === "few_attempts" || band === "many_attempts" || band === "unknown") {
+    return band;
+  }
+  return null;
+}
+
+function readNumber(value: unknown, ...keys: string[]) {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+  for (const key of keys) {
+    const raw = record[key];
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      return raw;
+    }
+  }
+  return null;
+}
+
+function readComponentProbabilities(value: unknown) {
+  return readComponentNumberArray(value, "probability");
+}
+
+function readComponentNumberArray(value: unknown, ...keys: string[]) {
+  const record = asRecord(value);
+  const raw = record?.componentProbabilities ?? record?.component_probabilities;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .map((item) => readNumber(item, ...keys))
+    .filter((probability): probability is number => probability !== null);
+}
+
+function min(values: number[]) {
+  return values.length ? Math.min(...values) : null;
+}
+
+function max(values: number[]) {
+  return values.length ? Math.max(...values) : null;
+}
+
+function confidenceDistance(probability: number | null) {
+  return probability === null ? null : roundProbability(Math.abs(probability - 50));
+}
+
+function confidenceShift(finalProbability: number | null, meanProbability: number | null) {
+  const finalDistance = confidenceDistance(finalProbability);
+  const meanDistance = confidenceDistance(meanProbability);
+  if (finalDistance === null || meanDistance === null) {
+    return null;
+  }
+  return roundProbability(finalDistance - meanDistance);
+}
+
+function probabilitySide(probability: number): "yes" | "no" | "near_even" | "unknown" {
+  if (!Number.isFinite(probability)) {
+    return "unknown";
+  }
+  if (probability > 53) {
+    return "yes";
+  }
+  if (probability < 47) {
+    return "no";
+  }
+  return "near_even";
+}
+
+function mean(values: number[]) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
+function delta(left: number | null, right: number | null) {
+  if (left === null || right === null) {
+    return null;
+  }
+  return roundProbability(left - right);
+}
+
+function roundProbability(value: number | null) {
+  return value === null ? null : Math.round(value * 10) / 10;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}

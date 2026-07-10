@@ -1,7 +1,18 @@
 /** @jsxImportSource smithers-orchestrator */
 import { createSmithers, Loop, Parallel, Sequence, Task } from "smithers-orchestrator";
 import { z } from "zod";
+import {
+  formatForecastContextForPrompt,
+  normalizeForecastInputRow,
+} from "@open-superforecaster/workflow-contracts";
 import { codexResearchAgent, codexStructuredAgent } from "./agents";
+import { buildBinaryBaselineSanityAudit } from "./binary-baseline-sanity";
+import { applyBinaryCalibrationGuard } from "./binary-calibration-guard";
+import { buildBinaryMarketAnchorAudit } from "./binary-market-anchor";
+import { buildBinaryResolutionBoundaryAudit } from "./binary-resolution-boundary";
+import { buildBinaryUncertaintyRangeAudit } from "./binary-uncertainty-range";
+import { collectCitedSources, collectKeyUncertainties } from "./forecast-evidence";
+import { readForecastTiming } from "./forecast-timing";
 
 const roleIdValues = [
   "base-rate",
@@ -92,6 +103,7 @@ const roleAggregationWeights: Record<RoleId, number> = {
 const citedSource = z.object({
   title: z.string().optional(),
   url: z.string().optional(),
+  publishedAt: z.string().optional(),
   claim: z.string(),
 });
 
@@ -186,6 +198,8 @@ const aggregateCore = z.object({
   componentProbabilities: z.array(componentProbability),
   componentAudits: z.array(componentAudit).default([]),
   citedSources: z.array(citedSource).default([]),
+  keyUncertainties: z.array(z.string()).default([]),
+  evidenceAsOfDate: z.string().optional(),
 });
 
 const binaryCandidateAggregate = aggregateCore.extend({
@@ -216,7 +230,62 @@ const binaryQualityReview = z.object({
   rationale: z.string(),
 });
 
+const calibrationGuardRule = z.object({
+  id: z.string(),
+  adjustment: z.number(),
+  note: z.string(),
+});
+
+const baselineSanity = z.object({
+  status: z.enum(["missing_component_base_rates", "near_baseline", "moderate_delta", "large_delta"]),
+  baselineProbability: z.number().min(0).max(100).nullable(),
+  finalProbability: z.number().min(0).max(100),
+  baselineDelta: z.number().nullable(),
+  componentBaseRateCount: z.number().int().min(0),
+  componentBaseRateDisagreement: z.number().min(0).max(100).nullable(),
+  note: z.string(),
+});
+
+const marketAnchor = z.object({
+  status: z.enum(["missing_market_price", "near_market", "moderate_delta", "large_delta"]),
+  marketPrice: z.number().min(0).max(100).nullable(),
+  finalProbability: z.number().min(0).max(100),
+  marketDelta: z.number().nullable(),
+  marketPriceAsOf: z.string().nullable(),
+  marketCreationDate: z.string().nullable(),
+  marketPlatform: z.string().nullable(),
+  marketUrl: z.string().nullable(),
+  note: z.string(),
+});
+
+const resolutionBoundary = z.object({
+  status: z.enum(["missing_boundary_review", "clear_boundary", "some_ambiguity", "material_ambiguity"]),
+  componentBoundaryCount: z.number().int().min(0),
+  ambiguityFlagCount: z.number().int().min(0),
+  qualityIssueCount: z.number().int().min(0),
+  plannerRiskCount: z.number().int().min(0),
+  note: z.string(),
+});
+
+const uncertaintyRange = z.object({
+  status: z.enum(["missing_ranges", "narrow", "moderate", "wide"]),
+  componentRangeCount: z.number().int().min(0),
+  medianRangeWidth: z.number().nullable(),
+  meanRangeWidth: z.number().nullable(),
+  widestRangeWidth: z.number().nullable(),
+  narrowRangeCount: z.number().int().min(0),
+  note: z.string(),
+});
+
 const binaryAggregate = aggregateCore.extend({
+  calibrationGuard: z.object({
+    adjustment: z.number(),
+    appliedRules: z.array(calibrationGuardRule).default([]),
+  }),
+  baselineSanity,
+  marketAnchor,
+  resolutionBoundary,
+  uncertaintyRange,
   convergenceStatus: z.enum(["approved", "max_iterations_return_last"]),
   roundsUsed: z.number().int().min(1),
   qualityApproved: z.boolean(),
@@ -323,91 +392,8 @@ function summarizeJson(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
 
-function includesAny(value: string, patterns: RegExp[]) {
-  return patterns.some((pattern) => pattern.test(value));
-}
-
-function applyFinalCalibration(input: {
-  probability: number;
-  question: string;
-  resolutionCriteria: string;
-  background: string;
-  fixedEvidence: string;
-  cutoffHorizonDays?: number;
-}) {
-  const questionText = input.question.toLowerCase();
-  const contextText = [
-    input.question,
-    input.resolutionCriteria,
-    input.background,
-    input.fixedEvidence,
-  ].join("\n").toLowerCase();
-  let probability = input.probability;
-  const notes: string[] = [];
-
-  if (
-    /outright majority|seat majority|majority in/.test(questionText) &&
-    /large and persistent|persistent national lead|large.*lead/.test(contextText) &&
-    /first-past-the-post|amplify|seat majorit/.test(contextText) &&
-    probability >= 70 &&
-    probability <= 90
-  ) {
-    probability += 2;
-    notes.push("Added 2 points for a large persistent lead in a seat-amplifying electoral system.");
-  }
-
-  if (
-    /bank of japan|boj|negative interest rate/.test(questionText) &&
-    /wage/.test(contextText) &&
-    /first half|h1|first hike|normalization/.test(contextText) &&
-    probability >= 30 &&
-    probability <= 55
-  ) {
-    probability += 1;
-    notes.push("Added 1 point for named BOJ normalization triggers plus first-half market debate.");
-  }
-
-  if (
-    /deliver at least|deliver .* or more|production|deliveries/.test(questionText) &&
-    includesAny(contextText, [/limited initial production/, /ramp .* hard/, /recently begun/, /unusual .* manufacturing/]) &&
-    probability >= 10
-  ) {
-    probability -= 5;
-    notes.push("Subtracted 5 points for a hard production-ramp threshold with limited initial output evidence.");
-  }
-
-  if (
-    /unemployment|jobless|labor market|labour market/.test(questionText) &&
-    /at least|or higher|threshold/.test(contextText) &&
-    /below 4|below four|would require|material .*deterioration|remained resilient/.test(contextText) &&
-    probability >= 10
-  ) {
-    probability -= 2.5;
-    notes.push("Subtracted 2.5 points for a deterioration threshold starting from a strong labor-market base.");
-  }
-
-  if (
-    (input.cutoffHorizonDays ?? Infinity) <= 90 &&
-    /federal reserve|fomc|central bank/.test(contextText) &&
-    /cut|reduction|reduce/.test(contextText) &&
-    /not committed|caution|cautioned|data dependence/.test(contextText) &&
-    probability >= 15 &&
-    probability <= 45
-  ) {
-    probability -= 3.5;
-    notes.push("Subtracted 3.5 points for a near-deadline central-bank easing question with explicit no-commitment/caution evidence.");
-  }
-
-  const calibratedProbability = roundProbability(Math.min(100, Math.max(0, probability)));
-  return {
-    probability: calibratedProbability,
-    adjustment: roundProbability(calibratedProbability - input.probability),
-    notes,
-  };
-}
-
 export default smithers((ctx) => {
-  const input = (ctx.input ?? {}) as {
+  const rawInput = (ctx.input ?? {}) as Record<string, unknown> & {
     question?: unknown;
     prompt?: unknown;
     resolutionCriteria?: unknown;
@@ -416,12 +402,15 @@ export default smithers((ctx) => {
     presentDate?: unknown;
     cutoffDate?: unknown;
   };
-  const question = String(input.question ?? input.prompt ?? "");
-  const resolutionCriteria = String(input.resolutionCriteria ?? "Resolve according to the plain-language question.");
-  const background = String(input.background ?? "");
-  const fixedEvidence = String(input.fixedEvidence ?? "");
-  const presentDate = String(input.presentDate ?? "");
-  const cutoffDate = String(input.cutoffDate ?? "");
+  const forecastInput = normalizeForecastInputRow(rawInput);
+  const question = forecastInput.question;
+  const resolutionCriteria = forecastInput.resolutionCriteria ?? "Resolve according to the plain-language question.";
+  const background = forecastInput.background ?? "";
+  const structuredContext = formatForecastContextForPrompt(forecastInput);
+  const fixedEvidence = String(rawInput.fixedEvidence ?? "");
+  const presentDate = String(rawInput.presentDate ?? "");
+  const cutoffDate = String(rawInput.cutoffDate ?? "");
+  const timing = readForecastTiming(rawInput);
   const cutoffHorizonDays = daysBetween(presentDate, cutoffDate);
   const cutoffHorizonText = cutoffHorizonDays === undefined
     ? "unknown"
@@ -443,6 +432,10 @@ export default smithers((ctx) => {
     .map((role) => ctx.latest(outputs.binaryAttempt, `attempt-${role.id}`))
     .filter((attempt): attempt is NonNullable<typeof attempt> => Boolean(attempt))
     .filter((attempt) => attempt.round === round);
+  const latestCandidateAttempts = selectedRoles
+    .map((role) => ctx.latest(outputs.binaryAttempt, `attempt-${role.id}`))
+    .filter((attempt): attempt is NonNullable<typeof attempt> => Boolean(attempt))
+    .filter((attempt) => attempt.round === latestCandidate?.round);
   const probabilities = currentAttempts
     .map((attempt) => attempt.probability)
     .filter((probability) => Number.isFinite(probability));
@@ -491,7 +484,7 @@ export default smithers((ctx) => {
     `${issue.severity}: ${issue.issue} Next focus: ${issue.requiredNextFocus}`
   ));
   const finalCalibration = latestCandidate
-    ? applyFinalCalibration({
+    ? applyBinaryCalibrationGuard({
       probability: latestCandidate.probability,
       question,
       resolutionCriteria,
@@ -499,7 +492,25 @@ export default smithers((ctx) => {
       fixedEvidence,
       cutoffHorizonDays,
     })
-    : { probability: 50, adjustment: 0, notes: [] };
+    : { probability: 50, adjustment: 0, notes: [], appliedRules: [] };
+  const finalBaselineSanity = buildBinaryBaselineSanityAudit({
+    finalProbability: finalCalibration.probability,
+    components: finalComponentProbabilities,
+  });
+  const finalMarketAnchor = buildBinaryMarketAnchorAudit({
+    finalProbability: finalCalibration.probability,
+    market: forecastInput.market,
+  });
+  const finalRoundAttempts = (ctx.outputs.binaryAttempt ?? []).filter((attempt) => attempt.round === latestCandidate?.round);
+  const finalResolutionBoundary = buildBinaryResolutionBoundaryAudit({
+    components: finalRoundAttempts,
+    qualityIssues: finalQualityIssues,
+    plannerRisks: plan?.resolutionRisks ?? [],
+    resolutionCriteria: forecastInput.resolutionCriteria,
+  });
+  const finalUncertaintyRange = buildBinaryUncertaintyRangeAudit({
+    components: finalRoundAttempts,
+  });
 
   return (
     <Workflow name="binary-forecast">
@@ -523,12 +534,16 @@ Selection rules:
 8. Market-price threshold questions with explicit volatility, ETF/flow, momentum, halving, pricing, or reflexivity evidence should usually include market-consensus and adversarial-tail, because the question is often about whether an upside/downside tail touches a threshold before cutoff.
 9. Central-bank, rates, inflation, or macro-policy timing questions with market debate or pricing in the evidence should usually include incentives-timing and market-consensus. Market debate is still evidence even when exact market-implied percentages are absent.
 10. For timing questions, distinguish a near-deadline cutoff from a broad cutoff with many decision opportunities. Qualitative market-pricing, policymaker-projection, polling, or expert-consensus evidence included in the fixed packet is direct evidence; do not discount it solely because exact numeric odds are absent.
+11. If structured market metadata is provided, treat it as dated consensus evidence. Do not invent missing markets, do not assume liquidity, and do not double-count the same market price through background commentary.
+12. When a structured market price is provided, require the panel to either stay near it or explicitly justify why this question's evidence warrants a material divergence.
 
 Question:
 ${question}
 
 Resolution criteria:
 ${resolutionCriteria}
+
+${structuredContext}
 
 ${presentDate || cutoffDate ? `Timing context:
 Present date: ${presentDate || "unspecified"}
@@ -578,6 +593,7 @@ Forecasting process:
 3. Pick concrete reference classes and estimate a base-rate probability.
 4. Update from that base rate using case-specific evidence.
 5. Treat qualitative market-pricing, policymaker-projection, polling, expert-consensus, or revealed-behavior evidence in the fixed packet as real evidence. Do not invent exact odds, but do not discard the signal merely because it is qualitative.
+5a. If structured market metadata is present, use it only as dated consensus evidence and state whether it anchors, weakly informs, or should be discounted. Avoid double-counting market-derived background.
 6. List the strongest yes and no arguments, then run a premortem.
 7. Give a precise final probability from 0 to 100. Round sensibly; do not hide uncertainty at 50.
 8. Flag overconfidence, missing base rates, weak evidence, disallowed evidence, correlated assumptions, or numeric inconsistency in calibrationWarnings.
@@ -587,6 +603,8 @@ ${question}
 
 Resolution criteria:
 ${resolutionCriteria}
+
+${structuredContext}
 
 ${presentDate || cutoffDate ? `Timing context:
 Present date: ${presentDate || "unspecified"}
@@ -604,7 +622,7 @@ Use only the fixed evidence packet, background, question, resolution criteria, p
 Role focus:
 ${role.focus}
 
-Return a binary forecast. Set roleId to "${role.id}", round to ${round}, and forecasterLabel to "${role.label}". Provide probability, baseRateProbability, insideViewProbability, probabilityRange, referenceClass, resolutionBoundary, evidenceFor, evidenceAgainst, strongest yes/no arguments, key uncertainties, premortem, wildcards, feedbackAddressed, calibrationWarnings, usedDisallowedEvidence, and cited sources when available.`}
+Return a binary forecast. Set roleId to "${role.id}", round to ${round}, and forecasterLabel to "${role.label}". Provide probability, baseRateProbability, insideViewProbability, probabilityRange, referenceClass, resolutionBoundary, evidenceFor, evidenceAgainst, strongest yes/no arguments, key uncertainties, premortem, wildcards, feedbackAddressed, calibrationWarnings, usedDisallowedEvidence, and cited sources when available. For cited sources, include publishedAt as an ISO date when the source date is known; omit it when unknown.`}
                   </Task>
                 ))}
               </Parallel>
@@ -624,6 +642,8 @@ ${question}
 
 Resolution criteria:
 ${resolutionCriteria}
+
+${structuredContext}
 
 ${presentDate || cutoffDate ? `Timing context:
 Present date: ${presentDate || "unspecified"}
@@ -665,6 +685,7 @@ Evaluation rules:
 8. Preserve cited sources from component forecasts when useful; do not invent new sources.
 9. Do not downweight a higher inside-view, incentives-timing, market-consensus, or adversarial-tail estimate merely because it is above the median. Downweight it only when the component double-counts evidence, violates the resolution boundary, or makes an unsupported leap.
 10. For timing questions, explicitly compare the cutoff horizon to the evidence window. If the cutoff is broad and the packet says policymakers, markets, polls, or expert consensus expected the event in that general window, that signal should usually move the aggregate materially unless a named NO mechanism offsets it. Qualitative consensus evidence is weaker than numeric pricing but still direct evidence.
+11. If structured market metadata exists, state whether the aggregate anchored to it, discounted it, or moved away from it. Name the reason and avoid double-counting.
 
 Return the round ${round} candidate aggregate. Set method exactly to "adaptive_candidate_calibration_evaluator_v1". Set round to ${round}, forecasterCount to ${selectedRoles.length}, complexityScore to ${plan.complexityScore}, and roleIds to ${JSON.stringify(selectedRoles.map((role) => role.id))}. Include componentProbabilities for every component, componentAudits for every component, meanProbability, medianProbability, disagreement, aggregationAnchor, adjustmentFromMedian, calibrationNotes, calibrationWarnings, method, rationale, citedSources, unresolvedDisagreement, decisiveIssue, feedbackForNextRound, and final probability.`}
               </Task>
@@ -684,6 +705,8 @@ ${question}
 
 Resolution criteria:
 ${resolutionCriteria}
+
+${structuredContext}
 
 Planner output:
 ${planSummary}
@@ -708,6 +731,7 @@ Review rules:
 8. Reject if the aggregate mechanically treats skeptic or resolution-boundary audit roles as equal votes when they found no concrete defect.
 9. Reject if a market-threshold or macro-policy timing question ignores a provided catalyst, market-debate signal, threshold-touch dynamic, or timing trigger that could materially move probability.
 10. Reject if a timing aggregate fails to distinguish a broad cutoff horizon from a near-deadline cutoff, especially when the fixed evidence includes policymaker projections, market-pricing, polling, or expert-consensus signals for the broader window.
+11. Reject if a structured market price is provided and the aggregate differs materially from it without naming the evidence or resolution mechanics that justify the difference.
 
 Return round ${round}, approved, confidenceScore, disagreementExplained, issues, requiredNextFocus, missingRoleIds, shouldStopReasoning, and rationale.`}
               </Task>
@@ -739,6 +763,17 @@ Return round ${round}, approved, confidenceScore, disagreementExplained, issues,
               calibrationWarnings: finalCalibration.notes.length
                 ? [...latestCandidate.calibrationWarnings, ...finalCalibration.notes]
                 : latestCandidate.calibrationWarnings,
+              citedSources: collectCitedSources(latestCandidateAttempts),
+              keyUncertainties: collectKeyUncertainties(latestCandidateAttempts),
+              ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
+              calibrationGuard: {
+                adjustment: finalCalibration.adjustment,
+                appliedRules: finalCalibration.appliedRules,
+              },
+              baselineSanity: finalBaselineSanity,
+              marketAnchor: finalMarketAnchor,
+              resolutionBoundary: finalResolutionBoundary,
+              uncertaintyRange: finalUncertaintyRange,
               convergenceStatus: qualityApproved ? "approved" as const : "max_iterations_return_last" as const,
               roundsUsed,
               qualityApproved,

@@ -23,16 +23,70 @@ import {
 } from "@open-superforecaster/db";
 import { scoreBinaryForecast } from "@open-superforecaster/evals";
 import type { ObjectStorageTarget } from "@open-superforecaster/artifact-store";
+import {
+  benchmarkCaseResultStatusCompleted,
+  benchmarkCaseResultStatusFailed,
+  benchmarkCaseResultStatusNeedsReview,
+  benchmarkCaseResultStatusRunning,
+  isBenchmarkCaseResultPendingStatus,
+  summarizeBenchmarkCaseResultStatuses,
+} from "./benchmark-case-result-policy";
+import {
+  benchmarkComparisonStatusBlocker,
+  benchmarkHoldoutSplitIds,
+  benchmarkPromotionGateStatusNeedsMoreEvidence,
+  benchmarkPromotionGateStatusReview,
+  blockerBenchmarkStillRunning,
+  blockerFailedOrReviewCasesPresent,
+  blockerHumanForecastLeakage,
+  blockerInsufficientHoldoutEvidence,
+  blockerLargeProbabilityMisses,
+  blockerLowQualitySources,
+  blockerMissingAggregateRationale,
+  blockerMissingBaselineSanity,
+  blockerMissingComparisonReport,
+  blockerMissingTraceBundles,
+  blockerSchemaOrScoringFailures,
+  blockerSourceConcentration,
+  blockerSourceCutoffLeakage,
+  blockerTooFewCasesForPromotion,
+  blockerUnexplainedComponentDisagreement,
+  blockerWeakTraceCompleteness,
+  blockerWorseThanBaselineCases,
+  minimumPromotionHoldoutCases,
+  minimumPromotionPairedCases,
+  minimumPromotionResultCases,
+} from "./benchmark-promotion-policy";
 import { createBootstrapArtifact, createQueuedWorkflowTask, markTaskFailed, markTaskRunning } from "./run-service";
 import { launchSmithersDetached } from "./smithers-launcher";
+import { summarizeSourceDomainCounts } from "./source-domain-summary";
+import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
 import { exportTraceBundle } from "./trace-bundle";
+import {
+  blockerInsufficientPrimaryPairedCases,
+  blockerInsufficientPrimaryPairedHoldoutCases,
+  blockerInsufficientValidationCaseCoverage,
+  blockerValidationGateNotPassing,
+  blockerValidationRecommendationNotCandidateBetter,
+  blockerValidationResultIncomplete,
+  workflowChangeProposalImplementationStatuses,
+  workflowChangeProposalStatuses,
+  type WorkflowChangeProposalImplementationStatus,
+  type WorkflowChangeProposalStatus,
+} from "./workflow-proposal-policy";
 
 type Db = ReturnType<typeof createDb>["db"];
 type BenchmarkRunRow = typeof benchmarkRuns.$inferSelect;
 type BenchmarkCaseResultRow = typeof benchmarkCaseResults.$inferSelect;
+type BenchmarkCaseSplitRow = {
+  id: string;
+  cutoffMetadataJson: Record<string, unknown>;
+  lineageJson: Record<string, unknown>;
+};
 type PairedMetricDeltaKey = "brierDelta" | "logDelta";
 type PairedDeltaRow = {
   benchmarkCaseId: string;
+  split: string;
   candidateBenchmarkCaseResultId: string;
   baselineBenchmarkCaseResultId: string;
   candidateStatus: string;
@@ -57,7 +111,209 @@ const promotionStates = [
   "rejected",
   "needs_more_cases",
 ] as const;
-type WorkflowPromotionState = (typeof promotionStates)[number];
+export type WorkflowPromotionState = (typeof promotionStates)[number];
+type BenchmarkPromotionComparisonStatus =
+  | "candidate_better"
+  | "candidate_worse"
+  | "indistinguishable"
+  | "needs_baseline"
+  | "needs_more_cases"
+  | "needs_paired_cases"
+  | "needs_holdout_evidence"
+  | "wait_for_completion"
+  | string;
+
+export type BenchmarkPromotionGateEvidenceInput = {
+  runStatus: string;
+  resultCount: number;
+  traceMissing: number;
+  reviewOrFailed: number;
+  comparisonStatus: BenchmarkPromotionComparisonStatus | null;
+  baselineSanityFindings?: Record<string, unknown> | null;
+  componentDisagreementFindings?: Record<string, unknown> | null;
+  forecastErrorFindings?: Record<string, unknown> | null;
+  splitFindings?: Record<string, unknown> | null;
+  sourceQualityFindings?: Record<string, unknown> | null;
+  traceQualityFindings?: Record<string, unknown> | null;
+};
+
+export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotionGateEvidenceInput) {
+  const blockers = [];
+  if (input.runStatus === "running" || input.runStatus === "queued") {
+    blockers.push(blockerBenchmarkStillRunning);
+  }
+  if (input.resultCount < minimumPromotionResultCases) {
+    blockers.push(blockerTooFewCasesForPromotion);
+  }
+  if (input.traceMissing > 0) {
+    blockers.push(blockerMissingTraceBundles);
+  }
+  if (input.reviewOrFailed > 0) {
+    blockers.push(blockerFailedOrReviewCasesPresent);
+  }
+  if (!input.comparisonStatus) {
+    blockers.push(blockerMissingComparisonReport);
+  } else if (input.comparisonStatus !== "candidate_better") {
+    blockers.push(benchmarkComparisonStatusBlocker(input.comparisonStatus));
+  }
+  if (readFindingCount(input.baselineSanityFindings, "missingBaselineSanityCases", "missing_baseline_sanity_cases") > 0) {
+    blockers.push(blockerMissingBaselineSanity);
+  }
+  if (readFindingCount(input.componentDisagreementFindings, "unexplainedHighDisagreementCases", "unexplained_high_disagreement_cases") > 0) {
+    blockers.push(blockerUnexplainedComponentDisagreement);
+  }
+  if (readFindingCount(input.forecastErrorFindings, "largeProbabilityMissCases", "large_probability_miss_cases") > 0) {
+    blockers.push(blockerLargeProbabilityMisses);
+  }
+  if (readFindingCount(input.forecastErrorFindings, "worseThanBaselineCases", "worse_than_baseline_cases") > 0) {
+    blockers.push(blockerWorseThanBaselineCases);
+  }
+  if (readFindingCount(input.splitFindings, "holdoutCaseResults", "holdout_case_results") < minimumPromotionHoldoutCases) {
+    blockers.push(blockerInsufficientHoldoutEvidence);
+  }
+  if (
+    readFindingCount(input.sourceQualityFindings, "sourceLeakageCases", "source_leakage_cases") > 0 ||
+    readFindingCount(input.sourceQualityFindings, "postCutoffSourceCases", "post_cutoff_source_cases") > 0
+  ) {
+    blockers.push(blockerSourceCutoffLeakage);
+  }
+  if (
+    readFindingCount(input.sourceQualityFindings, "informationAdvantageCases", "information_advantage_cases") > 0 ||
+    readFindingCount(input.sourceQualityFindings, "humanForecastSourceCases", "human_forecast_source_cases") > 0
+  ) {
+    blockers.push(blockerHumanForecastLeakage);
+  }
+  if (readFindingCount(input.sourceQualityFindings, "dominantSourceDomainCases", "dominant_source_domain_cases") > 0) {
+    blockers.push(blockerSourceConcentration);
+  }
+  if (
+    readFindingCount(input.sourceQualityFindings, "lowQualityFinalSourceEntries", "low_quality_final_source_entries") > 0 ||
+    readFindingCount(input.sourceQualityFindings, "lowQualitySourceCases", "low_quality_source_cases") > 0
+  ) {
+    blockers.push(blockerLowQualitySources);
+  }
+  if (readFindingCount(input.traceQualityFindings, "weakTraceCompletenessCases", "weak_trace_completeness_cases") > 0) {
+    blockers.push(blockerWeakTraceCompleteness);
+  }
+  if (
+    readFindingCount(input.traceQualityFindings, "missingProbabilityCases", "missing_probability_cases") > 0 ||
+    readFindingCount(input.traceQualityFindings, "missingScoreRowsCases", "missing_score_rows_cases") > 0
+  ) {
+    blockers.push(blockerSchemaOrScoringFailures);
+  }
+  if (readFindingCount(input.traceQualityFindings, "missingAggregateRationaleCases", "missing_aggregate_rationale_cases") > 0) {
+    blockers.push(blockerMissingAggregateRationale);
+  }
+  return {
+    status: blockers.length === 0 ? benchmarkPromotionGateStatusReview : benchmarkPromotionGateStatusNeedsMoreEvidence,
+    blockers: uniqueStrings(blockers),
+    recommendationStatus: input.comparisonStatus,
+    summary:
+      blockers.length === 0
+        ? "This run has paired evidence of candidate improvement and is ready for human promotion review."
+        : "Use this run for iteration, but do not promote until blockers are resolved.",
+  };
+}
+
+export function assertBenchmarkPromotionDecisionAllowed(
+  state: WorkflowPromotionState,
+  promotionGate: ReturnType<typeof summarizeBenchmarkPromotionGateEvidence>,
+) {
+  if (!isPromotedState(state) || promotionGate.status === benchmarkPromotionGateStatusReview) {
+    return;
+  }
+  const blockers = promotionGate.blockers.length ? promotionGate.blockers.join(", ") : "unknown";
+  throw new Error(`Cannot record ${state} while benchmark promotion gate is ${promotionGate.status}. Blockers: ${blockers}.`);
+}
+
+function isPromotedState(state: WorkflowPromotionState) {
+  return state === "promoted_for_local_default" || state === "promoted_for_eval_only";
+}
+
+function readFindingCount(findings: Record<string, unknown> | null | undefined, ...keys: string[]) {
+  if (!findings) {
+    return 0;
+  }
+  for (const key of keys) {
+    const value = findings[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return 0;
+}
+
+function benchmarkSplitSummaryForResults(input: {
+  results: Array<{ benchmarkCaseId: string }>;
+  casesById: Map<string, BenchmarkCaseSplitRow>;
+}) {
+  const splitCounts: Record<string, number> = {};
+  for (const result of input.results) {
+    const benchmarkCase = input.casesById.get(result.benchmarkCaseId);
+    const split = normalizeBenchmarkSplit(readCaseSplit(benchmarkCase));
+    splitCounts[split] = (splitCounts[split] ?? 0) + 1;
+  }
+  const holdoutCaseResults = Object.entries(splitCounts)
+    .filter(([split]) => isBenchmarkHoldoutSplit(split))
+    .reduce((sum, [, count]) => sum + count, 0);
+  const unspecifiedCaseResults = splitCounts.unspecified ?? 0;
+  return {
+    totalCaseResults: input.results.length,
+    splitCounts,
+    holdoutSplitIds: Object.keys(splitCounts).filter(isBenchmarkHoldoutSplit),
+    holdoutCaseResults,
+    nonHoldoutCaseResults: input.results.length - holdoutCaseResults - unspecifiedCaseResults,
+    unspecifiedCaseResults,
+    requiredHoldoutCaseResults: minimumPromotionHoldoutCases,
+    status: holdoutCaseResults >= minimumPromotionHoldoutCases ? "sufficient_holdout_evidence" : "insufficient_holdout_evidence",
+    note:
+      holdoutCaseResults >= minimumPromotionHoldoutCases
+        ? "This benchmark run includes enough held-out case results for promotion review."
+        : "Promotion review requires enough held-out case results so workflow changes are not promoted from tuned smoke evidence.",
+  };
+}
+
+async function loadBenchmarkCaseSplitRows(db: Db, results: Array<{ benchmarkCaseId: string }>) {
+  const caseIds = uniqueStrings(results.map((result) => result.benchmarkCaseId));
+  if (caseIds.length === 0) {
+    return [];
+  }
+  return await db
+    .select({
+      id: benchmarkCases.id,
+      cutoffMetadataJson: benchmarkCases.cutoffMetadataJson,
+      lineageJson: benchmarkCases.lineageJson,
+    })
+    .from(benchmarkCases)
+    .where(inArray(benchmarkCases.id, caseIds));
+}
+
+function splitRowsById(rows: BenchmarkCaseSplitRow[]) {
+  return new Map(rows.map((benchmarkCase) => [benchmarkCase.id, benchmarkCase]));
+}
+
+function readCaseSplit(benchmarkCase?: BenchmarkCaseSplitRow) {
+  if (!benchmarkCase) {
+    return null;
+  }
+  const cutoffSplit = readString(benchmarkCase.cutoffMetadataJson, "split", "caseSplit", "case_split");
+  if (cutoffSplit) {
+    return cutoffSplit;
+  }
+  return readString(benchmarkCase.lineageJson, "split", "caseSplit", "case_split");
+}
+
+function normalizeBenchmarkSplit(raw: string | null) {
+  if (!raw) {
+    return "unspecified";
+  }
+  const normalized = raw.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  return normalized || "unspecified";
+}
+
+function isBenchmarkHoldoutSplit(split: string) {
+  return benchmarkHoldoutSplitIds.some((holdoutSplit) => split === holdoutSplit || split.startsWith(`${holdoutSplit}_`));
+}
 
 const benchmarkSuitesByMode: Record<BenchmarkEvalMode, {
   name: string;
@@ -108,6 +364,7 @@ const fixedEvidenceSeedCases = [
     cutoffMetadataJson: {
       cutoff: "2024-01-01",
       mode: "fixed_evidence",
+      split: "smoke",
     },
   },
   {
@@ -131,6 +388,7 @@ const fixedEvidenceSeedCases = [
     cutoffMetadataJson: {
       cutoff: "2024-01-01",
       mode: "fixed_evidence",
+      split: "smoke",
     },
   },
   {
@@ -154,6 +412,7 @@ const fixedEvidenceSeedCases = [
     cutoffMetadataJson: {
       cutoff: "2025-01-01",
       mode: "fixed_evidence",
+      split: "smoke",
     },
   },
 ];
@@ -176,6 +435,7 @@ const liveWebSmokeSeedCases = [
     cutoffMetadataJson: {
       cutoff: "2024-01-01",
       mode: "weak_live_web_pastcast",
+      split: "smoke",
     },
   },
   {
@@ -195,6 +455,7 @@ const liveWebSmokeSeedCases = [
     cutoffMetadataJson: {
       cutoff: "2024-01-01",
       mode: "weak_live_web_pastcast",
+      split: "smoke",
     },
   },
   {
@@ -214,6 +475,7 @@ const liveWebSmokeSeedCases = [
     cutoffMetadataJson: {
       cutoff: "2025-01-01",
       mode: "weak_live_web_pastcast",
+      split: "smoke",
     },
   },
 ];
@@ -346,7 +608,7 @@ export async function startBenchmarkRun(
           taskId: record.taskId,
           smithersRunId: launched.runId,
           workflowVariantId: variant.id,
-          status: "running",
+          status: benchmarkCaseResultStatusRunning,
         })
         .returning({ id: benchmarkCaseResults.id });
 
@@ -370,7 +632,7 @@ export async function startBenchmarkRun(
           taskId: record.taskId,
           smithersRunId: record.smithersRunId,
           workflowVariantId: variant.id,
-          status: "failed",
+          status: benchmarkCaseResultStatusFailed,
           failureLabels: ["launch_failed"],
         })
         .returning({ id: benchmarkCaseResults.id });
@@ -399,7 +661,7 @@ export async function reconcileBenchmarkRuns(db: Db, input: {
 }) {
   await reconcileCaseResults(db, input);
   await backfillBenchmarkForecastScoreRows(db);
-  await finalizeReadyBenchmarkRuns(db);
+  await finalizeReadyBenchmarkRuns(db, { root: input.root });
 }
 
 export async function listBenchmarkRuns(db: Db, limit = 20) {
@@ -444,6 +706,11 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
       })
       .from(benchmarkCaseResults)
       .where(eq(benchmarkCaseResults.benchmarkRunId, row.id));
+    const caseRows = await loadBenchmarkCaseSplitRows(db, results);
+    const splitFindings = benchmarkSplitSummaryForResults({
+      results,
+      casesById: splitRowsById(caseRows),
+    });
     const [analysis] = await db
       .select({
         id: benchmarkAnalyses.id,
@@ -474,9 +741,36 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
         overfitRisk: workflowChangeProposals.overfitRisk,
         validationPlan: workflowChangeProposals.validationPlan,
         status: workflowChangeProposals.status,
+        reviewNote: workflowChangeProposals.reviewNote,
+        reviewedBy: workflowChangeProposals.reviewedBy,
+        reviewedAt: workflowChangeProposals.reviewedAt,
+        implementationTaskTitle: workflowChangeProposals.implementationTaskTitle,
+        implementationStatus: workflowChangeProposals.implementationStatus,
+        implementationExperimentLabel: workflowChangeProposals.implementationExperimentLabel,
+        implementationNote: workflowChangeProposals.implementationNote,
+        implementationUpdatedBy: workflowChangeProposals.implementationUpdatedBy,
+        implementationUpdatedAt: workflowChangeProposals.implementationUpdatedAt,
+        validationBenchmarkRunId: workflowChangeProposals.validationBenchmarkRunId,
+        validationLaunchedBy: workflowChangeProposals.validationLaunchedBy,
+        validationLaunchedAt: workflowChangeProposals.validationLaunchedAt,
+        validationResultStatus: workflowChangeProposals.validationResultStatus,
+        validationResultSummary: workflowChangeProposals.validationResultSummary,
+        validationMeanBrierDelta: workflowChangeProposals.validationMeanBrierDelta,
+        validationCompletedCases: workflowChangeProposals.validationCompletedCases,
+        validationCostTotalTokensDelta: workflowChangeProposals.validationCostTotalTokensDelta,
+        validationCostAgentCallsDelta: workflowChangeProposals.validationCostAgentCallsDelta,
+        validationCostMeanDurationSecondsDelta: workflowChangeProposals.validationCostMeanDurationSecondsDelta,
+        validationCostSummary: workflowChangeProposals.validationCostSummary,
+        validationGateStatus: workflowChangeProposals.validationGateStatus,
+        validationGateBlockers: workflowChangeProposals.validationGateBlockers,
+        validationCompletedAt: workflowChangeProposals.validationCompletedAt,
+        validationComparisonReportArtifactId: benchmarkRuns.comparisonReportArtifactId,
+        validationComparisonReport: artifactRows.rowJson,
         createdAt: workflowChangeProposals.createdAt,
       })
       .from(workflowChangeProposals)
+      .leftJoin(benchmarkRuns, eq(workflowChangeProposals.validationBenchmarkRunId, benchmarkRuns.id))
+      .leftJoin(artifactRows, and(eq(benchmarkRuns.comparisonReportArtifactId, artifactRows.artifactId), eq(artifactRows.rowIndex, 0)))
       .where(eq(workflowChangeProposals.sourceBenchmarkRunId, row.id))
       .orderBy(desc(workflowChangeProposals.createdAt))
       .limit(3);
@@ -508,6 +802,14 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
           .where(and(eq(artifactRows.artifactId, row.comparisonReportArtifactId), eq(artifactRows.rowIndex, 0)))
           .limit(1)
       : [];
+    const analysisReportRow = await readArtifactReportRow(db, row.analysisReportArtifactId);
+    const baselineSanityFindings = readRecord(analysisReportRow, "baselineSanityFindings", "baseline_sanity_findings") ?? null;
+    const componentDisagreementFindings = readRecord(analysisReportRow, "componentDisagreementFindings", "component_disagreement_findings") ?? null;
+    const forecastErrorFindings = readRecord(analysisReportRow, "forecastErrorFindings", "forecast_error_findings") ?? null;
+    const sourceQualityFindings = readRecord(analysisReportRow, "sourceQualityFindings", "source_quality_findings") ?? null;
+    const traceQualityFindings = readRecord(analysisReportRow, "traceQualityFindings", "trace_quality_findings") ?? null;
+    const costLatencyFindings = readRecord(analysisReportRow, "costLatencyFindings", "cost_latency_findings") ?? null;
+    const statusCounts = summarizeBenchmarkCaseResultStatuses(results);
     enriched.push({
       ...row,
       workflowId: variant?.workflowId ?? null,
@@ -515,17 +817,45 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
       workflowPromotionState: variant?.promotionState ?? "candidate",
       latestPromotionDecision: latestPromotionDecision ?? null,
       comparison: comparisonReportRow?.rowJson ?? null,
-      completedCases: results.filter((result) => result.status === "completed").length,
-      failedCases: results.filter((result) => result.status === "failed").length,
-      runningCases: results.filter((result) => result.status === "running").length,
-      reviewCases: results.filter((result) => result.status === "needs_review").length,
+      baselineSanityFindings,
+      componentDisagreementFindings,
+      forecastErrorFindings,
+      sourceQualityFindings,
+      traceQualityFindings,
+      costLatencyFindings,
+      splitFindings,
+      promotionGate: summarizeBenchmarkPromotionGateEvidence({
+        runStatus: row.status,
+        resultCount: statusCounts.totalCases,
+        traceMissing: results.filter((result) => !result.traceBundleUri).length,
+        reviewOrFailed: statusCounts.reviewOrFailedCases,
+        comparisonStatus: readComparisonRecommendationStatus(comparisonReportRow?.rowJson ?? null),
+        baselineSanityFindings,
+        componentDisagreementFindings,
+        forecastErrorFindings,
+        splitFindings,
+        sourceQualityFindings,
+        traceQualityFindings,
+      }),
+      completedCases: statusCounts.completedCases,
+      failedCases: statusCounts.failedCases,
+      runningCases: statusCounts.runningCases,
+      reviewCases: statusCounts.reviewCases,
       meanBrier: meanScore(results, "brier"),
       meanLog: meanScore(results, "log"),
       meanBaselineBrier: meanScore(results, "baseline_brier"),
       meanBrierDelta: meanScore(results, "baseline_delta_brier"),
       caseResults: results,
       analysis: analysis ?? null,
-      workflowChangeProposals: proposals,
+      workflowChangeProposals: proposals.map((proposal) =>
+        workflowChangeProposalWithValidationReadiness(
+          proposal,
+          row.caseCount,
+          proposal.validationComparisonReport && typeof proposal.validationComparisonReport === "object" && !Array.isArray(proposal.validationComparisonReport)
+            ? proposal.validationComparisonReport
+            : null,
+        ),
+      ),
     });
   }
 
@@ -562,6 +892,7 @@ export async function getBenchmarkRunDetail(db: Db, benchmarkRunId: string) {
 
   const benchmarkCaseIds = uniqueStrings(results.map((result) => result.benchmarkCaseId));
   const taskIds = uniqueStrings(results.map((result) => result.taskId).filter((id): id is string => Boolean(id)));
+  const validationBenchmarkRunIds = uniqueStrings(proposals.map((proposal) => proposal.validationBenchmarkRunId).filter((id): id is string => Boolean(id)));
   const artifactIds = uniqueStrings([
     ...results.map((result) => result.forecastOutputArtifactId).filter((id): id is string => Boolean(id)),
     run.scoreReportArtifactId,
@@ -569,18 +900,57 @@ export async function getBenchmarkRunDetail(db: Db, benchmarkRunId: string) {
     run.comparisonReportArtifactId,
   ].filter((id): id is string => Boolean(id)));
 
-  const [caseRows, taskRows, artifactRowsById, scoreReportRow, analysisReportRow, comparisonReportRow] = await Promise.all([
+  const [caseRows, taskRows, artifactRowsById, scoreReportRow, analysisReportRow, comparisonReportRow, validationRunRows] = await Promise.all([
     benchmarkCaseIds.length ? db.select().from(benchmarkCases).where(inArray(benchmarkCases.id, benchmarkCaseIds)) : [],
     taskIds.length ? db.select().from(tasks).where(inArray(tasks.id, taskIds)) : [],
     artifactIds.length ? db.select().from(artifacts).where(inArray(artifacts.id, artifactIds)) : [],
     readArtifactReportRow(db, run.scoreReportArtifactId),
     readArtifactReportRow(db, run.analysisReportArtifactId),
     readArtifactReportRow(db, run.comparisonReportArtifactId),
+    validationBenchmarkRunIds.length
+      ? db
+          .select({
+            id: benchmarkRuns.id,
+            comparisonReportArtifactId: benchmarkRuns.comparisonReportArtifactId,
+          })
+          .from(benchmarkRuns)
+          .where(inArray(benchmarkRuns.id, validationBenchmarkRunIds))
+      : [],
   ]);
+  const validationComparisonArtifactIds = uniqueStrings(
+    validationRunRows.map((validationRun) => validationRun.comparisonReportArtifactId).filter((id): id is string => Boolean(id)),
+  );
+  const validationComparisonRows = validationComparisonArtifactIds.length
+    ? await db
+        .select({
+          artifactId: artifactRows.artifactId,
+          rowJson: artifactRows.rowJson,
+        })
+        .from(artifactRows)
+        .where(and(eq(artifactRows.rowIndex, 0), inArray(artifactRows.artifactId, validationComparisonArtifactIds)))
+    : [];
 
   const casesById = new Map(caseRows.map((benchmarkCase) => [benchmarkCase.id, benchmarkCase]));
   const tasksById = new Map(taskRows.map((task) => [task.id, task]));
   const artifactsById = new Map(artifactRowsById.map((artifact) => [artifact.id, artifact]));
+  const validationRunById = new Map(validationRunRows.map((validationRun) => [validationRun.id, validationRun]));
+  const validationComparisonRowByArtifactId = new Map(validationComparisonRows.map((row) => [row.artifactId, row.rowJson]));
+  const proposalsWithReadiness = proposals.map((proposal) => {
+    const validationRun = proposal.validationBenchmarkRunId ? validationRunById.get(proposal.validationBenchmarkRunId) ?? null : null;
+    const validationComparisonReport = validationRun?.comparisonReportArtifactId
+      ? validationComparisonRowByArtifactId.get(validationRun.comparisonReportArtifactId) ?? null
+      : null;
+    return workflowChangeProposalWithValidationReadiness(
+      {
+        ...proposal,
+        validationComparisonReportArtifactId: validationRun?.comparisonReportArtifactId ?? null,
+        validationComparisonReport,
+      },
+      run.caseCount,
+      validationComparisonReport,
+    );
+  });
+  const splitFindings = benchmarkSplitSummaryForResults({ results, casesById });
   const detailedCases = results.map((result) => {
     const benchmarkCase = casesById.get(result.benchmarkCaseId);
     const task = result.taskId ? tasksById.get(result.taskId) : null;
@@ -647,6 +1017,7 @@ export async function getBenchmarkRunDetail(db: Db, benchmarkRunId: string) {
       statusCounts: countBy(results.map((result) => result.status)),
       failureLabelCounts: countBy(results.flatMap((result) => result.failureLabels)),
       leakageFlagCounts: countBy(results.flatMap((result) => result.leakageFlags)),
+      splitFindings,
       traceBundlesWritten: results.filter((result) => Boolean(result.traceBundleUri)).length,
       sourceBundlesWritten: results.filter((result) => Boolean(result.sourceBundleUri)).length,
       casesWithAnalystNotes: results.filter((result) => Boolean(result.analystNotesArtifactId)).length,
@@ -656,11 +1027,13 @@ export async function getBenchmarkRunDetail(db: Db, benchmarkRunId: string) {
         metrics,
         results,
         comparison: comparisonReportRow,
+        analysisReport: analysisReportRow,
+        splitFindings,
       }),
     },
     cases: detailedCases,
     analysis: analysis ?? null,
-    workflowChangeProposals: proposals,
+    workflowChangeProposals: proposalsWithReadiness,
     promotionDecisions,
     reports: {
       score: run.scoreReportArtifactId ? { artifactId: run.scoreReportArtifactId, row: scoreReportRow } : null,
@@ -694,6 +1067,9 @@ export async function recordWorkflowPromotionDecision(
   if (!variant) {
     throw new Error(`Workflow variant not found: ${run.workflowVariantId}`);
   }
+
+  const promotionGate = await benchmarkPromotionGateForRun(db, run);
+  assertBenchmarkPromotionDecisionAllowed(state, promotionGate);
 
   const [decision] = await db
     .insert(workflowPromotionDecisions)
@@ -735,6 +1111,197 @@ export async function recordWorkflowPromotionDecision(
     workflowId: variant.workflowId,
     workflowSourceHash: variant.workflowSourceHash,
     benchmarkStatus: run.status,
+    promotionGate,
+  };
+}
+
+export async function updateWorkflowChangeProposalStatus(
+  db: Db,
+  input: {
+    benchmarkRunId: string;
+    proposalId: string;
+    status: string;
+    reviewNote?: string;
+    reviewedBy?: string;
+    implementationTaskTitle?: string;
+    implementationStatus?: string;
+    implementationExperimentLabel?: string;
+    implementationNote?: string;
+  },
+) {
+  const status = normalizeWorkflowChangeProposalStatus(input.status);
+  const requestedImplementationStatus = input.implementationStatus
+    ? normalizeWorkflowChangeProposalImplementationStatus(input.implementationStatus)
+    : null;
+  const reviewNote = input.reviewNote?.trim() || null;
+  const reviewedBy = input.reviewedBy?.trim() || "local-user";
+  const reviewedAt = status === "candidate" ? null : new Date();
+  const [existing] = await db
+    .select()
+    .from(workflowChangeProposals)
+    .where(and(eq(workflowChangeProposals.id, input.proposalId), eq(workflowChangeProposals.sourceBenchmarkRunId, input.benchmarkRunId)))
+    .limit(1);
+  if (!existing) {
+    throw new Error(`Workflow change proposal not found for benchmark run: ${input.proposalId}`);
+  }
+  let sourceBenchmarkCaseCount = 0;
+  let validationComparisonReport: Record<string, unknown> | null = null;
+  if (status === "implemented" || requestedImplementationStatus === "validated") {
+    const [sourceRun] = await db
+      .select({ caseCount: benchmarkRuns.caseCount })
+      .from(benchmarkRuns)
+      .where(eq(benchmarkRuns.id, input.benchmarkRunId))
+      .limit(1);
+    if (!sourceRun) {
+      throw new Error(`Source benchmark run not found for workflow change proposal: ${input.proposalId}`);
+    }
+    sourceBenchmarkCaseCount = sourceRun.caseCount;
+    validationComparisonReport = existing.validationBenchmarkRunId
+      ? await loadBenchmarkComparisonReport(db, existing.validationBenchmarkRunId)
+      : null;
+  }
+  assertWorkflowChangeProposalStatusTransitionAllowed(status, existing, sourceBenchmarkCaseCount, validationComparisonReport);
+  const implementationStatus = requestedImplementationStatus ?? implementationStatusForProposalTransition(status, existing.implementationStatus);
+  assertWorkflowChangeProposalImplementationStatusAllowed(implementationStatus, existing, sourceBenchmarkCaseCount, validationComparisonReport);
+  if (status === "implemented" && implementationStatus !== "validated") {
+    throw new Error("Cannot mark workflow change proposal implemented without validated implementation status.");
+  }
+  const implementationUpdatedAt = implementationStatus === existing.implementationStatus ? existing.implementationUpdatedAt : new Date();
+  const implementationUpdatedBy = implementationStatus === "not_started" ? null : reviewedBy;
+  const implementationExperimentLabel =
+    implementationStatus === "not_started"
+      ? null
+      : input.implementationExperimentLabel?.trim() || existing.implementationExperimentLabel || `proposal-${existing.id.slice(0, 8)}`;
+  const implementationTaskTitle =
+    implementationStatus === "not_started"
+      ? null
+      : input.implementationTaskTitle?.trim() || existing.implementationTaskTitle || `Patch ${existing.targetWorkflowId} from accepted proposal`;
+  const implementationNote =
+    implementationStatus === "not_started"
+      ? null
+      : input.implementationNote?.trim() || existing.implementationNote || implementationNoteForProposalTransition(status, implementationStatus);
+  const [proposal] = await db
+    .update(workflowChangeProposals)
+    .set({
+      status,
+      reviewNote,
+      reviewedBy: status === "candidate" ? null : reviewedBy,
+      reviewedAt,
+      implementationTaskTitle,
+      implementationStatus,
+      implementationExperimentLabel,
+      implementationNote,
+      implementationUpdatedBy,
+      implementationUpdatedAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(workflowChangeProposals.id, existing.id))
+    .returning({
+      id: workflowChangeProposals.id,
+      sourceBenchmarkRunId: workflowChangeProposals.sourceBenchmarkRunId,
+      targetWorkflowId: workflowChangeProposals.targetWorkflowId,
+      problemStatement: workflowChangeProposals.problemStatement,
+      evidenceCaseIds: workflowChangeProposals.evidenceCaseIds,
+      proposedChange: workflowChangeProposals.proposedChange,
+      expectedMetricEffect: workflowChangeProposals.expectedMetricEffect,
+      expectedCostLatencyEffect: workflowChangeProposals.expectedCostLatencyEffect,
+      overfitRisk: workflowChangeProposals.overfitRisk,
+      validationPlan: workflowChangeProposals.validationPlan,
+      status: workflowChangeProposals.status,
+      reviewNote: workflowChangeProposals.reviewNote,
+      reviewedBy: workflowChangeProposals.reviewedBy,
+      reviewedAt: workflowChangeProposals.reviewedAt,
+      implementationTaskTitle: workflowChangeProposals.implementationTaskTitle,
+      implementationStatus: workflowChangeProposals.implementationStatus,
+      implementationExperimentLabel: workflowChangeProposals.implementationExperimentLabel,
+      implementationNote: workflowChangeProposals.implementationNote,
+      implementationUpdatedBy: workflowChangeProposals.implementationUpdatedBy,
+      implementationUpdatedAt: workflowChangeProposals.implementationUpdatedAt,
+      validationBenchmarkRunId: workflowChangeProposals.validationBenchmarkRunId,
+      validationLaunchedBy: workflowChangeProposals.validationLaunchedBy,
+      validationLaunchedAt: workflowChangeProposals.validationLaunchedAt,
+      validationResultStatus: workflowChangeProposals.validationResultStatus,
+      validationResultSummary: workflowChangeProposals.validationResultSummary,
+      validationMeanBrierDelta: workflowChangeProposals.validationMeanBrierDelta,
+      validationCompletedCases: workflowChangeProposals.validationCompletedCases,
+      validationCostTotalTokensDelta: workflowChangeProposals.validationCostTotalTokensDelta,
+      validationCostAgentCallsDelta: workflowChangeProposals.validationCostAgentCallsDelta,
+      validationCostMeanDurationSecondsDelta: workflowChangeProposals.validationCostMeanDurationSecondsDelta,
+      validationCostSummary: workflowChangeProposals.validationCostSummary,
+      validationGateStatus: workflowChangeProposals.validationGateStatus,
+      validationGateBlockers: workflowChangeProposals.validationGateBlockers,
+      validationCompletedAt: workflowChangeProposals.validationCompletedAt,
+      createdAt: workflowChangeProposals.createdAt,
+      updatedAt: workflowChangeProposals.updatedAt,
+    });
+  return proposal;
+}
+
+export async function startWorkflowChangeProposalValidation(
+  db: Db,
+  input: {
+    root: string;
+    benchmarkRunId: string;
+    proposalId: string;
+    launchedBy?: string;
+    maxCases?: number;
+    rollouts?: number;
+  },
+) {
+  const [existing] = await db
+    .select()
+    .from(workflowChangeProposals)
+    .where(and(eq(workflowChangeProposals.id, input.proposalId), eq(workflowChangeProposals.sourceBenchmarkRunId, input.benchmarkRunId)))
+    .limit(1);
+  if (!existing) {
+    throw new Error(`Workflow change proposal not found for benchmark run: ${input.proposalId}`);
+  }
+  if (existing.status !== "accepted" && existing.status !== "implemented") {
+    throw new Error("Accept the workflow change proposal before launching validation.");
+  }
+  if (existing.validationBenchmarkRunId) {
+    throw new Error(`Workflow change proposal already has validation benchmark run: ${existing.validationBenchmarkRunId}`);
+  }
+  if (!existing.sourceBenchmarkRunId) {
+    throw new Error(`Workflow change proposal has no source benchmark run: ${input.proposalId}`);
+  }
+  const [sourceRun] = await db
+    .select()
+    .from(benchmarkRuns)
+    .where(eq(benchmarkRuns.id, existing.sourceBenchmarkRunId))
+    .limit(1);
+  if (!sourceRun) {
+    throw new Error(`Source benchmark run not found for workflow change proposal: ${input.proposalId}`);
+  }
+  const launchedBy = input.launchedBy?.trim() || "local-user";
+  const implementationExperimentLabel = existing.implementationExperimentLabel || `proposal-${existing.id.slice(0, 8)}`;
+  const validationMaxCases = input.maxCases ?? Math.max(sourceRun.caseCount, 1);
+  const validationRun = await startBenchmarkRun(db, {
+    root: input.root,
+    evalMode: sourceRun.evalMode || evalModeForProposalTargetWorkflow(existing.targetWorkflowId),
+    suiteId: sourceRun.suiteId,
+    maxCases: validationMaxCases,
+    rollouts: input.rollouts,
+    experimentLabel: implementationExperimentLabel,
+  });
+  const [proposal] = await db
+    .update(workflowChangeProposals)
+    .set({
+      implementationExperimentLabel,
+      implementationStatus: existing.implementationStatus === "validated" ? "validated" : "in_progress",
+      implementationUpdatedBy: launchedBy,
+      implementationUpdatedAt: new Date(),
+      implementationNote: `Validation benchmark ${validationRun.benchmarkRunId} launched with up to ${validationMaxCases} case(s) for implementation evidence.`,
+      validationBenchmarkRunId: validationRun.benchmarkRunId,
+      validationLaunchedBy: launchedBy,
+      validationLaunchedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(workflowChangeProposals.id, existing.id))
+    .returning();
+  return {
+    proposal,
+    benchmarkRun: validationRun,
   };
 }
 
@@ -754,6 +1321,11 @@ export async function createBenchmarkComparisonReport(
     .select()
     .from(benchmarkCaseResults)
     .where(eq(benchmarkCaseResults.benchmarkRunId, candidateRun.id));
+  const candidateCasesById = splitRowsById(await loadBenchmarkCaseSplitRows(db, candidateResults));
+  const candidateSplitFindings = benchmarkSplitSummaryForResults({
+    results: candidateResults,
+    casesById: candidateCasesById,
+  });
   const candidateVariant = await loadWorkflowVariantSummary(db, candidateRun.workflowVariantId);
   const explicitBaselineIds = (input.baselineBenchmarkRunIds ?? []).filter((id) => id && id !== candidateRun.id);
   const baselineRuns = explicitBaselineIds.length
@@ -771,6 +1343,7 @@ export async function createBenchmarkComparisonReport(
       buildBaselineComparison({
         candidateRun,
         candidateResults,
+        candidateCasesById,
         candidateVariant,
         baselineRun,
         baselineResults,
@@ -799,6 +1372,7 @@ export async function createBenchmarkComparisonReport(
       workflowId: candidateVariant.workflowId,
       workflowSourceHash: candidateVariant.workflowSourceHash,
       workflowPromotionState: candidateVariant.promotionState,
+      splitFindings: candidateSplitFindings,
     },
     baselines: baselineComparisons,
     recommendation,
@@ -892,6 +1466,238 @@ function normalizePromotionState(raw: string): WorkflowPromotionState {
   throw new Error(`Unknown promotion state: ${raw}`);
 }
 
+function normalizeWorkflowChangeProposalStatus(raw: string): WorkflowChangeProposalStatus {
+  if (workflowChangeProposalStatuses.includes(raw as WorkflowChangeProposalStatus)) {
+    return raw as WorkflowChangeProposalStatus;
+  }
+  throw new Error(`Unknown workflow change proposal status: ${raw}`);
+}
+
+function normalizeWorkflowChangeProposalImplementationStatus(raw: string): WorkflowChangeProposalImplementationStatus {
+  if (workflowChangeProposalImplementationStatuses.includes(raw as WorkflowChangeProposalImplementationStatus)) {
+    return raw as WorkflowChangeProposalImplementationStatus;
+  }
+  throw new Error(`Unknown workflow change proposal implementation status: ${raw}`);
+}
+
+function assertWorkflowChangeProposalStatusTransitionAllowed(
+  status: WorkflowChangeProposalStatus,
+  proposal: typeof workflowChangeProposals.$inferSelect,
+  sourceBenchmarkCaseCount: number,
+  validationComparisonReport: Record<string, unknown> | null,
+) {
+  if (status !== "implemented") {
+    return;
+  }
+  const readiness = workflowProposalValidationReadiness({
+    resultStatus: proposal.validationResultStatus,
+    gateStatus: proposal.validationGateStatus,
+    gateBlockers: proposal.validationGateBlockers,
+    completedCases: proposal.validationCompletedCases,
+    sourceBenchmarkCaseCount,
+    comparisonReport: validationComparisonReport,
+  });
+  if (!readiness.passed) {
+    if (proposal.validationResultStatus !== "completed") {
+      throw new Error("Cannot mark workflow change proposal implemented until validation result status is completed.");
+    }
+    if (proposal.validationGateStatus !== benchmarkPromotionGateStatusReview) {
+      throw new Error("Cannot mark workflow change proposal implemented until validation gate is review_for_promotion.");
+    }
+    if (readiness.gateBlockers.length) {
+      throw new Error("Cannot mark workflow change proposal implemented while validation gate blockers remain.");
+    }
+    if (!readiness.coverage.hasCoverage) {
+      throw new Error(
+        `Cannot mark workflow change proposal implemented until validation covers at least ${readiness.coverage.requiredCases} source benchmark case(s).`,
+      );
+    }
+    throw new Error("Cannot mark workflow change proposal implemented until validation has primary paired holdout evidence.");
+  }
+}
+
+function assertWorkflowChangeProposalImplementationStatusAllowed(
+  implementationStatus: WorkflowChangeProposalImplementationStatus,
+  proposal: typeof workflowChangeProposals.$inferSelect,
+  sourceBenchmarkCaseCount: number,
+  validationComparisonReport: Record<string, unknown> | null,
+) {
+  if (implementationStatus !== "validated") {
+    return;
+  }
+  const readiness = workflowProposalValidationReadiness({
+    resultStatus: proposal.validationResultStatus,
+    gateStatus: proposal.validationGateStatus,
+    gateBlockers: proposal.validationGateBlockers,
+    completedCases: proposal.validationCompletedCases,
+    sourceBenchmarkCaseCount,
+    comparisonReport: validationComparisonReport,
+  });
+  if (!readiness.passed) {
+    if (!workflowProposalValidationGatePassed({
+      resultStatus: proposal.validationResultStatus,
+      gateStatus: proposal.validationGateStatus,
+      gateBlockers: readiness.gateBlockers,
+    })) {
+      throw new Error("Cannot mark workflow change proposal validated until validation passes the promotion gate with no blockers.");
+    }
+    if (!readiness.coverage.hasCoverage) {
+      throw new Error(
+        `Cannot mark workflow change proposal validated until validation covers at least ${readiness.coverage.requiredCases} source benchmark case(s).`,
+      );
+    }
+    throw new Error(
+      "Cannot mark workflow change proposal validated until validation has primary paired holdout evidence.",
+    );
+  }
+}
+
+export function workflowProposalValidationGatePassed(input: {
+  resultStatus: string | null;
+  gateStatus: string | null;
+  gateBlockers: unknown;
+}) {
+  return (
+    input.resultStatus === "completed" &&
+    input.gateStatus === benchmarkPromotionGateStatusReview &&
+    workflowProposalValidationGateBlockers(input.gateBlockers).length === 0
+  );
+}
+
+export function workflowProposalValidationGateBlockers(raw: unknown) {
+  return Array.isArray(raw) ? raw.filter((blocker): blocker is string => typeof blocker === "string" && blocker.trim().length > 0) : [];
+}
+
+export function workflowProposalValidationCoverage(input: {
+  completedCases: number | null;
+  sourceBenchmarkCaseCount: number | null;
+}) {
+  const requiredCases = Math.max(input.sourceBenchmarkCaseCount ?? 1, 1);
+  const completedCases = input.completedCases ?? 0;
+  return {
+    completedCases,
+    requiredCases,
+    coverageRatio: completedCases / requiredCases,
+    hasCoverage: completedCases >= requiredCases,
+  };
+}
+
+export function workflowProposalValidationPrimaryEvidence(comparisonReport: Record<string, unknown> | null) {
+  const recommendation = readRecord(comparisonReport, "recommendation");
+  const status = recommendation ? readString(recommendation, "status") : null;
+  const pairedCaseCount = recommendation ? readNumber(recommendation, "primaryBaselinePairedCaseCount") : null;
+  const pairedHoldoutCaseCount = recommendation ? readNumber(recommendation, "primaryBaselinePairedHoldoutCaseCount") : null;
+  const blockers = [];
+  if (status !== "candidate_better") {
+    blockers.push(blockerValidationRecommendationNotCandidateBetter);
+  }
+  if ((pairedCaseCount ?? 0) < minimumPromotionPairedCases) {
+    blockers.push(blockerInsufficientPrimaryPairedCases);
+  }
+  if ((pairedHoldoutCaseCount ?? 0) < minimumPromotionHoldoutCases) {
+    blockers.push(blockerInsufficientPrimaryPairedHoldoutCases);
+  }
+  return {
+    status,
+    pairedCaseCount: pairedCaseCount ?? 0,
+    pairedHoldoutCaseCount: pairedHoldoutCaseCount ?? 0,
+    requiredPairedCases: minimumPromotionPairedCases,
+    requiredPairedHoldoutCases: minimumPromotionHoldoutCases,
+    blockers,
+    hasEvidence: blockers.length === 0,
+  };
+}
+
+export function workflowProposalValidationReadiness(input: {
+  resultStatus: string | null;
+  gateStatus: string | null;
+  gateBlockers: unknown;
+  completedCases: number | null;
+  sourceBenchmarkCaseCount: number | null;
+  comparisonReport: Record<string, unknown> | null;
+}) {
+  const gateBlockers = workflowProposalValidationGateBlockers(input.gateBlockers);
+  const coverage = workflowProposalValidationCoverage({
+    completedCases: input.completedCases,
+    sourceBenchmarkCaseCount: input.sourceBenchmarkCaseCount,
+  });
+  const primaryEvidence = workflowProposalValidationPrimaryEvidence(input.comparisonReport);
+  const blockers = [
+    input.resultStatus === "completed" ? null : blockerValidationResultIncomplete,
+    input.gateStatus === benchmarkPromotionGateStatusReview ? null : blockerValidationGateNotPassing,
+    ...gateBlockers,
+    coverage.hasCoverage ? null : blockerInsufficientValidationCaseCoverage,
+    ...primaryEvidence.blockers,
+  ].filter((blocker): blocker is string => Boolean(blocker));
+  return {
+    passed: blockers.length === 0,
+    blockers,
+    gateBlockers,
+    coverage,
+    primaryEvidence,
+  };
+}
+
+function workflowChangeProposalWithValidationReadiness<
+  T extends {
+    validationResultStatus: string | null;
+    validationGateStatus: string | null;
+    validationGateBlockers: unknown;
+    validationCompletedCases: number | null;
+  },
+>(proposal: T, sourceBenchmarkCaseCount: number | null, validationComparisonReport: Record<string, unknown> | null) {
+  return {
+    ...proposal,
+    validationReadiness: workflowProposalValidationReadiness({
+      resultStatus: proposal.validationResultStatus,
+      gateStatus: proposal.validationGateStatus,
+      gateBlockers: proposal.validationGateBlockers,
+      completedCases: proposal.validationCompletedCases,
+      sourceBenchmarkCaseCount,
+      comparisonReport: validationComparisonReport,
+    }),
+  };
+}
+
+function implementationStatusForProposalTransition(
+  status: WorkflowChangeProposalStatus,
+  current: string,
+): WorkflowChangeProposalImplementationStatus {
+  if (status === "candidate" || status === "rejected") {
+    return "not_started";
+  }
+  if (status === "implemented") {
+    return "validated";
+  }
+  const normalized = workflowChangeProposalImplementationStatuses.includes(current as WorkflowChangeProposalImplementationStatus)
+    ? (current as WorkflowChangeProposalImplementationStatus)
+    : "not_started";
+  return normalized === "not_started" ? "planned" : normalized;
+}
+
+function implementationNoteForProposalTransition(
+  status: WorkflowChangeProposalStatus,
+  implementationStatus: WorkflowChangeProposalImplementationStatus,
+) {
+  if (status === "implemented") {
+    return "Marked implemented after workflow patch validation.";
+  }
+  if (implementationStatus === "in_progress") {
+    return "Workflow patch work started from accepted proposal.";
+  }
+  return "Accepted for workflow implementation.";
+}
+
+function evalModeForProposalTargetWorkflow(targetWorkflowId: string): BenchmarkEvalMode {
+  if (targetWorkflowId === "fixed-evidence-eval") {
+    return "fixed_evidence";
+  }
+  if (targetWorkflowId === "agentic-pastcasting-eval") {
+    return "agentic_pastcasting_smoke";
+  }
+  throw new Error(`Unknown proposal target workflow: ${targetWorkflowId}`);
+}
+
 async function loadWorkflowVariantSummary(db: Db, workflowVariantId: string) {
   const [variant] = await db
     .select({
@@ -933,6 +1739,7 @@ async function findDefaultBaselineRuns(db: Db, candidateRun: BenchmarkRunRow) {
 function buildBaselineComparison(input: {
   candidateRun: BenchmarkRunRow;
   candidateResults: BenchmarkCaseResultRow[];
+  candidateCasesById: Map<string, BenchmarkCaseSplitRow>;
   candidateVariant: Awaited<ReturnType<typeof loadWorkflowVariantSummary>>;
   baselineRun: BenchmarkRunRow;
   baselineResults: BenchmarkCaseResultRow[];
@@ -940,7 +1747,8 @@ function buildBaselineComparison(input: {
 }) {
   const candidateMetrics = benchmarkRunMetrics(input.candidateResults);
   const baselineMetrics = benchmarkRunMetrics(input.baselineResults);
-  const paired = pairedBenchmarkCaseDeltas(input.candidateResults, input.baselineResults);
+  const paired = pairedBenchmarkCaseDeltas(input.candidateResults, input.baselineResults, input.candidateCasesById);
+  const pairedHoldoutCaseCount = paired.caseDeltas.filter((row) => isBenchmarkHoldoutSplit(row.split)).length;
   const pairedUncertainty = pairedBootstrapUncertainty({
     caseDeltas: paired.caseDeltas,
     seedKey: `${input.candidateRun.id}:${input.baselineRun.id}`,
@@ -964,6 +1772,7 @@ function buildBaselineComparison(input: {
       reviewCases: candidateMetrics.reviewCases - baselineMetrics.reviewCases,
     },
     pairedCaseCount: paired.caseDeltas.length,
+    pairedHoldoutCaseCount,
     pairedMeanBrierDelta: paired.pairedMeanBrierDelta,
     pairedMeanLogDelta: paired.pairedMeanLogDelta,
     pairedUncertainty,
@@ -976,11 +1785,12 @@ function buildBaselineComparison(input: {
 }
 
 function benchmarkRunMetrics(results: BenchmarkCaseResultRow[]) {
+  const statusCounts = summarizeBenchmarkCaseResultStatuses(results);
   return {
-    completedCases: results.filter((result) => result.status === "completed").length,
-    failedCases: results.filter((result) => result.status === "failed").length,
-    reviewCases: results.filter((result) => result.status === "needs_review").length,
-    runningCases: results.filter((result) => result.status === "running").length,
+    completedCases: statusCounts.completedCases,
+    failedCases: statusCounts.failedCases,
+    reviewCases: statusCounts.reviewCases,
+    runningCases: statusCounts.runningCases,
     meanBrier: meanScore(results, "brier"),
     meanLog: meanScore(results, "log"),
     meanBaselineBrier: meanScore(results, "baseline_brier"),
@@ -988,7 +1798,11 @@ function benchmarkRunMetrics(results: BenchmarkCaseResultRow[]) {
   };
 }
 
-function pairedBenchmarkCaseDeltas(candidateResults: BenchmarkCaseResultRow[], baselineResults: BenchmarkCaseResultRow[]) {
+function pairedBenchmarkCaseDeltas(
+  candidateResults: BenchmarkCaseResultRow[],
+  baselineResults: BenchmarkCaseResultRow[],
+  candidateCasesById: Map<string, BenchmarkCaseSplitRow>,
+) {
   const baselineByCase = new Map(baselineResults.map((result) => [result.benchmarkCaseId, result]));
   const caseDeltas: PairedDeltaRow[] = [];
   for (const candidate of candidateResults) {
@@ -1005,6 +1819,7 @@ function pairedBenchmarkCaseDeltas(candidateResults: BenchmarkCaseResultRow[], b
     }
     caseDeltas.push({
       benchmarkCaseId: candidate.benchmarkCaseId,
+      split: normalizeBenchmarkSplit(readCaseSplit(candidateCasesById.get(candidate.benchmarkCaseId))),
       candidateBenchmarkCaseResultId: candidate.id,
       baselineBenchmarkCaseResultId: baseline.id,
       candidateStatus: candidate.status,
@@ -1117,46 +1932,97 @@ function comparisonRecommendation(input: {
       summary: "No completed baseline run exists for this suite/eval mode. Run the current default workflow on the same suite before promotion.",
     };
   }
-  const bestPaired = input.baselineComparisons.find((comparison) => comparison.pairedCaseCount > 0);
-  if (!bestPaired) {
+  const primaryComparison = selectPrimaryBaselineComparison(input.baselineComparisons);
+  if (!primaryComparison) {
     return {
       status: "needs_paired_cases",
       summary: "Baselines exist but share no case IDs with the candidate. Run paired candidate/baseline suites before interpreting score differences.",
+      primaryBaselineBenchmarkRunId: null,
     };
   }
-  if (bestPaired.pairedCaseCount < 10) {
+  if (primaryComparison.pairedCaseCount < 10) {
     return {
       status: "needs_more_cases",
-      summary: `Only ${bestPaired.pairedCaseCount} paired case(s) are available. Use this as debugging evidence, not a promotion gate.`,
+      summary: `Only ${primaryComparison.pairedCaseCount} paired case(s) are available against the primary baseline. Use this as debugging evidence, not a promotion gate.`,
+      primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
+      primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
+      primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
     };
   }
-  const brierInterval = bestPaired.pairedUncertainty.brierDelta;
+  if (primaryComparison.pairedHoldoutCaseCount < minimumPromotionHoldoutCases) {
+    return {
+      status: "needs_holdout_evidence",
+      summary: `Only ${primaryComparison.pairedHoldoutCaseCount} paired held-out case(s) are available against the primary baseline. Run paired holdout cases before promotion review.`,
+      primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
+      primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
+      primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
+    };
+  }
+  const brierInterval = primaryComparison.pairedUncertainty.brierDelta;
   if (
-    typeof bestPaired.pairedMeanBrierDelta === "number" &&
+    typeof primaryComparison.pairedMeanBrierDelta === "number" &&
     typeof brierInterval.upper === "number" &&
-    bestPaired.pairedMeanBrierDelta < -0.01 &&
+    primaryComparison.pairedMeanBrierDelta < -0.01 &&
     brierInterval.upper < 0
   ) {
     return {
       status: "candidate_better",
-      summary: `Candidate improved paired mean Brier by ${Math.abs(bestPaired.pairedMeanBrierDelta).toFixed(4)} and the 95% bootstrap interval stays below zero. Check trace/source regressions before promotion.`,
+      summary: `Candidate improved paired mean Brier by ${Math.abs(primaryComparison.pairedMeanBrierDelta).toFixed(4)} against the primary baseline and the 95% bootstrap interval stays below zero. Check trace/source regressions before promotion.`,
+      primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
+      primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
+      primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
     };
   }
   if (
-    typeof bestPaired.pairedMeanBrierDelta === "number" &&
+    typeof primaryComparison.pairedMeanBrierDelta === "number" &&
     typeof brierInterval.lower === "number" &&
-    bestPaired.pairedMeanBrierDelta > 0.01 &&
+    primaryComparison.pairedMeanBrierDelta > 0.01 &&
     brierInterval.lower > 0
   ) {
     return {
       status: "candidate_worse",
-      summary: `Candidate worsened paired mean Brier by ${bestPaired.pairedMeanBrierDelta.toFixed(4)} and the 95% bootstrap interval stays above zero. Reject or revise the workflow.`,
+      summary: `Candidate worsened paired mean Brier by ${primaryComparison.pairedMeanBrierDelta.toFixed(4)} against the primary baseline and the 95% bootstrap interval stays above zero. Reject or revise the workflow.`,
+      primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
+      primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
+      primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
     };
   }
   return {
     status: "indistinguishable",
-    summary: "Candidate and baseline are too close or the bootstrap interval crosses zero. Add cases or inspect secondary trace/cost metrics.",
+    summary: "Candidate and primary baseline are too close or the bootstrap interval crosses zero. Add cases or inspect secondary trace/cost metrics.",
+    primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
+    primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
+    primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
   };
+}
+
+function selectPrimaryBaselineComparison<T extends {
+  baselineBenchmarkRunId: string;
+  pairedCaseCount: number;
+  pairedHoldoutCaseCount: number;
+  baselinePromotionState: string;
+}>(comparisons: T[]) {
+  return comparisons
+    .filter((comparison) => comparison.pairedCaseCount > 0)
+    .sort((left, right) =>
+      right.pairedHoldoutCaseCount - left.pairedHoldoutCaseCount ||
+      right.pairedCaseCount - left.pairedCaseCount ||
+      promotionStateRank(right.baselinePromotionState) - promotionStateRank(left.baselinePromotionState) ||
+      left.baselineBenchmarkRunId.localeCompare(right.baselineBenchmarkRunId),
+    )[0] ?? null;
+}
+
+function promotionStateRank(state: string) {
+  if (state === "promoted_for_local_default") {
+    return 3;
+  }
+  if (state === "promoted_for_eval_only") {
+    return 2;
+  }
+  if (state === "candidate") {
+    return 1;
+  }
+  return 0;
 }
 
 function diffNullable(candidate: number | null, baseline: number | null) {
@@ -1345,7 +2211,7 @@ async function reconcileCaseResults(db: Db, input: {
   const runningResults = await db
     .select()
     .from(benchmarkCaseResults)
-    .where(eq(benchmarkCaseResults.status, "running"));
+    .where(eq(benchmarkCaseResults.status, benchmarkCaseResultStatusRunning));
 
   for (const result of runningResults) {
     if (!result.taskId) {
@@ -1360,7 +2226,7 @@ async function reconcileCaseResults(db: Db, input: {
       await db
         .update(benchmarkCaseResults)
         .set({
-          status: "failed",
+          status: benchmarkCaseResultStatusFailed,
           failureLabels: ["task_failed"],
           updatedAt: new Date(),
         })
@@ -1406,7 +2272,7 @@ async function reconcileCaseResults(db: Db, input: {
     await db
       .update(benchmarkCaseResults)
       .set({
-        status: failureLabels.length ? "needs_review" : "completed",
+        status: failureLabels.length ? benchmarkCaseResultStatusNeedsReview : benchmarkCaseResultStatusCompleted,
         forecastOutputArtifactId: task.outputArtifactId,
         scoreRows,
         traceBundleUri: traceBundle.storageUri,
@@ -1421,7 +2287,7 @@ async function backfillBenchmarkForecastScoreRows(db: Db) {
   const results = await db
     .select()
     .from(benchmarkCaseResults)
-    .where(eq(benchmarkCaseResults.status, "completed"));
+    .where(eq(benchmarkCaseResults.status, benchmarkCaseResultStatusCompleted));
 
   for (const result of results) {
     if (!result.taskId || result.scoreRows.length === 0) {
@@ -1523,7 +2389,7 @@ async function backfillBenchmarkForecastScoreRows(db: Db) {
   }
 }
 
-async function finalizeReadyBenchmarkRuns(db: Db) {
+async function finalizeReadyBenchmarkRuns(db: Db, input: { root?: string } = {}) {
   const activeRuns = await db
     .select()
     .from(benchmarkRuns)
@@ -1537,7 +2403,7 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
     if (results.length < run.caseCount) {
       continue;
     }
-    if (results.some((result) => result.status === "running" || result.status === "queued")) {
+    if (results.some((result) => isBenchmarkCaseResultPendingStatus(result.status))) {
       continue;
     }
 
@@ -1545,20 +2411,26 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
     const meanLog = meanScore(results, "log");
     const meanBaselineBrier = meanScore(results, "baseline_brier");
     const meanBrierDelta = meanScore(results, "baseline_delta_brier");
-    const completedCases = results.filter((result) => result.status === "completed").length;
-    const failedCases = results.filter((result) => result.status === "failed").length;
-    const reviewCases = results.filter((result) => result.status === "needs_review").length;
+    const statusCounts = summarizeBenchmarkCaseResultStatuses(results);
+    const completedCases = statusCounts.completedCases;
+    const failedCases = statusCounts.failedCases;
+    const reviewCases = statusCounts.reviewCases;
     const caseAnalyses = await buildBenchmarkCaseAnalyses(db, {
       benchmarkRunId: run.id,
       evalMode: run.evalMode,
       results,
     });
     const [suite] = await db.select().from(benchmarkSuites).where(eq(benchmarkSuites.id, run.suiteId)).limit(1);
+    const splitFindings = benchmarkSplitSummaryForResults({
+      results,
+      casesById: splitRowsById(await loadBenchmarkCaseSplitRows(db, results)),
+    });
     const isBtf2Suite = suite?.name.includes("BTF-2") === true;
     await persistCaseAnalysisArtifacts(db, {
       benchmarkRunId: run.id,
       caseAnalyses,
     });
+    const costLatencyFindings = await costLatencyFindingsForRun(db, { root: input.root, results });
     const report = {
       benchmarkRunId: run.id,
       caseCount: run.caseCount,
@@ -1569,6 +2441,7 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
       meanLog,
       meanBaselineBrier,
       meanBrierDelta,
+      splitFindings,
       generatedAt: new Date().toISOString(),
       caseAnalyses,
       caseResults: results.map((result) => ({
@@ -1629,10 +2502,11 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
       },
       traceQualityFindings: traceQualityFindingsForRun(results, caseAnalyses),
       sourceQualityFindings: sourceQualityFindingsForRun(results, caseAnalyses, isFixedEvidence),
-      costLatencyFindings: {
-        note: "V1 records Smithers run IDs, trace bundles, agent-call counts, and token totals parsed from durable Smithers logs.",
-        runnableLoopSignal: "Use task_id, smithers_run_id, benchmark_run_id, and workflow_variant_id labels to correlate benchmark quality with runtime cost proxies.",
-      },
+      baselineSanityFindings: baselineSanityFindingsForRun(caseAnalyses),
+      componentDisagreementFindings: componentDisagreementFindingsForRun(caseAnalyses),
+      forecastErrorFindings: forecastErrorFindingsForRun(caseAnalyses),
+      splitFindings,
+      costLatencyFindings,
       holdoutRiskNotes: isFixedEvidence
         ? isBtf2Suite
           ? "This is an imported BTF-2 fixed-evidence suite. Use it for local workflow iteration with the dataset contamination caveat; require larger paired subsets before promotion."
@@ -1643,6 +2517,7 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
         evalMode: run.evalMode,
         caseAnalyses,
         meanBrierDelta,
+        costLatencyFindings,
       }),
     };
 
@@ -1688,6 +2563,7 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
       results,
       caseAnalyses,
       meanBrierDelta,
+      costLatencyFindings,
     });
     if (proposals.length > 0) {
       await db.insert(workflowChangeProposals).values(proposals);
@@ -1703,7 +2579,192 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
         updatedAt: new Date(),
       })
       .where(eq(benchmarkRuns.id, run.id));
+
+    const validationComparison = await createWorkflowProposalValidationComparison(db, run.id);
+    const validationGate = summarizeBenchmarkPromotionGateEvidence({
+      runStatus: failedCases || reviewCases ? "partial_failure" : "completed",
+      resultCount: results.length,
+      traceMissing: results.filter((result) => !result.traceBundleUri).length,
+      reviewOrFailed: failedCases + reviewCases,
+      comparisonStatus: validationComparison?.recommendationStatus ?? null,
+      baselineSanityFindings: analysis.baselineSanityFindings,
+      componentDisagreementFindings: analysis.componentDisagreementFindings,
+      forecastErrorFindings: analysis.forecastErrorFindings,
+      splitFindings,
+      sourceQualityFindings: analysis.sourceQualityFindings,
+      traceQualityFindings: analysis.traceQualityFindings,
+    });
+    await syncWorkflowProposalValidationEvidence(db, {
+      benchmarkRunId: run.id,
+      resultStatus: failedCases || reviewCases ? "needs_review" : "completed",
+      resultSummary: summary,
+      meanBrierDelta,
+      completedCases,
+      costLatencyFindings,
+      gateStatus: validationGate.status,
+      gateBlockers: validationGate.blockers,
+      comparisonReport: validationComparison?.report ?? null,
+      completedAt: new Date(),
+    });
   }
+}
+
+async function createWorkflowProposalValidationComparison(db: Db, validationBenchmarkRunId: string) {
+  const [proposal] = await db
+    .select({
+      sourceBenchmarkRunId: workflowChangeProposals.sourceBenchmarkRunId,
+    })
+    .from(workflowChangeProposals)
+    .where(eq(workflowChangeProposals.validationBenchmarkRunId, validationBenchmarkRunId))
+    .limit(1);
+  if (!proposal?.sourceBenchmarkRunId) {
+    return null;
+  }
+  const comparison = await createBenchmarkComparisonReport(db, {
+    benchmarkRunId: validationBenchmarkRunId,
+    baselineBenchmarkRunIds: [proposal.sourceBenchmarkRunId],
+  });
+  return {
+    recommendationStatus: readComparisonRecommendationStatus(comparison.report),
+    report: comparison.report,
+  };
+}
+
+async function syncWorkflowProposalValidationEvidence(
+  db: Db,
+  input: {
+    benchmarkRunId: string;
+    resultStatus: string;
+    resultSummary: string;
+    meanBrierDelta: number | null;
+    completedCases: number;
+    costLatencyFindings: Record<string, unknown>;
+    gateStatus: string;
+    gateBlockers: string[];
+    comparisonReport: Record<string, unknown> | null;
+    completedAt: Date;
+  },
+) {
+  const validationCostEvidence = await workflowProposalValidationCostEvidence(db, {
+    validationBenchmarkRunId: input.benchmarkRunId,
+    validationCostLatencyFindings: input.costLatencyFindings,
+  });
+  const sourceBenchmarkCaseCount = await workflowProposalValidationSourceBenchmarkCaseCount(db, input.benchmarkRunId);
+  const validationReadiness = workflowProposalValidationReadiness({
+    resultStatus: input.resultStatus,
+    gateStatus: input.gateStatus,
+    gateBlockers: input.gateBlockers,
+    completedCases: input.completedCases,
+    sourceBenchmarkCaseCount,
+    comparisonReport: input.comparisonReport,
+  });
+  await db
+    .update(workflowChangeProposals)
+    .set({
+      validationResultStatus: input.resultStatus,
+      validationResultSummary: input.resultSummary,
+      validationMeanBrierDelta: input.meanBrierDelta,
+      validationCompletedCases: input.completedCases,
+      validationCostTotalTokensDelta: validationCostEvidence.totalTokensDelta,
+      validationCostAgentCallsDelta: validationCostEvidence.agentCallsDelta,
+      validationCostMeanDurationSecondsDelta: validationCostEvidence.meanDurationSecondsDelta,
+      validationCostSummary: validationCostEvidence.summary,
+      validationGateStatus: input.gateStatus,
+      validationGateBlockers: input.gateBlockers,
+      validationCompletedAt: input.completedAt,
+      implementationStatus: validationReadiness.passed ? "validated" : "in_progress",
+      implementationNote:
+        validationReadiness.passed ? `Validation passed: ${input.resultSummary}` : `Validation needs review: ${input.resultSummary}`,
+      implementationUpdatedAt: input.completedAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(workflowChangeProposals.validationBenchmarkRunId, input.benchmarkRunId));
+}
+
+async function loadBenchmarkComparisonReport(db: Db, benchmarkRunId: string) {
+  const [run] = await db
+    .select({ comparisonReportArtifactId: benchmarkRuns.comparisonReportArtifactId })
+    .from(benchmarkRuns)
+    .where(eq(benchmarkRuns.id, benchmarkRunId))
+    .limit(1);
+  return readArtifactReportRow(db, run?.comparisonReportArtifactId ?? null);
+}
+
+async function workflowProposalValidationSourceBenchmarkCaseCount(db: Db, validationBenchmarkRunId: string) {
+  const [proposal] = await db
+    .select({
+      sourceBenchmarkCaseCount: benchmarkRuns.caseCount,
+    })
+    .from(workflowChangeProposals)
+    .leftJoin(benchmarkRuns, eq(workflowChangeProposals.sourceBenchmarkRunId, benchmarkRuns.id))
+    .where(eq(workflowChangeProposals.validationBenchmarkRunId, validationBenchmarkRunId))
+    .limit(1);
+  return proposal?.sourceBenchmarkCaseCount ?? null;
+}
+
+async function workflowProposalValidationCostEvidence(
+  db: Db,
+  input: {
+    validationBenchmarkRunId: string;
+    validationCostLatencyFindings: Record<string, unknown>;
+  },
+) {
+  const [proposal] = await db
+    .select({
+      sourceBenchmarkRunId: workflowChangeProposals.sourceBenchmarkRunId,
+    })
+    .from(workflowChangeProposals)
+    .where(eq(workflowChangeProposals.validationBenchmarkRunId, input.validationBenchmarkRunId))
+    .limit(1);
+  if (!proposal?.sourceBenchmarkRunId) {
+    return emptyValidationCostEvidence("No source benchmark run was linked to this validation.");
+  }
+  const [sourceAnalysis] = await db
+    .select({
+      costLatencyFindings: benchmarkAnalyses.costLatencyFindings,
+    })
+    .from(benchmarkAnalyses)
+    .where(eq(benchmarkAnalyses.benchmarkRunId, proposal.sourceBenchmarkRunId))
+    .orderBy(desc(benchmarkAnalyses.createdAt))
+    .limit(1);
+  if (!sourceAnalysis) {
+    return emptyValidationCostEvidence("No source benchmark cost analysis was available.");
+  }
+  const source = sourceAnalysis.costLatencyFindings;
+  const validation = input.validationCostLatencyFindings;
+  const totalTokensDelta = nullableDelta(readNumber(validation, "totalTokens"), readNumber(source, "totalTokens"));
+  const agentCallsDelta = nullableDelta(readNumber(validation, "totalAgentCalls"), readNumber(source, "totalAgentCalls"));
+  const meanDurationSecondsDelta = nullableDelta(readNumber(validation, "meanDurationSeconds"), readNumber(source, "meanDurationSeconds"));
+  const summary = [
+    "Validation cost delta versus source benchmark.",
+    totalTokensDelta === null ? null : `${formatSignedMetric(totalTokensDelta)} tokens`,
+    agentCallsDelta === null ? null : `${formatSignedMetric(agentCallsDelta)} agent calls`,
+    meanDurationSecondsDelta === null ? null : `${formatSignedMetric(meanDurationSecondsDelta)}s mean duration`,
+  ].filter((part): part is string => Boolean(part)).join("; ");
+  return {
+    totalTokensDelta,
+    agentCallsDelta,
+    meanDurationSecondsDelta,
+    summary: summary || "Validation and source benchmark cost summaries were not comparable.",
+  };
+}
+
+function emptyValidationCostEvidence(summary: string) {
+  return {
+    totalTokensDelta: null,
+    agentCallsDelta: null,
+    meanDurationSecondsDelta: null,
+    summary,
+  };
+}
+
+function nullableDelta(candidate: number | null, baseline: number | null) {
+  return candidate === null || baseline === null ? null : Math.round((candidate - baseline) * 10000) / 10000;
+}
+
+function formatSignedMetric(value: number) {
+  const formatted = formatMetric(value);
+  return value >= 0 ? `+${formatted}` : formatted;
 }
 
 type BenchmarkResultForAnalysis = {
@@ -1954,6 +3015,7 @@ function buildSourceAudit(input: {
     contentSummary: string;
     publishedAt: Date | null;
     usedInFinal: boolean;
+    qualityScore: number | null;
   }>;
   output: Record<string, unknown>;
   cutoff: Date | null;
@@ -1966,13 +3028,23 @@ function buildSourceAudit(input: {
   const humanForecastSources = input.sources.filter((source) =>
     looksLikeHumanForecastSource(`${source.domain ?? ""} ${source.title ?? ""} ${source.sourceType} ${source.contentSummary}`),
   );
+  const sourceDomains = summarizeSourceDomainCounts(input.sources);
+  const topSourceDomain = sourceDomains[0] ?? null;
+  const lowQualitySources = input.sources.filter((source) => source.qualityScore !== null && source.qualityScore < 0.5);
   const searchQueries = readStringArray(input.output, "searchQueries", "search_queries");
   const explicitProbabilityQuotes = readStringArray(input.output, "explicitProbabilityQuotes", "explicit_probability_quotes");
   const outputLeakageFlags = readStringArray(input.output, "leakageFlags", "leakage_flags");
   return {
     sourceCount: input.sources.length,
     usedInFinalCount: input.sources.filter((source) => source.usedInFinal).length,
+    sourceDomainCount: sourceDomains.length,
+    sourceDomains: sourceDomains.slice(0, 10),
+    topSourceDomain: topSourceDomain?.domain ?? null,
+    topSourceDomainCount: topSourceDomain?.count ?? 0,
+    topSourceDomainShare: input.sources.length ? Math.round(((topSourceDomain?.count ?? 0) / input.sources.length) * 1000) / 1000 : null,
     missingPublishedAtCount: input.sources.filter((source) => !source.publishedAt).length,
+    lowQualitySourceCount: lowQualitySources.length,
+    lowQualityUsedInFinalSourceCount: lowQualitySources.filter((source) => source.usedInFinal).length,
     postCutoffSourceCount: postCutoffSources.length,
     postCutoffSources: postCutoffSources.slice(0, 5).map((source) => ({
       title: source.title,
@@ -2012,6 +3084,16 @@ function buildTraceAudit(input: {
   const traceCompletenessScore = readNumber(input.output, "traceCompletenessScore", "trace_completeness_score");
   const attemptCount = readNumber(input.output, "attemptCount", "attempt_count");
   const componentProbabilities = readAnyArray(input.output, "componentProbabilities", "component_probabilities");
+  const componentProbabilityValues = componentProbabilities.flatMap((component) => {
+    if (!component || typeof component !== "object" || Array.isArray(component)) {
+      return [];
+    }
+    const probability = readNumber(component as Record<string, unknown>, "probability");
+    return probability === null ? [] : [probability];
+  });
+  const componentProbabilitySpread = componentProbabilityValues.length >= 2
+    ? Math.round((Math.max(...componentProbabilityValues) - Math.min(...componentProbabilityValues)) * 10) / 10
+    : null;
   return {
     traceBundleWritten: Boolean(input.result.traceBundleUri),
     traceBundleUri: input.result.traceBundleUri,
@@ -2019,6 +3101,7 @@ function buildTraceAudit(input: {
     traceProvenance: readString(input.output, "traceProvenance", "trace_provenance"),
     attemptCount,
     componentProbabilityCount: componentProbabilities.length,
+    componentProbabilitySpread,
     sourceCount: input.sourceCount,
     status:
       !input.result.traceBundleUri
@@ -2038,7 +3121,7 @@ function classifyPrimaryFailure(input: {
   sourceAudit: Record<string, unknown>;
   traceAudit: Record<string, unknown>;
 }) {
-  if (input.status === "failed") {
+  if (input.status === benchmarkCaseResultStatusFailed) {
     return "execution_failed";
   }
   if (input.probability === null || input.failureLabels.includes("missing_probability")) {
@@ -2059,7 +3142,7 @@ function classifyPrimaryFailure(input: {
   if (typeof input.brier === "number" && input.brier > 0.16) {
     return "large_probability_miss";
   }
-  if (input.status === "needs_review") {
+  if (input.status === benchmarkCaseResultStatusNeedsReview) {
     return "manual_review_required";
   }
   return "passed_smoke_gate";
@@ -2207,19 +3290,61 @@ function qualityGatesForCase(input: {
     traceBundle: input.traceAudit.traceBundleWritten ? "pass" : "fail_missing_trace_bundle",
     sourceProvenance: String(input.sourceAudit.sourceAuditStatus ?? "unknown"),
     baselineComparison: input.baselineProbability === null ? "warn_no_baseline" : "pass",
+    baselineSanity: baselineSanityGate(input.output, input.baselineProbability),
+    componentAgreement: componentAgreementGate(input.output, input.traceAudit),
     aggregateRationale: readString(input.output, "rationale") ? "pass" : "warn_missing_rationale",
   };
+}
+
+function baselineSanityGate(output: Record<string, unknown>, baselineProbability: number | null) {
+  if (baselineProbability === null) {
+    return "warn_no_baseline";
+  }
+  const baselineSanityCheck = readString(output, "baselineSanityCheck", "baseline_sanity_check");
+  const baselineDelta = readNumber(output, "baselineDelta", "baseline_delta");
+  const aggregationRule = readString(output, "aggregationRule", "aggregation_rule");
+  const baseRateAnchor = readString(output, "baseRateAnchor", "base_rate_anchor");
+  if (!baselineSanityCheck || baselineDelta === null || !aggregationRule || !baseRateAnchor) {
+    return "warn_missing_baseline_sanity";
+  }
+  return "pass";
+}
+
+function componentAgreementGate(output: Record<string, unknown>, traceAudit: Record<string, unknown>) {
+  const spread = typeof traceAudit.componentProbabilitySpread === "number" ? traceAudit.componentProbabilitySpread : null;
+  if (spread === null) {
+    return "warn_missing_components";
+  }
+  if (spread <= 25) {
+    return "pass";
+  }
+  const unresolvedDisagreement = readString(output, "unresolvedDisagreement", "unresolved_disagreement");
+  const rationale = readString(output, "rationale");
+  if (!unresolvedDisagreement && !rationale?.toLowerCase().includes("disagree")) {
+    return "warn_unexplained_component_disagreement";
+  }
+  return "pass_high_disagreement_explained";
 }
 
 function traceQualityFindingsForRun(
   results: Array<{ traceBundleUri: string | null }>,
   caseAnalyses: BenchmarkCaseAnalysis[],
 ) {
+  const missingScoreRowsCases = caseAnalyses
+    .filter((analysis) => analysis.qualityGates.scoring === "fail_missing_score_rows")
+    .map((analysis) => analysis.benchmarkCaseId);
+  const missingAggregateRationaleCases = caseAnalyses
+    .filter((analysis) => analysis.qualityGates.aggregateRationale === "warn_missing_rationale")
+    .map((analysis) => analysis.benchmarkCaseId);
   return {
     traceBundlesWritten: results.filter((result) => Boolean(result.traceBundleUri)).length,
     missingTraceBundles: results.filter((result) => !result.traceBundleUri).length,
     weakTraceCompletenessCases: caseAnalyses.filter((analysis) => analysis.primaryFailureMode === "trace_incomplete").length,
     missingProbabilityCases: caseAnalyses.filter((analysis) => analysis.primaryFailureMode === "schema_or_probability_missing").length,
+    missingScoreRowsCases: missingScoreRowsCases.length,
+    missingScoreRowsCaseIds: missingScoreRowsCases.slice(0, 10),
+    missingAggregateRationaleCases: missingAggregateRationaleCases.length,
+    missingAggregateRationaleCaseIds: missingAggregateRationaleCases.slice(0, 10),
     note: "Trace quality is evaluated from persisted task output, source-bank rows, benchmark score rows, and trace-bundle presence.",
   };
 }
@@ -2235,8 +3360,19 @@ function sourceQualityFindingsForRun(
       sourceLeakageCases: 0,
       informationAdvantageCases: 0,
       postCutoffSourceCases: 0,
+      dominantSourceDomainCases: 0,
+      lowQualitySourceCases: 0,
     };
   }
+  const sourceDomainCounts = summarizeSourceDomainCounts(caseAnalyses.flatMap((analysis) =>
+    readRecordArray(analysis.sourceAudit, "sourceDomains").map((row) => ({
+      domain: readString(row, "domain"),
+      count: readNumber(row, "count") ?? 0,
+      usedInFinalCount: readNumber(row, "usedInFinalCount") ?? 0,
+    })),
+  ));
+  const topSourceDomain = sourceDomainCounts[0] ?? null;
+  const totalSourceEntries = sumAuditNumber(caseAnalyses, "sourceCount");
   return {
     sourceLeakageCases: countLabel(results, "source_leakage"),
     informationAdvantageCases: countLabel(results, "information_advantage"),
@@ -2244,7 +3380,227 @@ function sourceQualityFindingsForRun(
     postCutoffSourceCases: caseAnalyses.filter((analysis) => Number(analysis.sourceAudit.postCutoffSourceCount ?? 0) > 0).length,
     humanForecastSourceCases: caseAnalyses.filter((analysis) => Number(analysis.sourceAudit.humanForecastSourceCount ?? 0) > 0).length,
     noSourceCases: caseAnalyses.filter((analysis) => Number(analysis.sourceAudit.sourceCount ?? 0) === 0).length,
-    note: "Agentic pastcasting v1 uses agent-reported source, cutoff, and trace metadata. Live-web date bounding is a weak eval condition and should not be compared to frozen-corpus scores.",
+    missingPublishedAtCases: caseAnalyses.filter((analysis) => Number(analysis.sourceAudit.missingPublishedAtCount ?? 0) > 0).length,
+    dominantSourceDomainCases: caseAnalyses.filter((analysis) => Number(analysis.sourceAudit.topSourceDomainShare ?? 0) >= 0.8).length,
+    lowQualitySourceCases: caseAnalyses.filter((analysis) => Number(analysis.sourceAudit.lowQualitySourceCount ?? 0) > 0).length,
+    sourceEntries: totalSourceEntries,
+    usedInFinalSourceEntries: sumAuditNumber(caseAnalyses, "usedInFinalCount"),
+    sourceDomainCount: sourceDomainCounts.length,
+    topSourceDomain: topSourceDomain?.domain ?? null,
+    topSourceDomainEntries: topSourceDomain?.count ?? 0,
+    topSourceDomainShare: totalSourceEntries ? Math.round(((topSourceDomain?.count ?? 0) / totalSourceEntries) * 1000) / 1000 : null,
+    lowQualitySourceEntries: sumAuditNumber(caseAnalyses, "lowQualitySourceCount"),
+    lowQualityFinalSourceEntries: sumAuditNumber(caseAnalyses, "lowQualityUsedInFinalSourceCount"),
+    topSourceDomains: sourceDomainCounts.slice(0, 10),
+    note: "Agentic pastcasting v1 uses agent-reported source, cutoff, trace, and source-bank quality metadata. Live-web date bounding is a weak eval condition and should not be compared to frozen-corpus scores.",
+  };
+}
+
+function sumAuditNumber(caseAnalyses: BenchmarkCaseAnalysis[], key: string) {
+  return caseAnalyses.reduce((sum, analysis) => sum + Number(analysis.sourceAudit[key] ?? 0), 0);
+}
+
+async function costLatencyFindingsForRun(
+  db: Db,
+  input: { root?: string; results: BenchmarkCaseResultRow[] },
+) {
+  const taskIds = input.results.map((result) => result.taskId).filter((id): id is string => typeof id === "string");
+  const taskRows = taskIds.length
+    ? await db
+        .select({
+          id: tasks.id,
+          operationMode: tasks.operationMode,
+          operationSubmode: tasks.operationSubmode,
+          status: tasks.status,
+          startedAt: tasks.startedAt,
+          completedAt: tasks.completedAt,
+          createdAt: tasks.createdAt,
+        })
+        .from(tasks)
+        .where(inArray(tasks.id, taskIds))
+    : [];
+  const tasksById = new Map(taskRows.map((task) => [task.id, task]));
+  const cases = await Promise.all(input.results.map(async (result) => {
+    const usage = input.root && result.smithersRunId ? await readSmithersTokenUsage(input.root, result.smithersRunId) : [];
+    const summary = summarizeSmithersTokenUsage(usage);
+    const task = result.taskId ? tasksById.get(result.taskId) : null;
+    const durationSeconds = task ? durationSecondsBetween(task.startedAt ?? task.createdAt, task.completedAt) : null;
+    return {
+      benchmarkCaseResultId: result.id,
+      benchmarkCaseId: result.benchmarkCaseId,
+      taskId: result.taskId,
+      smithersRunId: result.smithersRunId,
+      status: result.status,
+      operationMode: task?.operationMode ?? null,
+      operationSubmode: task?.operationSubmode ?? null,
+      agentCalls: summary.calls,
+      inputTokens: summary.inputTokens,
+      cachedInputTokens: summary.cachedInputTokens,
+      outputTokens: summary.outputTokens,
+      reasoningOutputTokens: summary.reasoningOutputTokens,
+      totalTokens: summary.totalTokens,
+      durationSeconds,
+    };
+  }));
+  const measuredCases = cases.filter((row) => row.agentCalls > 0);
+  const missingUsageCases = cases.filter((row) => row.smithersRunId && row.agentCalls === 0).length;
+  const tokenValues = measuredCases.map((row) => row.totalTokens).sort((left, right) => left - right);
+  const durationValues = cases
+    .map((row) => row.durationSeconds)
+    .filter((value): value is number => typeof value === "number")
+    .sort((left, right) => left - right);
+  return {
+    note: measuredCases.length
+      ? "Measured from durable run logs with the shared token-usage parser."
+      : "No durable token usage was available for this benchmark run.",
+    runnableLoopSignal: "Compare score deltas against agent calls, total tokens, and duration before promoting workflow changes.",
+    measured: measuredCases.length > 0,
+    caseCount: cases.length,
+    measuredCases: measuredCases.length,
+    missingUsageCases,
+    totalAgentCalls: sumNumbers(measuredCases.map((row) => row.agentCalls)),
+    totalInputTokens: sumNumbers(measuredCases.map((row) => row.inputTokens)),
+    totalCachedInputTokens: sumNumbers(measuredCases.map((row) => row.cachedInputTokens)),
+    totalOutputTokens: sumNumbers(measuredCases.map((row) => row.outputTokens)),
+    totalReasoningOutputTokens: sumNumbers(measuredCases.map((row) => row.reasoningOutputTokens)),
+    totalTokens: sumNumbers(measuredCases.map((row) => row.totalTokens)),
+    meanAgentCallsPerMeasuredCase: meanNumbers(measuredCases.map((row) => row.agentCalls)),
+    meanTokensPerMeasuredCase: meanNumbers(measuredCases.map((row) => row.totalTokens)),
+    medianTokensPerMeasuredCase: quantile(tokenValues, 0.5),
+    meanDurationSeconds: meanNumbers(durationValues),
+    medianDurationSeconds: quantile(durationValues, 0.5),
+    byStatus: costLatencyByStatus(cases),
+    heaviestCases: [...cases]
+      .sort((left, right) => right.totalTokens - left.totalTokens)
+      .slice(0, 5)
+      .map(costLatencyCaseSummary),
+    slowestCases: [...cases]
+      .filter((row) => row.durationSeconds !== null)
+      .sort((left, right) => (right.durationSeconds ?? 0) - (left.durationSeconds ?? 0))
+      .slice(0, 5)
+      .map(costLatencyCaseSummary),
+  };
+}
+
+function costLatencyByStatus(cases: Array<{
+  status: string;
+  agentCalls: number;
+  totalTokens: number;
+  durationSeconds: number | null;
+}>) {
+  const grouped = new Map<string, typeof cases>();
+  for (const row of cases) {
+    grouped.set(row.status, [...(grouped.get(row.status) ?? []), row]);
+  }
+  return [...grouped.entries()]
+    .map(([status, rows]) => {
+      const measuredRows = rows.filter((row) => row.agentCalls > 0);
+      return {
+        status,
+        cases: rows.length,
+        measuredCases: measuredRows.length,
+        agentCalls: sumNumbers(measuredRows.map((row) => row.agentCalls)),
+        totalTokens: sumNumbers(measuredRows.map((row) => row.totalTokens)),
+        meanTokensPerMeasuredCase: meanNumbers(measuredRows.map((row) => row.totalTokens)),
+        meanDurationSeconds: meanNumbers(rows.map((row) => row.durationSeconds).filter((value): value is number => value !== null)),
+      };
+    })
+    .sort((left, right) => right.cases - left.cases || left.status.localeCompare(right.status));
+}
+
+function costLatencyCaseSummary(row: {
+  benchmarkCaseResultId: string;
+  benchmarkCaseId: string;
+  taskId: string | null;
+  smithersRunId: string | null;
+  status: string;
+  agentCalls: number;
+  totalTokens: number;
+  durationSeconds: number | null;
+}) {
+  return {
+    benchmarkCaseResultId: row.benchmarkCaseResultId,
+    benchmarkCaseId: row.benchmarkCaseId,
+    taskId: row.taskId,
+    smithersRunId: row.smithersRunId,
+    status: row.status,
+    agentCalls: row.agentCalls,
+    totalTokens: row.totalTokens,
+    durationSeconds: row.durationSeconds,
+  };
+}
+
+function sumNumbers(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0);
+}
+
+function durationSecondsBetween(start: Date | null, end: Date | null) {
+  if (!start || !end) {
+    return null;
+  }
+  const duration = (end.getTime() - start.getTime()) / 1000;
+  return Number.isFinite(duration) && duration >= 0 ? duration : null;
+}
+
+function baselineSanityFindingsForRun(caseAnalyses: BenchmarkCaseAnalysis[]) {
+  const baselineGateCounts = countBy(caseAnalyses.map((analysis) => analysis.qualityGates.baselineSanity ?? "unknown"));
+  const missingCases = caseAnalyses
+    .filter((analysis) => analysis.qualityGates.baselineSanity === "warn_missing_baseline_sanity")
+    .map((analysis) => analysis.benchmarkCaseId);
+  return {
+    casesWithBaseline: caseAnalyses.filter((analysis) => analysis.baselineProbability !== null).length,
+    missingBaselineSanityCases: missingCases.length,
+    missingBaselineSanityCaseIds: missingCases.slice(0, 10),
+    gateCounts: baselineGateCounts,
+    note: "Fixed-evidence benchmark outputs should explain the provided baseline anchor, final delta, and aggregation rule so worse-than-baseline cases can be debugged from artifacts.",
+  };
+}
+
+function componentDisagreementFindingsForRun(caseAnalyses: BenchmarkCaseAnalysis[]) {
+  const highDisagreementCases = caseAnalyses.filter((analysis) => {
+    const spread = analysis.traceAudit.componentProbabilitySpread;
+    return typeof spread === "number" && spread > 25;
+  });
+  const unexplainedCases = caseAnalyses
+    .filter((analysis) => analysis.qualityGates.componentAgreement === "warn_unexplained_component_disagreement")
+    .map((analysis) => analysis.benchmarkCaseId);
+  const spreads = caseAnalyses
+    .map((analysis) => analysis.traceAudit.componentProbabilitySpread)
+    .filter((spread): spread is number => typeof spread === "number" && Number.isFinite(spread));
+  return {
+    casesWithComponentSpread: spreads.length,
+    highDisagreementCases: highDisagreementCases.length,
+    unexplainedHighDisagreementCases: unexplainedCases.length,
+    unexplainedHighDisagreementCaseIds: unexplainedCases.slice(0, 10),
+    maxComponentProbabilitySpread: spreads.length ? Math.max(...spreads) : null,
+    gateCounts: countBy(caseAnalyses.map((analysis) => analysis.qualityGates.componentAgreement ?? "unknown")),
+    note: "Large component probability spread should be explicitly reconciled before treating an aggregate as stable forecast evidence.",
+  };
+}
+
+function forecastErrorFindingsForRun(caseAnalyses: BenchmarkCaseAnalysis[]) {
+  const probabilityErrors = caseAnalyses
+    .map((analysis) => analysis.metricSummary.probabilityErrorPercentagePoints)
+    .filter((error): error is number => typeof error === "number" && Number.isFinite(error));
+  const largeMissCases = caseAnalyses
+    .filter((analysis) => analysis.primaryFailureMode === "large_probability_miss")
+    .map((analysis) => analysis.benchmarkCaseId);
+  const worseThanBaselineCases = caseAnalyses
+    .filter((analysis) => analysis.primaryFailureMode === "worse_than_baseline")
+    .map((analysis) => analysis.benchmarkCaseId);
+  const maxProbabilityError = probabilityErrors.length ? Math.max(...probabilityErrors) : null;
+  const meanProbabilityError = probabilityErrors.length
+    ? Math.round((probabilityErrors.reduce((sum, error) => sum + error, 0) / probabilityErrors.length) * 10) / 10
+    : null;
+  return {
+    scoredCases: probabilityErrors.length,
+    largeProbabilityMissCases: largeMissCases.length,
+    largeProbabilityMissCaseIds: largeMissCases.slice(0, 10),
+    worseThanBaselineCases: worseThanBaselineCases.length,
+    worseThanBaselineCaseIds: worseThanBaselineCases.slice(0, 10),
+    meanProbabilityError,
+    maxProbabilityError,
+    note: "Large probability misses and worse-than-baseline cases are judgment-quality signals; inspect base-rate movement, component disagreement, and calibration notes before changing defaults.",
   };
 }
 
@@ -2252,6 +3608,7 @@ function buildWorkflowImprovementPlan(input: {
   evalMode: string;
   caseAnalyses: BenchmarkCaseAnalysis[];
   meanBrierDelta: number | null;
+  costLatencyFindings?: Record<string, unknown> | null;
 }) {
   const failureCounts = input.caseAnalyses.reduce<Record<string, number>>((counts, analysis) => {
     counts[analysis.primaryFailureMode] = (counts[analysis.primaryFailureMode] ?? 0) + 1;
@@ -2263,6 +3620,7 @@ function buildWorkflowImprovementPlan(input: {
     results: [],
     caseAnalyses: input.caseAnalyses,
     meanBrierDelta: input.meanBrierDelta,
+    costLatencyFindings: input.costLatencyFindings ?? null,
   }).map((proposal) => ({
     targetWorkflowId: proposal.targetWorkflowId,
     problemStatement: proposal.problemStatement,
@@ -2292,6 +3650,7 @@ function workflowChangeProposalsForAnalysis(input: {
   results: Array<{ benchmarkCaseId: string }>;
   caseAnalyses: BenchmarkCaseAnalysis[];
   meanBrierDelta: number | null;
+  costLatencyFindings?: Record<string, unknown> | null;
 }) {
   const targetWorkflowId = input.evalMode === "fixed_evidence" ? "fixed-evidence-eval" : "agentic-pastcasting-eval";
   const allCaseIds = input.caseAnalyses.length
@@ -2355,6 +3714,21 @@ function workflowChangeProposalsForAnalysis(input: {
     });
   }
 
+  const costOutlierEvidence = benchmarkCostOutlierEvidence(input.costLatencyFindings ?? null);
+  if (costOutlierEvidence.evidenceCaseIds.length > 0) {
+    proposals.push({
+      sourceBenchmarkRunId: input.benchmarkRunId,
+      targetWorkflowId,
+      problemStatement: "A small number of benchmark cases dominate token use or task duration, making quality iteration slower and costlier than the aggregate run summary suggests.",
+      evidenceCaseIds: costOutlierEvidence.evidenceCaseIds,
+      proposedChange: "Profile the heaviest and slowest benchmark traces, then add cheaper early exits, stricter retrieval budgets, or targeted planner gates for repeated low-yield research loops.",
+      expectedMetricEffect: "Should preserve forecast quality while making benchmark iteration cheaper enough to run larger paired and holdout suites more often.",
+      expectedCostLatencyEffect: costOutlierEvidence.summary,
+      overfitRisk: "Low for generic budget gates and trace profiling; medium if the optimization hard-codes only these cases instead of the repeated cost pattern.",
+      validationPlan: "Rerun the same suite and compare paired score deltas, total tokens, agent calls, mean duration, and the heaviest/slowest outlier lists before accepting the workflow patch.",
+    });
+  }
+
   if (proposals.length === 0) {
     proposals.push({
       sourceBenchmarkRunId: input.benchmarkRunId,
@@ -2370,6 +3744,46 @@ function workflowChangeProposalsForAnalysis(input: {
   }
 
   return proposals.slice(0, 4);
+}
+
+function benchmarkCostOutlierEvidence(costLatencyFindings: Record<string, unknown> | null) {
+  if (!costLatencyFindings || readNumber(costLatencyFindings, "measuredCases") === 0) {
+    return {
+      evidenceCaseIds: [],
+      summary: "No measured benchmark cost outliers were available.",
+    };
+  }
+  const heaviestCases = readRecordArray(costLatencyFindings, "heaviestCases");
+  const slowestCases = readRecordArray(costLatencyFindings, "slowestCases");
+  const evidenceCaseIds = uniqueStrings(
+    [...heaviestCases, ...slowestCases]
+      .map((row) => readString(row, "benchmarkCaseId"))
+      .filter((id): id is string => Boolean(id))
+  ).slice(0, 10);
+  if (!evidenceCaseIds.length) {
+    return {
+      evidenceCaseIds: [],
+      summary: "No benchmark case ids were available for measured cost outliers.",
+    };
+  }
+  const heaviest = heaviestCases[0] ?? null;
+  const slowest = slowestCases[0] ?? null;
+  const totalTokens = readNumber(costLatencyFindings, "totalTokens");
+  const totalAgentCalls = readNumber(costLatencyFindings, "totalAgentCalls");
+  const meanDurationSeconds = readNumber(costLatencyFindings, "meanDurationSeconds");
+  const topTokenCount = heaviest ? readNumber(heaviest, "totalTokens") : null;
+  const topDurationSeconds = slowest ? readNumber(slowest, "durationSeconds") : null;
+  return {
+    evidenceCaseIds,
+    summary: [
+      "Targets measured benchmark cost outliers.",
+      totalTokens === null ? null : `${formatMetric(totalTokens)} total tokens`,
+      totalAgentCalls === null ? null : `${formatMetric(totalAgentCalls)} agent calls`,
+      meanDurationSeconds === null ? null : `${formatMetric(meanDurationSeconds)}s mean duration`,
+      topTokenCount === null ? null : `${formatMetric(topTokenCount)} tokens in the heaviest case`,
+      topDurationSeconds === null ? null : `${formatMetric(topDurationSeconds)}s in the slowest case`,
+    ].filter((part): part is string => Boolean(part)).join("; "),
+  };
 }
 
 function readProbability(rowJson: Record<string, unknown>) {
@@ -2527,7 +3941,7 @@ function clusterFailures(
   for (const result of results) {
     const analysis = analysesByResultId.get(result.id);
     const labels = uniqueStrings([
-      ...(result.status === "completed" ? [] : result.failureLabels),
+      ...(result.status === benchmarkCaseResultStatusCompleted ? [] : result.failureLabels),
       ...(analysis && analysis.primaryFailureMode !== "passed_smoke_gate" ? [analysis.primaryFailureMode] : []),
     ]);
     for (const label of labels) {
@@ -2590,41 +4004,58 @@ function benchmarkPromotionGateSummary(input: {
   metrics: ReturnType<typeof benchmarkRunMetrics>;
   results: BenchmarkCaseResultRow[];
   comparison: Record<string, unknown> | null;
+  analysisReport: Record<string, unknown> | null;
+  splitFindings?: Record<string, unknown> | null;
 }) {
-  const blockers = [];
   const traceMissing = input.results.filter((result) => !result.traceBundleUri).length;
   const reviewOrFailed = input.metrics.failedCases + input.metrics.reviewCases;
-  if (input.run.status === "running" || input.run.status === "queued") {
-    blockers.push("benchmark_still_running");
+  return summarizeBenchmarkPromotionGateEvidence({
+    runStatus: input.run.status,
+    resultCount: input.results.length,
+    traceMissing,
+    reviewOrFailed,
+    comparisonStatus: readComparisonRecommendationStatus(input.comparison),
+    baselineSanityFindings: readRecord(input.analysisReport, "baselineSanityFindings", "baseline_sanity_findings"),
+    componentDisagreementFindings: readRecord(input.analysisReport, "componentDisagreementFindings", "component_disagreement_findings"),
+    forecastErrorFindings: readRecord(input.analysisReport, "forecastErrorFindings", "forecast_error_findings"),
+    splitFindings: input.splitFindings ?? readRecord(input.analysisReport, "splitFindings", "split_findings"),
+    sourceQualityFindings: readRecord(input.analysisReport, "sourceQualityFindings", "source_quality_findings"),
+    traceQualityFindings: readRecord(input.analysisReport, "traceQualityFindings", "trace_quality_findings"),
+  });
+}
+
+async function benchmarkPromotionGateForRun(db: Db, run: BenchmarkRunRow) {
+  const results = await db
+    .select()
+    .from(benchmarkCaseResults)
+    .where(eq(benchmarkCaseResults.benchmarkRunId, run.id));
+  const [comparisonReport, analysisReport] = await Promise.all([
+    readArtifactReportRow(db, run.comparisonReportArtifactId),
+    readArtifactReportRow(db, run.analysisReportArtifactId),
+  ]);
+  return benchmarkPromotionGateSummary({
+    run,
+    metrics: benchmarkRunMetrics(results),
+    results,
+    comparison: comparisonReport,
+    analysisReport,
+    splitFindings: benchmarkSplitSummaryForResults({
+      results,
+      casesById: splitRowsById(await loadBenchmarkCaseSplitRows(db, results)),
+    }),
+  });
+}
+
+function readComparisonRecommendationStatus(comparison: Record<string, unknown> | null) {
+  if (!comparison || typeof comparison !== "object" || Array.isArray(comparison)) {
+    return null;
   }
-  if (input.results.length < 10) {
-    blockers.push("too_few_cases_for_promotion");
+  const recommendation = comparison.recommendation;
+  if (!recommendation || typeof recommendation !== "object" || Array.isArray(recommendation)) {
+    return null;
   }
-  if (traceMissing > 0) {
-    blockers.push("missing_trace_bundles");
-  }
-  if (reviewOrFailed > 0) {
-    blockers.push("failed_or_review_cases_present");
-  }
-  if (!input.comparison) {
-    blockers.push("missing_comparison_report");
-  }
-  const recommendation = input.comparison && typeof input.comparison === "object" && !Array.isArray(input.comparison)
-    ? (input.comparison.recommendation as Record<string, unknown> | undefined)
-    : null;
-  const comparisonStatus = recommendation && typeof recommendation.status === "string" ? recommendation.status : null;
-  if (comparisonStatus && !["candidate_better", "indistinguishable"].includes(comparisonStatus)) {
-    blockers.push(`comparison_${comparisonStatus}`);
-  }
-  return {
-    status: blockers.length === 0 ? "review_for_promotion" : "needs_more_evidence",
-    blockers: uniqueStrings(blockers),
-    recommendationStatus: comparisonStatus,
-    summary:
-      blockers.length === 0
-        ? "This run has enough basic evidence for a human promotion review."
-        : "Use this run for iteration, but do not promote until blockers are resolved.",
-  };
+  const recommendationRecord = recommendation as Record<string, unknown>;
+  return typeof recommendationRecord.status === "string" ? recommendationRecord.status : null;
 }
 
 function parseOptionalDateForAnalysis(raw: string | null) {
@@ -2654,6 +4085,32 @@ function readAnyArray(value: Record<string, unknown>, ...keys: string[]) {
       } catch {
         continue;
       }
+    }
+  }
+  return [];
+}
+
+function readRecord(value: Record<string, unknown> | null, ...keys: string[]) {
+  if (!value) {
+    return null;
+  }
+  for (const key of keys) {
+    const raw = value[key];
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      return raw as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
+function readRecordArray(value: Record<string, unknown> | null, ...keys: string[]) {
+  if (!value) {
+    return [];
+  }
+  for (const key of keys) {
+    const raw = value[key];
+    if (Array.isArray(raw)) {
+      return raw.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item)));
     }
   }
   return [];

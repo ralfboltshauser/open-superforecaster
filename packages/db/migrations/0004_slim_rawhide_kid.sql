@@ -1,0 +1,4 @@
+ALTER TABLE "workflow_change_proposals" ADD COLUMN "validation_benchmark_run_id" uuid;--> statement-breakpoint
+ALTER TABLE "workflow_change_proposals" ADD COLUMN "validation_launched_by" text;--> statement-breakpoint
+ALTER TABLE "workflow_change_proposals" ADD COLUMN "validation_launched_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "workflow_change_proposals" ADD CONSTRAINT "workflow_change_proposals_validation_benchmark_run_id_benchmark_runs_id_fk" FOREIGN KEY ("validation_benchmark_run_id") REFERENCES "public"."benchmark_runs"("id") ON DELETE no action ON UPDATE no action;

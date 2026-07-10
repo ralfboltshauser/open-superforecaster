@@ -2,10 +2,13 @@
 import { createSmithers, Parallel, Sequence, Task } from "smithers-orchestrator";
 import { z } from "zod";
 import { codexResearchAgent } from "./agents";
+import { collectCitedSources, collectKeyUncertainties } from "./forecast-evidence";
+import { readForecastTiming } from "./forecast-timing";
 
 const citedSource = z.object({
   title: z.string().optional(),
   url: z.string().optional(),
+  publishedAt: z.string().optional(),
   claim: z.string(),
 });
 
@@ -50,6 +53,8 @@ const conditionalAggregate = z.object({
     probabilityGivenNotCondition: z.number(),
   })),
   citedSources: z.array(citedSource).default([]),
+  keyUncertainties: z.array(z.string()).default([]),
+  evidenceAsOfDate: z.string().optional(),
 });
 
 const { Workflow, smithers, outputs } = createSmithers({
@@ -84,6 +89,7 @@ export default smithers((ctx) => {
     conditionResolutionCriteria?: unknown;
     background?: unknown;
   };
+  const timing = readForecastTiming(input);
   const question = String(input.question ?? input.prompt ?? "");
   const condition = String(input.condition ?? inferCondition(question) ?? "the stated condition in the question");
   const conditionResolutionCriteria = String(input.conditionResolutionCriteria ?? `Resolve whether this condition occurred: ${condition}`);
@@ -104,7 +110,8 @@ export default smithers((ctx) => {
     probabilityGivenCondition: attempt.probabilityGivenCondition,
     probabilityGivenNotCondition: attempt.probabilityGivenNotCondition,
   }));
-  const citedSources = attempts.flatMap((attempt) => attempt.citedSources ?? []);
+  const citedSources = collectCitedSources(attempts);
+  const keyUncertainties = collectKeyUncertainties(attempts);
 
   return (
     <Workflow name="conditional-forecast">
@@ -131,6 +138,8 @@ ${conditionResolutionCriteria}
 Outcome resolution criteria:
 ${outcomeResolutionCriteria}
 
+${timing.promptBlock}
+
 Background:
 ${background || "No extra background provided."}
 
@@ -142,7 +151,7 @@ Return a joint binary conditional forecast. Keep these quantities separate:
 - P(outcome | condition): assume the condition is true; do not reforecast whether it occurs.
 - P(outcome | not condition): assume the condition is false; do not reforecast whether it occurs.
 
-Explain why the condition changes, or does not change, the outcome. Include branch rationales, dependence notes, uncertainties, premortem, wildcards, and cited sources when available. Set forecasterLabel to "${brief.label}".`}
+Explain why the condition changes, or does not change, the outcome. Include branch rationales, dependence notes, uncertainties, premortem, wildcards, and cited sources when available. For cited sources, include publishedAt as an ISO date when the source date is known; omit it when unknown. Set forecasterLabel to "${brief.label}".`}
             </Task>
           ))}
         </Parallel>
@@ -178,6 +187,8 @@ Explain why the condition changes, or does not change, the outcome. Include bran
             attemptCount: attempts.length,
             componentBranches,
             citedSources,
+            keyUncertainties,
+            ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
           }}
         </Task>
       </Sequence>

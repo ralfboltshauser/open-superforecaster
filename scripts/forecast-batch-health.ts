@@ -1,0 +1,830 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import {
+  calibrationGuardActivationSeverity,
+  normalizeCalibrationGuardActivationStatus,
+  type CalibrationGuardActivationStatus,
+} from "../packages/backend/src/calibration-guard-activation-policy";
+import {
+  calibrationGuardRegressionIssueKind,
+  candidateCalibrationGuardAttentionKind,
+  candidateCalibrationGuardReviewIssueKind,
+  forecastAttentionSeveritySortRank,
+  forecastAttentionReviewStatusRank,
+  isCalibrationGuardRegressionAttentionKind,
+  isForecastScoreRegressionAttentionKind,
+  isForecastAttentionReviewUnresolved,
+  isForecastAttentionReviewStatus,
+  summarizeForecastAttentionSeverities,
+  summarizeForecastAttentionReviewStatuses,
+  type ForecastAttentionReviewStatus,
+} from "../packages/backend/src/forecast-attention-policy";
+import {
+  evaluateAttentionBacklogArtifactCompatibility,
+  type AttentionBacklogCompatibilityIssue,
+} from "../packages/backend/src/forecast-attention-backlog";
+import {
+  readForecastAttentionBacklogArtifacts,
+  type ForecastAttentionBacklogArtifact,
+  type ForecastAttentionBacklogItem,
+} from "../packages/backend/src/forecast-attention-backlog-artifacts";
+import {
+  readForecastBatchIndexArtifacts,
+  type ForecastBatchIndexArtifact,
+  type ForecastBatchIndexAttentionItem,
+  type ForecastBatchIndexCandidateCalibrationGuardRule,
+} from "../packages/backend/src/forecast-batch-index-artifacts";
+import {
+  determineForecastBatchHealthStatus,
+  type ForecastBatchHealthDerivedStatus,
+} from "../packages/backend/src/forecast-batch-health";
+import { timestampValue } from "../packages/backend/src/json-artifacts";
+import {
+  readArgValue,
+  readRecord,
+  readString,
+  writeJson,
+} from "./lib/forecast-script-utils";
+
+type BatchPhase = "forecast_ops" | "forecast_resolution" | "forecast_performance";
+type ReviewStatus = ForecastAttentionReviewStatus;
+
+type HealthStatus = ForecastBatchHealthDerivedStatus;
+
+type HealthIssue = {
+  severity: "high" | "medium" | "low";
+  kind: string;
+  message: string;
+};
+
+type SelectedAttentionBacklog = {
+  artifact: ForecastAttentionBacklogArtifact;
+  path: string;
+  generatedAt: string | null;
+};
+
+type AttentionKindBreakdown = {
+  kind: string;
+  items: number;
+  open: number;
+  deferred: number;
+  reviewed: number;
+  unresolved: number;
+  high: number;
+  medium: number;
+  low: number;
+};
+
+type AttentionSeverityBreakdown = {
+  severity: string;
+  items: number;
+  open: number;
+  deferred: number;
+  reviewed: number;
+  unresolved: number;
+};
+
+type AttentionForecastTypeBreakdown = {
+  forecastType: string;
+  items: number;
+  open: number;
+  deferred: number;
+  reviewed: number;
+  unresolved: number;
+  high: number;
+  medium: number;
+  low: number;
+};
+
+type HealthReport = {
+  reportType: "forecast_batch_health";
+  generatedAt: string;
+  batchId: string | null;
+  status: HealthStatus;
+  summary: {
+    entries: number;
+    forecastOps: number;
+    resolutions: number;
+    performanceReports: number;
+    completedForecasts: number;
+    failedForecasts: number;
+    resolvedCases: number;
+    failedResolutions: number;
+    performanceScoreRows: number | null;
+    attentionItems: number;
+    openAttentionItems: number;
+    deferredAttentionItems: number;
+    reviewedAttentionItems: number;
+    unresolvedAttentionItems: number;
+    scoreRegressionItems: number;
+    calibrationGuardRegressionItems: number;
+    candidateCalibrationGuardRules: number;
+    openCandidateCalibrationGuardRules: number;
+    deferredCandidateCalibrationGuardRules: number;
+    reviewedCandidateCalibrationGuardRules: number;
+    unresolvedCandidateCalibrationGuardRules: number;
+  };
+  missingPhases: BatchPhase[];
+  issues: HealthIssue[];
+  attentionByKind: AttentionKindBreakdown[];
+  attentionBySeverity: AttentionSeverityBreakdown[];
+  attentionByForecastType: AttentionForecastTypeBreakdown[];
+  attentionItems: HealthAttentionItem[];
+  candidateCalibrationGuardRules: HealthCandidateCalibrationGuardRule[];
+  paths: {
+    json: string;
+    markdown: string;
+    batchIndex: string | null;
+    batchIndexDir: string;
+    attentionBacklog: string | null;
+    attentionBacklogDir: string;
+  };
+};
+
+type HealthAttentionItem = {
+  id: string;
+  reviewStatus: ReviewStatus;
+  severity: string;
+  kind: string;
+  reason: string;
+  recommendedAction: string | null;
+  reviewNote: string | null;
+  reviewer: string | null;
+  reviewedAt: string | null;
+  metric: string;
+  score: number | null;
+  delta: number | null;
+  forecastType: string;
+  taskId: string | null;
+  taskLabel: string | null;
+  sourcePath: string | null;
+};
+
+type HealthCandidateCalibrationGuardRule = {
+  id: string;
+  reviewStatus: ReviewStatus;
+  bucketLabel: string;
+  direction: string;
+  suggestedAdjustment: number | null;
+  sampleSize: number | null;
+  meanForecast: number | null;
+  observedRate: number | null;
+  calibrationError: number | null;
+  activationStatus: CalibrationGuardActivationStatus;
+  rationale: string;
+  reviewNote: string | null;
+  reviewer: string | null;
+  reviewedAt: string | null;
+};
+
+const expectedPhases: BatchPhase[] = ["forecast_ops", "forecast_resolution", "forecast_performance"];
+const root = resolve(import.meta.dir, "..");
+const args = Bun.argv.slice(2);
+const batchIndexDir = resolve(root, readArgValue(args, "--batch-index-dir") ?? "data/reports/forecast-batches");
+const attentionBacklogDir = resolve(root, readArgValue(args, "--attention-backlog-dir") ?? "data/reports/forecast-attention-backlog");
+const outputDir = resolve(root, readArgValue(args, "--out-dir") ?? "data/reports/forecast-batch-health");
+const requestedBatchId = readArgValue(args, "--batch-id") ?? null;
+const jsonPath = resolve(outputDir, "batch-health.json");
+const markdownPath = resolve(outputDir, "batch-health.md");
+
+const selected = await selectBatchIndex(batchIndexDir, requestedBatchId);
+const selectedAttentionBacklog = await selectAttentionBacklog(attentionBacklogDir);
+const report = selected
+  ? await buildHealthReport(selected, selectedAttentionBacklog, batchIndexDir, attentionBacklogDir, jsonPath, markdownPath)
+  : buildEmptyReport(batchIndexDir, attentionBacklogDir, selectedAttentionBacklog?.path ?? null, jsonPath, markdownPath, requestedBatchId);
+
+await mkdir(outputDir, { recursive: true });
+await writeJson(jsonPath, report);
+await writeFile(markdownPath, renderMarkdown(report), "utf8");
+
+console.log(`Batch health: ${report.status}`);
+console.log(`Batch: ${report.batchId ?? "none"}`);
+console.log(`Output: ${jsonPath}`);
+if (report.missingPhases.length > 0) {
+  console.log(`Missing phases: ${report.missingPhases.join(", ")}`);
+}
+console.log(
+  `Attention: ${report.summary.unresolvedAttentionItems} unresolved (${report.summary.openAttentionItems} open, ${report.summary.deferredAttentionItems} deferred)`,
+);
+console.log(`Score regressions: ${report.summary.scoreRegressionItems}`);
+for (const issue of report.issues) {
+  console.log(`${issue.severity.toUpperCase()} ${issue.kind}: ${issue.message}`);
+}
+
+async function selectBatchIndex(batchRoot: string, batchId: string | null) {
+  const candidates = (await readForecastBatchIndexArtifacts(root, { reportRoot: batchRoot }))
+    .filter((artifact) => !batchId || artifact.batchId === batchId);
+  candidates.sort((left, right) =>
+    timestampValue(right.generatedAt) - timestampValue(left.generatedAt)
+    || right.batchId.localeCompare(left.batchId)
+    || right.reportPath.localeCompare(left.reportPath)
+  );
+  return candidates[0] ?? null;
+}
+
+async function selectAttentionBacklog(backlogRoot: string): Promise<SelectedAttentionBacklog | null> {
+  const candidates = (await readForecastAttentionBacklogArtifacts(root, { reportRoot: backlogRoot }))
+    .map((artifact) => ({
+      artifact,
+      path: artifact.reportPath,
+      generatedAt: artifact.generatedAt,
+    }));
+  candidates.sort((left, right) =>
+    timestampValue(right.generatedAt) - timestampValue(left.generatedAt)
+    || right.path.localeCompare(left.path)
+  );
+  return candidates[0] ?? null;
+}
+
+async function buildHealthReport(
+  batchIndex: ForecastBatchIndexArtifact,
+  attentionBacklog: SelectedAttentionBacklog | null,
+  sourceDir: string,
+  backlogDir: string,
+  reportJsonPath: string,
+  reportMarkdownPath: string,
+): Promise<HealthReport> {
+  const batchId = batchIndex.batchId;
+  const counts = batchIndex.counts;
+  const batchAttentionItems = batchIndex.attentionItems.flatMap((item) => readHealthBatchAttentionItem(item, batchIndex.reportPath));
+  const candidateCalibrationGuardRules = batchIndex.candidateCalibrationGuardRules.flatMap(readHealthBatchCandidateCalibrationGuardRule);
+  const batchIndexGeneratedAt = batchIndex.generatedAt;
+  const attentionBacklogIssues = attentionBacklog
+    ? attentionBacklogCompatibilityIssues(
+      (await evaluateAttentionBacklogArtifactCompatibility(root, attentionBacklog.artifact, {
+        selectedBatchId: batchId,
+        batchIndexGeneratedAt,
+      })).issues,
+      batchId,
+    )
+    : [];
+  const compatibleAttentionBacklog = attentionBacklog && attentionBacklogIssues.length === 0 ? attentionBacklog : null;
+  const attentionItems = mergeSupplementalAttentionItems(
+    batchAttentionItems,
+    candidateCalibrationGuardRules,
+    readSupplementalAttentionItems(compatibleAttentionBacklog, batchId),
+  );
+  const attentionReviewCounts = summarizeForecastAttentionReviewStatuses(attentionItems);
+  const candidateGuardReviewCounts = summarizeForecastAttentionReviewStatuses(candidateCalibrationGuardRules);
+  const summary = {
+    entries: readNumber(counts, "entries") ?? 0,
+    forecastOps: readNumber(counts, "forecastOps") ?? 0,
+    resolutions: readNumber(counts, "resolutions") ?? 0,
+    performanceReports: readNumber(counts, "performanceReports") ?? 0,
+    completedForecasts: readNumber(counts, "completedForecasts") ?? 0,
+    failedForecasts: readNumber(counts, "failedForecasts") ?? 0,
+    resolvedCases: readNumber(counts, "resolvedCases") ?? 0,
+    failedResolutions: readNumber(counts, "failedResolutions") ?? 0,
+    performanceScoreRows: readNumber(counts, "performanceScoreRows"),
+    attentionItems: attentionItems.length,
+    openAttentionItems: attentionReviewCounts.open,
+    deferredAttentionItems: attentionReviewCounts.deferred,
+    reviewedAttentionItems: attentionReviewCounts.reviewed,
+    unresolvedAttentionItems: attentionReviewCounts.unresolved,
+    scoreRegressionItems: countScoreRegressions(attentionItems),
+    calibrationGuardRegressionItems: countCalibrationGuardRegressions(attentionItems),
+    candidateCalibrationGuardRules: readNumber(counts, "candidateCalibrationGuardRules") ?? candidateCalibrationGuardRules.length,
+    openCandidateCalibrationGuardRules: readNumber(counts, "openCandidateCalibrationGuardRules") ?? candidateGuardReviewCounts.open,
+    deferredCandidateCalibrationGuardRules: readNumber(counts, "deferredCandidateCalibrationGuardRules") ?? candidateGuardReviewCounts.deferred,
+    reviewedCandidateCalibrationGuardRules: readNumber(counts, "reviewedCandidateCalibrationGuardRules") ?? candidateGuardReviewCounts.reviewed,
+    unresolvedCandidateCalibrationGuardRules: candidateGuardReviewCounts.unresolved,
+  };
+  const missingPhases = expectedPhases.filter((phase) => countPhase(summary, phase) === 0);
+  const attentionByKind = summarizeAttentionByKind(attentionItems);
+  const attentionBySeverity = summarizeAttentionBySeverity(attentionItems);
+  const attentionByForecastType = summarizeAttentionByForecastType(attentionItems);
+  const issues = buildIssues(summary, missingPhases, attentionByKind, attentionBacklogIssues);
+  return {
+    reportType: "forecast_batch_health",
+    generatedAt: new Date().toISOString(),
+    batchId,
+    status: determineForecastBatchHealthStatus(issues),
+    summary,
+    missingPhases,
+    issues,
+    attentionByKind,
+    attentionBySeverity,
+    attentionByForecastType,
+    attentionItems: sortAttentionItems(attentionItems),
+    candidateCalibrationGuardRules: sortCandidateCalibrationGuardRules(candidateCalibrationGuardRules),
+    paths: {
+      json: reportJsonPath,
+      markdown: reportMarkdownPath,
+      batchIndex: batchIndex.reportPath,
+      batchIndexDir: sourceDir,
+      attentionBacklog: attentionBacklog?.path ?? null,
+      attentionBacklogDir: backlogDir,
+    },
+  };
+}
+
+function buildEmptyReport(
+  sourceDir: string,
+  backlogDir: string,
+  attentionBacklogPath: string | null,
+  reportJsonPath: string,
+  reportMarkdownPath: string,
+  requestedBatchId: string | null,
+): HealthReport {
+  const issueMessage = requestedBatchId
+    ? `No batch index found for batchId=${requestedBatchId}`
+    : "No batch index files found";
+  return {
+    reportType: "forecast_batch_health",
+    generatedAt: new Date().toISOString(),
+    batchId: requestedBatchId,
+    status: determineForecastBatchHealthStatus([{ severity: "high" }]),
+    summary: {
+      entries: 0,
+      forecastOps: 0,
+      resolutions: 0,
+      performanceReports: 0,
+      completedForecasts: 0,
+      failedForecasts: 0,
+      resolvedCases: 0,
+      failedResolutions: 0,
+      performanceScoreRows: null,
+      attentionItems: 0,
+      openAttentionItems: 0,
+      deferredAttentionItems: 0,
+      reviewedAttentionItems: 0,
+      unresolvedAttentionItems: 0,
+      scoreRegressionItems: 0,
+      calibrationGuardRegressionItems: 0,
+      candidateCalibrationGuardRules: 0,
+      openCandidateCalibrationGuardRules: 0,
+      deferredCandidateCalibrationGuardRules: 0,
+      reviewedCandidateCalibrationGuardRules: 0,
+      unresolvedCandidateCalibrationGuardRules: 0,
+    },
+    missingPhases: expectedPhases,
+    issues: [{ severity: "high", kind: "missing_batch_index", message: issueMessage }],
+    attentionByKind: [],
+    attentionBySeverity: [],
+    attentionByForecastType: [],
+    attentionItems: [],
+    candidateCalibrationGuardRules: [],
+    paths: {
+      json: reportJsonPath,
+      markdown: reportMarkdownPath,
+      batchIndex: null,
+      batchIndexDir: sourceDir,
+      attentionBacklog: attentionBacklogPath,
+      attentionBacklogDir: backlogDir,
+    },
+  };
+}
+
+function buildIssues(
+  summary: HealthReport["summary"],
+  missingPhases: BatchPhase[],
+  attentionByKind: AttentionKindBreakdown[],
+  attentionBacklogIssues: HealthIssue[] = [],
+): HealthIssue[] {
+  const issues: HealthIssue[] = [...attentionBacklogIssues];
+  for (const phase of missingPhases) {
+    issues.push({ severity: "high", kind: "missing_phase", message: `Missing ${phase} artifact in the batch index.` });
+  }
+  if (summary.failedForecasts > 0) {
+    issues.push({ severity: "high", kind: "failed_forecasts", message: `${summary.failedForecasts} forecast run(s) failed.` });
+  }
+  if (summary.failedResolutions > 0) {
+    issues.push({ severity: "high", kind: "failed_resolutions", message: `${summary.failedResolutions} resolution update(s) failed.` });
+  }
+  if (summary.unresolvedAttentionItems > 0) {
+    const topKinds = attentionByKind
+      .filter((row) => row.unresolved > 0)
+      .slice(0, 3)
+      .map((row) => `${row.kind}=${row.unresolved}`)
+      .join(", ");
+    issues.push({
+      severity: summary.openAttentionItems > 0 ? "high" : "medium",
+      kind: "unresolved_attention",
+      message: `${summary.unresolvedAttentionItems} attention item(s) remain open or deferred${topKinds ? ` (${topKinds})` : ""}.`,
+    });
+  }
+  if (summary.scoreRegressionItems > 0) {
+    issues.push({
+      severity: "medium",
+      kind: "score_regression",
+      message: `${summary.scoreRegressionItems} attention item(s) indicate worsening score trends.`,
+    });
+  }
+  if (summary.calibrationGuardRegressionItems > 0) {
+    issues.push({
+      severity: "high",
+      kind: calibrationGuardRegressionIssueKind(),
+      message: `${summary.calibrationGuardRegressionItems} attention item(s) indicate guarded forecasts are scoring worse than unguarded forecasts.`,
+    });
+  }
+  if (summary.unresolvedCandidateCalibrationGuardRules > 0) {
+    issues.push({
+      severity: summary.openCandidateCalibrationGuardRules > 0 ? "high" : "medium",
+      kind: candidateCalibrationGuardReviewIssueKind(),
+      message: `${summary.unresolvedCandidateCalibrationGuardRules} candidate calibration guard rule(s) remain open or deferred.`,
+    });
+  }
+  if (summary.performanceReports > 0 && summary.performanceScoreRows === 0) {
+    issues.push({ severity: "medium", kind: "empty_performance_report", message: "Performance report has zero score rows." });
+  }
+  return issues;
+}
+
+function attentionBacklogCompatibilityIssues(
+  compatibilityIssues: AttentionBacklogCompatibilityIssue[],
+  batchId: string | null,
+): HealthIssue[] {
+  return compatibilityIssues.map((issue) => ({
+    severity: "medium",
+    kind: issue.kind,
+    message: attentionBacklogCompatibilityMessage(issue, batchId),
+  }));
+}
+
+function attentionBacklogCompatibilityMessage(issue: AttentionBacklogCompatibilityIssue, batchId: string | null) {
+  if (issue.kind === "attention_backlog_timestamp_missing") {
+    return "Attention backlog has no parseable generatedAt timestamp and was not merged into health counts.";
+  }
+  if (issue.kind === "attention_backlog_stale") {
+    return `Attention backlog was generated before selected batch ${batchId ?? "unknown"} and was not merged into health counts.`;
+  }
+  if (issue.kind === "attention_backlog_reviews_stale") {
+    return "Attention backlog was generated before local attention reviews were updated and was not merged into health counts.";
+  }
+  if (issue.kind === "attention_backlog_status_filter") {
+    return `Attention backlog was generated without ${(issue.missingStatuses ?? []).join(" and ")} item(s), so supplemental unresolved attention was not merged.`;
+  }
+  return `Attention backlog was generated for ${(issue.batchIds ?? []).join(", ")} and does not cover selected batch ${batchId ?? "unknown"}.`;
+}
+
+function readHealthAttentionItem(item: ForecastAttentionBacklogItem, fallbackSourcePath: string | null = null): HealthAttentionItem[] {
+  const id = item.id;
+  const reviewStatus = item.reviewStatus;
+  if (!id || !isForecastAttentionReviewStatus(reviewStatus)) {
+    return [];
+  }
+  return [{
+    id,
+    reviewStatus,
+    severity: item.severity ?? "medium",
+    kind: item.kind ?? "attention_item",
+    reason: item.reason ?? "",
+    recommendedAction: item.recommendedActions[0] ?? null,
+    reviewNote: item.reviewNote,
+    reviewer: item.reviewer,
+    reviewedAt: item.reviewedAt,
+    metric: item.metric ?? "metric",
+    score: item.score,
+    delta: item.delta,
+    forecastType: item.forecastType ?? "unknown",
+    taskId: item.taskId,
+    taskLabel: item.taskLabel,
+    sourcePath: item.sourcePath ?? fallbackSourcePath,
+  }];
+}
+
+function readHealthBatchAttentionItem(item: ForecastBatchIndexAttentionItem, fallbackSourcePath: string | null = null): HealthAttentionItem[] {
+  const id = item.id;
+  const reviewStatus = item.reviewStatus;
+  if (!id || !isForecastAttentionReviewStatus(reviewStatus)) {
+    return [];
+  }
+  return [{
+    id,
+    reviewStatus,
+    severity: item.severity ?? "medium",
+    kind: item.kind ?? "attention_item",
+    reason: item.reason ?? "",
+    recommendedAction: item.recommendedActions[0] ?? null,
+    reviewNote: item.reviewNote,
+    reviewer: item.reviewer,
+    reviewedAt: item.reviewedAt,
+    metric: item.metric ?? "metric",
+    score: item.score,
+    delta: item.delta,
+    forecastType: item.forecastType ?? "unknown",
+    taskId: item.taskId,
+    taskLabel: item.taskLabel,
+    sourcePath: fallbackSourcePath,
+  }];
+}
+
+function readSupplementalAttentionItems(
+  attentionBacklog: SelectedAttentionBacklog | null,
+  batchId: string | null,
+): HealthAttentionItem[] {
+  if (!attentionBacklog || !batchId) {
+    return [];
+  }
+  return attentionBacklog.artifact.items
+    .filter((item) => item.batchId === batchId)
+    .flatMap((item) => readHealthAttentionItem(item, attentionBacklog.path));
+}
+
+function mergeSupplementalAttentionItems(
+  baseItems: HealthAttentionItem[],
+  candidateRules: HealthCandidateCalibrationGuardRule[],
+  supplementalItems: HealthAttentionItem[],
+) {
+  const seen = new Set([
+    ...baseItems.map((item) => item.id),
+    ...candidateRules.map((rule) => rule.id),
+  ]);
+  const merged = [...baseItems];
+  const candidateGuardKind = candidateCalibrationGuardAttentionKind();
+  for (const item of supplementalItems) {
+    if (item.kind === candidateGuardKind || seen.has(item.id)) {
+      continue;
+    }
+    seen.add(item.id);
+    merged.push(item);
+  }
+  return merged;
+}
+
+function readHealthBatchCandidateCalibrationGuardRule(item: ForecastBatchIndexCandidateCalibrationGuardRule): HealthCandidateCalibrationGuardRule[] {
+  const id = item.id;
+  const reviewStatus = item.reviewStatus;
+  if (!id || !isForecastAttentionReviewStatus(reviewStatus)) {
+    return [];
+  }
+  return [{
+    id,
+    reviewStatus,
+    bucketLabel: item.bucketLabel ?? "bucket",
+    direction: item.direction ?? "calibration_drift",
+    suggestedAdjustment: item.suggestedAdjustment,
+    sampleSize: item.sampleSize,
+    meanForecast: item.meanForecast,
+    observedRate: item.observedRate,
+    calibrationError: item.calibrationError,
+    activationStatus: normalizeCalibrationGuardActivationStatus(item.activationStatus),
+    rationale: item.rationale ?? "",
+    reviewNote: item.reviewNote,
+    reviewer: item.reviewer,
+    reviewedAt: item.reviewedAt,
+  }];
+}
+
+function renderMarkdown(report: HealthReport) {
+  const lines = [
+    `# Forecast Batch Health${report.batchId ? `: ${report.batchId}` : ""}`,
+    "",
+    `Generated: ${report.generatedAt}`,
+    `Status: ${report.status}`,
+    `Batch index: ${report.paths.batchIndex ?? "missing"}`,
+    `Attention backlog: ${report.paths.attentionBacklog ?? "missing"}`,
+    "",
+    "## Summary",
+    "",
+    `- Entries: ${report.summary.entries}`,
+    `- Forecast ops artifacts: ${report.summary.forecastOps}`,
+    `- Resolution artifacts: ${report.summary.resolutions}`,
+    `- Performance artifacts: ${report.summary.performanceReports}`,
+    `- Completed forecasts: ${report.summary.completedForecasts}`,
+    `- Failed forecasts: ${report.summary.failedForecasts}`,
+    `- Resolved cases: ${report.summary.resolvedCases}`,
+    `- Failed resolutions: ${report.summary.failedResolutions}`,
+    `- Performance score rows: ${report.summary.performanceScoreRows ?? "unknown"}`,
+    `- Unresolved attention items: ${report.summary.unresolvedAttentionItems}`,
+    `- Score regression items: ${report.summary.scoreRegressionItems}`,
+    `- Calibration guard regression items: ${report.summary.calibrationGuardRegressionItems}`,
+    `- Candidate calibration guard rules: ${report.summary.candidateCalibrationGuardRules}`,
+    `- Unresolved candidate calibration guard rules: ${report.summary.unresolvedCandidateCalibrationGuardRules}`,
+    "",
+    "## Attention Breakdown",
+    "",
+    ...renderAttentionKindBreakdown(report.attentionByKind),
+    "",
+    "## Attention Severity",
+    "",
+    ...renderAttentionSeverityBreakdown(report.attentionBySeverity),
+    "",
+    "## Attention Forecast Types",
+    "",
+    ...renderAttentionForecastTypeBreakdown(report.attentionByForecastType),
+    "",
+    "## Issues",
+    "",
+    ...renderIssues(report.issues),
+    "",
+    "## Attention Items",
+    "",
+    ...renderAttentionTable(report.attentionItems),
+    "",
+    "## Candidate Calibration Guard Rules",
+    "",
+    ...renderCandidateCalibrationGuardTable(report.candidateCalibrationGuardRules),
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function renderAttentionKindBreakdown(rows: AttentionKindBreakdown[]) {
+  if (rows.length === 0) {
+    return ["No attention kind breakdown available."];
+  }
+  return [
+    "| Kind | Items | Open | Deferred | Reviewed | High | Medium | Low |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...rows.map((row) =>
+      `| ${escapeMarkdownCell(row.kind)} | ${row.items} | ${row.open} | ${row.deferred} | ${row.reviewed} | ${row.high} | ${row.medium} | ${row.low} |`,
+    ),
+  ];
+}
+
+function renderAttentionSeverityBreakdown(rows: AttentionSeverityBreakdown[]) {
+  if (rows.length === 0) {
+    return ["No attention severity breakdown available."];
+  }
+  return [
+    "| Severity | Items | Open | Deferred | Reviewed |",
+    "| --- | ---: | ---: | ---: | ---: |",
+    ...rows.map((row) =>
+      `| ${escapeMarkdownCell(row.severity)} | ${row.items} | ${row.open} | ${row.deferred} | ${row.reviewed} |`,
+    ),
+  ];
+}
+
+function renderAttentionForecastTypeBreakdown(rows: AttentionForecastTypeBreakdown[]) {
+  if (rows.length === 0) {
+    return ["No attention forecast-type breakdown available."];
+  }
+  return [
+    "| Forecast type | Items | Open | Deferred | Reviewed | High | Medium | Low |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...rows.map((row) =>
+      `| ${escapeMarkdownCell(row.forecastType)} | ${row.items} | ${row.open} | ${row.deferred} | ${row.reviewed} | ${row.high} | ${row.medium} | ${row.low} |`,
+    ),
+  ];
+}
+
+function renderIssues(issues: HealthIssue[]) {
+  if (issues.length === 0) {
+    return ["No health issues detected."];
+  }
+  return [
+    "| Severity | Kind | Message |",
+    "| --- | --- | --- |",
+    ...issues.map((issue) => `| ${issue.severity} | ${issue.kind} | ${escapeMarkdownCell(issue.message)} |`),
+  ];
+}
+
+function renderAttentionTable(items: HealthAttentionItem[]) {
+  if (items.length === 0) {
+    return ["No attention items found."];
+  }
+  return [
+    "| Status | Severity | Kind | Forecast type | Metric | Score | Delta | Task | Recommended action | Review note | Source |",
+    "| --- | --- | --- | --- | --- | ---: | ---: | --- | --- | --- | --- |",
+    ...items.map((item) =>
+      `| ${item.reviewStatus} | ${item.severity} | ${item.kind} | ${item.forecastType} | ${item.metric} | ${formatNumber(item.score)} | ${
+        formatNumber(item.delta)
+      } | ${escapeMarkdownCell(item.taskLabel ?? item.taskId ?? "")} | ${escapeMarkdownCell(item.recommendedAction ?? "")} | ${
+        escapeMarkdownCell(item.reviewNote ?? "")
+      } | ${escapeMarkdownCell(item.sourcePath ?? "")} |`,
+    ),
+  ];
+}
+
+function renderCandidateCalibrationGuardTable(items: HealthCandidateCalibrationGuardRule[]) {
+  if (items.length === 0) {
+    return ["No candidate calibration guard rules found."];
+  }
+  return [
+    "| Status | Bucket | Direction | Adjustment | Sample size | Forecast | Observed | Error | Activation | Review note |",
+    "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+    ...items.map((item) =>
+      `| ${item.reviewStatus} | ${escapeMarkdownCell(item.bucketLabel)} | ${item.direction} | ${
+        formatNumber(item.suggestedAdjustment)
+      } | ${formatNumber(item.sampleSize)} | ${formatNumber(item.meanForecast)} | ${formatNumber(item.observedRate)} | ${
+        formatNumber(item.calibrationError)
+      } | ${escapeMarkdownCell(item.activationStatus)} | ${escapeMarkdownCell(item.reviewNote ?? "")} |`,
+    ),
+  ];
+}
+
+function sortAttentionItems(items: HealthAttentionItem[]) {
+  return [...items].sort((left, right) =>
+    forecastAttentionReviewStatusRank(left.reviewStatus) - forecastAttentionReviewStatusRank(right.reviewStatus)
+    || forecastAttentionSeveritySortRank(left.severity) - forecastAttentionSeveritySortRank(right.severity)
+    || left.id.localeCompare(right.id)
+  );
+}
+
+function sortCandidateCalibrationGuardRules(items: HealthCandidateCalibrationGuardRule[]) {
+  return [...items].sort((left, right) =>
+    forecastAttentionReviewStatusRank(left.reviewStatus) - forecastAttentionReviewStatusRank(right.reviewStatus)
+    || forecastAttentionSeveritySortRank(calibrationGuardActivationSeverity(left.activationStatus)) - forecastAttentionSeveritySortRank(calibrationGuardActivationSeverity(right.activationStatus))
+    || left.id.localeCompare(right.id)
+  );
+}
+
+function countPhase(summary: HealthReport["summary"], phase: BatchPhase) {
+  if (phase === "forecast_ops") {
+    return summary.forecastOps;
+  }
+  if (phase === "forecast_resolution") {
+    return summary.resolutions;
+  }
+  return summary.performanceReports;
+}
+
+function countScoreRegressions(items: HealthAttentionItem[]) {
+  return items.filter((item) =>
+    isForecastAttentionReviewUnresolved(item.reviewStatus) &&
+    isForecastScoreRegressionAttentionKind(item.kind)
+  ).length;
+}
+
+function countCalibrationGuardRegressions(items: HealthAttentionItem[]) {
+  return items.filter((item) => isForecastAttentionReviewUnresolved(item.reviewStatus) && isCalibrationGuardRegressionAttentionKind(item.kind)).length;
+}
+
+function summarizeAttentionByKind(items: HealthAttentionItem[]): AttentionKindBreakdown[] {
+  return [...groupBy(items, (item) => item.kind).entries()]
+    .map(([kind, rows]) => {
+      const reviewCounts = summarizeForecastAttentionReviewStatuses(rows);
+      const severityCounts = summarizeForecastAttentionSeverities(rows);
+      return {
+        kind,
+        items: rows.length,
+        open: reviewCounts.open,
+        deferred: reviewCounts.deferred,
+        reviewed: reviewCounts.reviewed,
+        unresolved: reviewCounts.unresolved,
+        high: severityCounts.high,
+        medium: severityCounts.medium,
+        low: severityCounts.low,
+      };
+    })
+    .sort((left, right) =>
+      right.unresolved - left.unresolved
+      || forecastAttentionSeveritySortRank(left.high > 0 ? "high" : left.medium > 0 ? "medium" : "low") - forecastAttentionSeveritySortRank(right.high > 0 ? "high" : right.medium > 0 ? "medium" : "low")
+      || left.kind.localeCompare(right.kind)
+    );
+}
+
+function summarizeAttentionBySeverity(items: HealthAttentionItem[]): AttentionSeverityBreakdown[] {
+  return [...groupBy(items, (item) => item.severity).entries()]
+    .map(([severity, rows]) => {
+      const reviewCounts = summarizeForecastAttentionReviewStatuses(rows);
+      return {
+        severity,
+        items: rows.length,
+        open: reviewCounts.open,
+        deferred: reviewCounts.deferred,
+        reviewed: reviewCounts.reviewed,
+        unresolved: reviewCounts.unresolved,
+      };
+    })
+    .sort((left, right) => forecastAttentionSeveritySortRank(left.severity) - forecastAttentionSeveritySortRank(right.severity) || left.severity.localeCompare(right.severity));
+}
+
+function summarizeAttentionByForecastType(items: HealthAttentionItem[]): AttentionForecastTypeBreakdown[] {
+  return [...groupBy(items, (item) => item.forecastType).entries()]
+    .map(([forecastType, rows]) => {
+      const reviewCounts = summarizeForecastAttentionReviewStatuses(rows);
+      const severityCounts = summarizeForecastAttentionSeverities(rows);
+      return {
+        forecastType,
+        items: rows.length,
+        open: reviewCounts.open,
+        deferred: reviewCounts.deferred,
+        reviewed: reviewCounts.reviewed,
+        unresolved: reviewCounts.unresolved,
+        high: severityCounts.high,
+        medium: severityCounts.medium,
+        low: severityCounts.low,
+      };
+    })
+    .sort((left, right) =>
+      right.unresolved - left.unresolved
+      || forecastAttentionSeveritySortRank(left.high > 0 ? "high" : left.medium > 0 ? "medium" : "low") - forecastAttentionSeveritySortRank(right.high > 0 ? "high" : right.medium > 0 ? "medium" : "low")
+      || left.forecastType.localeCompare(right.forecastType)
+    );
+}
+
+function groupBy<T>(items: T[], keyFor: (item: T) => string) {
+  const grouped = new Map<string, T[]>();
+  for (const item of items) {
+    const key = keyFor(item);
+    const rows = grouped.get(key) ?? [];
+    rows.push(item);
+    grouped.set(key, rows);
+  }
+  return grouped;
+}
+
+function readNumber(value: unknown, key: string) {
+  const raw = readRecord(value)?.[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
+function formatNumber(value: number | null) {
+  return value === null ? "" : String(Math.round(value * 10_000) / 10_000);
+}
+
+function escapeMarkdownCell(value: string) {
+  return value.replace(/\|/g, "\\|");
+}

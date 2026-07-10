@@ -10,6 +10,36 @@ import {
   type createDb,
 } from "@open-superforecaster/db";
 import { scoreBinaryForecast } from "@open-superforecaster/evals";
+import { readAggregateQualitySnapshot, type AggregateQualitySnapshot } from "./aggregate-quality-metadata";
+import { aggregateSideAgreementBand, attemptCountBand, readAggregateStatsSnapshot, type AggregateStatsSnapshot } from "./aggregate-stats-metadata";
+import { readBaselineSanitySnapshot, type BaselineSanitySnapshot } from "./baseline-sanity-metadata";
+import { buildBinaryConfidenceSnapshot, readBinaryConfidenceSnapshot, type BinaryConfidenceSnapshot } from "./binary-confidence-metadata";
+import { buildCalibrationGuardImpact, type CalibrationGuardImpact, type CalibrationGuardRuleImpact } from "./calibration-guard-impact";
+import { readCalibrationGuardSnapshot, type CalibrationGuardSnapshot } from "./calibration-guard-metadata";
+import { readCategoricalForecastSnapshot, type CategoricalForecastSnapshot } from "./categorical-forecast-metadata";
+import { readComponentWeightingSnapshot, type ComponentWeightingSnapshot } from "./component-weighting-metadata";
+import { readConditionalForecastSnapshot, type ConditionalForecastSnapshot } from "./conditional-forecast-metadata";
+import { readDateForecastSnapshot, type DateForecastSnapshot } from "./date-forecast-metadata";
+import { readEvidenceCoverageSnapshot, type EvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
+import {
+  attentionKindIdPrefix,
+  calibrationGuardRegressionAttentionKind,
+  performanceAttentionSeverityRank,
+  poorResolvedForecastAttentionKind,
+  recommendPerformanceAttentionActions,
+  worseningTrendAttentionKind,
+  type PerformanceAttentionKind,
+  type PerformanceAttentionSeverity,
+} from "./forecast-attention-policy";
+import { readForecastInputContextSnapshot, type ForecastInputContextSnapshot } from "./forecast-input-context-metadata";
+import { readForecastRunSnapshot, type ForecastRunSnapshot } from "./forecast-run-metadata";
+import { poorScoreThreshold, selectPrimaryScoreMetric, trendDeltaHighThreshold } from "./forecast-score-policy";
+import { readMarketAnchorSnapshot, type MarketAnchorSnapshot } from "./market-anchor-metadata";
+import { readNumericForecastSnapshot, type NumericForecastSnapshot } from "./numeric-forecast-metadata";
+import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
+import { readResolutionBoundarySnapshot, type ResolutionBoundarySnapshot } from "./resolution-boundary-metadata";
+import { readThresholdedForecastSnapshot, type ThresholdedForecastSnapshot } from "./thresholded-forecast-metadata";
+import { readUncertaintyRangeSnapshot, type UncertaintyRangeSnapshot } from "./uncertainty-range-metadata";
 
 type Db = ReturnType<typeof createDb>["db"];
 
@@ -38,6 +68,76 @@ type ScoreRowInput = {
   scoreType: string;
   scoreValue: number;
   scoreConfig?: Record<string, unknown>;
+};
+
+type PerformanceGroup = {
+  key: string;
+  label: string;
+  scoreRows: number;
+  resolvedTasks: number;
+  meanScores: Record<string, number>;
+  primaryMetric: string | null;
+  primaryMean: number | null;
+};
+
+type PerformanceCase = {
+  taskId: string;
+  taskLabel: string;
+  forecastType: string;
+  primaryMetric: string;
+  primaryScore: number;
+  scoreRows: number;
+  scores: Record<string, number>;
+  resolvedValue: Record<string, unknown> | null;
+  probability: number | null;
+  resolved: boolean | null;
+  binaryConfidence: BinaryConfidenceSnapshot | null;
+  calibrationGuard: CalibrationGuardSnapshot | null;
+  baselineSanity: BaselineSanitySnapshot | null;
+  marketAnchor: MarketAnchorSnapshot | null;
+  resolutionBoundary: ResolutionBoundarySnapshot | null;
+  uncertaintyRange: UncertaintyRangeSnapshot | null;
+  componentWeighting: ComponentWeightingSnapshot | null;
+  aggregateQuality: AggregateQualitySnapshot | null;
+  aggregateStats: AggregateStatsSnapshot | null;
+  conditionalForecast: ConditionalForecastSnapshot | null;
+  thresholdedForecast: ThresholdedForecastSnapshot | null;
+  numericForecast: NumericForecastSnapshot | null;
+  dateForecast: DateForecastSnapshot | null;
+  categoricalForecast: CategoricalForecastSnapshot | null;
+  evidenceCoverage: EvidenceCoverageSnapshot | null;
+  inputContext: ForecastInputContextSnapshot | null;
+  runMetadata: ForecastRunSnapshot | null;
+  resolutionId: string | null;
+  forecastAggregateId: string | null;
+  createdAt: Date;
+};
+
+type PerformanceTrend = {
+  key: string;
+  label: string;
+  metric: string;
+  recentDays: number;
+  recentCount: number;
+  baselineCount: number;
+  recentMean: number | null;
+  baselineMean: number | null;
+  delta: number | null;
+  direction: "improved" | "worse" | "flat" | "insufficient_data";
+};
+
+type PerformanceAttentionItem = {
+  id: string;
+  kind: PerformanceAttentionKind;
+  severity: PerformanceAttentionSeverity;
+  reason: string;
+  recommendedActions: string[];
+  metric: string;
+  score: number | null;
+  delta: number | null;
+  taskId: string | null;
+  taskLabel: string | null;
+  forecastType: string | null;
 };
 
 export async function resolveBinaryForecastTask(db: Db, input: BinaryResolutionInput) {
@@ -75,6 +175,8 @@ export async function resolveForecastTask(db: Db, input: ForecastResolutionInput
   const forecastType = forecastTypeFromSubmode(task.operationSubmode);
   validateResolvedValue(forecastType, input.resolvedValue);
   const resolutionSource = input.resolutionSource?.trim() || "manual";
+  const inputContext = readForecastInputContextSnapshot(task.configJson);
+  const runMetadata = readForecastRunSnapshot(task);
   const existing = input.forceNew
     ? null
     : await findExistingResolution(db, {
@@ -147,6 +249,8 @@ export async function resolveForecastTask(db: Db, input: ForecastResolutionInput
           target: "aggregate",
           forecastType,
           resolutionSource,
+          ...(inputContext ? { inputContext } : {}),
+          ...(runMetadata ? { runMetadata } : {}),
         },
       })),
     );
@@ -176,6 +280,8 @@ export async function resolveForecastTask(db: Db, input: ForecastResolutionInput
           forecastType,
           forecasterLabel: attempt.forecasterLabel,
           resolutionSource,
+          ...(inputContext ? { inputContext } : {}),
+          ...(runMetadata ? { runMetadata } : {}),
         },
       })),
     );
@@ -207,8 +313,7 @@ export async function getResolutionDashboard(db: Db) {
   const productResolutionIds = new Set(productScores.map((score) => score.resolutionId).filter(Boolean));
   const pendingForecasts = await listPendingBinaryForecasts(db, productScores);
   const taskLabels = await taskLabelsById(db, productScores);
-  const calibrationBuckets = buildCalibrationBuckets(aggregateBrier);
-  const calibrationSummary = summarizeCalibration(calibrationBuckets, productResolutionIds.size);
+  const calibrationReport = buildBinaryCalibrationReport(scoreRowsForCalibration(aggregateBrier), productResolutionIds.size);
 
   return {
     summary: {
@@ -222,14 +327,15 @@ export async function getResolutionDashboard(db: Db) {
       benchmarkScoreRows: benchmarkScores.length,
       calibrationModels: calibrationRows.length,
       activeCalibrationModels: calibrationRows.filter((model) => model.active).length,
-      calibrationStatus: calibrationSummary.status,
-      calibrationSampleSize: calibrationSummary.sampleSize,
-      expectedCalibrationError: calibrationSummary.expectedCalibrationError,
-      maxBucketCalibrationError: calibrationSummary.maxBucketCalibrationError,
-      calibrationMinimumForFitting: calibrationSummary.minimumForFitting,
+      calibrationStatus: calibrationReport.calibrationSummary.status,
+      calibrationSampleSize: calibrationReport.calibrationSummary.sampleSize,
+      expectedCalibrationError: calibrationReport.calibrationSummary.expectedCalibrationError,
+      maxBucketCalibrationError: calibrationReport.calibrationSummary.maxBucketCalibrationError,
+      calibrationMinimumForFitting: calibrationReport.calibrationSummary.minimumForFitting,
     },
-    calibrationBuckets,
-    calibrationSummary,
+    calibrationBuckets: calibrationReport.calibrationBuckets,
+    calibrationSummary: calibrationReport.calibrationSummary,
+    candidateCalibrationGuardRules: calibrationReport.candidateCalibrationGuardRules,
     pendingForecasts,
     recentResolutions: resolutionRows.slice(0, 8).map((resolution) => ({
       id: resolution.id,
@@ -257,6 +363,366 @@ export async function getResolutionDashboard(db: Db) {
           createdAt: score.createdAt,
         };
       }),
+  };
+}
+
+export async function getForecastPerformanceReport(db: Db) {
+  const [scoreRows, resolutionRows, taskRows] = await Promise.all([
+    db.select().from(forecastScores),
+    db.select().from(forecastResolutions).orderBy(desc(forecastResolutions.resolvedAt)),
+    db.select({ id: tasks.id, label: tasks.label, operationSubmode: tasks.operationSubmode }).from(tasks),
+  ]);
+  const taskMeta = new Map(taskRows.map((task) => [task.id, task]));
+  const resolutionById = new Map(resolutionRows.map((resolution) => [resolution.id, resolution]));
+  const productScores = scoreRows.filter(isProductScore);
+  const aggregateScores = productScores.filter((score) => score.forecastAggregateId);
+  const aggregateBrierScores = aggregateScores.filter((score) => score.scoreType === "brier");
+  const attemptScores = productScores.filter((score) => score.forecastAttemptId);
+  const productResolutionIds = new Set(productScores.map((score) => score.resolutionId).filter(Boolean));
+  const resolvedTaskIds = new Set(productScores.map((score) => readScoreTaskId(score.scoreConfig)).filter((id): id is string => Boolean(id)));
+  const byForecastType = groupScores(productScores, (score) => readString(score.scoreConfig, "forecastType") ?? "unknown");
+  const byTarget = groupScores(productScores, (score) => readString(score.scoreConfig, "target") ?? "unknown");
+  const byForecaster = groupScores(attemptScores, (score) => readString(score.scoreConfig, "forecasterLabel") ?? "unknown");
+  const byForecastTypeAndTarget = groupScores(productScores, (score) => {
+    const forecastType = readString(score.scoreConfig, "forecastType") ?? "unknown";
+    const target = readString(score.scoreConfig, "target") ?? "unknown";
+    return `${forecastType}:${target}`;
+  });
+  const byForecastAttemptCount = groupScores(aggregateScores, forecastAttemptCountGroupKey);
+  const byCalibrationGuard = groupScores(aggregateScores, calibrationGuardGroupKey);
+  const byBinaryConfidence = groupScores(aggregateScores, binaryConfidenceGroupKey);
+  const byBinaryForecastSide = groupScores(aggregateScores, binaryForecastSideGroupKey);
+  const byBaselineSanity = groupScores(aggregateScores, baselineSanityGroupKey);
+  const byMarketAnchor = groupScores(aggregateScores, marketAnchorGroupKey);
+  const byResolutionBoundary = groupScores(aggregateScores, resolutionBoundaryGroupKey);
+  const byUncertaintyRange = groupScores(aggregateScores, uncertaintyRangeGroupKey);
+  const byComponentWeighting = groupScores(aggregateScores, componentWeightingGroupKey);
+  const byAggregateQuality = groupScores(aggregateScores, aggregateQualityGroupKey);
+  const byAggregateQualityRounds = groupScores(aggregateScores, aggregateQualityRoundsGroupKey);
+  const byAggregateQualityIssues = groupScores(aggregateScores, aggregateQualityIssuesGroupKey);
+  const byAggregateDisagreement = groupScores(aggregateScores, aggregateDisagreementGroupKey);
+  const byAggregateFinalComponentPosition = groupScores(aggregateScores, aggregateFinalComponentPositionGroupKey);
+  const byAggregateSideAgreement = groupScores(aggregateScores, aggregateSideAgreementGroupKey);
+  const byAggregateMeanConfidenceDistance = groupScores(aggregateScores, aggregateMeanConfidenceDistanceGroupKey);
+  const byAggregateFinalConfidenceShift = groupScores(aggregateScores, aggregateFinalConfidenceShiftGroupKey);
+  const byAggregateMedianAdjustment = groupScores(aggregateScores, aggregateMedianAdjustmentGroupKey);
+  const byAggregateInsideViewShift = groupScores(aggregateScores, aggregateInsideViewShiftGroupKey);
+  const byAggregateFinalInsideViewAdjustment = groupScores(aggregateScores, aggregateFinalInsideViewAdjustmentGroupKey);
+  const byAggregateFinalAdjustmentDirection = groupScores(aggregateScores, aggregateFinalAdjustmentDirectionGroupKey);
+  const byAggregateAttemptCount = groupScores(aggregateScores, aggregateAttemptCountGroupKey);
+  const byAggregationAnchor = groupScores(aggregateScores, aggregationAnchorGroupKey);
+  const byResearchDepth = groupScores(aggregateScores, researchDepthGroupKey);
+  const byForecasterPanelSize = groupScores(aggregateScores, forecasterPanelSizeGroupKey);
+  const byComplexityScore = groupScores(aggregateScores, complexityScoreGroupKey);
+  const byConditionalBranch = groupScores(aggregateScores, conditionalBranchGroupKey);
+  const byConditionalEffect = groupScores(aggregateScores, conditionalEffectGroupKey);
+  const byConditionalBranchDisagreement = groupScores(aggregateScores, conditionalBranchDisagreementGroupKey);
+  const byConditionalResolvedBranch = groupScores(aggregateScores, conditionalResolvedBranchGroupKey);
+  const byThresholdedDirection = groupScores(aggregateScores, thresholdedDirectionGroupKey);
+  const byThresholdedSource = groupScores(aggregateScores, thresholdedSourceGroupKey);
+  const byThresholdedRepair = groupScores(aggregateScores, thresholdedRepairGroupKey);
+  const byThresholdedCurveSpread = groupScores(aggregateScores, thresholdedCurveSpreadGroupKey);
+  const byThresholdedComponentDisagreement = groupScores(aggregateScores, thresholdedComponentDisagreementGroupKey);
+  const byThresholdedResolvedBand = groupScores(aggregateScores, thresholdedResolvedBandGroupKey);
+  const byNumericInterval = groupScores(aggregateScores, numericIntervalGroupKey);
+  const byNumericUnit = groupScores(aggregateScores, numericUnitGroupKey);
+  const byNumericP50Disagreement = groupScores(aggregateScores, numericP50DisagreementGroupKey);
+  const byNumericP50Error = groupScores(aggregateScores, numericP50ErrorGroupKey);
+  const byNumericResolvedPosition = groupScores(aggregateScores, numericResolvedPositionGroupKey);
+  const byDateInterval = groupScores(aggregateScores, dateIntervalGroupKey);
+  const byDateNeverProbability = groupScores(aggregateScores, dateNeverProbabilityGroupKey);
+  const byDateP50Disagreement = groupScores(aggregateScores, dateP50DisagreementGroupKey);
+  const byDateP50Error = groupScores(aggregateScores, dateP50ErrorGroupKey);
+  const byDateResolvedPosition = groupScores(aggregateScores, dateResolvedPositionGroupKey);
+  const byCategoricalConfidence = groupScores(aggregateScores, categoricalConfidenceGroupKey);
+  const byCategoricalEntropy = groupScores(aggregateScores, categoricalEntropyGroupKey);
+  const byCategoricalSource = groupScores(aggregateScores, categoricalSourceGroupKey);
+  const byCategoricalCoverage = groupScores(aggregateScores, categoricalCoverageGroupKey);
+  const byCategoricalTopAgreement = groupScores(aggregateScores, categoricalTopAgreementGroupKey);
+  const byCategoricalResolvedCategory = groupScores(aggregateScores, categoricalResolvedCategoryGroupKey);
+  const byEvidenceSourceCount = groupScores(aggregateScores, evidenceSourceCountGroupKey);
+  const byEvidenceSourceDiversity = groupScores(aggregateScores, evidenceSourceDiversityGroupKey);
+  const byEvidenceSourceConcentration = groupScores(aggregateScores, evidenceSourceConcentrationGroupKey);
+  const byEvidenceSourceDateCoverage = groupScores(aggregateScores, evidenceSourceDateCoverageGroupKey);
+  const byEvidenceSourceFreshness = groupScores(aggregateScores, evidenceSourceFreshnessGroupKey);
+  const byEvidenceSourceTiming = groupScores(aggregateScores, evidenceSourceTimingGroupKey);
+  const byEvidenceUncertaintyCount = groupScores(aggregateScores, evidenceUncertaintyCountGroupKey);
+  const byEvidenceRationaleLength = groupScores(aggregateScores, evidenceRationaleLengthGroupKey);
+  const byInputRequestedForecastType = groupScores(aggregateScores, inputRequestedForecastTypeGroupKey);
+  const byInputRoutedForecastType = groupScores(aggregateScores, inputRoutedForecastTypeGroupKey);
+  const byInputTypeAlignment = groupScores(aggregateScores, inputTypeAlignmentGroupKey);
+  const byInputRoutingConfidence = groupScores(aggregateScores, inputRoutingConfidenceGroupKey);
+  const byInputSource = groupScores(aggregateScores, inputSourceGroupKey);
+  const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
+  const byInputEvidenceAsOfDate = groupScores(aggregateScores, inputEvidenceAsOfDateGroupKey);
+  const byInputResolutionCriteriaDepth = groupScores(aggregateScores, inputResolutionCriteriaDepthGroupKey);
+  const byInputResolutionHorizon = groupScores(aggregateScores, inputResolutionHorizonGroupKey);
+  const byInputBackgroundDepth = groupScores(aggregateScores, inputBackgroundDepthGroupKey);
+  const byInputMarketContext = groupScores(aggregateScores, inputMarketContextGroupKey);
+  const byInputMarketRecency = groupScores(aggregateScores, inputMarketRecencyGroupKey);
+  const byInputMarketMetadata = groupScores(aggregateScores, inputMarketMetadataGroupKey);
+  const byInputMarketCreationAge = groupScores(aggregateScores, inputMarketCreationAgeGroupKey);
+  const byInputQuestionLength = groupScores(aggregateScores, inputQuestionLengthGroupKey);
+  const byInputCategoryCount = groupScores(aggregateScores, inputCategoryCountGroupKey);
+  const byInputCategoryCoverage = groupScores(aggregateScores, inputCategoryCoverageGroupKey);
+  const byInputThresholdCount = groupScores(aggregateScores, inputThresholdCountGroupKey);
+  const byInputThresholdValueCoverage = groupScores(aggregateScores, inputThresholdValueCoverageGroupKey);
+  const byInputThresholdDirection = groupScores(aggregateScores, inputThresholdDirectionGroupKey);
+  const byInputConditionDepth = groupScores(aggregateScores, inputConditionDepthGroupKey);
+  const byInputConditionCriteriaDepth = groupScores(aggregateScores, inputConditionCriteriaDepthGroupKey);
+  const byInputConditionCriteria = groupScores(aggregateScores, inputConditionCriteriaGroupKey);
+  const byInputUnitSpecificity = groupScores(aggregateScores, inputUnitSpecificityGroupKey);
+  const byRunDuration = groupScores(aggregateScores, runDurationGroupKey);
+  const byRunWorkflowVersion = groupScores(aggregateScores, runWorkflowVersionGroupKey);
+  const byRunWorkflowVariant = groupScores(aggregateScores, runWorkflowVariantGroupKey);
+  const byRunExperiment = groupScores(aggregateScores, runExperimentGroupKey);
+  const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
+  const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
+  const bestResolvedForecasts = rankedAggregateCases.slice(0, 8);
+  const worstResolvedForecasts = [...rankedAggregateCases].reverse().slice(0, 8);
+  const scoreTrends = buildScoreTrends(aggregateScores);
+  const calibrationReport = buildBinaryCalibrationReport(scoreRowsForCalibration(aggregateBrierScores), productResolutionIds.size);
+  const needsAttention = buildNeedsAttentionQueue(worstResolvedForecasts, scoreTrends, calibrationReport, calibrationGuardImpact);
+
+  return {
+    reportType: "forecast_performance_report",
+    generatedAt: new Date().toISOString(),
+    summary: {
+      resolvedTasks: resolvedTaskIds.size,
+      productResolutions: productResolutionIds.size,
+      productScoreRows: productScores.length,
+      aggregateScoreRows: aggregateScores.length,
+      attemptScoreRows: attemptScores.length,
+      meanScores: meanScoresByType(productScores),
+      aggregateMeanScores: meanScoresByType(aggregateScores),
+      attemptMeanScores: meanScoresByType(attemptScores),
+      calibrationStatus: calibrationReport.calibrationSummary.status,
+      calibrationSampleSize: calibrationReport.calibrationSummary.sampleSize,
+      expectedCalibrationError: calibrationReport.calibrationSummary.expectedCalibrationError,
+      maxBucketCalibrationError: calibrationReport.calibrationSummary.maxBucketCalibrationError,
+    },
+    calibrationBuckets: calibrationReport.calibrationBuckets,
+    calibrationSummary: calibrationReport.calibrationSummary,
+    calibrationDiagnostics: calibrationReport.calibrationDiagnostics,
+    candidateCalibrationGuardRules: calibrationReport.candidateCalibrationGuardRules,
+    calibrationGuardImpact,
+    calibrationReplayRows: calibrationReplayRows(aggregateBrierScores),
+    groups: {
+      byForecastType,
+      byTarget,
+      byForecaster,
+      byForecastTypeAndTarget,
+      byForecastAttemptCount,
+      byCalibrationGuard,
+      byBinaryConfidence,
+      byBinaryForecastSide,
+      byBaselineSanity,
+      byMarketAnchor,
+      byResolutionBoundary,
+      byUncertaintyRange,
+      byComponentWeighting,
+      byAggregateQuality,
+      byAggregateQualityRounds,
+      byAggregateQualityIssues,
+      byAggregateDisagreement,
+      byAggregateFinalComponentPosition,
+      byAggregateSideAgreement,
+      byAggregateMeanConfidenceDistance,
+      byAggregateFinalConfidenceShift,
+      byAggregateMedianAdjustment,
+      byAggregateInsideViewShift,
+      byAggregateFinalInsideViewAdjustment,
+      byAggregateFinalAdjustmentDirection,
+      byAggregateAttemptCount,
+      byAggregationAnchor,
+      byResearchDepth,
+      byForecasterPanelSize,
+      byComplexityScore,
+      byConditionalBranch,
+      byConditionalEffect,
+      byConditionalBranchDisagreement,
+      byConditionalResolvedBranch,
+      byThresholdedDirection,
+      byThresholdedSource,
+      byThresholdedRepair,
+      byThresholdedCurveSpread,
+      byThresholdedComponentDisagreement,
+      byThresholdedResolvedBand,
+      byNumericInterval,
+      byNumericUnit,
+      byNumericP50Disagreement,
+      byNumericP50Error,
+      byNumericResolvedPosition,
+      byDateInterval,
+      byDateNeverProbability,
+      byDateP50Disagreement,
+      byDateP50Error,
+      byDateResolvedPosition,
+      byCategoricalConfidence,
+      byCategoricalEntropy,
+      byCategoricalSource,
+      byCategoricalCoverage,
+      byCategoricalTopAgreement,
+      byCategoricalResolvedCategory,
+      byEvidenceSourceCount,
+      byEvidenceSourceDiversity,
+      byEvidenceSourceConcentration,
+      byEvidenceSourceDateCoverage,
+      byEvidenceSourceFreshness,
+      byEvidenceSourceTiming,
+      byEvidenceUncertaintyCount,
+      byEvidenceRationaleLength,
+      byInputRequestedForecastType,
+      byInputRoutedForecastType,
+      byInputTypeAlignment,
+      byInputRoutingConfidence,
+      byInputSource,
+      byInputContextCompleteness,
+      byInputEvidenceAsOfDate,
+      byInputResolutionCriteriaDepth,
+      byInputResolutionHorizon,
+      byInputBackgroundDepth,
+      byInputMarketContext,
+      byInputMarketRecency,
+      byInputMarketMetadata,
+      byInputMarketCreationAge,
+      byInputQuestionLength,
+      byInputCategoryCount,
+      byInputCategoryCoverage,
+      byInputThresholdCount,
+      byInputThresholdValueCoverage,
+      byInputThresholdDirection,
+      byInputConditionDepth,
+      byInputConditionCriteriaDepth,
+      byInputConditionCriteria,
+      byInputUnitSpecificity,
+      byRunDuration,
+      byRunWorkflowVersion,
+      byRunWorkflowVariant,
+      byRunExperiment,
+    },
+    bestResolvedForecasts,
+    worstResolvedForecasts,
+    scoreTrends,
+    needsAttention,
+    recentResolvedTasks: resolutionRows.slice(0, 12).map((resolution) => {
+      const taskId = readScoreTaskIdFromResolution(resolution.resolvedValue);
+      const task = taskId ? taskMeta.get(taskId) : null;
+      return {
+        resolutionId: resolution.id,
+        taskId,
+        taskLabel: task?.label ?? taskId ?? "Unknown task",
+        forecastType: task?.operationSubmode ? forecastTypeFromSubmode(task.operationSubmode) : null,
+        resolutionSource: resolution.resolutionSource,
+        resolvedValue: resolution.resolvedValue,
+        annulled: resolution.annulled,
+        resolvedAt: resolution.resolvedAt,
+        createdAt: resolution.createdAt,
+      };
+    }),
+    markdown: renderPerformanceMarkdown({
+      resolvedTasks: resolvedTaskIds.size,
+      productScoreRows: productScores.length,
+      byForecastType,
+      byTarget,
+      byForecaster,
+      byForecastAttemptCount,
+      byCalibrationGuard,
+      byBinaryConfidence,
+      byBinaryForecastSide,
+      byBaselineSanity,
+      byMarketAnchor,
+      byResolutionBoundary,
+      byUncertaintyRange,
+      byComponentWeighting,
+      byAggregateQuality,
+      byAggregateQualityRounds,
+      byAggregateQualityIssues,
+      byAggregateDisagreement,
+      byAggregateFinalComponentPosition,
+      byAggregateSideAgreement,
+      byAggregateMeanConfidenceDistance,
+      byAggregateFinalConfidenceShift,
+      byAggregateMedianAdjustment,
+      byAggregateInsideViewShift,
+      byAggregateFinalInsideViewAdjustment,
+      byAggregateFinalAdjustmentDirection,
+      byAggregateAttemptCount,
+      byAggregationAnchor,
+      byResearchDepth,
+      byForecasterPanelSize,
+      byComplexityScore,
+      byConditionalBranch,
+      byConditionalEffect,
+      byConditionalBranchDisagreement,
+      byConditionalResolvedBranch,
+      byThresholdedDirection,
+      byThresholdedSource,
+      byThresholdedRepair,
+      byThresholdedCurveSpread,
+      byThresholdedComponentDisagreement,
+      byThresholdedResolvedBand,
+      byNumericInterval,
+      byNumericUnit,
+      byNumericP50Disagreement,
+      byNumericP50Error,
+      byNumericResolvedPosition,
+      byDateInterval,
+      byDateNeverProbability,
+      byDateP50Disagreement,
+      byDateP50Error,
+      byDateResolvedPosition,
+      byCategoricalConfidence,
+      byCategoricalEntropy,
+      byCategoricalSource,
+      byCategoricalCoverage,
+      byCategoricalTopAgreement,
+      byCategoricalResolvedCategory,
+      byEvidenceSourceCount,
+      byEvidenceSourceDiversity,
+      byEvidenceSourceConcentration,
+      byEvidenceSourceDateCoverage,
+      byEvidenceSourceFreshness,
+      byEvidenceSourceTiming,
+      byEvidenceUncertaintyCount,
+      byEvidenceRationaleLength,
+      byInputRequestedForecastType,
+      byInputRoutedForecastType,
+      byInputTypeAlignment,
+      byInputRoutingConfidence,
+      byInputSource,
+      byInputContextCompleteness,
+      byInputEvidenceAsOfDate,
+      byInputResolutionCriteriaDepth,
+      byInputResolutionHorizon,
+      byInputBackgroundDepth,
+      byInputMarketContext,
+      byInputMarketRecency,
+      byInputMarketMetadata,
+      byInputMarketCreationAge,
+      byInputQuestionLength,
+      byInputCategoryCount,
+      byInputCategoryCoverage,
+      byInputThresholdCount,
+      byInputThresholdValueCoverage,
+      byInputThresholdDirection,
+      byInputConditionDepth,
+      byInputConditionCriteriaDepth,
+      byInputConditionCriteria,
+      byInputUnitSpecificity,
+      byRunDuration,
+      byRunWorkflowVersion,
+      byRunWorkflowVariant,
+      byRunExperiment,
+      bestResolvedForecasts,
+      worstResolvedForecasts,
+      scoreTrends,
+      needsAttention,
+      calibrationBuckets: calibrationReport.calibrationBuckets,
+      calibrationSummary: calibrationReport.calibrationSummary,
+      candidateCalibrationGuardRules: calibrationReport.candidateCalibrationGuardRules,
+      calibrationGuardImpact,
+    }),
   };
 }
 
@@ -406,18 +872,39 @@ function scoreForecastPrediction(input: {
   prediction: Record<string, unknown>;
   resolvedValue: Record<string, unknown>;
 }): ScoreRowInput[] {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(input.prediction);
+  const evidenceConfig = evidenceCoverage ? { evidenceCoverage } : {};
   if (input.forecastType === "binary") {
     const probability = readProbability(input.prediction);
     const resolved = readResolved(input.resolvedValue);
     if (probability === null || resolved === null) {
       return [];
     }
+    const calibrationGuard = readCalibrationGuardSnapshot(input.prediction);
+    const baselineSanity = readBaselineSanitySnapshot(input.prediction);
+    const marketAnchor = readMarketAnchorSnapshot(input.prediction);
+    const resolutionBoundary = readResolutionBoundarySnapshot(input.prediction);
+    const uncertaintyRange = readUncertaintyRangeSnapshot(input.prediction);
+    const componentWeighting = readComponentWeightingSnapshot(input.prediction);
+    const aggregateQuality = readAggregateQualitySnapshot(input.prediction);
+    const aggregateStats = readAggregateStatsSnapshot(input.prediction);
+    const binaryConfidence = buildBinaryConfidenceSnapshot(probability);
     return Object.entries(scoreBinaryForecast({ probability, resolved })).map(([scoreType, scoreValue]) => ({
       scoreType,
       scoreValue,
       scoreConfig: {
         probability,
         resolved,
+        ...(binaryConfidence ? { binaryConfidence } : {}),
+        ...(calibrationGuard ? { calibrationGuard } : {}),
+        ...(baselineSanity ? { baselineSanity } : {}),
+        ...(marketAnchor ? { marketAnchor } : {}),
+        ...(resolutionBoundary ? { resolutionBoundary } : {}),
+        ...(uncertaintyRange ? { uncertaintyRange } : {}),
+        ...(componentWeighting ? { componentWeighting } : {}),
+        ...(aggregateQuality ? { aggregateQuality } : {}),
+        ...(aggregateStats ? { aggregateStats } : {}),
+        ...evidenceConfig,
       },
     }));
   }
@@ -428,25 +915,26 @@ function scoreForecastPrediction(input: {
     if (predicted === null || actual === null) {
       return [];
     }
+    const numericForecast = readNumericForecastSnapshot({ ...input.prediction, actualValue: actual });
     const error = predicted - actual;
     const absoluteError = Math.abs(error);
     const rows: ScoreRowInput[] = [
       {
         scoreType: "absolute_error",
         scoreValue: absoluteError,
-        scoreConfig: { predicted, actual, error },
+        scoreConfig: { predicted, actual, error, ...(numericForecast ? { numericForecast } : {}), ...evidenceConfig },
       },
       {
         scoreType: "squared_error",
         scoreValue: error ** 2,
-        scoreConfig: { predicted, actual, error },
+        scoreConfig: { predicted, actual, error, ...(numericForecast ? { numericForecast } : {}), ...evidenceConfig },
       },
     ];
     if (actual !== 0) {
       rows.push({
         scoreType: "absolute_percentage_error",
         scoreValue: absoluteError / Math.abs(actual),
-        scoreConfig: { predicted, actual, error },
+        scoreConfig: { predicted, actual, error, ...(numericForecast ? { numericForecast } : {}), ...evidenceConfig },
       });
     }
     return rows;
@@ -458,6 +946,8 @@ function scoreForecastPrediction(input: {
     if (!predicted || !actual) {
       return [];
     }
+    const actualDate = actual.toISOString().slice(0, 10);
+    const dateForecast = readDateForecastSnapshot({ ...input.prediction, actualDate });
     const errorDays = Math.round(((predicted.getTime() - actual.getTime()) / 86_400_000) * 100) / 100;
     const absoluteDays = Math.abs(errorDays);
     return [
@@ -466,8 +956,10 @@ function scoreForecastPrediction(input: {
         scoreValue: absoluteDays,
         scoreConfig: {
           predictedDate: predicted.toISOString().slice(0, 10),
-          actualDate: actual.toISOString().slice(0, 10),
+          actualDate,
           errorDays,
+          ...(dateForecast ? { dateForecast } : {}),
+          ...evidenceConfig,
         },
       },
       {
@@ -475,8 +967,10 @@ function scoreForecastPrediction(input: {
         scoreValue: errorDays ** 2,
         scoreConfig: {
           predictedDate: predicted.toISOString().slice(0, 10),
-          actualDate: actual.toISOString().slice(0, 10),
+          actualDate,
           errorDays,
+          ...(dateForecast ? { dateForecast } : {}),
+          ...evidenceConfig,
         },
       },
     ];
@@ -491,6 +985,7 @@ function scoreForecastPrediction(input: {
     if (distribution.length === 0) {
       return [];
     }
+    const categoricalForecast = readCategoricalForecastSnapshot({ ...input.prediction, actualCategory });
     const categories = uniqueStrings([...distribution.map((item) => item.category), actualCategory]);
     const probabilityByCategory = new Map(distribution.map((item) => [item.category, item.probability]));
     const brier = categories.reduce((sum, category) => {
@@ -503,12 +998,12 @@ function scoreForecastPrediction(input: {
       {
         scoreType: "categorical_brier",
         scoreValue: brier,
-        scoreConfig: { actualCategory, distribution },
+        scoreConfig: { actualCategory, distribution, ...(categoricalForecast ? { categoricalForecast } : {}), ...evidenceConfig },
       },
       {
         scoreType: "categorical_log",
         scoreValue: -Math.log(Math.max(1e-6, actualProbability)),
-        scoreConfig: { actualCategory, actualProbability, distribution },
+        scoreConfig: { actualCategory, actualProbability, distribution, ...(categoricalForecast ? { categoricalForecast } : {}), ...evidenceConfig },
       },
     ];
   }
@@ -518,6 +1013,7 @@ function scoreForecastPrediction(input: {
     if (actual === null) {
       return [];
     }
+    const thresholdedForecast = readThresholdedForecastSnapshot({ ...input.prediction, actualValue: actual });
     const direction = readString(input.prediction, "thresholdDirection", "threshold_direction") === "at_most"
       ? "at_most"
       : "at_least";
@@ -544,12 +1040,12 @@ function scoreForecastPrediction(input: {
       {
         scoreType: "thresholded_brier",
         scoreValue: meanNumber(points.map((point) => point.scores.brier)),
-        scoreConfig: { actual, direction, points },
+        scoreConfig: { actual, direction, points, ...(thresholdedForecast ? { thresholdedForecast } : {}), ...evidenceConfig },
       },
       {
         scoreType: "thresholded_log",
         scoreValue: meanNumber(points.map((point) => point.scores.log)),
-        scoreConfig: { actual, direction, points },
+        scoreConfig: { actual, direction, points, ...(thresholdedForecast ? { thresholdedForecast } : {}), ...evidenceConfig },
       },
     ];
   }
@@ -559,6 +1055,7 @@ function scoreForecastPrediction(input: {
   if (conditionResolved === null || outcomeResolved === null) {
     return [];
   }
+  const conditionalForecast = readConditionalForecastSnapshot({ ...input.prediction, conditionResolved });
   const branch = conditionResolved ? "condition" : "not_condition";
   const probability = conditionResolved
     ? readNumber(input.prediction, "probabilityGivenCondition", "probability_given_condition")
@@ -575,6 +1072,8 @@ function scoreForecastPrediction(input: {
       probability,
       conditionResolved,
       outcomeResolved,
+      ...(conditionalForecast ? { conditionalForecast } : {}),
+      ...evidenceConfig,
     },
   }));
   const conditionProbability = readNumber(input.prediction, "conditionProbability", "condition_probability");
@@ -584,12 +1083,12 @@ function scoreForecastPrediction(input: {
       {
         scoreType: "condition_brier",
         scoreValue: conditionScores.brier,
-        scoreConfig: { probability: conditionProbability, conditionResolved },
+        scoreConfig: { probability: conditionProbability, conditionResolved, ...(conditionalForecast ? { conditionalForecast } : {}), ...evidenceConfig },
       },
       {
         scoreType: "condition_log",
         scoreValue: conditionScores.log,
-        scoreConfig: { probability: conditionProbability, conditionResolved },
+        scoreConfig: { probability: conditionProbability, conditionResolved, ...(conditionalForecast ? { conditionalForecast } : {}), ...evidenceConfig },
       },
     );
   }
@@ -688,6 +1187,40 @@ function isProductScore(score: typeof forecastScores.$inferSelect) {
 function isBenchmarkScore(score: typeof forecastScores.$inferSelect) {
   const config = asRecord(score.scoreConfig);
   return Boolean(config?.benchmarkRunId);
+}
+
+function scoreRowsForCalibration(rows: Array<typeof forecastScores.$inferSelect>) {
+  return rows.map((row) => ({
+    probability: readProbability(row.scoreConfig),
+    resolved: readResolved(row.scoreConfig),
+    score: row.scoreValue,
+  }));
+}
+
+function scoreRowsForCalibrationGuardImpact(rows: Array<typeof forecastScores.$inferSelect>) {
+  return rows.map((row) => ({
+    score: row.scoreValue,
+    taskId: readScoreTaskId(row.scoreConfig),
+    calibrationGuard: readCalibrationGuardSnapshot(row.scoreConfig),
+  }));
+}
+
+function calibrationReplayRows(rows: Array<typeof forecastScores.$inferSelect>) {
+  return rows.flatMap((row) => {
+    const probability = readProbability(row.scoreConfig);
+    const resolved = readResolved(row.scoreConfig);
+    if (probability === null || resolved === null) {
+      return [];
+    }
+    return [{
+      id: row.id,
+      taskId: readScoreTaskId(row.scoreConfig),
+      probability,
+      resolved,
+      score: row.scoreValue,
+      createdAt: row.createdAt,
+    }];
+  });
 }
 
 function readScoreTaskId(value: unknown) {
@@ -793,77 +1326,2648 @@ function meanScore(rows: Array<typeof forecastScores.$inferSelect>) {
   return rows.reduce((sum, row) => sum + row.scoreValue, 0) / rows.length;
 }
 
-function buildCalibrationBuckets(rows: Array<typeof forecastScores.$inferSelect>) {
-  const bucketDefs = [
-    { min: 0, max: 20 },
-    { min: 20, max: 40 },
-    { min: 40, max: 60 },
-    { min: 60, max: 80 },
-    { min: 80, max: 100 },
-  ];
-  return bucketDefs.map((bucket) => {
-    const bucketRows = rows.filter((row) => {
-      const probability = readProbability(row.scoreConfig);
-      if (probability === null) {
-        return false;
-      }
-      return bucket.max === 100
-        ? probability >= bucket.min && probability <= bucket.max
-        : probability >= bucket.min && probability < bucket.max;
-    });
-    const probabilities = bucketRows
-      .map((row) => readProbability(row.scoreConfig))
-      .filter((value): value is number => value !== null);
-    const resolvedValues = bucketRows
-      .map((row) => readResolved(row.scoreConfig))
-      .filter((value): value is boolean => value !== null);
-    const observedRate = resolvedValues.length
-      ? (resolvedValues.filter(Boolean).length / resolvedValues.length) * 100
-      : null;
-    const meanForecast = probabilities.length ? meanNumber(probabilities) : null;
-    return {
-      label: `${bucket.min}-${bucket.max}%`,
-      minProbability: bucket.min,
-      maxProbability: bucket.max,
-      count: bucketRows.length,
-      meanForecast,
-      observedRate,
-      meanBrier: meanScore(bucketRows),
-      calibrationError:
-        meanForecast === null || observedRate === null
-          ? null
-          : Math.abs(meanForecast - observedRate),
-    };
-  });
+function meanScoresByType(rows: Array<typeof forecastScores.$inferSelect>) {
+  const scores: Record<string, number> = {};
+  for (const scoreType of uniqueStrings(rows.map((row) => row.scoreType)).sort()) {
+    const matchingRows = rows.filter((row) => row.scoreType === scoreType);
+    scores[scoreType] = meanNumber(matchingRows.map((row) => row.scoreValue));
+  }
+  return scores;
 }
 
-function summarizeCalibration(
-  buckets: Array<{
-    count: number;
-    calibrationError: number | null;
-  }>,
-  resolvedForecastCount: number,
-) {
-  const sampleSize = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
-  const weightedErrors = buckets.filter((bucket) => bucket.count > 0 && bucket.calibrationError !== null);
-  const expectedCalibrationError = weightedErrors.length
-    ? weightedErrors.reduce((sum, bucket) => sum + bucket.count * (bucket.calibrationError ?? 0), 0) / sampleSize
-    : null;
-  const maxBucketCalibrationError = weightedErrors.length
-    ? Math.max(...weightedErrors.map((bucket) => bucket.calibrationError ?? 0))
-    : null;
-  const minimumForFitting = 25;
+function groupScores(
+  rows: Array<typeof forecastScores.$inferSelect>,
+  keyForScore: (score: typeof forecastScores.$inferSelect) => string,
+): PerformanceGroup[] {
+  const grouped = new Map<string, Array<typeof forecastScores.$inferSelect>>();
+  for (const row of rows) {
+    const key = keyForScore(row);
+    grouped.set(key, [...(grouped.get(key) ?? []), row]);
+  }
+  return [...grouped.entries()]
+    .map(([key, groupRows]) => {
+      const meanScores = meanScoresByType(groupRows);
+      const primaryMetric = selectPrimaryMetric(meanScores);
+      return {
+        key,
+        label: formatPerformanceGroupLabel(key),
+        scoreRows: groupRows.length,
+        resolvedTasks: new Set(groupRows.map((row) => readScoreTaskId(row.scoreConfig)).filter(Boolean)).size,
+        meanScores,
+        primaryMetric,
+        primaryMean: primaryMetric ? meanScores[primaryMetric] ?? null : null,
+      };
+    })
+    .sort((left, right) => {
+      if (left.primaryMean !== null && right.primaryMean !== null && left.primaryMean !== right.primaryMean) {
+        return left.primaryMean - right.primaryMean;
+      }
+      return right.scoreRows - left.scoreRows;
+    });
+}
+
+function calibrationGuardGroupKey(score: typeof forecastScores.$inferSelect) {
+  const guard = readCalibrationGuardSnapshot(score.scoreConfig);
+  if (!guard || guard.appliedRules.length === 0) {
+    return "unguarded";
+  }
+  return `guard:${guard.appliedRules.map((rule) => rule.id).sort().join("+")}`;
+}
+
+function forecastAttemptCountGroupKey(score: typeof forecastScores.$inferSelect) {
+  const forecastType = readString(score.scoreConfig, "forecastType") ?? "unknown";
+  const attemptCount = forecastAttemptCount(score.scoreConfig, forecastType);
+  return `forecast_attempts:${forecastType}:${attemptCountBand(attemptCount)}`;
+}
+
+function binaryConfidenceGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "binary") {
+    return "binary_confidence:not_binary";
+  }
+  const confidence = readBinaryConfidenceSnapshot(score.scoreConfig);
+  return `binary_confidence:${confidence?.confidenceBand ?? "unrecorded"}`;
+}
+
+function binaryForecastSideGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "binary") {
+    return "binary_side:not_binary";
+  }
+  const confidence = readBinaryConfidenceSnapshot(score.scoreConfig);
+  return `binary_side:${confidence?.forecastSide ?? "unrecorded"}`;
+}
+
+function baselineSanityGroupKey(score: typeof forecastScores.$inferSelect) {
+  const baselineSanity = readBaselineSanitySnapshot(score.scoreConfig);
+  return baselineSanity ? `baseline:${baselineSanity.status}` : "baseline:unrecorded";
+}
+
+function marketAnchorGroupKey(score: typeof forecastScores.$inferSelect) {
+  const marketAnchor = readMarketAnchorSnapshot(score.scoreConfig);
+  return marketAnchor ? `market_anchor:${marketAnchor.status}` : "market_anchor:unrecorded";
+}
+
+function resolutionBoundaryGroupKey(score: typeof forecastScores.$inferSelect) {
+  const resolutionBoundary = readResolutionBoundarySnapshot(score.scoreConfig);
+  return resolutionBoundary ? `resolution_boundary:${resolutionBoundary.status}` : "resolution_boundary:unrecorded";
+}
+
+function uncertaintyRangeGroupKey(score: typeof forecastScores.$inferSelect) {
+  const uncertaintyRange = readUncertaintyRangeSnapshot(score.scoreConfig);
+  return uncertaintyRange ? `uncertainty_range:${uncertaintyRange.status}` : "uncertainty_range:unrecorded";
+}
+
+function componentWeightingGroupKey(score: typeof forecastScores.$inferSelect) {
+  const componentWeighting = readComponentWeightingSnapshot(score.scoreConfig);
+  return componentWeighting ? `component_weighting:${componentWeighting.status}` : "component_weighting:unrecorded";
+}
+
+function aggregateQualityGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
+  if (!aggregateQuality) {
+    return "aggregate_quality:unrecorded";
+  }
+  return `aggregate_quality:${aggregateQuality.convergenceStatus}`;
+}
+
+function aggregateQualityRoundsGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
+  return `aggregate_quality_rounds:${aggregateQuality?.roundsUsedBand ?? "unrecorded"}`;
+}
+
+function aggregateQualityIssuesGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
+  return `aggregate_quality_issues:${aggregateQuality?.qualityIssueCountBand ?? "unrecorded"}`;
+}
+
+function aggregateDisagreementGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `component_disagreement:${aggregateStats?.disagreementBand ?? "unrecorded"}`;
+}
+
+function aggregateFinalComponentPositionGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `component_envelope:${aggregateStats?.finalComponentPositionBand ?? "unrecorded"}`;
+}
+
+function aggregateSideAgreementGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `aggregate_side:${aggregateStats ? aggregateSideAgreementBand(readProbability(score.scoreConfig), aggregateStats.meanProbability) : "unrecorded"}`;
+}
+
+function aggregateMeanConfidenceDistanceGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `aggregate_panel_confidence:${aggregateStats?.meanConfidenceDistanceBand ?? "unrecorded"}`;
+}
+
+function aggregateFinalConfidenceShiftGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `aggregate_confidence:${aggregateStats?.finalConfidenceShiftBand ?? "unrecorded"}`;
+}
+
+function aggregateMedianAdjustmentGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `median_adjustment:${aggregateStats?.adjustmentFromMedianBand ?? "unrecorded"}`;
+}
+
+function aggregateInsideViewShiftGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `inside_view_shift:${aggregateStats?.insideViewDeltaBand ?? "unrecorded"}`;
+}
+
+function aggregateFinalInsideViewAdjustmentGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `aggregate_adjustment:${aggregateStats?.finalInsideViewDeltaBand ?? "unrecorded"}`;
+}
+
+function aggregateFinalAdjustmentDirectionGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `aggregate_direction:${aggregateStats?.finalAdjustmentDirection ?? "unrecorded"}`;
+}
+
+function aggregateAttemptCountGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `aggregate_attempts:${aggregateStats?.attemptCountBand ?? "unrecorded"}`;
+}
+
+function aggregationAnchorGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return aggregateStats?.aggregationAnchor ? `aggregation_anchor:${aggregateStats.aggregationAnchor}` : "aggregation_anchor:unrecorded";
+}
+
+function researchDepthGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
+  return aggregateQuality?.researchDepth ? `research_depth:${aggregateQuality.researchDepth}` : "research_depth:unrecorded";
+}
+
+function forecasterPanelSizeGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
+  return aggregateQuality?.forecasterCount === null || aggregateQuality?.forecasterCount === undefined
+    ? "forecaster_panel:unrecorded"
+    : `forecaster_panel:${aggregateQuality.forecasterCount}`;
+}
+
+function complexityScoreGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
+  return aggregateQuality?.complexityScore === null || aggregateQuality?.complexityScore === undefined
+    ? "complexity:unrecorded"
+    : `complexity:${aggregateQuality.complexityScore}`;
+}
+
+function conditionalBranchGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "conditional") {
+    return "conditional_branch:not_conditional";
+  }
+  const branch = readString(score.scoreConfig, "branch");
+  return branch ? `conditional_branch:${branch}` : "conditional_branch:condition_probability";
+}
+
+function conditionalEffectGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "conditional") {
+    return "conditional_effect:not_conditional";
+  }
+  const conditionalForecast = readConditionalForecastSnapshot(score.scoreConfig);
+  return conditionalForecast ? `conditional_effect:${conditionalForecast.effectBand}` : "conditional_effect:unrecorded";
+}
+
+function conditionalBranchDisagreementGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "conditional") {
+    return "conditional_branch_disagreement:not_conditional";
+  }
+  const conditionalForecast = readConditionalForecastSnapshot(score.scoreConfig);
+  return conditionalForecast
+    ? `conditional_branch_disagreement:${conditionalForecast.branchDisagreementBand}:${conditionalForecast.effectDirectionAgreement}`
+    : "conditional_branch_disagreement:unrecorded";
+}
+
+function conditionalResolvedBranchGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "conditional") {
+    return "conditional_resolved_branch:not_conditional";
+  }
+  const conditionalForecast = readConditionalForecastSnapshot(score.scoreConfig);
+  return conditionalForecast
+    ? `conditional_resolved_branch:${conditionalForecast.resolvedBranchPlacement}:${conditionalForecast.resolvedBranchProbabilityBand}`
+    : "conditional_resolved_branch:unrecorded";
+}
+
+function thresholdedDirectionGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "thresholded") {
+    return "thresholded_direction:not_thresholded";
+  }
+  const thresholdedForecast = readThresholdedForecastSnapshot(score.scoreConfig);
+  return `thresholded_direction:${thresholdedForecast?.thresholdDirection ?? "unrecorded"}`;
+}
+
+function thresholdedSourceGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "thresholded") {
+    return "thresholded_source:not_thresholded";
+  }
+  const thresholdedForecast = readThresholdedForecastSnapshot(score.scoreConfig);
+  return `thresholded_source:${thresholdedForecast?.thresholdSource ?? "unrecorded"}`;
+}
+
+function thresholdedRepairGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "thresholded") {
+    return "thresholded_repair:not_thresholded";
+  }
+  const thresholdedForecast = readThresholdedForecastSnapshot(score.scoreConfig);
+  return thresholdedForecast?.monotonicityRepaired === null || thresholdedForecast?.monotonicityRepaired === undefined
+    ? "thresholded_repair:unrecorded"
+    : `thresholded_repair:${thresholdedForecast.monotonicityRepaired ? "repaired" : "clean"}`;
+}
+
+function thresholdedCurveSpreadGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "thresholded") {
+    return "thresholded_curve_spread:not_thresholded";
+  }
+  const thresholdedForecast = readThresholdedForecastSnapshot(score.scoreConfig);
+  return `thresholded_curve_spread:${thresholdedForecast?.probabilitySpreadBand ?? "unrecorded"}`;
+}
+
+function thresholdedComponentDisagreementGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "thresholded") {
+    return "thresholded_component_disagreement:not_thresholded";
+  }
+  const thresholdedForecast = readThresholdedForecastSnapshot(score.scoreConfig);
+  return `thresholded_component_disagreement:${thresholdedForecast?.componentDisagreementBand ?? "unrecorded"}`;
+}
+
+function thresholdedResolvedBandGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "thresholded") {
+    return "thresholded_resolved_band:not_thresholded";
+  }
+  const thresholdedForecast = readThresholdedForecastSnapshot(score.scoreConfig);
+  return `thresholded_resolved_band:${thresholdedForecast?.resolvedThresholdBand ?? "unrecorded"}`;
+}
+
+function numericIntervalGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "numeric") {
+    return "numeric_interval:not_numeric";
+  }
+  const numericForecast = readNumericForecastSnapshot(score.scoreConfig);
+  return `numeric_interval:${numericForecast?.intervalWidthBand ?? "unrecorded"}`;
+}
+
+function numericUnitGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "numeric") {
+    return "numeric_unit:not_numeric";
+  }
+  const numericForecast = readNumericForecastSnapshot(score.scoreConfig);
+  return numericForecast?.unit ? `numeric_unit:${numericForecast.unit}` : "numeric_unit:unrecorded";
+}
+
+function numericP50DisagreementGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "numeric") {
+    return "numeric_p50_disagreement:not_numeric";
+  }
+  const numericForecast = readNumericForecastSnapshot(score.scoreConfig);
+  return `numeric_p50_disagreement:${numericForecast?.p50DisagreementBand ?? "unrecorded"}`;
+}
+
+function numericP50ErrorGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "numeric") {
+    return "numeric_p50_error:not_numeric";
+  }
+  const numericForecast = readNumericForecastSnapshot(score.scoreConfig);
+  return `numeric_p50_error:${numericForecast?.p50ErrorBand ?? "unrecorded"}`;
+}
+
+function numericResolvedPositionGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "numeric") {
+    return "numeric_resolved_position:not_numeric";
+  }
+  const numericForecast = readNumericForecastSnapshot(score.scoreConfig);
+  return `numeric_resolved_position:${numericForecast?.resolvedPositionBand ?? "unrecorded"}`;
+}
+
+function dateIntervalGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "date") {
+    return "date_interval:not_date";
+  }
+  const dateForecast = readDateForecastSnapshot(score.scoreConfig);
+  return `date_interval:${dateForecast?.intervalBand ?? "unrecorded"}`;
+}
+
+function dateNeverProbabilityGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "date") {
+    return "date_never_probability:not_date";
+  }
+  const dateForecast = readDateForecastSnapshot(score.scoreConfig);
+  return `date_never_probability:${dateForecast?.neverProbabilityBand ?? "unrecorded"}`;
+}
+
+function dateP50DisagreementGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "date") {
+    return "date_p50_disagreement:not_date";
+  }
+  const dateForecast = readDateForecastSnapshot(score.scoreConfig);
+  return `date_p50_disagreement:${dateForecast?.p50DisagreementBand ?? "unrecorded"}`;
+}
+
+function dateP50ErrorGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "date") {
+    return "date_p50_error:not_date";
+  }
+  const dateForecast = readDateForecastSnapshot(score.scoreConfig);
+  return `date_p50_error:${dateForecast?.p50ErrorBand ?? "unrecorded"}`;
+}
+
+function dateResolvedPositionGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "date") {
+    return "date_resolved_position:not_date";
+  }
+  const dateForecast = readDateForecastSnapshot(score.scoreConfig);
+  return `date_resolved_position:${dateForecast?.resolvedPositionBand ?? "unrecorded"}`;
+}
+
+function categoricalConfidenceGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "categorical") {
+    return "categorical_confidence:not_categorical";
+  }
+  const categoricalForecast = readCategoricalForecastSnapshot(score.scoreConfig);
+  return `categorical_confidence:${categoricalForecast?.topProbabilityBand ?? "unrecorded"}`;
+}
+
+function categoricalEntropyGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "categorical") {
+    return "categorical_entropy:not_categorical";
+  }
+  const categoricalForecast = readCategoricalForecastSnapshot(score.scoreConfig);
+  return `categorical_entropy:${categoricalForecast?.entropyBand ?? "unrecorded"}`;
+}
+
+function categoricalSourceGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "categorical") {
+    return "categorical_source:not_categorical";
+  }
+  const categoricalForecast = readCategoricalForecastSnapshot(score.scoreConfig);
+  return `categorical_source:${categoricalForecast?.categorySource ?? "unrecorded"}`;
+}
+
+function categoricalCoverageGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "categorical") {
+    return "categorical_coverage:not_categorical";
+  }
+  const categoricalForecast = readCategoricalForecastSnapshot(score.scoreConfig);
+  return `categorical_coverage:${categoricalForecast?.categoryCoverageBand ?? "unrecorded"}`;
+}
+
+function categoricalTopAgreementGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "categorical") {
+    return "categorical_top_agreement:not_categorical";
+  }
+  const categoricalForecast = readCategoricalForecastSnapshot(score.scoreConfig);
+  return `categorical_top_agreement:${categoricalForecast?.topCategoryAgreementBand ?? "unrecorded"}`;
+}
+
+function categoricalResolvedCategoryGroupKey(score: typeof forecastScores.$inferSelect) {
+  if (readString(score.scoreConfig, "forecastType") !== "categorical") {
+    return "categorical_resolved_category:not_categorical";
+  }
+  const categoricalForecast = readCategoricalForecastSnapshot(score.scoreConfig);
+  return `categorical_resolved_category:${categoricalForecast?.resolvedCategoryBand ?? "unrecorded"}`;
+}
+
+function evidenceSourceCountGroupKey(score: typeof forecastScores.$inferSelect) {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
+  return `evidence_sources:${evidenceCoverage?.sourceCountBand ?? "unrecorded"}`;
+}
+
+function evidenceSourceDiversityGroupKey(score: typeof forecastScores.$inferSelect) {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
+  return `evidence_source_diversity:${evidenceCoverage?.sourceDiversityBand ?? "unrecorded"}`;
+}
+
+function evidenceSourceConcentrationGroupKey(score: typeof forecastScores.$inferSelect) {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
+  return `evidence_source_concentration:${evidenceCoverage?.sourceConcentrationBand ?? "unrecorded"}`;
+}
+
+function evidenceSourceDateCoverageGroupKey(score: typeof forecastScores.$inferSelect) {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
+  return `evidence_source_dates:${evidenceCoverage?.sourceDateCoverageBand ?? "unrecorded"}`;
+}
+
+function evidenceSourceFreshnessGroupKey(score: typeof forecastScores.$inferSelect) {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
+  return `evidence_source_freshness:${evidenceCoverage?.sourceFreshnessBand ?? "unrecorded"}`;
+}
+
+function evidenceSourceTimingGroupKey(score: typeof forecastScores.$inferSelect) {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
+  return `evidence_source_timing:${evidenceCoverage?.sourceTimingBand ?? "unrecorded"}`;
+}
+
+function evidenceUncertaintyCountGroupKey(score: typeof forecastScores.$inferSelect) {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
+  return `evidence_uncertainties:${evidenceCoverage?.uncertaintyCountBand ?? "unrecorded"}`;
+}
+
+function evidenceRationaleLengthGroupKey(score: typeof forecastScores.$inferSelect) {
+  const evidenceCoverage = readEvidenceCoverageSnapshot(score.scoreConfig);
+  return `evidence_rationale:${evidenceCoverage?.rationaleLengthBand ?? "unrecorded"}`;
+}
+
+function inputRequestedForecastTypeGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return inputContext?.requestedForecastType
+    ? `input_requested_type:${inputContext.requestedForecastType}`
+    : `input_requested_type:${inputContext?.requestedForecastTypeBand ?? "unrecorded"}`;
+}
+
+function inputRoutedForecastTypeGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return inputContext?.routedForecastType
+    ? `input_routed_type:${inputContext.routedForecastType}`
+    : `input_routed_type:${inputContext?.routedForecastTypeBand ?? "unrecorded"}`;
+}
+
+function inputTypeAlignmentGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_type_alignment:${inputContext?.requestedRoutedTypeBand ?? "unrecorded"}`;
+}
+
+function inputRoutingConfidenceGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_routing_confidence:${inputContext?.routingConfidenceBand ?? "unrecorded"}`;
+}
+
+function inputSourceGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_source:${inputContext?.inputSourceBand ?? "unrecorded"}`;
+}
+
+function inputContextCompletenessGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_context:${inputContext?.contextCompletenessBand ?? "unrecorded"}`;
+}
+
+function inputEvidenceAsOfDateGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_evidence_as_of:${inputContext?.evidenceAsOfDateBand ?? "unrecorded"}`;
+}
+
+function inputResolutionCriteriaDepthGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_resolution_criteria:${inputContext?.resolutionCriteriaLengthBand ?? "unrecorded"}`;
+}
+
+function inputResolutionHorizonGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_resolution_horizon:${inputContext?.resolutionHorizonBand ?? "unrecorded"}`;
+}
+
+function inputBackgroundDepthGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_background:${inputContext?.backgroundLengthBand ?? "unrecorded"}`;
+}
+
+function inputMarketContextGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  if (!inputContext) {
+    return "input_market:unrecorded";
+  }
+  if (!inputContext.hasMarketPrice) {
+    return "input_market:none";
+  }
+  return `input_market:${inputContext.marketPriceBand}`;
+}
+
+function inputMarketRecencyGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  if (!inputContext) {
+    return "input_market_recency:unrecorded";
+  }
+  if (!inputContext.hasMarketPrice) {
+    return "input_market_recency:none";
+  }
+  return `input_market_recency:${inputContext.marketPriceAgeBand}`;
+}
+
+function inputMarketMetadataGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_market_metadata:${inputContext?.marketMetadataBand ?? "unrecorded"}`;
+}
+
+function inputMarketCreationAgeGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_market_creation_age:${inputContext?.marketCreationAgeBand ?? "unrecorded"}`;
+}
+
+function inputQuestionLengthGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_question:${inputContext?.questionLengthBand ?? "unrecorded"}`;
+}
+
+function inputCategoryCountGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_categories:${inputContext?.categoryCountBand ?? "unrecorded"}`;
+}
+
+function inputCategoryCoverageGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_category_coverage:${inputContext?.categoryCoverageBand ?? "unrecorded"}`;
+}
+
+function inputThresholdCountGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_thresholds:${inputContext?.thresholdCountBand ?? "unrecorded"}`;
+}
+
+function inputThresholdValueCoverageGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_threshold_values:${inputContext?.thresholdValueCoverageBand ?? "unrecorded"}`;
+}
+
+function inputThresholdDirectionGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_threshold_direction:${inputContext?.thresholdDirectionBand ?? "unrecorded"}`;
+}
+
+function inputConditionCriteriaGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_condition_criteria:${inputContext?.conditionCriteriaBand ?? "unrecorded"}`;
+}
+
+function inputConditionDepthGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_condition_depth:${inputContext?.conditionLengthBand ?? "unrecorded"}`;
+}
+
+function inputConditionCriteriaDepthGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_condition_criteria_depth:${inputContext?.conditionResolutionCriteriaLengthBand ?? "unrecorded"}`;
+}
+
+function inputUnitSpecificityGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_unit:${inputContext?.unitSpecificityBand ?? "unrecorded"}`;
+}
+
+function runDurationGroupKey(score: typeof forecastScores.$inferSelect) {
+  const runMetadata = readForecastRunSnapshot(score.scoreConfig);
+  return `run_duration:${runMetadata?.durationBand ?? "unrecorded"}`;
+}
+
+function runWorkflowVersionGroupKey(score: typeof forecastScores.$inferSelect) {
+  const runMetadata = readForecastRunSnapshot(score.scoreConfig);
+  return runMetadata?.workflowVersion ? `run_workflow_version:${runMetadata.workflowVersion}` : "run_workflow_version:unrecorded";
+}
+
+function runWorkflowVariantGroupKey(score: typeof forecastScores.$inferSelect) {
+  const runMetadata = readForecastRunSnapshot(score.scoreConfig);
+  return runMetadata?.workflowVariantId ? `run_workflow_variant:${runMetadata.workflowVariantId}` : "run_workflow_variant:unrecorded";
+}
+
+function runExperimentGroupKey(score: typeof forecastScores.$inferSelect) {
+  const runMetadata = readForecastRunSnapshot(score.scoreConfig);
+  return runMetadata?.experimentLabel ? `run_experiment:${runMetadata.experimentLabel}` : "run_experiment:unrecorded";
+}
+
+function rankAggregateCases(
+  rows: Array<typeof forecastScores.$inferSelect>,
+  taskMeta: Map<string, { id: string; label: string; operationSubmode: string | null }>,
+  resolutionById: Map<string, typeof forecastResolutions.$inferSelect>,
+): PerformanceCase[] {
+  const grouped = new Map<string, Array<typeof forecastScores.$inferSelect>>();
+  for (const row of rows) {
+    const taskId = readScoreTaskId(row.scoreConfig);
+    if (!taskId) {
+      continue;
+    }
+    grouped.set(taskId, [...(grouped.get(taskId) ?? []), row]);
+  }
+
+  return [...grouped.entries()]
+    .flatMap(([taskId, groupRows]) => {
+      const scores = meanScoresByType(groupRows);
+      const primaryMetric = selectPrimaryMetric(scores);
+      const primaryScore = primaryMetric ? scores[primaryMetric] : null;
+      if (!primaryMetric || primaryScore === null) {
+        return [];
+      }
+      const latest = groupRows.reduce((currentLatest, row) =>
+        row.createdAt.getTime() > currentLatest.createdAt.getTime() ? row : currentLatest,
+      groupRows[0]);
+      const task = taskMeta.get(taskId);
+      const resolution = latest.resolutionId ? resolutionById.get(latest.resolutionId) : null;
+      return [{
+        taskId,
+        taskLabel: task?.label ?? taskId,
+        forecastType: readString(latest.scoreConfig, "forecastType") ?? (task?.operationSubmode ? forecastTypeFromSubmode(task.operationSubmode) : "unknown"),
+        primaryMetric,
+        primaryScore,
+        scoreRows: groupRows.length,
+        scores,
+        resolvedValue: asRecord(resolution?.resolvedValue ?? null),
+        probability: readProbability(latest.scoreConfig),
+        resolved: readResolved(latest.scoreConfig),
+        binaryConfidence: readBinaryConfidenceSnapshot(latest.scoreConfig),
+        calibrationGuard: readCalibrationGuardSnapshot(latest.scoreConfig),
+        baselineSanity: readBaselineSanitySnapshot(latest.scoreConfig),
+        marketAnchor: readMarketAnchorSnapshot(latest.scoreConfig),
+        resolutionBoundary: readResolutionBoundarySnapshot(latest.scoreConfig),
+        uncertaintyRange: readUncertaintyRangeSnapshot(latest.scoreConfig),
+        componentWeighting: readComponentWeightingSnapshot(latest.scoreConfig),
+        aggregateQuality: readAggregateQualitySnapshot(latest.scoreConfig),
+        aggregateStats: readAggregateStatsSnapshot(latest.scoreConfig),
+        conditionalForecast: readConditionalForecastSnapshot(latest.scoreConfig),
+        thresholdedForecast: readThresholdedForecastSnapshot(latest.scoreConfig),
+        numericForecast: readNumericForecastSnapshot(latest.scoreConfig),
+        dateForecast: readDateForecastSnapshot(latest.scoreConfig),
+        categoricalForecast: readCategoricalForecastSnapshot(latest.scoreConfig),
+        evidenceCoverage: readEvidenceCoverageSnapshot(latest.scoreConfig),
+        inputContext: readForecastInputContextSnapshot(latest.scoreConfig),
+        runMetadata: readForecastRunSnapshot(latest.scoreConfig),
+        resolutionId: latest.resolutionId,
+        forecastAggregateId: latest.forecastAggregateId,
+        createdAt: latest.createdAt,
+      }];
+    })
+    .sort((left, right) => {
+      if (left.primaryScore !== right.primaryScore) {
+        return left.primaryScore - right.primaryScore;
+      }
+      return left.taskLabel.localeCompare(right.taskLabel);
+    });
+}
+
+function buildScoreTrends(rows: Array<typeof forecastScores.$inferSelect>): PerformanceTrend[] {
+  const windows = [
+    { key: "last_7_days", label: "Last 7 days", days: 7 },
+    { key: "last_30_days", label: "Last 30 days", days: 30 },
+    { key: "last_90_days", label: "Last 90 days", days: 90 },
+  ];
+  const metricKeys = uniqueStrings(rows.map((row) => row.scoreType)).sort();
+  const now = new Date();
+  return windows.flatMap((window) =>
+    metricKeys.map((metric) => {
+      const metricRows = rows.filter((row) => row.scoreType === metric);
+      const cutoff = now.getTime() - window.days * 86_400_000;
+      const recentRows = metricRows.filter((row) => row.createdAt.getTime() >= cutoff);
+      const baselineRows = metricRows.filter((row) => row.createdAt.getTime() < cutoff);
+      const recentMean = meanScore(recentRows);
+      const baselineMean = meanScore(baselineRows);
+      const delta = recentMean === null || baselineMean === null ? null : recentMean - baselineMean;
+      return {
+        key: `${window.key}:${metric}`,
+        label: window.label,
+        metric,
+        recentDays: window.days,
+        recentCount: recentRows.length,
+        baselineCount: baselineRows.length,
+        recentMean,
+        baselineMean,
+        delta,
+        direction: trendDirection(delta),
+      };
+    }),
+  );
+}
+
+function trendDirection(delta: number | null): PerformanceTrend["direction"] {
+  if (delta === null) {
+    return "insufficient_data";
+  }
+  if (Math.abs(delta) < 0.0001) {
+    return "flat";
+  }
+  return delta < 0 ? "improved" : "worse";
+}
+
+function buildNeedsAttentionQueue(
+  worstCases: PerformanceCase[],
+  trends: PerformanceTrend[],
+  calibrationReport: BinaryCalibrationReport,
+  calibrationGuardImpact: CalibrationGuardImpact,
+): PerformanceAttentionItem[] {
+  const caseItems = worstCases.slice(0, 5).map((item, index) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const exceedsThreshold = threshold !== null && item.primaryScore >= threshold;
+    const kind = poorResolvedForecastAttentionKind();
+    const reason = exceedsThreshold
+      ? `${item.primaryMetric} ${roundMetric(item.primaryScore)} exceeds review threshold ${threshold}`
+      : `Among the worst resolved aggregate forecasts by ${item.primaryMetric}`;
+    return {
+      id: `poor:${item.taskId}:${item.primaryMetric}`,
+      kind,
+      severity: exceedsThreshold ? "high" as const : "medium" as const,
+      reason,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind,
+        metric: item.primaryMetric,
+        severity: exceedsThreshold ? "high" : "medium",
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: null,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: index,
+    };
+  });
+
+  const trendItems = trends
+    .filter((trend) => trend.direction === "worse" && trend.delta !== null && trend.recentCount > 0 && trend.baselineCount > 0)
+    .map((trend) => {
+      const kind = worseningTrendAttentionKind();
+      const severity = Math.abs(trend.delta ?? 0) >= trendDeltaHighThreshold(trend.metric) ? "high" as const : "medium" as const;
+      return {
+        id: `trend:${trend.key}`,
+        kind,
+        severity,
+        reason: `${trend.metric} worsened over ${trend.label}: recent ${formatNullableMetric(trend.recentMean)}, baseline ${formatNullableMetric(trend.baselineMean)}`,
+        recommendedActions: recommendPerformanceAttentionActions({
+          kind,
+          metric: trend.metric,
+          severity,
+          forecastType: null,
+        }),
+        metric: trend.metric,
+        score: trend.recentMean,
+        delta: trend.delta,
+        taskId: null,
+        taskLabel: null,
+        forecastType: null,
+        rank: 100 + trend.recentDays,
+      };
+    });
+
+  const baselineSanityCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    if (
+      item.forecastType !== "binary" ||
+      item.baselineSanity === null ||
+      !["moderate_delta", "large_delta"].includes(item.baselineSanity.status) ||
+      threshold === null ||
+      item.primaryScore < threshold
+    ) {
+      return [];
+    }
+    return [{ item, baselineSanity: item.baselineSanity }];
+  });
+  const baselineSanityItems = baselineSanityCandidates
+    .slice(0, 5)
+    .map(({ item, baselineSanity }, index) => ({
+      id: `baseline-sanity:${item.taskId}:${item.primaryMetric}`,
+      kind: "baseline_sanity_miss" as const,
+      severity: baselineSanity.status === "large_delta" ? "high" as const : "medium" as const,
+      reason:
+        `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed a ${baselineSanity.status.replace(/_/g, " ")} of ${formatSignedMetric(baselineSanity.baselineDelta ?? 0)} points from the component base-rate anchor.`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: "baseline_sanity_miss",
+        metric: item.primaryMetric,
+        severity: baselineSanity.status === "large_delta" ? "high" : "medium",
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: baselineSanity.baselineDelta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 50 + index,
+    }));
+
+  const marketAnchorCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    if (
+      item.forecastType !== "binary" ||
+      item.marketAnchor === null ||
+      !["moderate_delta", "large_delta"].includes(item.marketAnchor.status) ||
+      threshold === null ||
+      item.primaryScore < threshold
+    ) {
+      return [];
+    }
+    return [{ item, marketAnchor: item.marketAnchor }];
+  });
+  const marketAnchorItems = marketAnchorCandidates
+    .slice(0, 5)
+    .map(({ item, marketAnchor }, index) => ({
+      id: `market-anchor:${item.taskId}:${item.primaryMetric}`,
+      kind: "market_anchor_miss" as const,
+      severity: marketAnchor.status === "large_delta" ? "high" as const : "medium" as const,
+      reason:
+        `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed a ${marketAnchor.status.replace(/_/g, " ")} of ${formatSignedMetric(marketAnchor.marketDelta ?? 0)} points from the structured market-price anchor.`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: "market_anchor_miss",
+        metric: item.primaryMetric,
+        severity: marketAnchor.status === "large_delta" ? "high" : "medium",
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: marketAnchor.marketDelta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 55 + index,
+    }));
+
+  const resolutionBoundaryCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    if (
+      item.forecastType !== "binary" ||
+      item.resolutionBoundary === null ||
+      item.resolutionBoundary.status !== "material_ambiguity" ||
+      threshold === null ||
+      item.primaryScore < threshold
+    ) {
+      return [];
+    }
+    return [{ item, resolutionBoundary: item.resolutionBoundary }];
+  });
+  const resolutionBoundaryItems = resolutionBoundaryCandidates
+    .slice(0, 5)
+    .map(({ item, resolutionBoundary }, index) => ({
+      id: `resolution-boundary:${item.taskId}:${item.primaryMetric}`,
+      kind: "resolution_boundary_miss" as const,
+      severity: "high" as const,
+      reason:
+        `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed material resolution-boundary ambiguity with ${resolutionBoundary.ambiguityFlagCount ?? 0} component flag(s).`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: "resolution_boundary_miss",
+        metric: item.primaryMetric,
+        severity: "high",
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: resolutionBoundary.ambiguityFlagCount,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 58 + index,
+    }));
+
+  const uncertaintyRangeCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    if (
+      item.forecastType !== "binary" ||
+      item.uncertaintyRange === null ||
+      item.uncertaintyRange.status !== "narrow" ||
+      threshold === null ||
+      item.primaryScore < threshold
+    ) {
+      return [];
+    }
+    return [{ item, uncertaintyRange: item.uncertaintyRange }];
+  });
+  const uncertaintyRangeItems = uncertaintyRangeCandidates
+    .slice(0, 5)
+    .map(({ item, uncertaintyRange }, index) => ({
+      id: `uncertainty-range:${item.taskId}:${item.primaryMetric}`,
+      kind: "uncertainty_range_miss" as const,
+      severity: "medium" as const,
+      reason:
+        `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed narrow component uncertainty ranges with median width ${formatNullableMetric(uncertaintyRange.medianRangeWidth)} points.`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: "uncertainty_range_miss",
+        metric: item.primaryMetric,
+        severity: "medium",
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: uncertaintyRange.medianRangeWidth,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 59 + index,
+    }));
+
+  const componentWeightingCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    if (
+      item.forecastType !== "binary" ||
+      item.componentWeighting === null ||
+      !["has_downweight", "mixed_weights"].includes(item.componentWeighting.status) ||
+      threshold === null ||
+      item.primaryScore < threshold
+    ) {
+      return [];
+    }
+    return [{ item, componentWeighting: item.componentWeighting }];
+  });
+  const componentWeightingItems = componentWeightingCandidates
+    .slice(0, 5)
+    .map(({ item, componentWeighting }, index) => ({
+      id: `component-weighting:${item.taskId}:${item.primaryMetric}`,
+      kind: "component_weighting_miss" as const,
+      severity: componentWeighting.status === "mixed_weights" ? "high" as const : "medium" as const,
+      reason:
+        `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${componentWeighting.status.replace(/_/g, " ")} in component audits (${componentWeighting.downweightCount} downweighted, ${componentWeighting.upweightCount} upweighted).`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: "component_weighting_miss",
+        metric: item.primaryMetric,
+        severity: componentWeighting.status === "mixed_weights" ? "high" : "medium",
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: componentWeighting.downweightCount,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 61 + index,
+    }));
+
+  const aggregateQualityCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    if (
+      item.forecastType !== "binary" ||
+      item.aggregateQuality === null ||
+      threshold === null ||
+      item.primaryScore < threshold ||
+      (item.aggregateQuality.qualityApproved !== false && item.aggregateQuality.maxIterationsReached !== true)
+    ) {
+      return [];
+    }
+    return [{ item, aggregateQuality: item.aggregateQuality }];
+  });
+  const aggregateQualityItems = aggregateQualityCandidates
+    .slice(0, 5)
+    .map(({ item, aggregateQuality }, index) => ({
+      id: `aggregate-quality:${item.taskId}:${item.primaryMetric}`,
+      kind: "aggregate_quality_miss" as const,
+      severity: aggregateQuality.maxIterationsReached ? "high" as const : "medium" as const,
+      reason:
+        `${item.primaryMetric} ${roundMetric(item.primaryScore)} came from a ${aggregateQuality.convergenceStatus.replace(/_/g, " ")} binary aggregate after ${aggregateQuality.roundsUsed ?? "unknown"} review round(s).`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: "aggregate_quality_miss",
+        metric: item.primaryMetric,
+        severity: aggregateQuality.maxIterationsReached ? "high" : "medium",
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: null,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 60 + index,
+    }));
+
+  const aggregateQualityRoundsItems = buildMetadataAttentionItems({
+    worstCases,
+    idPrefix: "aggregate-quality-rounds",
+    kind: "aggregate_quality_rounds_miss",
+    rankStart: 62,
+    signal: aggregateQualityRoundsMissSignal,
+  });
+
+  const aggregateQualityIssuesItems = buildMetadataAttentionItems({
+    worstCases,
+    idPrefix: "aggregate-quality-issues",
+    kind: "aggregate_quality_issues_miss",
+    rankStart: 63,
+    signal: aggregateQualityIssuesMissSignal,
+  });
+
+  const binaryConfidenceCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const signal = binaryConfidenceMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
+      return [];
+    }
+    return [{ item, signal }];
+  });
+  const binaryConfidenceItems = binaryConfidenceCandidates
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `binary-confidence:${item.taskId}:${item.primaryMetric}`,
+      kind: "binary_confidence_miss" as const,
+      severity: signal.severity,
+      reason: signal.reason,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: "binary_confidence_miss",
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 59 + index,
+    }));
+
+  const componentDisagreementCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const signal = componentDisagreementMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
+      return [];
+    }
+    return [{ item, signal }];
+  });
+  const componentDisagreementItems = componentDisagreementCandidates
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `${attentionKindIdPrefix(signal.kind)}:${item.taskId}:${item.primaryMetric}`,
+      kind: signal.kind,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: signal.kind,
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 70 + index,
+    }));
+
+  const componentEnvelopeCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const signal = componentEnvelopeMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
+      return [];
+    }
+    return [{ item, signal }];
+  });
+  const componentEnvelopeItems = componentEnvelopeCandidates
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `component-envelope:${item.taskId}:${item.primaryMetric}`,
+      kind: "component_envelope_miss" as const,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: "component_envelope_miss",
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 72 + index,
+    }));
+
+  const aggregateSideFlipItems = buildMetadataAttentionItems({
+    worstCases,
+    idPrefix: "aggregate-side-flip",
+    kind: "aggregate_side_flip_miss",
+    rankStart: 72,
+    signal: aggregateSideFlipMissSignal,
+  });
+
+  const aggregatePanelConfidenceItems = buildMetadataAttentionItems({
+    worstCases,
+    idPrefix: "aggregate-panel-confidence",
+    kind: "aggregate_panel_confidence_miss",
+    rankStart: 73,
+    signal: aggregatePanelConfidenceMissSignal,
+  });
+
+  const aggregateConfidenceCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const signal = aggregateConfidenceMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
+      return [];
+    }
+    return [{ item, signal }];
+  });
+  const aggregateConfidenceItems = aggregateConfidenceCandidates
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `aggregate-confidence:${item.taskId}:${item.primaryMetric}`,
+      kind: "aggregate_confidence_miss" as const,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: "aggregate_confidence_miss",
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 73 + index,
+    }));
+
+  const medianAdjustmentCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const signal = medianAdjustmentMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
+      return [];
+    }
+    return [{ item, signal }];
+  });
+  const medianAdjustmentItems = medianAdjustmentCandidates
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `median-adjustment:${item.taskId}:${item.primaryMetric}`,
+      kind: "median_adjustment_miss" as const,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: "median_adjustment_miss",
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 74 + index,
+    }));
+
+  const insideViewShiftCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const signal = insideViewShiftMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
+      return [];
+    }
+    return [{ item, signal }];
+  });
+  const insideViewShiftItems = insideViewShiftCandidates
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `inside-view-shift:${item.taskId}:${item.primaryMetric}`,
+      kind: "inside_view_shift_miss" as const,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: "inside_view_shift_miss",
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 74 + index,
+    }));
+
+  const aggregateAdjustmentCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const signal = aggregateAdjustmentMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
+      return [];
+    }
+    return [{ item, signal }];
+  });
+  const aggregateAdjustmentItems = aggregateAdjustmentCandidates
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `aggregate-adjustment:${item.taskId}:${item.primaryMetric}`,
+      kind: "aggregate_adjustment_miss" as const,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: "aggregate_adjustment_miss",
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 76 + index,
+    }));
+
+  const aggregateDirectionCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const signal = aggregateDirectionMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
+      return [];
+    }
+    return [{ item, signal }];
+  });
+  const aggregateDirectionItems = aggregateDirectionCandidates
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `aggregate-direction:${item.taskId}:${item.primaryMetric}`,
+      kind: "aggregate_direction_miss" as const,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: "aggregate_direction_miss",
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 78 + index,
+    }));
+
+  const aggregateAttemptCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const signal = aggregateAttemptMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
+      return [];
+    }
+    return [{ item, signal }];
+  });
+  const aggregateAttemptItems = aggregateAttemptCandidates
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `aggregate-attempts:${item.taskId}:${item.primaryMetric}`,
+      kind: "aggregate_attempt_miss" as const,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: "aggregate_attempt_miss",
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 79 + index,
+    }));
+
+  const evidenceCoverageItems = buildMetadataAttentionItems({
+    worstCases,
+    idPrefix: "evidence-coverage",
+    kind: "evidence_coverage_miss",
+    rankStart: 80,
+    signal: evidenceCoverageMissSignal,
+  });
+  const inputContextItems = buildMetadataAttentionItems({
+    worstCases,
+    idPrefix: "input-context",
+    kind: "input_context_miss",
+    rankStart: 90,
+    signal: inputContextMissSignal,
+  });
+  const runMetadataItems = buildMetadataAttentionItems({
+    worstCases,
+    idPrefix: "run-metadata",
+    kind: "run_metadata_miss",
+    rankStart: 100,
+    signal: runMetadataMissSignal,
+  });
+
+  const calibrationItems = calibrationReport.calibrationDiagnostics.map((diagnostic) => ({
+    id: diagnostic.id,
+    kind: "calibration_mismatch" as const,
+    severity: diagnostic.severity,
+    reason: diagnostic.reason,
+    recommendedActions: diagnostic.recommendedActions,
+    metric: diagnostic.metric,
+    score: diagnostic.score,
+    delta: diagnostic.delta,
+    taskId: null,
+    taskLabel: `${diagnostic.bucketLabel} calibration bucket`,
+    forecastType: "binary",
+    rank: 200 - diagnostic.score,
+  }));
+
+  const guardRegressionKind = calibrationGuardRegressionAttentionKind();
+  const overallGuardImpactItems = calibrationGuardImpact.status === "worse" && calibrationGuardImpact.brierDelta !== null
+    ? [{
+        id: "calibration-guard-impact:worse-brier",
+        kind: guardRegressionKind,
+        severity: "high" as const,
+        reason:
+          `Guarded aggregate forecasts have worse mean Brier than unguarded aggregates by ${formatSignedMetric(calibrationGuardImpact.brierDelta)}.`,
+        recommendedActions: recommendPerformanceAttentionActions({
+          kind: guardRegressionKind,
+          metric: "brier",
+          severity: "high",
+          forecastType: "binary",
+        }),
+        metric: "brier",
+        score: calibrationGuardImpact.guardedMeanBrier,
+        delta: calibrationGuardImpact.brierDelta,
+        taskId: null,
+        taskLabel: "Calibration guard impact",
+        forecastType: "binary",
+        rank: 150,
+      }]
+    : [];
+  const ruleGuardImpactItems = calibrationGuardImpact.byRule
+    .filter((impact) => impact.status === "worse" && impact.brierDelta !== null)
+    .slice(0, 5)
+    .map((impact, index) => ({
+      id: `calibration-guard-impact:${impact.ruleId}:worse-brier`,
+      kind: guardRegressionKind,
+      severity: "high" as const,
+      reason:
+        `${impact.ruleId} guarded aggregate forecasts have worse mean Brier than unguarded aggregates by ${formatSignedMetric(impact.brierDelta ?? 0)}.`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: guardRegressionKind,
+        metric: "brier",
+        severity: "high",
+        forecastType: "binary",
+      }),
+      metric: "brier",
+      score: impact.guardedMeanBrier,
+      delta: impact.brierDelta,
+      taskId: null,
+      taskLabel: `Calibration guard rule: ${impact.ruleId}`,
+      forecastType: "binary",
+      rank: 151 + index,
+    }));
+
+  return [
+    ...caseItems,
+    ...baselineSanityItems,
+    ...marketAnchorItems,
+    ...resolutionBoundaryItems,
+    ...uncertaintyRangeItems,
+    ...componentWeightingItems,
+    ...aggregateQualityItems,
+    ...aggregateQualityRoundsItems,
+    ...aggregateQualityIssuesItems,
+    ...binaryConfidenceItems,
+    ...componentDisagreementItems,
+    ...componentEnvelopeItems,
+    ...aggregateSideFlipItems,
+    ...aggregatePanelConfidenceItems,
+    ...aggregateConfidenceItems,
+    ...medianAdjustmentItems,
+    ...insideViewShiftItems,
+    ...aggregateAdjustmentItems,
+    ...aggregateDirectionItems,
+    ...aggregateAttemptItems,
+    ...evidenceCoverageItems,
+    ...inputContextItems,
+    ...runMetadataItems,
+    ...trendItems,
+    ...overallGuardImpactItems,
+    ...ruleGuardImpactItems,
+    ...calibrationItems,
+  ]
+    .sort((left, right) => {
+      const severityDelta = performanceAttentionSeverityRank(right.severity) - performanceAttentionSeverityRank(left.severity);
+      if (severityDelta !== 0) {
+        return severityDelta;
+      }
+      return left.rank - right.rank;
+    })
+    .slice(0, 10)
+    .map(({ rank: _rank, ...item }) => item);
+}
+
+function componentDisagreementMissSignal(
+  item: PerformanceCase,
+): { reason: string; delta: number | null; severity: "high" | "medium"; kind: PerformanceAttentionItem["kind"] } | null {
+  if (
+    item.forecastType === "binary" &&
+    item.aggregateStats !== null &&
+    ["high", "extreme"].includes(item.aggregateStats.disagreementBand)
+  ) {
+    return {
+      reason: `${item.aggregateStats.disagreementBand} component disagreement of ${formatNullableMetric(item.aggregateStats.disagreement)} points`,
+      delta: item.aggregateStats.disagreement,
+      severity: item.aggregateStats.disagreementBand === "extreme" ? "high" : "medium",
+      kind: "component_disagreement_miss",
+    };
+  }
+
+  if (
+    item.forecastType === "conditional" &&
+    item.conditionalForecast !== null &&
+    item.conditionalForecast.resolvedBranchPlacement === "lower_probability"
+  ) {
+    return {
+      reason:
+        `resolved condition branch was the lower-probability branch with ${formatNullableMetric(item.conditionalForecast.resolvedBranchProbability)}% assigned to the active branch`,
+      delta: item.conditionalForecast.resolvedBranchProbability,
+      severity: item.conditionalForecast.resolvedBranchProbabilityBand === "low" ||
+        item.conditionalForecast.resolvedBranchProbabilityBand === "zero"
+        ? "high"
+        : "medium",
+      kind: "conditional_branch_miss",
+    };
+  }
+
+  if (
+    item.forecastType === "conditional" &&
+    item.conditionalForecast !== null &&
+    (
+      ["moderate", "wide"].includes(item.conditionalForecast.branchDisagreementBand) ||
+      item.conditionalForecast.effectDirectionAgreement === "mixed"
+    )
+  ) {
+    const severity = item.conditionalForecast.branchDisagreementBand === "wide" ||
+      item.conditionalForecast.effectDirectionAgreement === "mixed"
+      ? "high" as const
+      : "medium" as const;
+    return {
+      reason:
+        `${item.conditionalForecast.branchDisagreementBand} conditional branch disagreement with ${item.conditionalForecast.effectDirectionAgreement.replace(/_/g, " ")} effect direction`,
+      delta: item.conditionalForecast.effectDisagreement,
+      severity,
+      kind: "conditional_branch_miss",
+    };
+  }
+
+  if (
+    item.forecastType === "thresholded" &&
+    item.thresholdedForecast !== null &&
+    (item.thresholdedForecast.resolvedThresholdBand === "below_range" || item.thresholdedForecast.resolvedThresholdBand === "above_range")
+  ) {
+    return {
+      reason:
+        `resolved value ${formatNullableMetric(item.thresholdedForecast.actualValue)} was ${item.thresholdedForecast.resolvedThresholdBand.replace(/_/g, " ")} for the threshold curve`,
+      delta: item.thresholdedForecast.nearestThresholdDistance,
+      severity: "high",
+      kind: "thresholded_curve_miss",
+    };
+  }
+
+  if (
+    item.forecastType === "thresholded" &&
+    item.thresholdedForecast !== null &&
+    ["moderate", "wide"].includes(item.thresholdedForecast.componentDisagreementBand)
+  ) {
+    return {
+      reason:
+        `${item.thresholdedForecast.componentDisagreementBand} threshold-curve component disagreement of ${formatNullableMetric(item.thresholdedForecast.componentProbabilityDisagreement)} points`,
+      delta: item.thresholdedForecast.componentProbabilityDisagreement,
+      severity: item.thresholdedForecast.componentDisagreementBand === "wide" ? "high" : "medium",
+      kind: "thresholded_curve_miss",
+    };
+  }
+
+  if (
+    item.forecastType === "numeric" &&
+    item.numericForecast !== null &&
+    (item.numericForecast.resolvedPositionBand === "below_p10" || item.numericForecast.resolvedPositionBand === "above_p90")
+  ) {
+    return {
+      reason:
+        `resolved value was ${item.numericForecast.resolvedPositionBand.replace(/_/g, " ")} for numeric forecast interval ${formatNullableMetric(item.numericForecast.p10)}-${formatNullableMetric(item.numericForecast.p90)} ${item.numericForecast.unit ?? "units"}`,
+      delta: item.numericForecast.actualValue,
+      severity: "high",
+      kind: "numeric_distribution_miss",
+    };
+  }
+
+  if (
+    item.forecastType === "numeric" &&
+    item.numericForecast !== null &&
+    (item.numericForecast.p50ErrorBand === "large" || item.numericForecast.p50ErrorBand === "extreme")
+  ) {
+    return {
+      reason:
+        `${item.numericForecast.p50ErrorBand} numeric median miss of ${formatNullableMetric(item.numericForecast.absoluteP50Error)} ${item.numericForecast.unit ?? "units"}`,
+      delta: item.numericForecast.absoluteP50Error,
+      severity: item.numericForecast.p50ErrorBand === "extreme" ? "high" : "medium",
+      kind: "numeric_distribution_miss",
+    };
+  }
+
+  if (
+    item.forecastType === "numeric" &&
+    item.numericForecast !== null &&
+    ["moderate", "wide"].includes(item.numericForecast.p50DisagreementBand)
+  ) {
+    return {
+      reason:
+        `${item.numericForecast.p50DisagreementBand} numeric component-value disagreement of ${formatNullableMetric(item.numericForecast.p50Disagreement)} ${item.numericForecast.unit ?? "units"}`,
+      delta: item.numericForecast.p50Disagreement,
+      severity: item.numericForecast.p50DisagreementBand === "wide" ? "high" : "medium",
+      kind: "numeric_distribution_miss",
+    };
+  }
+
+  if (
+    item.forecastType === "date" &&
+    item.dateForecast !== null &&
+    (item.dateForecast.resolvedPositionBand === "before_p10" || item.dateForecast.resolvedPositionBand === "after_p90")
+  ) {
+    return {
+      reason:
+        `resolved date was ${item.dateForecast.resolvedPositionBand.replace(/_/g, " ")} for date forecast interval ${item.dateForecast.p10 ?? "unknown"}-${item.dateForecast.p90 ?? "unknown"}`,
+      delta: item.dateForecast.intervalDays,
+      severity: "high",
+      kind: "date_distribution_miss",
+    };
+  }
+
+  if (
+    item.forecastType === "date" &&
+    item.dateForecast !== null &&
+    (item.dateForecast.p50ErrorBand === "large" || item.dateForecast.p50ErrorBand === "extreme")
+  ) {
+    return {
+      reason:
+        `${item.dateForecast.p50ErrorBand} date median miss of ${formatNullableMetric(item.dateForecast.absoluteP50ErrorDays)} days`,
+      delta: item.dateForecast.absoluteP50ErrorDays,
+      severity: item.dateForecast.p50ErrorBand === "extreme" ? "high" : "medium",
+      kind: "date_distribution_miss",
+    };
+  }
+
+  if (
+    item.forecastType === "date" &&
+    item.dateForecast !== null &&
+    ["moderate", "wide"].includes(item.dateForecast.p50DisagreementBand)
+  ) {
+    return {
+      reason:
+        `${item.dateForecast.p50DisagreementBand} component median-date disagreement of ${formatNullableMetric(item.dateForecast.p50DisagreementDays)} days`,
+      delta: item.dateForecast.p50DisagreementDays,
+      severity: item.dateForecast.p50DisagreementBand === "wide" ? "high" : "medium",
+      kind: "date_distribution_miss",
+    };
+  }
+
+  if (
+    item.forecastType === "categorical" &&
+    item.categoricalForecast !== null &&
+    (item.categoricalForecast.resolvedCategoryBand === "missing" || item.categoricalForecast.actualProbabilityBand === "zero")
+  ) {
+    return {
+      reason:
+        `resolved category ${item.categoricalForecast.actualCategory ?? "unknown"} was missing or assigned zero probability in the categorical distribution`,
+      delta: item.categoricalForecast.actualProbability,
+      severity: "high",
+      kind: "categorical_distribution_miss",
+    };
+  }
+
+  if (
+    item.forecastType === "categorical" &&
+    item.categoricalForecast !== null &&
+    ["split", "none"].includes(item.categoricalForecast.topCategoryAgreementBand)
+  ) {
+    return {
+      reason:
+        `${item.categoricalForecast.topCategoryAgreementBand} component agreement on the aggregate top category (${formatNullableMetric(item.categoricalForecast.topCategoryVoteShare)}% vote share)`,
+      delta: item.categoricalForecast.topCategoryVoteShare,
+      severity: item.categoricalForecast.topCategoryAgreementBand === "none" ? "high" : "medium",
+      kind: "categorical_distribution_miss",
+    };
+  }
+
+  return null;
+}
+
+function aggregateQualityRoundsMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const quality = item.aggregateQuality;
+  if (item.forecastType !== "binary" || !quality || quality.roundsUsedBand !== "many_rounds") {
+    return null;
+  }
   return {
-    sampleSize,
-    resolvedForecastCount,
-    expectedCalibrationError,
-    maxBucketCalibrationError,
-    minimumForFitting,
-    status:
-      resolvedForecastCount < minimumForFitting
-        ? "collecting_resolved_forecasts"
-        : "ready_for_candidate_fitting",
+    reason: `aggregate needed ${quality.roundsUsed ?? "unknown"} review round(s), indicating unstable or repeatedly rejected aggregation`,
+    delta: quality.roundsUsed,
+    severity: "medium",
   };
+}
+
+function aggregateQualityIssuesMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const quality = item.aggregateQuality;
+  if (item.forecastType !== "binary" || !quality || quality.qualityIssueCountBand !== "many_issues") {
+    return null;
+  }
+  return {
+    reason: `aggregate carried ${quality.qualityIssueCount} quality issue(s) during final review`,
+    delta: quality.qualityIssueCount,
+    severity: "medium",
+  };
+}
+
+function buildMetadataAttentionItems(input: {
+  worstCases: PerformanceCase[];
+  idPrefix: string;
+  kind: PerformanceAttentionItem["kind"];
+  rankStart: number;
+  signal: (item: PerformanceCase) => { reason: string; delta: number | null; severity: "high" | "medium" } | null;
+}) {
+  return input.worstCases
+    .flatMap((item) => {
+      const threshold = poorScoreThreshold(item.primaryMetric);
+      const signal = input.signal(item);
+      if (signal === null || threshold === null || item.primaryScore < threshold) {
+        return [];
+      }
+      return [{ item, signal }];
+    })
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `${input.idPrefix}:${item.taskId}:${item.primaryMetric}`,
+      kind: input.kind,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
+      recommendedActions: recommendPerformanceAttentionActions({
+        kind: input.kind,
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: input.rankStart + index,
+    }));
+}
+
+function componentEnvelopeMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  if (item.forecastType !== "binary" || !stats) {
+    return null;
+  }
+  if (stats.finalComponentPositionBand !== "below_components" && stats.finalComponentPositionBand !== "above_components") {
+    return null;
+  }
+  const finalProbability = item.probability;
+  const distance = stats.finalComponentPositionBand === "below_components"
+    ? finalProbability === null || stats.componentMinProbability === null ? null : stats.componentMinProbability - finalProbability
+    : finalProbability === null || stats.componentMaxProbability === null ? null : finalProbability - stats.componentMaxProbability;
+  return {
+    reason: `final probability was ${stats.finalComponentPositionBand.replace(/_/g, " ")} (${formatNullableMetric(stats.componentMinProbability)}-${formatNullableMetric(stats.componentMaxProbability)} component envelope)`,
+    delta: distance,
+    severity: distance !== null && distance >= 5 ? "high" : "medium",
+  };
+}
+
+function aggregateSideFlipMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  const band = aggregateSideAgreementBand(item.probability, stats?.meanProbability ?? null);
+  if (item.forecastType !== "binary" || !stats || (band !== "final_flips_to_yes" && band !== "final_flips_to_no")) {
+    return null;
+  }
+  const delta = item.probability === null || stats.meanProbability === null ? null : item.probability - stats.meanProbability;
+  return {
+    reason: `final probability ${formatNullableMetric(item.probability)}% ${band.replace(/_/g, " ")} from mean component probability ${formatNullableMetric(stats.meanProbability)}%`,
+    delta,
+    severity: delta !== null && Math.abs(delta) >= 15 ? "high" : "medium",
+  };
+}
+
+function aggregatePanelConfidenceMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  if (item.forecastType !== "binary" || !stats) {
+    return null;
+  }
+  if (stats.meanConfidenceDistanceBand !== "extreme" && stats.meanConfidenceDistanceBand !== "very_likely") {
+    return null;
+  }
+  return {
+    reason: `mean component probability was ${stats.meanConfidenceDistanceBand.replace(/_/g, " ")} at ${formatNullableMetric(stats.meanProbability)}% (${formatNullableMetric(stats.meanConfidenceDistance)} points from 50%)`,
+    delta: stats.meanConfidenceDistance,
+    severity: stats.meanConfidenceDistanceBand === "extreme" ? "high" : "medium",
+  };
+}
+
+function aggregateConfidenceMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  if (item.forecastType !== "binary" || !stats) {
+    return null;
+  }
+  if (stats.finalConfidenceShiftBand !== "much_more_confident" && stats.finalConfidenceShiftBand !== "more_confident") {
+    return null;
+  }
+  return {
+    reason: `final aggregate became ${stats.finalConfidenceShiftBand.replace(/_/g, " ")} than the mean component probability by ${formatSignedMetric(stats.finalConfidenceShift ?? 0)} points`,
+    delta: stats.finalConfidenceShift,
+    severity: stats.finalConfidenceShiftBand === "much_more_confident" ? "high" : "medium",
+  };
+}
+
+function medianAdjustmentMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  if (item.forecastType !== "binary" || !stats || stats.adjustmentFromMedianBand !== "large_adjustment") {
+    return null;
+  }
+  return {
+    reason: `large final adjustment of ${formatSignedMetric(stats.adjustmentFromMedian ?? 0)} points from the component median probability ${formatNullableMetric(stats.medianProbability)}`,
+    delta: stats.adjustmentFromMedian,
+    severity: "medium",
+  };
+}
+
+function insideViewShiftMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  if (item.forecastType !== "binary" || !stats || stats.insideViewDeltaBand !== "large_shift") {
+    return null;
+  }
+  return {
+    reason: `large inside-view shift of ${formatSignedMetric(stats.insideViewDelta ?? 0)} points from mean base rate ${formatNullableMetric(stats.meanBaseRateProbability)} to mean inside view ${formatNullableMetric(stats.meanInsideViewProbability)}`,
+    delta: stats.insideViewDelta,
+    severity: "medium",
+  };
+}
+
+function aggregateAdjustmentMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  if (item.forecastType !== "binary" || !stats || stats.finalInsideViewDeltaBand !== "large_adjustment") {
+    return null;
+  }
+  return {
+    reason: `large final aggregation adjustment of ${formatSignedMetric(stats.finalInsideViewDelta ?? 0)} points from mean inside view ${formatNullableMetric(stats.meanInsideViewProbability)} to final probability ${formatNullableMetric(item.probability)}`,
+    delta: stats.finalInsideViewDelta,
+    severity: "medium",
+  };
+}
+
+function aggregateDirectionMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  if (item.forecastType !== "binary" || !stats) {
+    return null;
+  }
+  if (stats.finalAdjustmentDirection !== "reverses_inside_view" && stats.finalAdjustmentDirection !== "final_only_shift") {
+    return null;
+  }
+  return {
+    reason: `final aggregation ${stats.finalAdjustmentDirection.replace(/_/g, " ")} after an inside-view shift of ${formatSignedMetric(stats.insideViewDelta ?? 0)} points and final adjustment of ${formatSignedMetric(stats.finalInsideViewDelta ?? 0)} points`,
+    delta: stats.finalInsideViewDelta,
+    severity: stats.finalAdjustmentDirection === "reverses_inside_view" ? "high" : "medium",
+  };
+}
+
+function aggregateAttemptMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  if (item.forecastType !== "binary" || !stats || stats.attemptCountBand !== "many_attempts") {
+    return null;
+  }
+  return {
+    reason: `aggregate required ${stats.attemptCount ?? "unknown"} attempt(s), which can indicate unstable aggregation or repeated repair`,
+    delta: stats.attemptCount,
+    severity: "medium",
+  };
+}
+
+function evidenceCoverageMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const evidence = item.evidenceCoverage;
+  if (!evidence) {
+    return null;
+  }
+  if (evidence.sourceTimingBand === "post_as_of") {
+    return {
+      reason: `${evidence.postAsOfSourceCount ?? 0} cited source(s) published after the evidence as-of date`,
+      delta: evidence.postAsOfSourceCount,
+      severity: "high",
+    };
+  }
+  if (evidence.sourceCountBand === "none" || evidence.sourceCountBand === "sparse") {
+    return {
+      reason: `${evidence.sourceCountBand} evidence coverage with ${evidence.sourceCount ?? 0} cited source(s)`,
+      delta: evidence.sourceCount,
+      severity: evidence.sourceCountBand === "none" ? "high" : "medium",
+    };
+  }
+  if (evidence.sourceDiversityBand === "single_domain") {
+    return {
+      reason: `all cited evidence came from one source domain across ${evidence.sourceCount ?? 0} cited source(s)`,
+      delta: evidence.sourceDomainCount,
+      severity: "medium",
+    };
+  }
+  if (evidence.sourceConcentrationBand === "dominant" || evidence.sourceConcentrationBand === "concentrated") {
+    return {
+      reason: `${evidence.sourceConcentrationBand} evidence concentration: top source domain supplied ${formatNullableMetric(evidence.topSourceDomainShare === null ? null : evidence.topSourceDomainShare * 100)}% of cited source(s)`,
+      delta: evidence.topSourceDomainShare,
+      severity: evidence.sourceConcentrationBand === "dominant" ? "high" : "medium",
+    };
+  }
+  if (evidence.sourceDateCoverageBand === "none" || evidence.sourceDateCoverageBand === "partial") {
+    return {
+      reason: `${evidence.sourceDateCoverageBand} source-date coverage across ${evidence.sourceCount ?? 0} cited source(s)`,
+      delta: evidence.datedSourceCount,
+      severity: evidence.sourceDateCoverageBand === "none" ? "high" : "medium",
+    };
+  }
+  if (evidence.sourceFreshnessBand === "old" || evidence.sourceFreshnessBand === "stale") {
+    return {
+      reason: `${evidence.sourceFreshnessBand} newest cited source (${evidence.newestSourceAgeDays ?? 0} days old)`,
+      delta: evidence.newestSourceAgeDays,
+      severity: evidence.sourceFreshnessBand === "old" ? "high" : "medium",
+    };
+  }
+  if (evidence.uncertaintyCountBand === "none") {
+    return {
+      reason: "no explicit uncertainty factors in the forecast rationale",
+      delta: evidence.uncertaintyCount,
+      severity: "medium",
+    };
+  }
+  if (evidence.rationaleLengthBand === "absent" || evidence.rationaleLengthBand === "short") {
+    return {
+      reason: `${evidence.rationaleLengthBand} forecast rationale (${evidence.rationaleLength ?? 0} words)`,
+      delta: evidence.rationaleLength,
+      severity: evidence.rationaleLengthBand === "absent" ? "high" : "medium",
+    };
+  }
+  return null;
+}
+
+function binaryConfidenceMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const confidence = item.binaryConfidence;
+  if (item.forecastType !== "binary" || !confidence) {
+    return null;
+  }
+  if (confidence.confidenceBand === "extreme" || confidence.confidenceBand === "very_likely") {
+    return {
+      reason: `${confidence.confidenceBand.replace(/_/g, " ")} binary forecast on the ${confidence.forecastSide} side (${confidence.probability ?? "unknown"}%)`,
+      delta: confidence.distanceFromEven,
+      severity: confidence.confidenceBand === "extreme" ? "high" : "medium",
+    };
+  }
+  return null;
+}
+
+function inputContextMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const context = item.inputContext;
+  if (!context) {
+    return null;
+  }
+  if (context.contextCompletenessBand === "sparse") {
+    return {
+      reason: `sparse input context with ${context.contextCompleteness} populated context field(s)`,
+      delta: context.contextCompleteness,
+      severity: "high",
+    };
+  }
+  if (context.requestedRoutedTypeBand === "mismatch") {
+    return {
+      reason: `input requested ${context.requestedForecastType ?? "unknown"} forecast but router selected ${context.routedForecastType ?? "unknown"}`,
+      delta: context.routingConfidence,
+      severity: "high",
+    };
+  }
+  if (context.requestedForecastType && context.requestedForecastType !== item.forecastType) {
+    return {
+      reason: `input requested ${context.requestedForecastType} forecast but scored as ${item.forecastType}`,
+      delta: context.contextCompleteness,
+      severity: "high",
+    };
+  }
+  if (context.routedForecastType && context.routedForecastType !== item.forecastType) {
+    return {
+      reason: `input router selected ${context.routedForecastType} forecast but scored as ${item.forecastType}`,
+      delta: context.routingConfidence,
+      severity: "high",
+    };
+  }
+  if (context.routingConfidenceBand === "low") {
+    return {
+      reason: `low-confidence forecast routing (${formatNullableMetric(context.routingConfidence)})`,
+      delta: context.routingConfidence,
+      severity: "medium",
+    };
+  }
+  if (!context.hasResolutionCriteria || !context.hasResolutionDate) {
+    const missing = [
+      !context.hasResolutionCriteria ? "resolution criteria" : null,
+      !context.hasResolutionDate ? "resolution date" : null,
+    ].filter((part): part is string => Boolean(part));
+    return {
+      reason: `missing ${missing.join(" and ")} in the forecast input`,
+      delta: context.contextCompleteness,
+      severity: !context.hasResolutionCriteria ? "high" : "medium",
+    };
+  }
+  if (!context.hasEvidenceAsOfDate) {
+    return {
+      reason: "missing evidence as-of date in the forecast input",
+      delta: context.contextCompleteness,
+      severity: "medium",
+    };
+  }
+  if (context.resolutionCriteriaLengthBand === "thin") {
+    return {
+      reason: `thin resolution criteria (${context.resolutionCriteriaLength ?? 0} words)`,
+      delta: context.resolutionCriteriaLength,
+      severity: "medium",
+    };
+  }
+  if (context.resolutionHorizonBand === "elapsed") {
+    const elapsedDays = context.resolutionHorizonDays === null ? null : Math.abs(context.resolutionHorizonDays);
+    return {
+      reason: `resolution date was before the evidence as-of date by ${formatNullableMetric(elapsedDays)} days`,
+      delta: context.resolutionHorizonDays,
+      severity: "high",
+    };
+  }
+  if (context.hasMarketPrice && context.marketPriceAgeBand === "old") {
+    return {
+      reason: `old structured market price (${formatNullableMetric(context.marketPriceAgeDays)} days before evidence as-of date)`,
+      delta: context.marketPriceAgeDays,
+      severity: "medium",
+    };
+  }
+  if (context.marketCreationAgeBand === "future") {
+    return {
+      reason: `market creation date was after the evidence as-of date by ${formatNullableMetric(context.marketCreationAgeDays === null ? null : Math.abs(context.marketCreationAgeDays))} days`,
+      delta: context.marketCreationAgeDays,
+      severity: "high",
+    };
+  }
+  if (context.hasMarketPrice && context.marketMetadataBand === "price_only") {
+    return {
+      reason: "market price input had no platform, URL, or creation date metadata",
+      delta: context.contextCompleteness,
+      severity: "medium",
+    };
+  }
+  if (context.conditionCriteriaBand === "condition_only") {
+    return {
+      reason: "conditional input included a condition but no separate condition resolution criteria",
+      delta: context.contextCompleteness,
+      severity: "medium",
+    };
+  }
+  if (context.hasCondition && context.conditionLengthBand === "thin") {
+    return {
+      reason: `thin condition text (${context.conditionLength ?? 0} words)`,
+      delta: context.conditionLength,
+      severity: "medium",
+    };
+  }
+  if (context.hasConditionResolutionCriteria && context.conditionResolutionCriteriaLengthBand === "thin") {
+    return {
+      reason: `thin condition resolution criteria (${context.conditionResolutionCriteriaLength ?? 0} words)`,
+      delta: context.conditionResolutionCriteriaLength,
+      severity: "medium",
+    };
+  }
+  if (context.backgroundLengthBand === "absent" || context.backgroundLengthBand === "thin") {
+    return {
+      reason: `${context.backgroundLengthBand} input background (${context.backgroundLength ?? 0} words)`,
+      delta: context.backgroundLength,
+      severity: context.backgroundLengthBand === "absent" ? "high" : "medium",
+    };
+  }
+  if (isUnitSensitiveForecastType(item.forecastType) && (context.unitSpecificityBand === "missing" || context.unitSpecificityBand === "generic")) {
+    return {
+      reason: `${context.unitSpecificityBand} input unit${context.unit ? ` (${context.unit})` : ""}`,
+      delta: context.contextCompleteness,
+      severity: context.unitSpecificityBand === "missing" ? "high" : "medium",
+    };
+  }
+  if (item.forecastType === "categorical" && context.categoryCoverageBand === "open_set") {
+    return {
+      reason: `open-set categorical input with ${context.categoryCount ?? 0} listed categor${context.categoryCount === 1 ? "y" : "ies"}`,
+      delta: context.categoryCount,
+      severity: "medium",
+    };
+  }
+  if (item.forecastType === "thresholded" && (context.thresholdDirectionBand === "missing" || context.thresholdDirectionBand === "mixed")) {
+    return {
+      reason: `${context.thresholdDirectionBand} input threshold direction across ${context.thresholdCount ?? 0} threshold(s)`,
+      delta: context.thresholdCount,
+      severity: context.thresholdDirectionBand === "missing" ? "high" : "medium",
+    };
+  }
+  if (item.forecastType === "thresholded" && (context.thresholdValueCoverageBand === "missing" || context.thresholdValueCoverageBand === "partial")) {
+    return {
+      reason: `${context.thresholdValueCoverageBand} structured threshold values (${context.thresholdValueCount ?? 0}/${context.thresholdCount ?? 0})`,
+      delta: context.thresholdValueCount,
+      severity: context.thresholdValueCoverageBand === "missing" ? "high" : "medium",
+    };
+  }
+  if (context.questionLengthBand === "short" || context.questionLengthBand === "long") {
+    return {
+      reason: `${context.questionLengthBand} question text (${context.questionLength ?? 0} words)`,
+      delta: context.questionLength,
+      severity: "medium",
+    };
+  }
+  return null;
+}
+
+function isUnitSensitiveForecastType(forecastType: string) {
+  return forecastType === "numeric" || forecastType === "thresholded";
+}
+
+function runMetadataMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const run = item.runMetadata;
+  if (!run) {
+    return null;
+  }
+  if (run.durationBand === "fast" || run.durationBand === "very_slow") {
+    return {
+      reason: `${run.durationBand.replace(/_/g, " ")} workflow duration (${formatNullableMetric(run.durationSeconds)} seconds)`,
+      delta: run.durationSeconds,
+      severity: run.durationBand === "fast" ? "high" : "medium",
+    };
+  }
+  return null;
+}
+
+function formatNullableMetric(value: number | null) {
+  return value === null ? "unknown" : String(roundMetric(value));
+}
+
+function formatSignedMetric(value: number) {
+  return `${value >= 0 ? "+" : ""}${roundMetric(value)}`;
+}
+
+function selectPrimaryMetric(meanScores: Record<string, number>) {
+  return selectPrimaryScoreMetric(meanScores);
+}
+
+function forecastAttemptCount(scoreConfig: unknown, forecastType: string) {
+  if (forecastType === "binary") {
+    return readAggregateStatsSnapshot(scoreConfig)?.attemptCount ?? null;
+  }
+  if (forecastType === "conditional") {
+    return readConditionalForecastSnapshot(scoreConfig)?.attemptCount ?? null;
+  }
+  if (forecastType === "thresholded") {
+    return readThresholdedForecastSnapshot(scoreConfig)?.attemptCount ?? null;
+  }
+  if (forecastType === "numeric") {
+    return readNumericForecastSnapshot(scoreConfig)?.attemptCount ?? null;
+  }
+  if (forecastType === "date") {
+    return readDateForecastSnapshot(scoreConfig)?.attemptCount ?? null;
+  }
+  if (forecastType === "categorical") {
+    return readCategoricalForecastSnapshot(scoreConfig)?.attemptCount ?? null;
+  }
+  return null;
+}
+
+function formatPerformanceGroupLabel(key: string) {
+  return key
+    .split(":")
+    .map((part) => part.replace(/_/g, " "))
+    .join(" / ");
+}
+
+function renderPerformanceMarkdown(input: {
+  resolvedTasks: number;
+  productScoreRows: number;
+  byForecastType: PerformanceGroup[];
+  byTarget: PerformanceGroup[];
+  byForecaster: PerformanceGroup[];
+  byForecastAttemptCount: PerformanceGroup[];
+  byCalibrationGuard: PerformanceGroup[];
+  byBinaryConfidence: PerformanceGroup[];
+  byBinaryForecastSide: PerformanceGroup[];
+  byBaselineSanity: PerformanceGroup[];
+  byMarketAnchor: PerformanceGroup[];
+  byResolutionBoundary: PerformanceGroup[];
+  byUncertaintyRange: PerformanceGroup[];
+  byComponentWeighting: PerformanceGroup[];
+  byAggregateQuality: PerformanceGroup[];
+  byAggregateQualityRounds: PerformanceGroup[];
+  byAggregateQualityIssues: PerformanceGroup[];
+  byAggregateDisagreement: PerformanceGroup[];
+  byAggregateFinalComponentPosition: PerformanceGroup[];
+  byAggregateSideAgreement: PerformanceGroup[];
+  byAggregateMeanConfidenceDistance: PerformanceGroup[];
+  byAggregateFinalConfidenceShift: PerformanceGroup[];
+  byAggregateMedianAdjustment: PerformanceGroup[];
+  byAggregateInsideViewShift: PerformanceGroup[];
+  byAggregateFinalInsideViewAdjustment: PerformanceGroup[];
+  byAggregateFinalAdjustmentDirection: PerformanceGroup[];
+  byAggregateAttemptCount: PerformanceGroup[];
+  byAggregationAnchor: PerformanceGroup[];
+  byResearchDepth: PerformanceGroup[];
+  byForecasterPanelSize: PerformanceGroup[];
+  byComplexityScore: PerformanceGroup[];
+  byConditionalBranch: PerformanceGroup[];
+  byConditionalEffect: PerformanceGroup[];
+  byConditionalBranchDisagreement: PerformanceGroup[];
+  byConditionalResolvedBranch: PerformanceGroup[];
+  byThresholdedDirection: PerformanceGroup[];
+  byThresholdedSource: PerformanceGroup[];
+  byThresholdedRepair: PerformanceGroup[];
+  byThresholdedCurveSpread: PerformanceGroup[];
+  byThresholdedComponentDisagreement: PerformanceGroup[];
+  byThresholdedResolvedBand: PerformanceGroup[];
+  byNumericInterval: PerformanceGroup[];
+  byNumericUnit: PerformanceGroup[];
+  byNumericP50Disagreement: PerformanceGroup[];
+  byNumericP50Error: PerformanceGroup[];
+  byNumericResolvedPosition: PerformanceGroup[];
+  byDateInterval: PerformanceGroup[];
+  byDateNeverProbability: PerformanceGroup[];
+  byDateP50Disagreement: PerformanceGroup[];
+  byDateP50Error: PerformanceGroup[];
+  byDateResolvedPosition: PerformanceGroup[];
+  byCategoricalConfidence: PerformanceGroup[];
+  byCategoricalEntropy: PerformanceGroup[];
+  byCategoricalSource: PerformanceGroup[];
+  byCategoricalCoverage: PerformanceGroup[];
+  byCategoricalTopAgreement: PerformanceGroup[];
+  byCategoricalResolvedCategory: PerformanceGroup[];
+  byEvidenceSourceCount: PerformanceGroup[];
+  byEvidenceSourceDiversity: PerformanceGroup[];
+  byEvidenceSourceConcentration: PerformanceGroup[];
+  byEvidenceSourceDateCoverage: PerformanceGroup[];
+  byEvidenceSourceFreshness: PerformanceGroup[];
+  byEvidenceSourceTiming: PerformanceGroup[];
+  byEvidenceUncertaintyCount: PerformanceGroup[];
+  byEvidenceRationaleLength: PerformanceGroup[];
+  byInputRequestedForecastType: PerformanceGroup[];
+  byInputRoutedForecastType: PerformanceGroup[];
+  byInputTypeAlignment: PerformanceGroup[];
+  byInputRoutingConfidence: PerformanceGroup[];
+  byInputSource: PerformanceGroup[];
+  byInputContextCompleteness: PerformanceGroup[];
+  byInputEvidenceAsOfDate: PerformanceGroup[];
+  byInputResolutionCriteriaDepth: PerformanceGroup[];
+  byInputResolutionHorizon: PerformanceGroup[];
+  byInputBackgroundDepth: PerformanceGroup[];
+  byInputMarketContext: PerformanceGroup[];
+  byInputMarketRecency: PerformanceGroup[];
+  byInputMarketMetadata: PerformanceGroup[];
+  byInputMarketCreationAge: PerformanceGroup[];
+  byInputQuestionLength: PerformanceGroup[];
+  byInputCategoryCount: PerformanceGroup[];
+  byInputCategoryCoverage: PerformanceGroup[];
+  byInputThresholdCount: PerformanceGroup[];
+  byInputThresholdValueCoverage: PerformanceGroup[];
+  byInputThresholdDirection: PerformanceGroup[];
+  byInputConditionDepth: PerformanceGroup[];
+  byInputConditionCriteriaDepth: PerformanceGroup[];
+  byInputConditionCriteria: PerformanceGroup[];
+  byInputUnitSpecificity: PerformanceGroup[];
+  byRunDuration: PerformanceGroup[];
+  byRunWorkflowVersion: PerformanceGroup[];
+  byRunWorkflowVariant: PerformanceGroup[];
+  byRunExperiment: PerformanceGroup[];
+  bestResolvedForecasts: PerformanceCase[];
+  worstResolvedForecasts: PerformanceCase[];
+  scoreTrends: PerformanceTrend[];
+  needsAttention: PerformanceAttentionItem[];
+  calibrationBuckets: BinaryCalibrationReport["calibrationBuckets"];
+  calibrationSummary: BinaryCalibrationReport["calibrationSummary"];
+  candidateCalibrationGuardRules: BinaryCalibrationReport["candidateCalibrationGuardRules"];
+  calibrationGuardImpact: CalibrationGuardImpact;
+}) {
+  const lines = [
+    "# Forecast performance report",
+    "",
+    `Resolved tasks: ${input.resolvedTasks}`,
+    `Product score rows: ${input.productScoreRows}`,
+    "",
+    "## Forecast types",
+    ...renderGroupTable(input.byForecastType),
+    "",
+    "## Targets",
+    ...renderGroupTable(input.byTarget),
+    "",
+    "## Forecasters",
+    ...renderGroupTable(input.byForecaster),
+    "",
+    "## Forecast attempt-count groups",
+    ...renderGroupTable(input.byForecastAttemptCount),
+    "",
+    "## Calibration guard groups",
+    ...renderGroupTable(input.byCalibrationGuard),
+    "",
+    "## Binary confidence groups",
+    ...renderGroupTable(input.byBinaryConfidence),
+    "",
+    "## Binary side groups",
+    ...renderGroupTable(input.byBinaryForecastSide),
+    "",
+    "## Baseline sanity groups",
+    ...renderGroupTable(input.byBaselineSanity),
+    "",
+    "## Market-anchor groups",
+    ...renderGroupTable(input.byMarketAnchor),
+    "",
+    "## Resolution-boundary groups",
+    ...renderGroupTable(input.byResolutionBoundary),
+    "",
+    "## Uncertainty-range groups",
+    ...renderGroupTable(input.byUncertaintyRange),
+    "",
+    "## Component-weighting groups",
+    ...renderGroupTable(input.byComponentWeighting),
+    "",
+    "## Aggregate quality groups",
+    ...renderGroupTable(input.byAggregateQuality),
+    "",
+    "## Aggregate quality review-round groups",
+    ...renderGroupTable(input.byAggregateQualityRounds),
+    "",
+    "## Aggregate quality issue-count groups",
+    ...renderGroupTable(input.byAggregateQualityIssues),
+    "",
+    "## Component disagreement groups",
+    ...renderGroupTable(input.byAggregateDisagreement),
+    "",
+    "## Component envelope groups",
+    ...renderGroupTable(input.byAggregateFinalComponentPosition),
+    "",
+    "## Aggregate side-agreement groups",
+    ...renderGroupTable(input.byAggregateSideAgreement),
+    "",
+    "## Aggregate panel-confidence groups",
+    ...renderGroupTable(input.byAggregateMeanConfidenceDistance),
+    "",
+    "## Final confidence shift groups",
+    ...renderGroupTable(input.byAggregateFinalConfidenceShift),
+    "",
+    "## Median adjustment groups",
+    ...renderGroupTable(input.byAggregateMedianAdjustment),
+    "",
+    "## Inside-view shift groups",
+    ...renderGroupTable(input.byAggregateInsideViewShift),
+    "",
+    "## Final aggregation adjustment groups",
+    ...renderGroupTable(input.byAggregateFinalInsideViewAdjustment),
+    "",
+    "## Final aggregation direction groups",
+    ...renderGroupTable(input.byAggregateFinalAdjustmentDirection),
+    "",
+    "## Aggregate attempt-count groups",
+    ...renderGroupTable(input.byAggregateAttemptCount),
+    "",
+    "## Aggregation anchor groups",
+    ...renderGroupTable(input.byAggregationAnchor),
+    "",
+    "## Research depth groups",
+    ...renderGroupTable(input.byResearchDepth),
+    "",
+    "## Forecaster panel size groups",
+    ...renderGroupTable(input.byForecasterPanelSize),
+    "",
+    "## Complexity score groups",
+    ...renderGroupTable(input.byComplexityScore),
+    "",
+    "## Conditional branch groups",
+    ...renderGroupTable(input.byConditionalBranch),
+    "",
+    "## Conditional effect groups",
+    ...renderGroupTable(input.byConditionalEffect),
+    "",
+    "## Conditional branch disagreement groups",
+    ...renderGroupTable(input.byConditionalBranchDisagreement),
+    "",
+    "## Conditional resolved-branch groups",
+    ...renderGroupTable(input.byConditionalResolvedBranch),
+    "",
+    "## Thresholded direction groups",
+    ...renderGroupTable(input.byThresholdedDirection),
+    "",
+    "## Thresholded source groups",
+    ...renderGroupTable(input.byThresholdedSource),
+    "",
+    "## Thresholded monotonicity groups",
+    ...renderGroupTable(input.byThresholdedRepair),
+    "",
+    "## Thresholded curve-spread groups",
+    ...renderGroupTable(input.byThresholdedCurveSpread),
+    "",
+    "## Thresholded component-disagreement groups",
+    ...renderGroupTable(input.byThresholdedComponentDisagreement),
+    "",
+    "## Thresholded resolved-band groups",
+    ...renderGroupTable(input.byThresholdedResolvedBand),
+    "",
+    "## Numeric interval groups",
+    ...renderGroupTable(input.byNumericInterval),
+    "",
+    "## Numeric unit groups",
+    ...renderGroupTable(input.byNumericUnit),
+    "",
+    "## Numeric component-value groups",
+    ...renderGroupTable(input.byNumericP50Disagreement),
+    "",
+    "## Numeric median-error groups",
+    ...renderGroupTable(input.byNumericP50Error),
+    "",
+    "## Numeric resolved-position groups",
+    ...renderGroupTable(input.byNumericResolvedPosition),
+    "",
+    "## Date interval groups",
+    ...renderGroupTable(input.byDateInterval),
+    "",
+    "## Date never-probability groups",
+    ...renderGroupTable(input.byDateNeverProbability),
+    "",
+    "## Date component timing groups",
+    ...renderGroupTable(input.byDateP50Disagreement),
+    "",
+    "## Date median-error groups",
+    ...renderGroupTable(input.byDateP50Error),
+    "",
+    "## Date resolved-position groups",
+    ...renderGroupTable(input.byDateResolvedPosition),
+    "",
+    "## Categorical confidence groups",
+    ...renderGroupTable(input.byCategoricalConfidence),
+    "",
+    "## Categorical entropy groups",
+    ...renderGroupTable(input.byCategoricalEntropy),
+    "",
+    "## Categorical source groups",
+    ...renderGroupTable(input.byCategoricalSource),
+    "",
+    "## Categorical coverage groups",
+    ...renderGroupTable(input.byCategoricalCoverage),
+    "",
+    "## Categorical top-agreement groups",
+    ...renderGroupTable(input.byCategoricalTopAgreement),
+    "",
+    "## Categorical resolved-category groups",
+    ...renderGroupTable(input.byCategoricalResolvedCategory),
+    "",
+    "## Evidence source-count groups",
+    ...renderGroupTable(input.byEvidenceSourceCount),
+    "",
+    "## Evidence source-diversity groups",
+    ...renderGroupTable(input.byEvidenceSourceDiversity),
+    "",
+    "## Evidence source-concentration groups",
+    ...renderGroupTable(input.byEvidenceSourceConcentration),
+    "",
+    "## Evidence source-date groups",
+    ...renderGroupTable(input.byEvidenceSourceDateCoverage),
+    "",
+    "## Evidence source-freshness groups",
+    ...renderGroupTable(input.byEvidenceSourceFreshness),
+    "",
+    "## Evidence source-timing groups",
+    ...renderGroupTable(input.byEvidenceSourceTiming),
+    "",
+    "## Evidence uncertainty-count groups",
+    ...renderGroupTable(input.byEvidenceUncertaintyCount),
+    "",
+    "## Evidence rationale-length groups",
+    ...renderGroupTable(input.byEvidenceRationaleLength),
+    "",
+    "## Input requested-forecast-type groups",
+    ...renderGroupTable(input.byInputRequestedForecastType),
+    "",
+    "## Input routed-forecast-type groups",
+    ...renderGroupTable(input.byInputRoutedForecastType),
+    "",
+    "## Input type-alignment groups",
+    ...renderGroupTable(input.byInputTypeAlignment),
+    "",
+    "## Input routing-confidence groups",
+    ...renderGroupTable(input.byInputRoutingConfidence),
+    "",
+    "## Input source groups",
+    ...renderGroupTable(input.byInputSource),
+    "",
+    "## Input context-completeness groups",
+    ...renderGroupTable(input.byInputContextCompleteness),
+    "",
+    "## Input evidence-as-of-date groups",
+    ...renderGroupTable(input.byInputEvidenceAsOfDate),
+    "",
+    "## Input resolution-criteria-depth groups",
+    ...renderGroupTable(input.byInputResolutionCriteriaDepth),
+    "",
+    "## Input resolution-horizon groups",
+    ...renderGroupTable(input.byInputResolutionHorizon),
+    "",
+    "## Input background-depth groups",
+    ...renderGroupTable(input.byInputBackgroundDepth),
+    "",
+    "## Input market-context groups",
+    ...renderGroupTable(input.byInputMarketContext),
+    "",
+    "## Input market-recency groups",
+    ...renderGroupTable(input.byInputMarketRecency),
+    "",
+    "## Input market-metadata groups",
+    ...renderGroupTable(input.byInputMarketMetadata),
+    "",
+    "## Input market-creation-age groups",
+    ...renderGroupTable(input.byInputMarketCreationAge),
+    "",
+    "## Input question-length groups",
+    ...renderGroupTable(input.byInputQuestionLength),
+    "",
+    "## Input category-count groups",
+    ...renderGroupTable(input.byInputCategoryCount),
+    "",
+    "## Input category-coverage groups",
+    ...renderGroupTable(input.byInputCategoryCoverage),
+    "",
+    "## Input threshold-count groups",
+    ...renderGroupTable(input.byInputThresholdCount),
+    "",
+    "## Input threshold-value groups",
+    ...renderGroupTable(input.byInputThresholdValueCoverage),
+    "",
+    "## Input threshold-direction groups",
+    ...renderGroupTable(input.byInputThresholdDirection),
+    "",
+    "## Input condition-criteria groups",
+    ...renderGroupTable(input.byInputConditionCriteria),
+    "",
+    "## Input condition-depth groups",
+    ...renderGroupTable(input.byInputConditionDepth),
+    "",
+    "## Input condition-criteria-depth groups",
+    ...renderGroupTable(input.byInputConditionCriteriaDepth),
+    "",
+    "## Input unit-specificity groups",
+    ...renderGroupTable(input.byInputUnitSpecificity),
+    "",
+    "## Run duration groups",
+    ...renderGroupTable(input.byRunDuration),
+    "",
+    "## Run workflow-version groups",
+    ...renderGroupTable(input.byRunWorkflowVersion),
+    "",
+    "## Run workflow-variant groups",
+    ...renderGroupTable(input.byRunWorkflowVariant),
+    "",
+    "## Run experiment groups",
+    ...renderGroupTable(input.byRunExperiment),
+    "",
+    "## Calibration guard impact",
+    ...renderCalibrationGuardImpact(input.calibrationGuardImpact),
+    "",
+    "## Best resolved forecasts",
+    ...renderCaseTable(input.bestResolvedForecasts),
+    "",
+    "## Worst resolved forecasts",
+    ...renderCaseTable(input.worstResolvedForecasts),
+    "",
+    "## Score trends",
+    ...renderTrendTable(input.scoreTrends),
+    "",
+    "## Calibration",
+    ...renderCalibrationTable(input.calibrationBuckets, input.calibrationSummary),
+    "",
+    "## Candidate calibration guards",
+    ...renderCandidateCalibrationGuardTable(input.candidateCalibrationGuardRules),
+    "",
+    "## Needs attention",
+    ...renderAttentionTable(input.needsAttention),
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function renderCalibrationGuardImpact(impact: CalibrationGuardImpact) {
+  return [
+    `Status: ${impact.status}`,
+    `Guarded aggregate Brier rows: ${impact.guardedRows}`,
+    `Unguarded aggregate Brier rows: ${impact.unguardedRows}`,
+    `Guarded mean Brier: ${formatNullableMetric(impact.guardedMeanBrier)}`,
+    `Unguarded mean Brier: ${formatNullableMetric(impact.unguardedMeanBrier)}`,
+    `Guarded minus unguarded Brier: ${impact.brierDelta === null ? "unknown" : formatSignedMetric(impact.brierDelta)}`,
+    "",
+    ...renderCalibrationGuardRuleImpactTable(impact.byRule),
+  ];
+}
+
+function renderCalibrationGuardRuleImpactTable(ruleImpacts: CalibrationGuardRuleImpact[]) {
+  if (ruleImpacts.length === 0) {
+    return ["No applied calibration guard rules have resolved Brier rows yet."];
+  }
+  return [
+    "| Rule | Status | Guarded rows | Guarded tasks | Guarded mean Brier | Delta vs unguarded |",
+    "| --- | --- | ---: | ---: | ---: | ---: |",
+    ...ruleImpacts.map((impact) =>
+      `| ${impact.ruleId} | ${impact.status} | ${impact.guardedRows} | ${impact.guardedResolvedTasks} | ${formatNullableMetric(impact.guardedMeanBrier)} | ${impact.brierDelta === null ? "unknown" : formatSignedMetric(impact.brierDelta)} |`,
+    ),
+  ];
+}
+
+function renderCandidateCalibrationGuardTable(
+  rules: BinaryCalibrationReport["candidateCalibrationGuardRules"],
+) {
+  if (rules.length === 0) {
+    return ["No candidate calibration guard rules yet."];
+  }
+  return [
+    "| Bucket | Direction | Suggested adjustment | Sample size | Mean forecast | Observed rate | Status |",
+    "| --- | --- | ---: | ---: | ---: | ---: | --- |",
+    ...rules.map((rule) =>
+      `| ${rule.bucketLabel} | ${rule.direction} | ${formatSignedMetric(rule.suggestedAdjustment)} | ${rule.sampleSize} | ${roundMetric(rule.meanForecast)} | ${roundMetric(rule.observedRate)} | ${rule.activationStatus} |`,
+    ),
+  ];
+}
+
+function renderCalibrationTable(
+  buckets: BinaryCalibrationReport["calibrationBuckets"],
+  summary: BinaryCalibrationReport["calibrationSummary"],
+) {
+  if (buckets.every((bucket) => bucket.count === 0)) {
+    return ["No binary aggregate calibration rows yet."];
+  }
+  return [
+    `Status: ${summary.status}`,
+    `Expected calibration error: ${summary.expectedCalibrationError === null ? "unknown" : roundMetric(summary.expectedCalibrationError)} percentage points`,
+    "",
+    "| Forecast bucket | Count | Mean forecast | Observed rate | Calibration error | Mean Brier |",
+    "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ...buckets.map((bucket) =>
+      `| ${bucket.label} | ${bucket.count} | ${bucket.meanForecast === null ? "" : roundMetric(bucket.meanForecast)} | ${
+        bucket.observedRate === null ? "" : roundMetric(bucket.observedRate)
+      } | ${bucket.calibrationError === null ? "" : roundMetric(bucket.calibrationError)} | ${
+        bucket.meanBrier === null ? "" : roundMetric(bucket.meanBrier)
+      } |`,
+    ),
+  ];
+}
+
+function renderGroupTable(groups: PerformanceGroup[]) {
+  if (groups.length === 0) {
+    return ["No resolved score rows yet."];
+  }
+  return [
+    "| Group | Resolved tasks | Score rows | Primary metric | Mean |",
+    "| --- | ---: | ---: | --- | ---: |",
+    ...groups.map((group) =>
+      `| ${escapeMarkdownCell(group.label)} | ${group.resolvedTasks} | ${group.scoreRows} | ${group.primaryMetric ?? ""} | ${
+        group.primaryMean === null ? "" : roundMetric(group.primaryMean)
+      } |`,
+    ),
+  ];
+}
+
+function renderCaseTable(cases: PerformanceCase[]) {
+  if (cases.length === 0) {
+    return ["No aggregate resolved forecasts yet."];
+  }
+  return [
+    "| Task | Forecast type | Primary metric | Score | Guard | Task id |",
+    "| --- | --- | --- | ---: | --- | --- |",
+    ...cases.map((item) =>
+      `| ${escapeMarkdownCell(item.taskLabel)} | ${escapeMarkdownCell(item.forecastType)} | ${item.primaryMetric} | ${roundMetric(item.primaryScore)} | ${
+        escapeMarkdownCell(formatCalibrationGuard(item.calibrationGuard))
+      } | ${item.taskId} |`,
+    ),
+  ];
+}
+
+function formatCalibrationGuard(guard: CalibrationGuardSnapshot | null) {
+  if (!guard || guard.appliedRules.length === 0) {
+    return "";
+  }
+  const adjustment = guard.adjustment === null ? "" : `${guard.adjustment >= 0 ? "+" : ""}${roundMetric(guard.adjustment)} pts`;
+  const ruleIds = guard.appliedRules.map((rule) => rule.id).join(", ");
+  return [adjustment, ruleIds].filter(Boolean).join(" ");
+}
+
+function renderTrendTable(trends: PerformanceTrend[]) {
+  if (trends.length === 0) {
+    return ["No aggregate score trends yet."];
+  }
+  return [
+    "| Window | Metric | Recent count | Baseline count | Recent mean | Baseline mean | Delta | Direction |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+    ...trends.map((trend) =>
+      `| ${trend.label} | ${trend.metric} | ${trend.recentCount} | ${trend.baselineCount} | ${
+        trend.recentMean === null ? "" : roundMetric(trend.recentMean)
+      } | ${trend.baselineMean === null ? "" : roundMetric(trend.baselineMean)} | ${
+        trend.delta === null ? "" : roundMetric(trend.delta)
+      } | ${trend.direction} |`,
+    ),
+  ];
+}
+
+function renderAttentionTable(items: PerformanceAttentionItem[]) {
+  if (items.length === 0) {
+    return ["No attention items yet."];
+  }
+  return [
+    "| Severity | Kind | Metric | Score | Delta | Task | Reason | Recommended action |",
+    "| --- | --- | --- | ---: | ---: | --- | --- | --- |",
+    ...items.map((item) =>
+      `| ${item.severity} | ${item.kind} | ${item.metric} | ${item.score === null ? "" : roundMetric(item.score)} | ${
+        item.delta === null ? "" : roundMetric(item.delta)
+      } | ${escapeMarkdownCell(item.taskLabel ?? item.taskId ?? "")} | ${escapeMarkdownCell(item.reason)} | ${escapeMarkdownCell(item.recommendedActions[0] ?? "")} |`,
+    ),
+  ];
+}
+
+function escapeMarkdownCell(value: string) {
+  return value.replace(/\|/g, "\\|");
+}
+
+function roundMetric(value: number) {
+  return Math.round(value * 10_000) / 10_000;
 }
 
 function meanNumber(values: number[]) {

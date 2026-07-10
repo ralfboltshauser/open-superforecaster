@@ -214,6 +214,42 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
   const disagreement = readNumber(output, "disagreement")
   const calibrationNotes = readStringAny(output, "calibrationNotes", "calibration_notes")
   const calibrationWarnings = readStringArray(output, "calibrationWarnings", "calibration_warnings")
+  const calibrationGuard = readRecordAny(output, "calibrationGuard", "calibration_guard")
+  const calibrationGuardAdjustment = readNumber(calibrationGuard, "adjustment")
+  const calibrationGuardRules = recordArray(calibrationGuard, "appliedRules", "applied_rules")
+  const baselineSanity = readRecordAny(output, "baselineSanity", "baseline_sanity")
+  const baselineProbability = readNumberAny(baselineSanity, "baselineProbability", "baseline_probability")
+  const baselineDelta = readNumberAny(baselineSanity, "baselineDelta", "baseline_delta")
+  const baselineDisagreement = readNumberAny(baselineSanity, "componentBaseRateDisagreement", "component_base_rate_disagreement")
+  const marketAnchor = readRecordAny(output, "marketAnchor", "market_anchor")
+  const marketPrice = readNumberAny(marketAnchor, "marketPrice", "market_price")
+  const marketDelta = readNumberAny(marketAnchor, "marketDelta", "market_delta")
+  const marketPlatform = readStringAny(marketAnchor, "marketPlatform", "market_platform")
+  const marketPriceAsOf = readStringAny(marketAnchor, "marketPriceAsOf", "market_price_as_of")
+  const resolutionBoundary = readRecordAny(output, "resolutionBoundary", "resolution_boundary")
+  const boundaryComponents = readNumberAny(resolutionBoundary, "componentBoundaryCount", "component_boundary_count")
+  const boundaryFlags = readNumberAny(resolutionBoundary, "ambiguityFlagCount", "ambiguity_flag_count")
+  const boundaryQualityIssues = readNumberAny(resolutionBoundary, "qualityIssueCount", "quality_issue_count")
+  const boundaryPlannerRisks = readNumberAny(resolutionBoundary, "plannerRiskCount", "planner_risk_count")
+  const uncertaintyRange = readRecordAny(output, "uncertaintyRange", "uncertainty_range")
+  const rangeComponents = readNumberAny(uncertaintyRange, "componentRangeCount", "component_range_count")
+  const medianRangeWidth = readNumberAny(uncertaintyRange, "medianRangeWidth", "median_range_width")
+  const widestRangeWidth = readNumberAny(uncertaintyRange, "widestRangeWidth", "widest_range_width")
+  const narrowRangeCount = readNumberAny(uncertaintyRange, "narrowRangeCount", "narrow_range_count")
+  const componentWeighting = readRecordAny(output, "componentWeighting", "component_weighting")
+  const auditedComponentCount = readNumberAny(componentWeighting, "auditedComponentCount", "audited_component_count")
+  const downweightCount = readNumberAny(componentWeighting, "downweightCount", "downweight_count")
+  const upweightCount = readNumberAny(componentWeighting, "upweightCount", "upweight_count")
+  const calibrationRiskCount = readNumberAny(componentWeighting, "calibrationRiskCount", "calibration_risk_count")
+  const aggregateQuality = readAggregateQualityRecord(output)
+  const convergenceStatus = readStringAny(aggregateQuality, "convergenceStatus", "convergence_status")
+  const qualityApproved = readBooleanAny(aggregateQuality, "qualityApproved", "quality_approved")
+  const maxIterationsReached = readBooleanAny(aggregateQuality, "maxIterationsReached", "max_iterations_reached")
+  const roundsUsed = readNumberAny(aggregateQuality, "roundsUsed", "rounds_used")
+  const qualityIssueCount =
+    readNumberAny(aggregateQuality, "qualityIssueCount", "quality_issue_count") ??
+    readStringArray(aggregateQuality, "qualityIssues", "quality_issues").length
+  const finalReviewRationale = readStringAny(aggregateQuality, "finalReviewRationale", "final_review_rationale")
   const rationale = readRationale(output)
   const components = recordArray(output, "componentProbabilities", "component_probabilities").flatMap((component, index) => {
     const componentProbability = readNumber(component, "probability")
@@ -251,6 +287,89 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
           />
         ))}
       </div>
+      {baselineSanity ? (
+        <ReportSection label="baseline sanity">
+          <div className="grid gap-2 md:grid-cols-4">
+            <MiniMetric label="status" value={String(baselineSanity.status ?? "unknown")} />
+            <MiniMetric
+              label="baseline"
+              value={baselineProbability === null
+                ? "n/a"
+                : formatProbabilityPercent(baselineProbability)}
+            />
+            <MiniMetric
+              label="delta"
+              value={formatSignedPoints(baselineDelta) ?? "n/a"}
+            />
+            <MiniMetric
+              label="base spread"
+              value={baselineDisagreement === null
+                ? "n/a"
+                : `${formatNumber(baselineDisagreement)} pts`}
+            />
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">{String(baselineSanity.note ?? "")}</p>
+        </ReportSection>
+      ) : null}
+      {Object.keys(marketAnchor).length ? (
+        <ReportSection label="market anchor">
+          <div className="grid gap-2 md:grid-cols-4">
+            <MiniMetric label="status" value={String(marketAnchor.status ?? "unknown").replace(/_/g, " ")} />
+            <MiniMetric label="market" value={marketPrice === null ? "n/a" : formatProbabilityPercent(marketPrice)} />
+            <MiniMetric label="delta" value={formatSignedPoints(marketDelta) ?? "n/a"} />
+            <MiniMetric label="source" value={marketPlatform ?? "n/a"} />
+          </div>
+          {marketPriceAsOf ? <p className="mt-2 text-xs text-muted-foreground">as of {marketPriceAsOf}</p> : null}
+          <p className="mt-2 text-xs text-muted-foreground">{String(marketAnchor.note ?? "")}</p>
+        </ReportSection>
+      ) : null}
+      {Object.keys(resolutionBoundary).length ? (
+        <ReportSection label="resolution boundary">
+          <div className="grid gap-2 md:grid-cols-5">
+            <MiniMetric label="status" value={String(resolutionBoundary.status ?? "unknown").replace(/_/g, " ")} />
+            <MiniMetric label="reviews" value={boundaryComponents === null ? "n/a" : formatNumber(boundaryComponents)} />
+            <MiniMetric label="flags" value={boundaryFlags === null ? "n/a" : formatNumber(boundaryFlags)} />
+            <MiniMetric label="issues" value={boundaryQualityIssues === null ? "n/a" : formatNumber(boundaryQualityIssues)} />
+            <MiniMetric label="planner" value={boundaryPlannerRisks === null ? "n/a" : formatNumber(boundaryPlannerRisks)} />
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">{String(resolutionBoundary.note ?? "")}</p>
+        </ReportSection>
+      ) : null}
+      {Object.keys(uncertaintyRange).length ? (
+        <ReportSection label="uncertainty range">
+          <div className="grid gap-2 md:grid-cols-5">
+            <MiniMetric label="status" value={String(uncertaintyRange.status ?? "unknown").replace(/_/g, " ")} />
+            <MiniMetric label="ranges" value={rangeComponents === null ? "n/a" : formatNumber(rangeComponents)} />
+            <MiniMetric label="median" value={medianRangeWidth === null ? "n/a" : `${formatNumber(medianRangeWidth)} pts`} />
+            <MiniMetric label="widest" value={widestRangeWidth === null ? "n/a" : `${formatNumber(widestRangeWidth)} pts`} />
+            <MiniMetric label="narrow" value={narrowRangeCount === null ? "n/a" : formatNumber(narrowRangeCount)} />
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">{String(uncertaintyRange.note ?? "")}</p>
+        </ReportSection>
+      ) : null}
+      {Object.keys(componentWeighting).length ? (
+        <ReportSection label="component weighting">
+          <div className="grid gap-2 md:grid-cols-5">
+            <MiniMetric label="status" value={String(componentWeighting.status ?? "unknown").replace(/_/g, " ")} />
+            <MiniMetric label="audited" value={auditedComponentCount === null ? "n/a" : formatNumber(auditedComponentCount)} />
+            <MiniMetric label="down" value={downweightCount === null ? "n/a" : formatNumber(downweightCount)} />
+            <MiniMetric label="up" value={upweightCount === null ? "n/a" : formatNumber(upweightCount)} />
+            <MiniMetric label="risk notes" value={calibrationRiskCount === null ? "n/a" : formatNumber(calibrationRiskCount)} />
+          </div>
+        </ReportSection>
+      ) : null}
+      {Object.keys(aggregateQuality).length ? (
+        <ReportSection label="aggregate quality">
+          <div className="grid gap-2 md:grid-cols-5">
+            <MiniMetric label="status" value={convergenceStatus ? convergenceStatus.replace(/_/g, " ") : "unknown"} />
+            <MiniMetric label="approved" value={qualityApproved === null ? "n/a" : qualityApproved ? "yes" : "no"} />
+            <MiniMetric label="max rounds" value={maxIterationsReached === null ? "n/a" : maxIterationsReached ? "yes" : "no"} />
+            <MiniMetric label="rounds" value={roundsUsed === null ? "n/a" : formatNumber(roundsUsed)} />
+            <MiniMetric label="issues" value={qualityIssueCount === null ? "n/a" : formatNumber(qualityIssueCount)} />
+          </div>
+          {finalReviewRationale ? <p className="mt-2 text-xs text-muted-foreground">{finalReviewRationale}</p> : null}
+        </ReportSection>
+      ) : null}
       {calibrationWarnings.length ? (
         <ReportSection label="calibration warnings">
           <div className="flex flex-wrap gap-2">
@@ -259,6 +378,38 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
                 {warning}
               </span>
             ))}
+          </div>
+        </ReportSection>
+      ) : null}
+      {calibrationGuardRules.length || calibrationGuardAdjustment !== null ? (
+        <ReportSection label="calibration guard">
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded-md border bg-muted px-2 py-1 text-xs text-muted-foreground">
+                adjustment {calibrationGuardAdjustment === null ? "0" : `${calibrationGuardAdjustment >= 0 ? "+" : ""}${formatNumber(calibrationGuardAdjustment)} pts`}
+              </span>
+              <span className="rounded-md border bg-muted px-2 py-1 text-xs text-muted-foreground">
+                {calibrationGuardRules.length} rule{calibrationGuardRules.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            {calibrationGuardRules.length ? (
+              <div className="grid gap-2">
+                {calibrationGuardRules.map((rule) => {
+                  const id = readString(rule, "id") ?? "calibration-rule"
+                  const adjustment = readNumber(rule, "adjustment")
+                  const note = readString(rule, "note")
+                  return (
+                    <div className="rounded-md border px-3 py-2 text-sm" key={id}>
+                      <span className="block truncate font-medium">{id}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        {adjustment === null ? "adjustment n/a" : `${adjustment >= 0 ? "+" : ""}${formatNumber(adjustment)} pts`}
+                        {note ? ` · ${note}` : ""}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : null}
           </div>
         </ReportSection>
       ) : null}
@@ -313,29 +464,42 @@ function NumericForecastReport({ output, expanded }: { output: JsonRecord; expan
   const distribution = parseRecord(output.distribution)
   const value = readNumber(output, "value")
   const unit = readString(output, "unit") ?? "units"
-  const low = readNumber(distribution, "low")
-  const median = readNumber(distribution, "median")
-  const high = readNumber(distribution, "high")
+  const quantiles = [
+    { label: "p10", value: readNumber(distribution, "p10") ?? readNumber(distribution, "low") },
+    { label: "p25", value: readNumber(distribution, "p25") },
+    { label: "p50", value: readNumber(distribution, "p50") ?? readNumber(distribution, "median") ?? value },
+    { label: "p75", value: readNumber(distribution, "p75") },
+    { label: "p90", value: readNumber(distribution, "p90") ?? readNumber(distribution, "high") },
+  ]
   const componentValues = recordArray(output, "componentValues", "component_values")
 
   return (
     <div className="flex flex-col gap-6">
       <HeroMetric label="aggregate value" value={value === null ? "not set" : `${formatNumber(value)} ${unit}`} />
-      <div className="grid gap-3 md:grid-cols-3">
-        <ForecastQuantile label="low" value={low === null ? "not set" : `${formatNumber(low)} ${unit}`} />
-        <ForecastQuantile active label="median" value={median === null ? "not set" : `${formatNumber(median)} ${unit}`} />
-        <ForecastQuantile label="high" value={high === null ? "not set" : `${formatNumber(high)} ${unit}`} />
+      <div className="grid gap-3 md:grid-cols-5">
+        {quantiles.map((quantile) => (
+          <ForecastQuantile
+            active={quantile.label === "p50"}
+            key={quantile.label}
+            label={quantile.label}
+            value={quantile.value === null ? "not set" : `${formatNumber(quantile.value)} ${unit}`}
+          />
+        ))}
       </div>
       <ReportSection label="component values">
         <div className="grid gap-2 md:grid-cols-3">
           {componentValues.map((component, index) => {
             const componentValue = readNumber(component, "value")
             const componentUnit = readString(component, "unit") ?? unit
+            const componentQuantiles = parseRecord(component.quantiles)
+            const componentP10 = readNumber(componentQuantiles, "p10")
+            const componentP90 = readNumber(componentQuantiles, "p90")
             return (
               <CompactValue
                 key={`${readString(component, "forecasterLabel") ?? "numeric"}-${index}`}
                 label={readString(component, "forecasterLabel") ?? readString(component, "forecaster_label") ?? `forecaster ${index + 1}`}
                 value={componentValue === null ? "not set" : `${formatNumber(componentValue)} ${componentUnit}`}
+                meta={componentP10 === null || componentP90 === null ? undefined : `p10-p90 ${formatNumber(componentP10)}-${formatNumber(componentP90)}`}
               />
             )
           })}
@@ -521,6 +685,10 @@ function formatNumber(value: number) {
   return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 1 })
 }
 
+function formatSignedPoints(value: number | null) {
+  return value === null ? null : `${value >= 0 ? "+" : ""}${formatNumber(value)} pts`
+}
+
 function recordArray(record: unknown, ...keys: string[]) {
   if (!isJsonRecord(record)) {
     return []
@@ -575,6 +743,41 @@ function readStringAny(record: unknown, ...keys: string[]) {
     }
   }
   return null
+}
+
+function readBooleanAny(record: unknown, ...keys: string[]) {
+  if (!isJsonRecord(record)) {
+    return null
+  }
+  for (const key of keys) {
+    const raw = record[key]
+    if (typeof raw === "boolean") {
+      return raw
+    }
+  }
+  return null
+}
+
+function readRecordAny(record: unknown, ...keys: string[]) {
+  if (!isJsonRecord(record)) {
+    return {}
+  }
+  for (const key of keys) {
+    const raw = record[key]
+    const parsed = typeof raw === "string" ? parseJsonValue(raw) : raw
+    if (isJsonRecord(parsed)) {
+      return parsed
+    }
+  }
+  return {}
+}
+
+function readAggregateQualityRecord(output: JsonRecord) {
+  const wrapped = readRecordAny(output, "aggregateQuality", "aggregate_quality")
+  if (Object.keys(wrapped).length) {
+    return wrapped
+  }
+  return readStringAny(output, "convergenceStatus", "convergence_status") ? output : {}
 }
 
 function parseJsonValue(value: string) {

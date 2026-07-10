@@ -46,6 +46,9 @@ async function runSmokeChecks() {
     const settings = readRecord(diagnostics, "settings");
     const objectStorage = readRecord(diagnostics, "objectStorage");
     const evalDatasets = readRecord(diagnostics, "evalDatasets");
+    const benchmarkPromotion = readRecord(diagnostics, "benchmarkPromotion");
+    const workflowProposalReadiness = readRecord(diagnostics, "workflowProposalReadiness");
+    const items = readArray(diagnostics, "items").filter(isRecord);
     const commands = readArray(diagnostics, "commands");
     if (!settings || !readString(settings, "codexModel") || !readString(settings, "smithersStateDir")) {
       throw new Error("diagnostics settings are incomplete");
@@ -59,10 +62,42 @@ async function runSmokeChecks() {
     if (typeof evalDatasets?.suiteCount !== "number" || typeof evalDatasets.caseCount !== "number") {
       throw new Error("diagnostics eval dataset summary is incomplete");
     }
+    const benchmarkPromotionItem = items.find((item) => readString(item, "key") === "benchmark_promotion_gate");
+    const workflowProposalReadinessItem = items.find((item) => readString(item, "key") === "workflow_proposal_readiness");
+    if (!benchmarkPromotion || !benchmarkPromotionItem || !readString(benchmarkPromotionItem, "status")) {
+      throw new Error("diagnostics benchmark promotion summary is incomplete");
+    }
+    if (typeof benchmarkPromotion.recentRuns !== "number" || typeof benchmarkPromotion.sourceRiskBlockedRuns !== "number") {
+      throw new Error("diagnostics benchmark promotion counts are incomplete");
+    }
+    if (!Array.isArray(benchmarkPromotion.latestGateBlockers) || !Array.isArray(benchmarkPromotion.gateBlockers)) {
+      throw new Error("diagnostics benchmark promotion blockers are incomplete");
+    }
+    for (const row of benchmarkPromotion.gateBlockers) {
+      if (!isRecord(row) || typeof row.blocker !== "string" || typeof row.count !== "number" || typeof row.sourceRisk !== "boolean") {
+        throw new Error("diagnostics benchmark promotion blocker breakdown is incomplete");
+      }
+    }
+    if (!workflowProposalReadiness || !workflowProposalReadinessItem || !readString(workflowProposalReadinessItem, "status")) {
+      throw new Error("diagnostics workflow proposal readiness summary is incomplete");
+    }
+    if (
+      typeof workflowProposalReadiness.recentProposals !== "number" ||
+      typeof workflowProposalReadiness.blockedActiveProposals !== "number" ||
+      !Array.isArray(workflowProposalReadiness.latestBlockedReadinessBlockers) ||
+      !Array.isArray(workflowProposalReadiness.readinessBlockers)
+    ) {
+      throw new Error("diagnostics workflow proposal readiness counts are incomplete");
+    }
+    for (const row of workflowProposalReadiness.readinessBlockers) {
+      if (!isRecord(row) || typeof row.blocker !== "string" || typeof row.count !== "number") {
+        throw new Error("diagnostics workflow proposal readiness blocker breakdown is incomplete");
+      }
+    }
     if (!commands.some((command) => isRecord(command) && readString(command, "command") === "bun run export-local")) {
       throw new Error("diagnostics command list is missing export-local");
     }
-    return `${evalDatasets.suiteCount} suite(s), ${evalDatasets.caseCount} case(s), ${commands.length} command(s)`;
+    return `${evalDatasets.suiteCount} suite(s), ${evalDatasets.caseCount} case(s), promotion ${readString(benchmarkPromotion, "latestGateStatus") ?? "unknown"}, ${commands.length} command(s)`;
   });
 
   await check("maintenance action API", async () => {
@@ -296,6 +331,28 @@ async function runSmokeChecks() {
     if (requireData && benchmarkRuns.length === 0) {
       throw new Error("no benchmark runs available");
     }
+    const benchmarkRunRecords = benchmarkRuns.filter(isRecord);
+    const runMissingPromotionGate = benchmarkRunRecords.find((run) => !readRecord(run, "promotionGate"));
+    if (runMissingPromotionGate) {
+      throw new Error("benchmark list run is missing promotion gate");
+    }
+    const runMissingPromotionBlockers = benchmarkRunRecords.find((run) => !Array.isArray(readRecord(run, "promotionGate")?.blockers));
+    if (runMissingPromotionBlockers) {
+      throw new Error("benchmark list run promotion gate is missing blockers");
+    }
+    const runWithSourceRiskBlocker = benchmarkRunRecords.find((run) => {
+      const blockers = readArray(readRecord(run, "promotionGate"), "blockers");
+      return blockers.includes("source_concentration") || blockers.includes("low_quality_sources");
+    });
+    if (runWithSourceRiskBlocker) {
+      assertSourceRiskFindings(readRecord(runWithSourceRiskBlocker, "sourceQualityFindings"));
+    }
+    const proposalMissingReadiness = benchmarkRunRecords
+      .flatMap((run) => readArray(run, "workflowChangeProposals").filter(isRecord))
+      .find((proposal) => !readRecord(proposal, "validationReadiness"));
+    if (proposalMissingReadiness) {
+      throw new Error("benchmark list proposal is missing validation readiness");
+    }
     return `${benchmarkRuns.length} run(s), ${benchmarkSuites.length} suite(s)`;
   });
 
@@ -313,10 +370,15 @@ async function runSmokeChecks() {
     const detail = readRecord(response, "benchmarkRun");
     const scorecard = readRecord(detail, "scorecard");
     const cases = readArray(detail, "cases").filter(isRecord);
+    const workflowChangeProposals = readArray(detail, "workflowChangeProposals").filter(isRecord);
     const reports = readRecord(detail, "reports");
     const promotionGate = readRecord(scorecard, "promotionGate");
     if (!scorecard || !promotionGate || cases.length === 0) {
       throw new Error("benchmark detail is missing scorecard, promotion gate, or cases");
+    }
+    const blockers = readArray(promotionGate, "blockers");
+    if (blockers.includes("source_concentration") || blockers.includes("low_quality_sources")) {
+      assertSourceRiskFindings(readRecord(detail, "sourceQualityFindings"));
     }
     const firstCase = cases[0];
     const links = readRecord(firstCase, "links");
@@ -325,6 +387,10 @@ async function runSmokeChecks() {
     }
     if (!reports || !("score" in reports) || !("analysis" in reports) || !("comparison" in reports)) {
       throw new Error("benchmark detail reports block is incomplete");
+    }
+    const proposalMissingReadiness = workflowChangeProposals.find((proposal) => !readRecord(proposal, "validationReadiness"));
+    if (proposalMissingReadiness) {
+      throw new Error("benchmark detail proposal is missing validation readiness");
     }
     return `${cases.length} case(s), gate ${readString(promotionGate, "status") ?? "unknown"}`;
   });
@@ -369,7 +435,40 @@ async function runSmokeChecks() {
       "open_superforecaster_up",
       "open_superforecaster_tasks_total",
       "open_superforecaster_benchmark_run_info",
+      "open_superforecaster_benchmark_promotion_gate_status",
+      "open_superforecaster_benchmark_cost_summary_present",
+      "open_superforecaster_workflow_change_proposals_total",
+      "open_superforecaster_workflow_change_proposal_readiness_blocked",
+      "open_superforecaster_workflow_change_proposal_validation_blocker",
       "open_superforecaster_workflow_variant_info",
+      "open_superforecaster_binary_calibration_status",
+      "open_superforecaster_binary_calibration_candidate_guard_rules_total",
+      "open_superforecaster_baseline_sanity_scores_total",
+      "open_superforecaster_market_anchor_scores_total",
+      "open_superforecaster_resolution_boundary_scores_total",
+      "open_superforecaster_uncertainty_range_scores_total",
+      "open_superforecaster_component_weighting_scores_total",
+      "open_superforecaster_aggregate_quality_scores_total",
+      "open_superforecaster_aggregate_stats_scores_total",
+      "open_superforecaster_aggregate_plan_scores_total",
+      "open_superforecaster_conditional_scores_total",
+      "open_superforecaster_thresholded_scores_total",
+      "open_superforecaster_numeric_distribution_scores_total",
+      "open_superforecaster_date_distribution_scores_total",
+      "open_superforecaster_categorical_distribution_scores_total",
+      "open_superforecaster_evidence_coverage_scores_total",
+      "open_superforecaster_input_context_scores_total",
+      "open_superforecaster_run_metadata_scores_total",
+      "open_superforecaster_calibration_guard_impact_status",
+      "open_superforecaster_forecast_batch_health_status",
+      "open_superforecaster_forecast_batch_health_report_present",
+      "open_superforecaster_forecast_batch_health_attention_breakdown_items",
+      "open_superforecaster_forecast_attention_items_total",
+      "open_superforecaster_forecast_attention_backlog_breakdowns_total",
+      "open_superforecaster_source_bank_domains_total",
+      "open_superforecaster_calibration_guard_validation_reports_total",
+      "open_superforecaster_calibration_guard_default_plan_skipped_rows_total",
+      "open_superforecaster_calibration_guard_default_plan_issues_total",
     ];
     const missing = required.filter((metric) => !metrics.includes(metric));
     if (missing.length) {
@@ -460,6 +559,17 @@ function assertClassification(testCase: ClassificationCase, classification: Json
   }
   if (workflow !== "codex-smoke" && /\bplaceholder\b/i.test(rationale)) {
     throw new Error(`unexpected placeholder rationale for ${workflow}: ${rationale}`);
+  }
+}
+
+function assertSourceRiskFindings(findings: JsonRecord | null) {
+  if (!findings) {
+    throw new Error("source-risk promotion blocker is missing source quality findings");
+  }
+  for (const key of ["dominantSourceDomainCases", "lowQualityFinalSourceEntries", "topSourceDomainShare"]) {
+    if (typeof findings[key] !== "number") {
+      throw new Error(`source quality findings missing numeric ${key}`);
+    }
   }
 }
 

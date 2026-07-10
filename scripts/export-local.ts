@@ -23,6 +23,7 @@ const rootPaths = [
   ".env.example",
   "data/artifacts",
   "data/evals",
+  "data/reports",
   "data/smithers",
   "data/duckdb",
 ].filter((path) => existsSync(resolve(root, path)));
@@ -38,7 +39,7 @@ const manifest = {
   postgresDump,
   notes: [
     "This archive is a local development/export bundle, not a backup format with transactional guarantees.",
-    "Trace bundles and imported eval snapshots live under data/artifacts and data/evals.",
+    "Trace bundles, imported eval snapshots, and local forecast review reports live under data/artifacts, data/evals, and data/reports.",
     "When MinIO is reachable, this script mirrors the archive into the configured exports bucket.",
     "Smithers state is included when data/smithers exists.",
   ],

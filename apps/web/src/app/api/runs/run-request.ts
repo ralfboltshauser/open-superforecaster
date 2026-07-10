@@ -34,12 +34,30 @@ export function createRunPlan(body: RunRequestBody) {
   const independentTableRows = isAgentMap ? rows : isRank ? rankRows : [];
   const thresholds = extractThresholds(body);
   const prompt = String(body.prompt ?? "");
+  const smithersInput = smithersInputFor({
+    body,
+    classification,
+    isAgentMap,
+    isDeepResearch,
+    isDedupe,
+    isForecast,
+    isMerge,
+    isRank,
+    leftRows,
+    objectRows,
+    prompt,
+    rankRows,
+    rightRows,
+    rows,
+    thresholds,
+  });
 
   return {
     classification,
     configJson: {
       prompt: body.prompt,
       classification,
+      ...(isForecast ? { forecastInput: smithersInput } : {}),
       ...(isAgentMap ? { rows } : {}),
       ...(isRank ? { rows: rankRows } : {}),
       ...(isMerge ? { leftRows, rightRows } : {}),
@@ -76,23 +94,7 @@ export function createRunPlan(body: RunRequestBody) {
       isMerge,
       isRank,
     }),
-    smithersInput: smithersInputFor({
-      body,
-      classification,
-      isAgentMap,
-      isDeepResearch,
-      isDedupe,
-      isForecast,
-      isMerge,
-      isRank,
-      leftRows,
-      objectRows,
-      prompt,
-      rankRows,
-      rightRows,
-      rows,
-      thresholds,
-    }),
+    smithersInput,
     workflow,
     workflowPath,
   };
@@ -277,12 +279,21 @@ function smithersInputFor(input: {
       source: "open-superforecaster-ui",
       question: input.prompt,
       resolutionCriteria: input.body.resolutionCriteria,
+      resolutionDate: input.body.resolutionDate,
       background: input.body.background,
+      marketPrice: input.body.marketPrice,
+      marketPriceAsOf: input.body.marketPriceAsOf,
+      marketCreationDate: input.body.marketCreationDate,
+      marketPlatform: input.body.marketPlatform ?? input.body.platform,
+      marketUrl: input.body.marketUrl,
+      categories: input.body.categories,
+      categoriesExhaustive: input.body.categoriesExhaustive,
+      unit: input.body.unit ?? input.body.units,
       ...(input.classification.forecastType === "thresholded"
         ? {
             thresholds: input.thresholds,
             thresholdDirection: normalizeThresholdDirection(input.body.thresholdDirection, input.prompt),
-            units: typeof input.body.units === "string" ? input.body.units : undefined,
+            unit: typeof input.body.unit === "string" ? input.body.unit : typeof input.body.units === "string" ? input.body.units : undefined,
           }
         : {}),
       ...(input.classification.forecastType === "conditional"
@@ -443,7 +454,16 @@ function forecastSchema(forecastType: string | undefined) {
       properties: {
         forecastType: { const: "date" },
         targetDate: { type: "string" },
-        dateDistribution: { type: "object" },
+        dateDistribution: {
+          type: "object",
+          properties: {
+            p10: { type: "string" },
+            p25: { type: "string" },
+            p50: { type: "string" },
+            p75: { type: "string" },
+            p90: { type: "string" },
+          },
+        },
       },
     };
   }
@@ -453,7 +473,16 @@ function forecastSchema(forecastType: string | undefined) {
       properties: {
         forecastType: { const: "numeric" },
         value: { type: "number" },
-        distribution: { type: "object" },
+        distribution: {
+          type: "object",
+          properties: {
+            p10: { type: "number" },
+            p25: { type: "number" },
+            p50: { type: "number" },
+            p75: { type: "number" },
+            p90: { type: "number" },
+          },
+        },
       },
     };
   }
@@ -463,6 +492,7 @@ function forecastSchema(forecastType: string | undefined) {
       properties: {
         forecastType: { const: "categorical" },
         topCategory: { type: "string" },
+        categories: { type: "array" },
         probabilities: { type: "array" },
       },
     };
@@ -473,6 +503,7 @@ function forecastSchema(forecastType: string | undefined) {
       properties: {
         forecastType: { const: "thresholded" },
         thresholdDirection: { enum: ["at_least", "at_most"] },
+        thresholdSource: { enum: ["caller", "question_extracted", "invalid"] },
         probabilities: { type: "array" },
       },
     };

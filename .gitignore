@@ -18,6 +18,9 @@ data/smithers/
 data/artifacts/
 data/exports/
 data/evals/
+data/forecast-ops/
+data/resolutions/
+data/reports/
 data/agent-auth/
 .smithers/executions/
 .smithers/runs/

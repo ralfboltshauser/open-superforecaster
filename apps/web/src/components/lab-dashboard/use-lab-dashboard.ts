@@ -7,6 +7,8 @@ import { fetchJson, postJson } from "@/lib/api-client"
 import { isRecord, readArray, type JsonRecord } from "@/lib/records"
 
 export type BenchmarkMode = "fixed_evidence" | "agentic_pastcasting_smoke"
+export type WorkflowChangeProposalStatus = "candidate" | "accepted" | "rejected" | "implemented"
+export type WorkflowChangeProposalImplementationStatus = "not_started" | "planned" | "in_progress" | "validated"
 
 type BenchmarksPayload = {
   benchmarkRuns?: JsonRecord[]
@@ -22,17 +24,19 @@ export function useLabDashboard() {
     benchmarkSuites: [],
   })
   const [resolutions, setResolutions] = useState<JsonRecord | null>(null)
+  const [performance, setPerformance] = useState<JsonRecord | null>(null)
   const [maintenance, setMaintenance] = useState<JsonRecord | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const [runsPayload, healthPayload, diagnosticsPayload, benchmarkPayload, resolutionPayload, maintenancePayload] =
+    const [runsPayload, healthPayload, diagnosticsPayload, benchmarkPayload, resolutionPayload, performancePayload, maintenancePayload] =
       await Promise.all([
         fetchJson<{ runs?: JsonRecord[] }>("/api/runs").catch(() => ({ runs: [] })),
         fetchJson<JsonRecord>("/api/health").catch(() => null),
         fetchJson<JsonRecord>("/api/diagnostics").catch(() => null),
         fetchJson<BenchmarksPayload>("/api/benchmarks").catch(() => ({ benchmarkRuns: [], benchmarkSuites: [] })),
         fetchJson<JsonRecord>("/api/resolutions").catch(() => null),
+        fetchJson<JsonRecord>("/api/resolutions/performance").catch(() => null),
         fetchJson<JsonRecord>("/api/maintenance").catch(() => null),
       ])
 
@@ -44,12 +48,17 @@ export function useLabDashboard() {
       benchmarkSuites: Array.isArray(benchmarkPayload.benchmarkSuites) ? benchmarkPayload.benchmarkSuites : [],
     })
     setResolutions(resolutionPayload)
+    setPerformance(performancePayload)
     setMaintenance(maintenancePayload)
   }, [])
 
   usePolling(load, 8000)
 
   const diagnosticCounts = useMemo(() => summarizeDiagnostics(diagnostics), [diagnostics])
+  const forecastBatchHealth = useMemo(
+    () => (isRecord(diagnostics?.forecastBatchHealth) ? diagnostics.forecastBatchHealth : null),
+    [diagnostics],
+  )
   const resolutionSummary = isRecord(resolutions?.summary) ? resolutions.summary : {}
   const actions = readArray(maintenance, "actions").filter((value): value is string => typeof value === "string")
 
@@ -83,17 +92,52 @@ export function useLabDashboard() {
 
   const runMaintenance = useCallback((action: string) => runAction(action, () => postJson("/api/maintenance", { action })), [runAction])
 
+  const updateWorkflowChangeProposal = useCallback(
+    (
+      benchmarkRunId: string,
+      proposalId: string,
+      status: WorkflowChangeProposalStatus,
+      implementationStatus?: WorkflowChangeProposalImplementationStatus,
+    ) =>
+      runAction(`proposal:${proposalId}:${status}`, () =>
+        postJson(`/api/benchmarks/${benchmarkRunId}/proposals/${proposalId}`, {
+          status,
+          reviewNote: `Marked ${status} from lab dashboard.`,
+          reviewedBy: "local-user",
+          implementationStatus,
+          implementationNote: implementationStatus ? `Marked implementation ${implementationStatus} from lab dashboard.` : undefined,
+        }),
+      ),
+    [runAction],
+  )
+
+  const launchWorkflowProposalValidation = useCallback(
+    (benchmarkRunId: string, proposalId: string) =>
+      runAction(`proposal:${proposalId}:validation`, () =>
+        postJson(`/api/benchmarks/${benchmarkRunId}/proposals/${proposalId}/validation`, {
+          launchedBy: "local-user",
+          maxCases: 1,
+        }),
+      ),
+    [runAction],
+  )
+
   return {
     actions,
     benchmarks,
     busy,
     diagnosticCounts,
+    diagnostics,
+    forecastBatchHealth,
     health,
     importBtf2,
+    launchWorkflowProposalValidation,
     launchBenchmark,
+    performance,
     resolutionSummary,
     runMaintenance,
     runs,
+    updateWorkflowChangeProposal,
   }
 }
 

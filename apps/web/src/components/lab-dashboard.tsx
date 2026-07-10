@@ -4,8 +4,10 @@ import { ForecastComposer } from "@/components/forecast-composer"
 import {
   BenchmarksCard,
   DiagnosticsCard,
+  ForecastBatchHealthCard,
   LabMetricGrid,
   MaintenanceCard,
+  PerformanceCard,
   RecentRunsCard,
   WorkflowLauncher,
 } from "@/components/lab-dashboard/panels"
@@ -17,12 +19,17 @@ export function LabDashboard() {
     benchmarks,
     busy,
     diagnosticCounts,
+    diagnostics,
+    forecastBatchHealth,
     health,
     importBtf2,
+    launchWorkflowProposalValidation,
     launchBenchmark,
+    performance,
     resolutionSummary,
     runMaintenance,
     runs,
+    updateWorkflowChangeProposal,
   } = useLabDashboard()
 
   return (
@@ -48,12 +55,19 @@ export function LabDashboard() {
       <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="grid gap-6">
           <WorkflowLauncher busy={busy} importBtf2={importBtf2} launchBenchmark={launchBenchmark} />
+          <PerformanceCard performance={performance} />
           <RecentRunsCard runs={runs} />
         </div>
 
         <div className="grid gap-6">
-          <DiagnosticsCard diagnosticCounts={diagnosticCounts} />
-          <BenchmarksCard benchmarks={benchmarks} />
+          <DiagnosticsCard diagnosticCounts={diagnosticCounts} diagnostics={diagnostics} />
+          <ForecastBatchHealthCard forecastBatchHealth={forecastBatchHealth} />
+          <BenchmarksCard
+            benchmarks={benchmarks}
+            busy={busy}
+            launchWorkflowProposalValidation={launchWorkflowProposalValidation}
+            updateWorkflowChangeProposal={updateWorkflowChangeProposal}
+          />
           <MaintenanceCard actions={actions} busy={busy} runMaintenance={runMaintenance} />
         </div>
       </section>

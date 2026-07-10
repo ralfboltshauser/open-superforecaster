@@ -1,11 +1,18 @@
 /** @jsxImportSource smithers-orchestrator */
 import { createSmithers, Parallel, Sequence, Task } from "smithers-orchestrator";
 import { z } from "zod";
+import {
+  formatForecastContextForPrompt,
+  normalizeForecastInputRow,
+} from "@open-superforecaster/workflow-contracts";
 import { codexResearchAgent } from "./agents";
+import { collectCitedSources, collectKeyUncertainties } from "./forecast-evidence";
+import { readForecastTiming } from "./forecast-timing";
 
 const citedSource = z.object({
   title: z.string().optional(),
   url: z.string().optional(),
+  publishedAt: z.string().optional(),
   claim: z.string(),
 });
 
@@ -32,6 +39,8 @@ const thresholdedAggregate = z.object({
   forecastType: z.literal("thresholded"),
   thresholdDirection: z.enum(["at_least", "at_most"]),
   thresholds: z.array(z.string()),
+  thresholdSource: z.enum(["caller", "question_extracted", "invalid"]),
+  validationWarnings: z.array(z.string()).default([]),
   units: z.string().optional(),
   probabilities: z.array(thresholdProbability),
   probabilityMap: z.record(z.string(), z.number()),
@@ -45,6 +54,8 @@ const thresholdedAggregate = z.object({
     probabilities: z.array(thresholdProbability),
   })),
   citedSources: z.array(citedSource).default([]),
+  keyUncertainties: z.array(z.string()).default([]),
+  evidenceAsOfDate: z.string().optional(),
 });
 
 const { Workflow, smithers, outputs } = createSmithers({
@@ -71,21 +82,20 @@ const forecasterBriefs = [
 ];
 
 export default smithers((ctx) => {
-  const input = (ctx.input ?? {}) as {
-    question?: unknown;
-    prompt?: unknown;
-    resolutionCriteria?: unknown;
-    background?: unknown;
-    thresholds?: unknown;
-    thresholdDirection?: unknown;
-    units?: unknown;
-  };
-  const question = String(input.question ?? input.prompt ?? "");
-  const resolutionCriteria = String(input.resolutionCriteria ?? "Resolve according to the plain-language question.");
-  const background = String(input.background ?? "");
-  const thresholds = normalizeThresholds(input.thresholds, question);
-  const thresholdDirection = normalizeDirection(input.thresholdDirection, question);
-  const units = typeof input.units === "string" ? input.units : undefined;
+  const rawInput = (ctx.input ?? {}) as Record<string, unknown>;
+  const forecastInput = normalizeForecastInputRow(rawInput);
+  const question = forecastInput.question;
+  const resolutionCriteria = forecastInput.resolutionCriteria ?? "Resolve according to the plain-language question.";
+  const background = forecastInput.background ?? "";
+  const structuredContext = formatForecastContextForPrompt(forecastInput);
+  const timing = readForecastTiming(rawInput);
+  const thresholdContract = normalizeThresholds(forecastInput.thresholds.map((threshold) => threshold.label), question);
+  const thresholds = thresholdContract.thresholds;
+  const thresholdDirection = forecastInput.thresholdDirection ?? normalizeDirection(undefined, question);
+  const units = forecastInput.unit;
+  const validationWarnings = thresholdContract.valid
+    ? []
+    : ["Thresholded forecasts require at least two explicit or clearly extractable thresholds. This run should be treated as invalid input, not a calibrated threshold curve."];
   const attemptIds = forecasterBriefs.map((brief) => `attempt-${brief.id}`);
   const attemptNeeds = Object.fromEntries(attemptIds.map((id) => [id, id]));
   const attempts = ctx.outputs.thresholdedAttempt ?? [];
@@ -101,7 +111,8 @@ export default smithers((ctx) => {
   const repairedAggregate = repairMonotonic(rawAggregate, thresholdDirection);
   const monotonicityRepaired = rawAggregate.some((item, index) => item.probability !== repairedAggregate[index]?.probability);
   const probabilityMap = Object.fromEntries(repairedAggregate.map((item) => [item.threshold, item.probability]));
-  const citedSources = attempts.flatMap((attempt) => attempt.citedSources ?? []);
+  const citedSources = collectCitedSources(attempts);
+  const keyUncertainties = collectKeyUncertainties(attempts);
 
   return (
     <Workflow name="thresholded-forecast">
@@ -122,6 +133,10 @@ ${question}
 Resolution criteria:
 ${resolutionCriteria}
 
+${structuredContext}
+
+${timing.promptBlock}
+
 Background:
 ${background || "No extra background provided."}
 
@@ -132,12 +147,12 @@ Units:
 ${units ?? "not specified"}
 
 Thresholds, in caller-provided order. Preserve labels exactly:
-${thresholds.map((threshold, index) => `${index + 1}. ${threshold}`).join("\n")}
+${thresholds.length ? thresholds.map((threshold, index) => `${index + 1}. ${threshold}`).join("\n") : "No valid thresholds were provided or extractable."}
 
 Focus:
 ${brief.focus}
 
-Return one probability for every threshold label. For at_least, probabilities must be non-increasing as thresholds become stricter. For at_most, probabilities must be non-decreasing. Include a short rationale for each threshold plus overall rationale, monotonicity notes, uncertainties, premortem, wildcards, and cited sources when available. Set forecasterLabel to "${brief.label}".`}
+Return one probability for every threshold label. If no valid thresholds are listed, return an empty probabilities array and explain the invalid input in rationale. For at_least, probabilities must be non-increasing as thresholds become stricter. For at_most, probabilities must be non-decreasing. Include a short rationale for each threshold plus overall rationale, monotonicity notes, uncertainties, premortem, wildcards, and cited sources when available. For cited sources, include publishedAt as an ISO date when the source date is known; omit it when unknown. Set forecasterLabel to "${brief.label}".`}
             </Task>
           ))}
         </Parallel>
@@ -147,10 +162,12 @@ Return one probability for every threshold label. For at_least, probabilities mu
             forecastType: "thresholded",
             thresholdDirection,
             thresholds,
+            thresholdSource: thresholdContract.source,
+            validationWarnings,
             units,
             probabilities: repairedAggregate,
             probabilityMap,
-            method: "median_threshold_curve_with_monotonic_repair_v0",
+            method: thresholdContract.valid ? "explicit_threshold_curve_median_with_monotonic_repair_v1" : "invalid_threshold_configuration_v1",
             attemptCount: attempts.length,
             monotonicityRepaired,
             monotonicityNotes: monotonicityRepaired
@@ -158,10 +175,14 @@ Return one probability for every threshold label. For at_least, probabilities mu
               : "Median curve satisfied monotonicity in caller order.",
             componentCurves,
             citedSources,
+            keyUncertainties,
+            ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
             rationale:
               attempts.length === 0
                 ? "No attempts were available; this fallback should only appear in graph rendering."
-                : `Aggregated ${attempts.length} threshold curves by median per threshold, then enforced ${thresholdDirection} monotonicity.`,
+                : thresholdContract.valid
+                  ? `Aggregated ${attempts.length} threshold curves by median per threshold, then enforced ${thresholdDirection} monotonicity.`
+                  : "The threshold configuration was invalid, so this output is a validation artifact rather than a calibrated forecast.",
           }}
         </Task>
       </Sequence>
@@ -169,24 +190,22 @@ Return one probability for every threshold label. For at_least, probabilities mu
   );
 });
 
-function normalizeThresholds(raw: unknown, question: string) {
-  if (Array.isArray(raw)) {
-    const thresholds = raw.map((item) => String(item).trim()).filter(Boolean);
-    if (thresholds.length >= 2) {
-      return thresholds.slice(0, 50);
-    }
+function normalizeThresholds(rawThresholds: string[], question: string) {
+  const callerThresholds = uniqueStrings(rawThresholds);
+  if (callerThresholds.length >= 2) {
+    return { thresholds: callerThresholds.slice(0, 50), source: "caller" as const, valid: true };
   }
   const numericMatches = [...question.matchAll(/(?:[$€£]\s*)?\b\d+(?:\.\d+)?\s*(?:k|m|b|bn|million|billion|trillion|%|percent|launches|users|usd|dollars)?\b/gi)]
     .map((match) => match[0].trim())
     .filter((value, index, values) => values.indexOf(value) === index);
   if (numericMatches.length >= 2) {
-    return numericMatches.slice(0, 50);
+    return { thresholds: numericMatches.slice(0, 50), source: "question_extracted" as const, valid: true };
   }
   const years = [...question.matchAll(/\b20\d{2}\b/g)].map((match) => match[0]);
   if (years.length >= 2) {
-    return [...new Set(years)].slice(0, 50);
+    return { thresholds: [...new Set(years)].slice(0, 50), source: "question_extracted" as const, valid: true };
   }
-  return ["low threshold", "high threshold"];
+  return { thresholds: callerThresholds.slice(0, 50), source: "invalid" as const, valid: false };
 }
 
 function normalizeDirection(raw: unknown, question: string): "at_least" | "at_most" {
@@ -241,4 +260,8 @@ function median(values: number[]) {
 
 function roundOne(value: number) {
   return Math.round(value * 10) / 10;
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }

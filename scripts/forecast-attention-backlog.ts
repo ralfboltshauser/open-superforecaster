@@ -1,0 +1,533 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import {
+  loadAttentionReviews,
+  type AttentionReviewRecord,
+} from "./lib/forecast-attention-reviews";
+import { readCalibrationDefaultPlanArtifacts, type CalibrationDefaultPlanSkippedRow } from "../packages/backend/src/calibration-default-plan-artifacts";
+import { readCalibrationGuardValidationArtifacts, type CalibrationGuardValidationRow } from "../packages/backend/src/calibration-guard-validation-artifacts";
+import {
+  readForecastBatchIndexArtifacts,
+  type ForecastBatchIndexAttentionItem,
+  type ForecastBatchIndexCandidateCalibrationGuardRule,
+} from "../packages/backend/src/forecast-batch-index-artifacts";
+import {
+  candidateCalibrationGuardAttentionKind,
+  calibrationDefaultPlanSkippedAttentionKind,
+  calibrationValidationAttentionKind,
+  forecastAttentionSeveritySortRank,
+  forecastAttentionReviewStatusRank,
+  isForecastAttentionReviewStatus,
+  recommendCalibrationDefaultPlanSkippedActions,
+  recommendCalibrationValidationActions,
+  recommendCandidateCalibrationGuardActions,
+  summarizeForecastAttentionSeverities,
+  summarizeForecastAttentionReviewStatuses,
+  type ForecastAttentionReviewStatus,
+} from "../packages/backend/src/forecast-attention-policy";
+import {
+  calibrationGuardActivationSeverity,
+  normalizeCalibrationGuardActivationStatus,
+} from "../packages/backend/src/calibration-guard-activation-policy";
+import {
+  calibrationGuardDefaultPlanSkippedReasonNotHoldoutReplay,
+  calibrationGuardRecommendationReject,
+  isCalibrationGuardPromotionRecommendation,
+} from "../packages/backend/src/calibration-guard-validation-policy";
+import {
+  readArgValue,
+  readArgValues,
+  writeJson,
+} from "./lib/forecast-script-utils";
+
+type ReviewStatus = ForecastAttentionReviewStatus;
+
+type AttentionReview = AttentionReviewRecord;
+
+type BacklogItem = {
+  batchId: string;
+  id: string;
+  reviewStatus: ReviewStatus;
+  severity: string;
+  kind: string;
+  reason: string;
+  recommendedActions: string[];
+  metric: string;
+  score: number | null;
+  delta: number | null;
+  taskId: string | null;
+  taskLabel: string | null;
+  forecastType: string | null;
+  reviewNote?: string;
+  reviewer?: string;
+  reviewedAt?: string;
+  sourcePath: string;
+};
+
+type BacklogBreakdownCounts = {
+  items: number;
+  open: number;
+  deferred: number;
+  reviewed: number;
+  unresolved: number;
+  high: number;
+  medium: number;
+  low: number;
+};
+
+type ForecastTypeBreakdown = BacklogBreakdownCounts & {
+  forecastType: string;
+};
+
+type KindBreakdown = BacklogBreakdownCounts & {
+  kind: string;
+};
+
+type BacklogReport = {
+  reportType: "forecast_attention_backlog";
+  generatedAt: string;
+  filters: {
+    statuses: ReviewStatus[];
+    batchIds: string[];
+  };
+  counts: {
+    items: number;
+    open: number;
+    deferred: number;
+    reviewed: number;
+    unresolved: number;
+    high: number;
+    medium: number;
+    low: number;
+  };
+  byForecastType: ForecastTypeBreakdown[];
+  byKind: KindBreakdown[];
+  items: BacklogItem[];
+  paths: {
+    json: string;
+    markdown: string;
+    batchIndexDir: string;
+    validationReportDir: string;
+    defaultPlanReportDir: string;
+    reviews: string;
+  };
+};
+
+const root = resolve(import.meta.dir, "..");
+const args = Bun.argv.slice(2);
+const batchIndexDir = resolve(root, readArgValue(args, "--batch-index-dir") ?? "data/reports/forecast-batches");
+const validationReportDir = resolve(root, readArgValue(args, "--validation-report-dir") ?? "data/reports/forecast-calibration-guard-validation");
+const defaultPlanReportDir = resolve(root, readArgValue(args, "--default-plan-report-dir") ?? "data/reports/forecast-calibration-guard-default-plan");
+const reviewsFile = resolve(root, readArgValue(args, "--reviews-file") ?? "data/reports/forecast-attention-reviews.json");
+const outputDir = resolve(root, readArgValue(args, "--out-dir") ?? "data/reports/forecast-attention-backlog");
+const requestedStatuses = readArgValues(args, "--status");
+const statusFilters = requestedStatuses.length > 0 ? requestedStatuses : ["open", "deferred"];
+const batchFilters = readArgValues(args, "--batch-id");
+const statuses = statusFilters.map((status) => {
+  if (!isForecastAttentionReviewStatus(status)) {
+    throw new Error(`Unsupported --status ${status}. Expected open, reviewed, or deferred.`);
+  }
+  return status;
+});
+
+const jsonPath = resolve(outputDir, "attention-backlog.json");
+const markdownPath = resolve(outputDir, "attention-backlog.md");
+const reviewsByItemId = await loadAttentionReviews(reviewsFile);
+const items = await readBacklogItems(batchIndexDir, validationReportDir, defaultPlanReportDir, statuses, new Set(batchFilters), reviewsByItemId);
+const report = buildReport(items, statuses, batchFilters, jsonPath, markdownPath, batchIndexDir, validationReportDir, defaultPlanReportDir, reviewsFile);
+
+await mkdir(outputDir, { recursive: true });
+await writeJson(jsonPath, report);
+await writeFile(markdownPath, renderMarkdown(report), "utf8");
+
+console.log(`Attention backlog: ${report.counts.items} item(s) written to ${jsonPath}`);
+console.log(`Statuses: ${report.filters.statuses.join(", ")}`);
+if (report.filters.batchIds.length > 0) {
+  console.log(`Batches: ${report.filters.batchIds.join(", ")}`);
+}
+for (const item of report.items.slice(0, 20)) {
+  const task = item.taskLabel ?? item.taskId ?? "unknown task";
+  console.log(`${item.reviewStatus.toUpperCase()} ${item.severity} ${item.batchId} ${item.id}: ${task}`);
+}
+if (report.items.length > 20) {
+  console.log(`... ${report.items.length - 20} more item(s)`);
+}
+
+async function readBacklogItems(
+  batchRoot: string,
+  validationRoot: string,
+  defaultPlanRoot: string,
+  statuses: ReviewStatus[],
+  batchIds: Set<string>,
+  reviewsByItemId: Map<string, AttentionReview>,
+) {
+  const items: BacklogItem[] = [];
+  const batchReports = await readForecastBatchIndexArtifacts(root, { reportRoot: batchRoot });
+  for (const report of batchReports) {
+    if (batchIds.size > 0 && !batchIds.has(report.batchId)) {
+      continue;
+    }
+    for (const item of report.attentionItems) {
+      const rawBacklogItem = readBacklogItem(item, report.batchId, report.reportPath);
+      const backlogItem = rawBacklogItem ? withReview(rawBacklogItem, reviewsByItemId.get(rawBacklogItem.id)) : null;
+      if (backlogItem && statuses.includes(backlogItem.reviewStatus)) {
+        items.push(backlogItem);
+      }
+    }
+    for (const rule of report.candidateCalibrationGuardRules) {
+      const rawBacklogItem = readCandidateCalibrationGuardBacklogItem(rule, report.batchId, report.reportPath);
+      const backlogItem = rawBacklogItem ? withReview(rawBacklogItem, reviewsByItemId.get(rawBacklogItem.id)) : null;
+      if (backlogItem && statuses.includes(backlogItem.reviewStatus)) {
+        items.push(backlogItem);
+      }
+    }
+  }
+  const validationReports = await readCalibrationGuardValidationArtifacts(root, { reportRoot: validationRoot });
+  for (const report of validationReports) {
+    for (const validation of report.validations) {
+      const rawBacklogItem = readCalibrationGuardValidationBacklogItem(validation, report.reportPath);
+      const backlogItem = rawBacklogItem ? withReview(rawBacklogItem, reviewsByItemId.get(rawBacklogItem.id)) : null;
+      if (backlogItem && statuses.includes(backlogItem.reviewStatus) && (batchIds.size === 0 || batchIds.has(backlogItem.batchId))) {
+        items.push(backlogItem);
+      }
+    }
+  }
+  const defaultPlanReports = await readCalibrationDefaultPlanArtifacts(root, { reportRoot: defaultPlanRoot });
+  for (const report of defaultPlanReports) {
+    for (const skipped of report.skippedRows) {
+      const rawBacklogItem = readCalibrationGuardDefaultPlanSkippedBacklogItem(skipped, report.reportPath);
+      const backlogItem = rawBacklogItem ? withReview(rawBacklogItem, reviewsByItemId.get(rawBacklogItem.id)) : null;
+      if (backlogItem && statuses.includes(backlogItem.reviewStatus) && (batchIds.size === 0 || batchIds.has(backlogItem.batchId))) {
+        items.push(backlogItem);
+      }
+    }
+  }
+  return sortBacklog(items);
+}
+
+function readBacklogItem(item: ForecastBatchIndexAttentionItem, batchId: string, sourcePath: string): BacklogItem | null {
+  const id = item.id;
+  const reviewStatus = item.reviewStatus;
+  if (!id || !isForecastAttentionReviewStatus(reviewStatus)) {
+    return null;
+  }
+  return {
+    batchId,
+    id,
+    reviewStatus,
+    severity: item.severity ?? "medium",
+    kind: item.kind ?? "attention_item",
+    reason: item.reason ?? "",
+    recommendedActions: item.recommendedActions,
+    metric: item.metric ?? "metric",
+    score: item.score,
+    delta: item.delta,
+    taskId: item.taskId,
+    taskLabel: item.taskLabel,
+    forecastType: item.forecastType,
+    reviewNote: item.reviewNote ?? undefined,
+    reviewer: item.reviewer ?? undefined,
+    reviewedAt: item.reviewedAt ?? undefined,
+    sourcePath,
+  };
+}
+
+function withReview(item: BacklogItem, review: AttentionReview | undefined): BacklogItem {
+  if (!review) {
+    return item;
+  }
+  return {
+    ...item,
+    reviewStatus: review.status,
+    reviewNote: review.note,
+    reviewer: review.reviewer,
+    reviewedAt: review.updatedAt,
+  };
+}
+
+function readCandidateCalibrationGuardBacklogItem(item: ForecastBatchIndexCandidateCalibrationGuardRule, batchId: string, sourcePath: string): BacklogItem | null {
+  const id = item.id;
+  const reviewStatus = item.reviewStatus;
+  if (!id || !isForecastAttentionReviewStatus(reviewStatus)) {
+    return null;
+  }
+  const bucketLabel = item.bucketLabel ?? "calibration bucket";
+  const direction = item.direction ?? "calibration_drift";
+  const activationStatus = normalizeCalibrationGuardActivationStatus(item.activationStatus);
+  const suggestedAdjustment = item.suggestedAdjustment;
+  return {
+    batchId,
+    id,
+    reviewStatus,
+    severity: calibrationGuardActivationSeverity(activationStatus),
+    kind: candidateCalibrationGuardAttentionKind(),
+    reason: item.rationale ?? `${bucketLabel} has ${direction} and needs calibration guard review.`,
+    recommendedActions: recommendCandidateCalibrationGuardActions({ bucketLabel, suggestedAdjustment }),
+    metric: "calibration_error",
+    score: item.calibrationError,
+    delta: suggestedAdjustment,
+    taskId: null,
+    taskLabel: `${bucketLabel} candidate calibration guard`,
+    forecastType: "binary",
+    reviewNote: item.reviewNote ?? undefined,
+    reviewer: item.reviewer ?? undefined,
+    reviewedAt: item.reviewedAt ?? undefined,
+    sourcePath,
+  };
+}
+
+function readCalibrationGuardValidationBacklogItem(item: CalibrationGuardValidationRow, sourcePath: string): BacklogItem | null {
+  const proposalId = item.proposalId;
+  const recommendation = item.recommendation;
+  if (!proposalId || !recommendation || recommendation === calibrationGuardRecommendationReject) {
+    return null;
+  }
+  const batchId = batchIdFromProposalId(proposalId) ?? "unknown-batch";
+  const bucketLabel = item.bucketLabel ?? "calibration bucket";
+  const brierDelta = item.brierDelta;
+  const calibrationErrorDelta = item.calibrationErrorDelta;
+  const matchedRows = item.matchedRows;
+  return {
+    batchId,
+    id: `calibration-validation:${proposalId}`,
+    reviewStatus: "open",
+    severity: isCalibrationGuardPromotionRecommendation(recommendation) ? "high" : "medium",
+    kind: calibrationValidationAttentionKind(recommendation),
+    reason: `${bucketLabel} calibration guard validation recommendation: ${recommendation}.`,
+    recommendedActions: recommendCalibrationValidationActions({ recommendation, bucketLabel }),
+    metric: "validation_brier_delta",
+    score: brierDelta,
+    delta: calibrationErrorDelta,
+    taskId: null,
+    taskLabel: `${bucketLabel} validation (${matchedRows === null ? "unknown" : String(matchedRows)} rows)`,
+    forecastType: "binary",
+    sourcePath,
+  };
+}
+
+function readCalibrationGuardDefaultPlanSkippedBacklogItem(item: CalibrationDefaultPlanSkippedRow, sourcePath: string): BacklogItem | null {
+  const proposalId = item.proposalId;
+  const reason = item.reason;
+  if (!proposalId || !reason) {
+    return null;
+  }
+  const batchId = batchIdFromProposalId(proposalId) ?? "unknown-batch";
+  const bucketLabel = item.bucketLabel ?? "calibration bucket";
+  const recommendation = item.recommendation ?? "unknown";
+  const validationMode = item.validationMode ?? "unknown";
+  return {
+    batchId,
+    id: `calibration-default-plan-skipped:${proposalId}`,
+    reviewStatus: "open",
+    severity: reason === calibrationGuardDefaultPlanSkippedReasonNotHoldoutReplay ? "low" : "medium",
+    kind: calibrationDefaultPlanSkippedAttentionKind(reason),
+    reason: `${bucketLabel} default-plan row skipped: ${reason} (${validationMode}, ${recommendation}).`,
+    recommendedActions: recommendCalibrationDefaultPlanSkippedActions({ reason, bucketLabel }),
+    metric: "default_plan_skip",
+    score: null,
+    delta: null,
+    taskId: null,
+    taskLabel: `${bucketLabel} default-plan skip`,
+    forecastType: "binary",
+    sourcePath,
+  };
+}
+
+function buildReport(
+  items: BacklogItem[],
+  statuses: ReviewStatus[],
+  batchIds: string[],
+  jsonPath: string,
+  markdownPath: string,
+  sourceDir: string,
+  validationDir: string,
+  defaultPlanDir: string,
+  reviewPath: string,
+): BacklogReport {
+  const reviewCounts = summarizeForecastAttentionReviewStatuses(items);
+  const severityCounts = summarizeForecastAttentionSeverities(items);
+  return {
+    reportType: "forecast_attention_backlog",
+    generatedAt: new Date().toISOString(),
+    filters: {
+      statuses,
+      batchIds,
+    },
+    counts: {
+      items: items.length,
+      open: reviewCounts.open,
+      deferred: reviewCounts.deferred,
+      reviewed: reviewCounts.reviewed,
+      unresolved: reviewCounts.unresolved,
+      high: severityCounts.high,
+      medium: severityCounts.medium,
+      low: severityCounts.low,
+    },
+    byForecastType: summarizeByForecastType(items),
+    byKind: summarizeByKind(items),
+    items,
+    paths: {
+      json: jsonPath,
+      markdown: markdownPath,
+      batchIndexDir: sourceDir,
+      validationReportDir: validationDir,
+      defaultPlanReportDir: defaultPlanDir,
+      reviews: reviewPath,
+    },
+  };
+}
+
+function renderMarkdown(report: BacklogReport) {
+  const lines = [
+    "# Forecast Attention Backlog",
+    "",
+    `Generated: ${report.generatedAt}`,
+    `Statuses: ${report.filters.statuses.join(", ")}`,
+    `Batches: ${report.filters.batchIds.length > 0 ? report.filters.batchIds.join(", ") : "all"}`,
+    "",
+    "## Counts",
+    "",
+    `- Items: ${report.counts.items}`,
+    `- Open: ${report.counts.open}`,
+    `- Deferred: ${report.counts.deferred}`,
+    `- Reviewed: ${report.counts.reviewed}`,
+    `- Unresolved: ${report.counts.unresolved}`,
+    `- High severity: ${report.counts.high}`,
+    `- Medium severity: ${report.counts.medium}`,
+    `- Low severity: ${report.counts.low}`,
+    "",
+    "## Forecast Types",
+    "",
+    ...renderForecastTypeTable(report.byForecastType),
+    "",
+    "## Kinds",
+    "",
+    ...renderKindTable(report.byKind),
+    "",
+    "## Items",
+    "",
+    ...renderItemsTable(report.items),
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function renderForecastTypeTable(rows: ForecastTypeBreakdown[]) {
+  if (rows.length === 0) {
+    return ["No forecast type counts matched the filters."];
+  }
+  return [
+    "| Forecast type | Items | Open | Deferred | Reviewed | Unresolved | High | Medium | Low |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...rows.map((row) =>
+      `| ${escapeMarkdownCell(row.forecastType)} | ${row.items} | ${row.open} | ${row.deferred} | ${row.reviewed} | ${row.unresolved} | ${row.high} | ${row.medium} | ${row.low} |`,
+    ),
+  ];
+}
+
+function renderKindTable(rows: KindBreakdown[]) {
+  if (rows.length === 0) {
+    return ["No kind counts matched the filters."];
+  }
+  return [
+    "| Kind | Items | Open | Deferred | Reviewed | Unresolved | High | Medium | Low |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...rows.map((row) =>
+      `| ${escapeMarkdownCell(row.kind)} | ${row.items} | ${row.open} | ${row.deferred} | ${row.reviewed} | ${row.unresolved} | ${row.high} | ${row.medium} | ${row.low} |`,
+    ),
+  ];
+}
+
+function renderItemsTable(items: BacklogItem[]) {
+  if (items.length === 0) {
+    return ["No attention items matched the filters."];
+  }
+  return [
+    "| Status | Severity | Batch | Kind | Forecast type | Metric | Score | Delta | Task | Reason | Recommended action | Note | Source |",
+    "| --- | --- | --- | --- | --- | --- | ---: | ---: | --- | --- | --- | --- | --- |",
+    ...items.map((item) =>
+      `| ${item.reviewStatus} | ${item.severity} | ${item.batchId} | ${item.kind} | ${item.forecastType ?? "unknown"} | ${item.metric} | ${formatNumber(item.score)} | ${
+        formatNumber(item.delta)
+      } | ${escapeMarkdownCell(item.taskLabel ?? item.taskId ?? "")} | ${escapeMarkdownCell(item.reason)} | ${escapeMarkdownCell(item.recommendedActions[0] ?? "")} | ${
+        escapeMarkdownCell(item.reviewNote ?? "")
+      } | ${escapeMarkdownCell(item.sourcePath)} |`,
+    ),
+  ];
+}
+
+function sortBacklog(items: BacklogItem[]) {
+  return [...items].sort((left, right) =>
+    forecastAttentionReviewStatusRank(left.reviewStatus) - forecastAttentionReviewStatusRank(right.reviewStatus)
+    || forecastAttentionSeveritySortRank(left.severity) - forecastAttentionSeveritySortRank(right.severity)
+    || left.batchId.localeCompare(right.batchId)
+    || (left.taskLabel ?? left.taskId ?? "").localeCompare(right.taskLabel ?? right.taskId ?? "")
+    || left.id.localeCompare(right.id)
+  );
+}
+
+function batchIdFromProposalId(proposalId: string) {
+  const match = /^calibration-guard-proposal:([^:]+):/.exec(proposalId);
+  return match?.[1] ?? null;
+}
+
+function summarizeByForecastType(items: BacklogItem[]) {
+  return summarizeBacklogGroups(items, (item) => item.forecastType ?? "unknown").map((row) => ({
+    forecastType: row.key,
+    ...row.counts,
+  }));
+}
+
+function summarizeByKind(items: BacklogItem[]) {
+  return summarizeBacklogGroups(items, (item) => item.kind || "unknown").map((row) => ({
+    kind: row.key,
+    ...row.counts,
+  }));
+}
+
+function summarizeBacklogGroups(items: BacklogItem[], keyFor: (item: BacklogItem) => string) {
+  const grouped = new Map<string, BacklogItem[]>();
+  for (const item of items) {
+    const key = keyFor(item);
+    const rows = grouped.get(key);
+    if (rows) {
+      rows.push(item);
+    } else {
+      grouped.set(key, [item]);
+    }
+  }
+  return [...grouped.entries()]
+    .map(([key, rows]) => ({
+      key,
+      counts: countBreakdown(rows),
+    }))
+    .sort(
+      (left, right) =>
+        right.counts.items - left.counts.items
+        || right.counts.high - left.counts.high
+        || right.counts.medium - left.counts.medium
+        || left.key.localeCompare(right.key),
+    );
+}
+
+function countBreakdown(items: BacklogItem[]): BacklogBreakdownCounts {
+  const reviewCounts = summarizeForecastAttentionReviewStatuses(items);
+  const severityCounts = summarizeForecastAttentionSeverities(items);
+  return {
+    items: items.length,
+    open: reviewCounts.open,
+    deferred: reviewCounts.deferred,
+    reviewed: reviewCounts.reviewed,
+    unresolved: reviewCounts.unresolved,
+    high: severityCounts.high,
+    medium: severityCounts.medium,
+    low: severityCounts.low,
+  };
+}
+
+function formatNumber(value: number | null) {
+  return value === null ? "" : String(Math.round(value * 10_000) / 10_000);
+}
+
+function escapeMarkdownCell(value: string) {
+  return value.replace(/\|/g, "\\|");
+}

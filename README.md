@@ -19,9 +19,9 @@ curiosity. Dynamic benchmarks such as
 limits of current LLM forecasters. Newer scaffolded systems such as
 [AIA Forecaster](https://arxiv.org/html/2511.07678v1) report results that are
 competitive with expert superforecasters on some benchmarks, while liquid
-prediction markets remain a hard baseline and ensembles can add value.
-[FutureSearch Evals](https://evals.futuresearch.ai/) shows how quickly this
-space is moving across pastcasting benchmarks, live tournaments, and markets.
+prediction markets remain a hard baseline and ensembles can add value. The
+space is moving quickly across pastcasting benchmarks, live tournaments, and
+markets.
 
 The point of this project is not to claim that this repo is already a
 benchmark-grade oracle. The point is to keep the capability open, inspectable,
@@ -39,7 +39,9 @@ take open forecasting infrastructure.
   questions from the web UI.
 - Fan out multiple CodexAgent researchers, then inspect their component
   forecasts, aggregate answer, rationale, and citations.
-- Run local benchmark and pastcasting loops before trusting workflow changes.
+- Run local benchmark and pastcasting loops before trusting workflow changes;
+  promotion review requires enough paired held-out cases and a comparison
+  showing the candidate beat the baseline, not merely matched it.
 - Export artifacts, trace bundles, CSV, Parquet, and local analytics tables for
   deeper review.
 - Keep the full trust chain local: questions, sources, traces, scores,
@@ -66,6 +68,24 @@ forecast should answer:
 - What probability or distribution was emitted?
 - Which artifacts, traces, and benchmarks support the result?
 - What should be re-run before using this in a real decision?
+
+## Forecast Contract
+
+Forecast requests can carry structured context in addition to the plain-language
+question. Use these fields when available instead of burying them in prose:
+
+- `resolutionCriteria` and `resolutionDate`
+- `background`
+- `marketPrice`, `marketPriceAsOf`, `marketCreationDate`, `marketPlatform`,
+  and `marketUrl`
+- `categories` and `categoriesExhaustive` for categorical forecasts
+- `thresholds`, `thresholdDirection`, and `unit` for thresholded forecasts
+
+Numeric and date forecasts emit p10, p25, p50, p75, and p90 distributions.
+Categorical forecasts normalize probability mass over a frozen option set when
+one is provided. Thresholded forecasts preserve explicit threshold order and
+return a validation artifact instead of inventing generic thresholds when the
+input is underspecified.
 
 ## Getting Started
 
@@ -195,10 +215,317 @@ curl -X POST http://localhost:3000/api/runs \
   -d @examples/request-binary-forecast.json
 ```
 
+The create response includes durable links for automation. Use them to poll,
+retrieve the normalized result, and materialize a decision-report artifact:
+
+```bash
+TASK_ID=<task-id-from-create-response>
+curl http://localhost:3000/api/runs/$TASK_ID/status
+curl http://localhost:3000/api/runs/$TASK_ID/result
+curl -X POST http://localhost:3000/api/runs/$TASK_ID/report-artifact
+```
+
+Report artifacts persist a decision-oriented JSON object with the headline,
+resolution context, answer, distribution, component agreement, uncertainty,
+quality checks, aggregate review status, evidence summary, process trace,
+links, and Markdown snapshot.
+
 You can also plan sample workflows without launching agent work:
 
 ```bash
 bun run workflow:samples
+```
+
+For scheduled or cron-style forecast operations, use the forecast ops runner.
+It reads forecast requests, starts each run through the HTTP API, polls the
+status endpoint, fetches the result, materializes a report artifact, and writes
+a local manifest plus JSON/Markdown snapshots:
+
+```bash
+bun run forecast:ops
+bun run forecast:ops -- --execute --case binary-foldable-iphone
+bun run forecast:ops -- --batch-id july-smoke --execute --case binary-foldable-iphone
+```
+
+When outcomes are known, feed resolutions back into the scoring ledger:
+
+```bash
+bun run forecast:resolve -- --input examples/resolutions.sample.jsonl
+bun run forecast:resolve -- --batch-id july-smoke --execute --input data/resolutions/manual.jsonl
+```
+
+Then snapshot the scored performance report:
+
+```bash
+bun run forecast:performance -- --batch-id july-smoke
+```
+
+The performance report includes grouped score means, best and worst resolved
+aggregate forecasts, score trends, attention items, and binary aggregate
+calibration buckets with expected calibration error. Calibration buckets with
+enough resolved examples and large forecast-vs-observed gaps are added to the
+attention queue with review actions and structured candidate calibration guard
+rules for human review. Poor resolved binary aggregates that moved materially
+away from their component base-rate anchor are also queued as baseline-sanity
+misses for postmortem review. Poor resolved binary aggregates with material
+resolution-boundary ambiguity are queued separately, so unclear criteria can be
+treated as question-specification risk instead of hidden model error.
+Poor resolved forecasts with narrow component probability ranges are also
+surfaced as uncertainty-range misses, which helps separate calibrated confidence
+from overconfident misses before changing prompts or guards.
+Poor resolved binary forecasts with very high final probability distance from
+50% are also bucketed and queued separately, so overconfident misses can be
+reviewed before adding calibration rules.
+Poor resolved forecasts where the aggregate downweighted or mixed component
+weights are surfaced separately, so we can inspect whether the evaluator
+discounted the component that best matched reality.
+Poor resolved forecasts with high component disagreement are queued across
+forecast types too: binary component probabilities, conditional branches,
+threshold curves, numeric medians, date medians, and categorical top-choice
+agreement are visible as explicit attention kinds instead of being flattened
+into one generic disagreement queue.
+The metrics endpoint exports baseline-sanity score counts and means as
+Prometheus series so large base-rate departures can be monitored outside the
+lab dashboard.
+Binary aggregates with structured market prices also persist a deterministic
+`marketAnchor` audit with the market price, final probability, signed delta,
+market platform, and divergence band. This is diagnostic, not an automatic
+calibration rule: it lets resolved-score analytics separate useful
+market-disagreement from avoidable drift before any default adjustment is
+considered.
+
+Binary forecast generation also applies a deterministic final calibration guard
+for known threshold, timing, and production-ramp failure modes. The guard is an
+explicit rule registry in `packages/workflows/src/binary-calibration-guard.ts`
+so measured calibration rules can be reviewed, tested, and added outside the
+workflow orchestration. Final binary aggregates include a structured
+`calibrationGuard` block with applied rule ids and point adjustments plus a
+deterministic `baselineSanity` audit comparing the final probability with the
+mean component base-rate anchor and a `marketAnchor` audit for structured
+market-price divergence. They also include a deterministic `resolutionBoundary`
+audit summarizing component boundary reviews and ambiguity flags. Run reports
+surface those guard rules, baseline deltas, market-anchor deltas, and
+resolution-boundary status for review. They also persist an `uncertaintyRange`
+audit over component probability ranges and a `componentWeighting` audit over
+component audit weights. Future binary score rows persist
+the same guard, baseline-sanity, market-anchor, resolution-boundary, uncertainty-range, component-weighting, aggregate-quality, aggregate-stat, and
+selected plan-shape metadata in score config so performance snapshots can
+compare guarded forecasts, large baseline movements, high component
+market divergences, boundary ambiguity, narrow uncertainty ranges, component
+downweighting, aggregate review rounds, aggregate quality issues, final-probability confidence, disagreement, component-envelope position,
+aggregate side agreement, aggregate panel confidence, final confidence shift, median adjustment, base-rate-to-inside-view movement,
+final aggregation adjustment, final aggregation direction, aggregate attempt count, aggregation anchors,
+research depth, panel size, and complexity against outcomes, summarize score groups, and report guarded-vs-unguarded
+Brier impact overall and by applied rule id. Worse overall or rule-level
+guarded impact is also queued as a high-severity attention item
+before more default guard rules are promoted.
+Conditional score rows likewise preserve the resolved branch, condition
+probability, branch probabilities, probability delta, condition-effect band,
+resolved-branch placement, component branch disagreement, and effect-direction
+agreement so performance reports can separate condition-probability errors,
+lower-probability active branches, outcome-under-condition errors, and
+high-disagreement conditional aggregates.
+Thresholded score rows preserve threshold direction, source, count,
+monotonicity repair status, curve spread and spread band, component curve
+disagreement, resolved-value placement, attempt count, and attempt count band so flat, steep,
+repaired, extracted, out-of-range, or internally split threshold curves can be
+reviewed separately from clean caller-provided curves. Numeric and date score
+rows preserve quantile interval width, unit, attempt count and attempt count band, median miss-distance
+bands, numeric component-value disagreement, date never-probability bands,
+resolved-position bands, and component median-date disagreement so wide,
+out-of-interval, median-miss, split-component, split-timing, or unit-specific
+forecasts can be compared against resolved errors. Categorical score rows
+preserve top-choice confidence, normalized entropy, category source, closed-set
+status, coverage band, category count, top-category component agreement, and
+winner-probability spread plus resolved-category placement, so diffuse,
+open-set, model-generated, missing-winner, or internally split option sets can
+be reviewed separately. All forecast score rows also preserve evidence-coverage
+metadata, including source count, source-domain count, dated/undated source
+counts, source-diversity and concentration bands, top-domain share,
+newest/oldest published source dates, evidence as-of date, newest-source age,
+freshness band, post-as-of source count, timing band, uncertainty count,
+rationale length, and method, so weakly sourced, single-domain,
+source-concentrated, stale, future-dated, undated, or thinly explained
+forecasts can be compared against resolved outcomes.
+Forecast workflows share one timing reader so caller-provided
+present/cutoff dates are shown in prompts and persisted as the evidence as-of
+date across binary, date, numeric, categorical, thresholded, and conditional
+aggregates. They also share canonical evidence aggregation with source-bank
+persistence, so repeated citations are deduped before source-count analytics and
+attempt-level key uncertainties are preserved on aggregate forecasts. New forecast runs also preserve
+structured input context in score rows, including resolution criteria/date,
+resolution-criteria depth, evidence as-of date, resolution horizon, requested
+and routed forecast type plus their alignment, routing confidence, input source,
+market price and market-price recency, background, background depth,
+market metadata and market creation age, option counts and coverage, threshold counts, values,
+direction and bands, condition/unit flags, unit specificity,
+condition-criteria coverage, condition depth, condition-criteria depth, and
+question length. The context-completeness score counts explicit type/provenance,
+timing, resolution, background, market, option, threshold, condition, and unit
+fields, so missing-as-of, short-horizon, thin-resolution-criteria,
+requested/routed-type mismatches, low-confidence routing, source-specific templates, thin-background, stale-market, market-anchored,
+market-traceability, option-heavy, open-category, missing-threshold-value,
+missing-threshold-direction, threshold-curve, generic-unit,
+condition-underspecified, thin-condition, or richly specified questions can be measured
+separately from sparse prompts.
+Score rows also keep workflow version,
+workflow variant, experiment label, and run duration bands, and resolved
+performance reports group by each run-lineage signal so quality changes can be
+compared against runtime and variant changes.
+`bun run duckdb:sync` also parses durable run token usage into
+`osf_smithers_token_usage` and task-level summaries in
+`osf_smithers_token_usage_by_task`, so resolved scores can be joined against
+agent-call volume, model, token mix, and total-token usage without re-reading
+raw execution logs.
+Benchmark analysis reports use the same durable-log parser to summarize
+measured agent calls, token totals, slow cases, and missing usage logs before a
+workflow proposal is promoted, so quality gains can be weighed against runtime
+cost at review time. The same benchmark cost summary is exported through
+Prometheus, `osf_benchmark_runs`, the status-level
+`osf_benchmark_cost_status` mart, and `osf_benchmark_cost_outliers` so token
+and call regressions can be monitored outside the lab UI by run, case status,
+and highest-cost case. Prometheus also emits capped heaviest/slowest case
+samples when the analysis report includes them. The lab dashboard shows the
+same outlier cases directly on each run card. Workflow proposal drafts also use
+those measured outliers as evidence for targeted cost/latency optimization work,
+and proposal validation records cost deltas against the source benchmark before
+a workflow patch is marked implemented. Proposal validation reuses the source
+benchmark's case count by default unless a reviewer explicitly narrows
+`maxCases` for a debug run. Proposal validation only marks implementation work
+`validated` after the validation result completes with a passing promotion gate,
+source-sized case coverage, and primary paired holdout evidence. Manual
+lifecycle updates use the same rule. Proposal patches can only be marked
+implemented after validation satisfies that same readiness contract. Prometheus exposes proposal
+validation completed-case counts, coverage ratios, pass state, aggregate blocked
+readiness counts, aggregate and per-proposal blocker counts, and cost deltas so weak or expensive
+validations can be monitored outside the lab UI. The
+DuckDB proposal mart exports the same validation coverage, paired-evidence, pass-state,
+and readiness-blocker fields for local audit queries. The lab proposal card also shows the concrete
+implementation-readiness blockers when validation evidence is not yet enough to
+promote a patch, plus paired and held-out case counts for the primary validation
+baseline. Metrics and DuckDB also expose those recommendation-level paired
+evidence counts for proposal validation audits. `/api/diagnostics` and the lab
+diagnostics card summarize the same workflow-proposal readiness contract,
+including blocked active proposal counts and the latest validation-readiness
+blockers, plus top blocker-count breakdowns, so weak patches are visible before
+anyone promotes them.
+Benchmark proposal API responses also include this shared validation-readiness
+object directly, and the lab UI uses that object for implementation gating
+instead of re-deriving thresholds in the browser.
+The local DuckDB sync also derives `osf_source_bank_domains` from persisted
+source-bank entries so source concentration, final-use count, source-type mix,
+and mean source quality can be audited by domain. Prometheus metrics expose the
+distinct source-domain count and the top source domains by source volume, final
+use, task count, and mean quality score. `/api/diagnostics` and the lab
+dashboard also show a capped top-domain summary for quick source-concentration
+checks. Benchmark analysis also summarizes source-domain concentration,
+dominant-domain cases, missing source dates, and low-quality source usage, and
+exports those source-risk signals through Prometheus, DuckDB, and the lab run
+cards. Promotion review blocks on dominant source-domain cases or low-quality
+final-use sources, so workflow changes are not promoted from brittle source
+evidence. Diagnostics also reuse the benchmark read model to show the latest
+promotion-gate status, current blockers, top blocker-count breakdowns, and
+recent source-risk-blocked runs.
+
+To consolidate those local artifacts into one audit file:
+
+```bash
+bun run forecast:batches -- --batch-id july-smoke
+```
+
+Batch reports can merge local attention and candidate calibration guard review records from
+`data/reports/forecast-attention-reviews.json` or a custom `--reviews-file`.
+Use `bun run forecast:review` to update those local review records.
+To pull open and deferred attention items plus candidate calibration guard
+reviews across generated batch indexes:
+
+```bash
+bun run forecast:attention
+bun run forecast:attention -- --batch-id july-smoke --status open
+```
+
+The attention backlog writes JSON and Markdown to
+`data/reports/forecast-attention-backlog` and reads local `batch-index.json`,
+calibration validation, and calibration default-plan reports. Batch-index and
+backlog Markdown tables include the forecast type beside each attention item so
+mixed forecast batches can be reviewed without opening the raw JSON. The backlog
+summary also breaks open, deferred, reviewed, and severity counts down by
+forecast type and issue kind, including skipped default-plan calibration guard
+rows that explain why a rule was not promoted.
+For a one-screen health summary of the latest indexed batch:
+
+```bash
+bun run forecast:health
+bun run forecast:health -- --batch-id july-smoke
+```
+
+The health report flags missing artifact phases, failed forecast or resolution
+steps, unresolved attention items, open candidate calibration guard reviews, and
+score-regression attention signals. Attention is broken down by kind, severity,
+and forecast type, so mixed binary, numeric, date, thresholded, conditional, and
+categorical batches can be triaged without opening every item. When a generated
+attention backlog is present, health also merges supplemental report-derived
+items for the selected batch, such as calibration validation or default-plan
+skips that are not stored in the batch index, while deduplicating batch-index
+items and candidate guard rules. Health only merges a backlog generated with
+open and deferred statuses and with no conflicting batch filter; incompatible
+filtered backlogs, undated backlogs, or backlogs older than the selected batch
+index or local review file, are reported as health issues instead of silently
+changing the counts.
+Calibration guard
+regressions are called out separately when guarded aggregates are scoring worse
+than unguarded aggregates; baseline-sanity misses remain in the same unresolved
+attention lane as other forecast postmortems. Health reports preserve local
+review notes, reviewer, and review timestamps for attention items and candidate
+guard rules. The latest local health report is also exposed through
+`/api/diagnostics` and Prometheus batch-health series, including attention
+breakdowns by kind, severity, and forecast type, so unresolved attention can be
+monitored without opening the raw JSON artifact. The generic Prometheus
+forecast-attention series also reads compatible generated attention backlog reports, so
+supplemental validation and default-plan rows are counted alongside batch-index
+attention items without double-counting matching item IDs; batch-filtered,
+status-incomplete, undated, or review-stale backlogs are skipped there too.
+`bun run duckdb:sync`
+also exports the latest batch-health summary and issue rows into
+`osf_forecast_batch_health`, `osf_forecast_batch_health_issues`, and
+`osf_forecast_batch_health_attention_items`, with per-item source paths for
+tracing each health attention row back to the originating artifact. The generic
+`osf_forecast_attention_items` mart follows the same compatible-backlog merge
+and preserves each item's source path, so report-derived attention can be queried
+outside the latest health snapshot. The summary row also carries the batch-index
+and attention-backlog artifact paths that produced the health snapshot. Attention
+type, kind, and severity breakdowns are exported in
+`osf_forecast_batch_health_attention_types`,
+`osf_forecast_batch_health_attention_kinds`, and
+`osf_forecast_batch_health_attention_severities`, plus candidate guard review
+rows in `osf_forecast_batch_health_candidate_guards`.
+
+Reviewed candidate calibration guard rules can be promoted through a local
+evidence ladder:
+
+```bash
+bun run forecast:calibration-proposals
+bun run forecast:calibration-validate
+bun run forecast:calibration-validate -- --holdout-performance-report data/reports/forecast-performance/holdout/forecast-performance.json
+bun run forecast:calibration-default-plan
+```
+
+The proposal step only drafts reviewed, ready candidate rules. Validation replays
+the proposal against resolved binary aggregates and requires a held-out replay
+before any row can become a default candidate. The default-plan step still does
+not change runtime behavior; it writes the exact rule candidates, target file,
+manual acceptance criteria, and skipped validation rows with reasons under
+`data/reports/forecast-calibration-guard-default-plan`. Prometheus and DuckDB
+also expose those skipped default-plan rows so rejected or non-holdout
+calibration evidence is auditable without opening the raw report. Default-plan
+artifacts also carry issue rows when the selected validation report is undated or
+older than the latest validation report in the configured directory, and those
+issues are exported to Prometheus and `osf_calibration_guard_default_plan_issues`.
+
+To check the local forecast script contracts:
+
+```bash
+bun run forecast:scripts:check
 ```
 
 ### Host Development

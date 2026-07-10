@@ -73,6 +73,14 @@ export async function POST(request: Request) {
       smithersRunId: launched.runId,
       workflowPath: launched.workflowPath,
       classification: plan.classification,
+      links: {
+        detail: `/api/runs/${record.taskId}`,
+        status: `/api/runs/${record.taskId}/status`,
+        result: `/api/runs/${record.taskId}/result`,
+        reportArtifact: `/api/runs/${record.taskId}/report-artifact`,
+        reportPage: `/runs/${record.taskId}/report`,
+        traceBundle: `/api/runs/${record.taskId}/trace-bundle`,
+      },
     });
   } catch (error) {
     await markTaskFailed(db, {
