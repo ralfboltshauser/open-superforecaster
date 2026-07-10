@@ -4,6 +4,9 @@ export type AggregateStatsSnapshot = {
   componentMinProbability: number | null;
   componentMaxProbability: number | null;
   finalComponentPositionBand: "below_components" | "inside_components" | "above_components" | "missing_components" | "unknown";
+  meanConfidenceDistance: number | null;
+  finalConfidenceShift: number | null;
+  finalConfidenceShiftBand: "dampened_confidence" | "near_panel_confidence" | "more_confident" | "much_more_confident" | "missing_components" | "unknown";
   meanBaseRateProbability: number | null;
   meanInsideViewProbability: number | null;
   insideViewDelta: number | null;
@@ -30,6 +33,9 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
   const componentProbabilities = readComponentProbabilities(aggregateStats);
   const componentMinProbability = readNumber(aggregateStats, "componentMinProbability", "component_min_probability") ?? min(componentProbabilities);
   const componentMaxProbability = readNumber(aggregateStats, "componentMaxProbability", "component_max_probability") ?? max(componentProbabilities);
+  const meanConfidenceDistance = readNumber(aggregateStats, "meanConfidenceDistance", "mean_confidence_distance") ?? confidenceDistance(meanProbability);
+  const finalConfidenceShift = readNumber(aggregateStats, "finalConfidenceShift", "final_confidence_shift") ?? confidenceShift(finalProbability, meanProbability);
+  const explicitFinalConfidenceShiftBand = readFinalConfidenceShiftBand(aggregateStats);
   const componentBaseRates = readComponentNumberArray(aggregateStats, "baseRateProbability", "base_rate_probability");
   const componentInsideViews = readComponentNumberArray(aggregateStats, "insideViewProbability", "inside_view_probability");
   const meanBaseRateProbability = readNumber(aggregateStats, "meanBaseRateProbability", "mean_base_rate_probability") ?? roundProbability(mean(componentBaseRates));
@@ -48,6 +54,8 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
     medianProbability === null &&
     componentMinProbability === null &&
     componentMaxProbability === null &&
+    meanConfidenceDistance === null &&
+    finalConfidenceShift === null &&
     meanBaseRateProbability === null &&
     meanInsideViewProbability === null &&
     insideViewDelta === null &&
@@ -69,6 +77,13 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
       componentMinProbability,
       componentMaxProbability,
     }),
+    meanConfidenceDistance,
+    finalConfidenceShift,
+    finalConfidenceShiftBand: explicitFinalConfidenceShiftBand ?? finalConfidenceShiftBand(
+      finalConfidenceShift,
+      finalProbability === null && finalConfidenceShift === null ? 0 : 1,
+      meanProbability === null && meanConfidenceDistance === null && finalConfidenceShift === null ? 0 : 1,
+    ),
     meanBaseRateProbability,
     meanInsideViewProbability,
     insideViewDelta,
@@ -187,6 +202,29 @@ export function finalComponentPositionBand(input: {
   return "inside_components";
 }
 
+export function finalConfidenceShiftBand(
+  finalConfidenceShift: number | null,
+  finalProbabilityCount: number,
+  meanProbabilityCount: number,
+): AggregateStatsSnapshot["finalConfidenceShiftBand"] {
+  if (finalProbabilityCount === 0 || meanProbabilityCount === 0) {
+    return "missing_components";
+  }
+  if (finalConfidenceShift === null || !Number.isFinite(finalConfidenceShift)) {
+    return "unknown";
+  }
+  if (finalConfidenceShift <= -8) {
+    return "dampened_confidence";
+  }
+  if (finalConfidenceShift >= 20) {
+    return "much_more_confident";
+  }
+  if (finalConfidenceShift >= 8) {
+    return "more_confident";
+  }
+  return "near_panel_confidence";
+}
+
 export function aggregateDisagreementBand(disagreement: number | null): AggregateStatsSnapshot["disagreementBand"] {
   if (disagreement === null || !Number.isFinite(disagreement)) {
     return "unknown";
@@ -223,6 +261,21 @@ function readInsideViewDeltaBand(value: unknown): AggregateStatsSnapshot["inside
     band === "near_base_rate" ||
     band === "moderate_shift" ||
     band === "large_shift" ||
+    band === "missing_components" ||
+    band === "unknown"
+  ) {
+    return band;
+  }
+  return null;
+}
+
+function readFinalConfidenceShiftBand(value: unknown): AggregateStatsSnapshot["finalConfidenceShiftBand"] | null {
+  const band = readString(value, "finalConfidenceShiftBand", "final_confidence_shift_band");
+  if (
+    band === "dampened_confidence" ||
+    band === "near_panel_confidence" ||
+    band === "more_confident" ||
+    band === "much_more_confident" ||
     band === "missing_components" ||
     band === "unknown"
   ) {
@@ -297,6 +350,19 @@ function min(values: number[]) {
 
 function max(values: number[]) {
   return values.length ? Math.max(...values) : null;
+}
+
+function confidenceDistance(probability: number | null) {
+  return probability === null ? null : roundProbability(Math.abs(probability - 50));
+}
+
+function confidenceShift(finalProbability: number | null, meanProbability: number | null) {
+  const finalDistance = confidenceDistance(finalProbability);
+  const meanDistance = confidenceDistance(meanProbability);
+  if (finalDistance === null || meanDistance === null) {
+    return null;
+  }
+  return roundProbability(finalDistance - meanDistance);
 }
 
 function mean(values: number[]) {

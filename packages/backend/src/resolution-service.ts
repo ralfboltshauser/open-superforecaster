@@ -131,6 +131,7 @@ type PerformanceAttentionItem = {
     | "aggregate_quality_miss"
     | "component_disagreement_miss"
     | "component_envelope_miss"
+    | "aggregate_confidence_miss"
     | "inside_view_shift_miss"
     | "aggregate_adjustment_miss"
     | "aggregate_direction_miss"
@@ -407,6 +408,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byAggregateQuality = groupScores(aggregateScores, aggregateQualityGroupKey);
   const byAggregateDisagreement = groupScores(aggregateScores, aggregateDisagreementGroupKey);
   const byAggregateFinalComponentPosition = groupScores(aggregateScores, aggregateFinalComponentPositionGroupKey);
+  const byAggregateFinalConfidenceShift = groupScores(aggregateScores, aggregateFinalConfidenceShiftGroupKey);
   const byAggregateInsideViewShift = groupScores(aggregateScores, aggregateInsideViewShiftGroupKey);
   const byAggregateFinalInsideViewAdjustment = groupScores(aggregateScores, aggregateFinalInsideViewAdjustmentGroupKey);
   const byAggregateFinalAdjustmentDirection = groupScores(aggregateScores, aggregateFinalAdjustmentDirectionGroupKey);
@@ -521,6 +523,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregateFinalComponentPosition,
+      byAggregateFinalConfidenceShift,
       byAggregateInsideViewShift,
       byAggregateFinalInsideViewAdjustment,
       byAggregateFinalAdjustmentDirection,
@@ -625,6 +628,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregateFinalComponentPosition,
+      byAggregateFinalConfidenceShift,
       byAggregateInsideViewShift,
       byAggregateFinalInsideViewAdjustment,
       byAggregateFinalAdjustmentDirection,
@@ -1409,6 +1413,11 @@ function aggregateDisagreementGroupKey(score: typeof forecastScores.$inferSelect
 function aggregateFinalComponentPositionGroupKey(score: typeof forecastScores.$inferSelect) {
   const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
   return `component_envelope:${aggregateStats?.finalComponentPositionBand ?? "unrecorded"}`;
+}
+
+function aggregateFinalConfidenceShiftGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `aggregate_confidence:${aggregateStats?.finalConfidenceShiftBand ?? "unrecorded"}`;
 }
 
 function aggregateInsideViewShiftGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2322,6 +2331,36 @@ function buildNeedsAttentionQueue(
       rank: 72 + index,
     }));
 
+  const aggregateConfidenceCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const signal = aggregateConfidenceMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
+      return [];
+    }
+    return [{ item, signal }];
+  });
+  const aggregateConfidenceItems = aggregateConfidenceCandidates
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `aggregate-confidence:${item.taskId}:${item.primaryMetric}`,
+      kind: "aggregate_confidence_miss" as const,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
+      recommendedActions: recommendAttentionActions({
+        kind: "aggregate_confidence_miss",
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 73 + index,
+    }));
+
   const insideViewShiftCandidates = worstCases.flatMap((item) => {
     const threshold = poorScoreThreshold(item.primaryMetric);
     const signal = insideViewShiftMissSignal(item);
@@ -2506,6 +2545,7 @@ function buildNeedsAttentionQueue(
     ...binaryConfidenceItems,
     ...componentDisagreementItems,
     ...componentEnvelopeItems,
+    ...aggregateConfidenceItems,
     ...insideViewShiftItems,
     ...aggregateAdjustmentItems,
     ...aggregateDirectionItems,
@@ -2764,6 +2804,21 @@ function componentEnvelopeMissSignal(item: PerformanceCase): { reason: string; d
     reason: `final probability was ${stats.finalComponentPositionBand.replace(/_/g, " ")} (${formatNullableMetric(stats.componentMinProbability)}-${formatNullableMetric(stats.componentMaxProbability)} component envelope)`,
     delta: distance,
     severity: distance !== null && distance >= 5 ? "high" : "medium",
+  };
+}
+
+function aggregateConfidenceMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  if (item.forecastType !== "binary" || !stats) {
+    return null;
+  }
+  if (stats.finalConfidenceShiftBand !== "much_more_confident" && stats.finalConfidenceShiftBand !== "more_confident") {
+    return null;
+  }
+  return {
+    reason: `final aggregate became ${stats.finalConfidenceShiftBand.replace(/_/g, " ")} than the mean component probability by ${formatSignedMetric(stats.finalConfidenceShift ?? 0)} points`,
+    delta: stats.finalConfidenceShift,
+    severity: stats.finalConfidenceShiftBand === "much_more_confident" ? "high" : "medium",
   };
 }
 
@@ -3101,6 +3156,9 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "component_envelope_miss") {
     actions.add("Audit why the final probability moved outside every component forecast before changing calibration or role-weight defaults.");
     actions.add("Compare the final rationale, calibration guard, and component probabilities to decide whether the out-of-envelope move was justified.");
+  } else if (input.kind === "aggregate_confidence_miss") {
+    actions.add("Audit why final aggregation became more confident than the mean component forecast.");
+    actions.add("Compare component probabilities, final rationale, and calibration guard before changing aggregation defaults.");
   } else if (input.kind === "inside_view_shift_miss") {
     actions.add("Audit whether the inside-view evidence really justified moving far away from component base rates.");
     actions.add("Compare base-rate, inside-view, and final aggregate probabilities before changing prompts or calibration defaults.");
@@ -3228,6 +3286,7 @@ function renderPerformanceMarkdown(input: {
   byAggregateQuality: PerformanceGroup[];
   byAggregateDisagreement: PerformanceGroup[];
   byAggregateFinalComponentPosition: PerformanceGroup[];
+  byAggregateFinalConfidenceShift: PerformanceGroup[];
   byAggregateInsideViewShift: PerformanceGroup[];
   byAggregateFinalInsideViewAdjustment: PerformanceGroup[];
   byAggregateFinalAdjustmentDirection: PerformanceGroup[];
@@ -3351,6 +3410,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Component envelope groups",
     ...renderGroupTable(input.byAggregateFinalComponentPosition),
+    "",
+    "## Final confidence shift groups",
+    ...renderGroupTable(input.byAggregateFinalConfidenceShift),
     "",
     "## Inside-view shift groups",
     ...renderGroupTable(input.byAggregateInsideViewShift),

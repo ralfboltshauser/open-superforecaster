@@ -755,6 +755,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     const labels = {
       component_disagreement_band: "none",
       final_component_position_band: "unknown",
+      final_confidence_shift_band: "unknown",
       inside_view_delta_band: "unknown",
       final_inside_view_delta_band: "unknown",
       final_adjustment_direction: "unknown",
@@ -780,6 +781,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       score_type: row.scoreType,
       component_disagreement_band: aggregateStats?.disagreementBand ?? "unknown",
       final_component_position_band: aggregateStats?.finalComponentPositionBand ?? "unknown",
+      final_confidence_shift_band: aggregateStats?.finalConfidenceShiftBand ?? "unknown",
       inside_view_delta_band: aggregateStats?.insideViewDeltaBand ?? "unknown",
       final_inside_view_delta_band: aggregateStats?.finalInsideViewDeltaBand ?? "unknown",
       final_adjustment_direction: aggregateStats?.finalAdjustmentDirection ?? "unknown",
