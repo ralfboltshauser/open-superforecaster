@@ -5,9 +5,16 @@ import {
   type CalibrationGuardValidationArtifact,
   type CalibrationGuardValidationRow,
 } from "../packages/backend/src/calibration-guard-validation-artifacts";
+import {
+  calibrationGuardDefaultPlanSkippedReasonForValidation,
+  calibrationGuardDefaultPlanSkippedReasonNotHoldoutReplay,
+  calibrationGuardDefaultPlanSkippedReasonNotPromotedForDefault,
+  isCalibrationGuardDefaultPromotionCandidate,
+  isCalibrationGuardValidationRecommendation,
+  type CalibrationGuardDefaultPlanSkippedReason,
+  type CalibrationGuardValidationRecommendation,
+} from "../packages/backend/src/calibration-guard-validation-policy";
 import { readArgValue, writeJson } from "./lib/forecast-script-utils";
-
-type ValidationRecommendation = "promote_for_holdout" | "promote_for_default" | "needs_more_evidence" | "reject";
 
 type ValidationRow = {
   validationMode: string | null;
@@ -18,7 +25,7 @@ type ValidationRow = {
   matchedRows: number | null;
   brierDelta: number | null;
   calibrationErrorDelta: number | null;
-  recommendation: ValidationRecommendation;
+  recommendation: CalibrationGuardValidationRecommendation;
 };
 
 type DefaultPlanCandidate = {
@@ -53,7 +60,7 @@ type DefaultPlanReport = {
     bucketLabel: string;
     recommendation: string;
     validationMode: string | null;
-    reason: "not_holdout_replay" | "not_promoted_for_default";
+    reason: CalibrationGuardDefaultPlanSkippedReason;
   }[];
   paths: {
     json: string;
@@ -118,16 +125,16 @@ function buildDefaultPlanReport(input: {
   const validationRows = (input.validationReport?.validations ?? []).flatMap(readValidationRow);
   const issues = defaultPlanIssues(input);
   const defaultCandidates = validationRows
-    .filter((row) => row.validationMode === "holdout_replay" && row.recommendation === "promote_for_default")
+    .filter(isCalibrationGuardDefaultPromotionCandidate)
     .map(buildDefaultCandidate);
   const skippedRows = validationRows
-    .filter((row) => row.validationMode !== "holdout_replay" || row.recommendation !== "promote_for_default")
+    .filter((row) => !isCalibrationGuardDefaultPromotionCandidate(row))
     .map((row) => ({
       proposalId: row.proposalId,
       bucketLabel: row.bucketLabel,
       recommendation: row.recommendation,
       validationMode: row.validationMode,
-      reason: row.validationMode !== "holdout_replay" ? "not_holdout_replay" as const : "not_promoted_for_default" as const,
+      reason: calibrationGuardDefaultPlanSkippedReasonForValidation(row),
     }));
   return {
     reportType: "forecast_calibration_guard_default_plan",
@@ -135,8 +142,8 @@ function buildDefaultPlanReport(input: {
     summary: {
       validationRows: validationRows.length,
       defaultCandidates: defaultCandidates.length,
-      skippedNonHoldout: skippedRows.filter((row) => row.reason === "not_holdout_replay").length,
-      skippedNotPromoted: skippedRows.filter((row) => row.reason === "not_promoted_for_default").length,
+      skippedNonHoldout: skippedRows.filter((row) => row.reason === calibrationGuardDefaultPlanSkippedReasonNotHoldoutReplay).length,
+      skippedNotPromoted: skippedRows.filter((row) => row.reason === calibrationGuardDefaultPlanSkippedReasonNotPromotedForDefault).length,
       issues: issues.length,
     },
     issues,
@@ -295,7 +302,7 @@ function readValidationRow(value: CalibrationGuardValidationRow): ValidationRow[
     !sourceCandidateGuardId ||
     !bucketLabel ||
     suggestedAdjustment === null ||
-    !isValidationRecommendation(recommendation)
+    !isCalibrationGuardValidationRecommendation(recommendation)
   ) {
     return [];
   }
@@ -310,10 +317,6 @@ function readValidationRow(value: CalibrationGuardValidationRow): ValidationRow[
     calibrationErrorDelta: value.calibrationErrorDelta,
     recommendation,
   }];
-}
-
-function isValidationRecommendation(value: string | null): value is ValidationRecommendation {
-  return value === "promote_for_holdout" || value === "promote_for_default" || value === "needs_more_evidence" || value === "reject";
 }
 
 function timestampValue(value: string | null) {

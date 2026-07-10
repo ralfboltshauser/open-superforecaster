@@ -22,6 +22,11 @@ import {
   type ForecastAttentionReviewStatus,
 } from "../packages/backend/src/forecast-attention-policy";
 import {
+  calibrationGuardDefaultPlanSkippedReasonNotHoldoutReplay,
+  calibrationGuardRecommendationReject,
+  isCalibrationGuardPromotionRecommendation,
+} from "../packages/backend/src/calibration-guard-validation-policy";
+import {
   readArgValue,
   readArgValues,
   writeJson,
@@ -264,7 +269,7 @@ function readCandidateCalibrationGuardBacklogItem(item: ForecastBatchIndexCandid
 function readCalibrationGuardValidationBacklogItem(item: CalibrationGuardValidationRow, sourcePath: string): BacklogItem | null {
   const proposalId = item.proposalId;
   const recommendation = item.recommendation;
-  if (!proposalId || !recommendation || recommendation === "reject") {
+  if (!proposalId || !recommendation || recommendation === calibrationGuardRecommendationReject) {
     return null;
   }
   const batchId = batchIdFromProposalId(proposalId) ?? "unknown-batch";
@@ -276,7 +281,7 @@ function readCalibrationGuardValidationBacklogItem(item: CalibrationGuardValidat
     batchId,
     id: `calibration-validation:${proposalId}`,
     reviewStatus: "open",
-    severity: recommendation === "promote_for_holdout" || recommendation === "promote_for_default" ? "high" : "medium",
+    severity: isCalibrationGuardPromotionRecommendation(recommendation) ? "high" : "medium",
     kind: calibrationValidationAttentionKind(recommendation),
     reason: `${bucketLabel} calibration guard validation recommendation: ${recommendation}.`,
     recommendedActions: recommendCalibrationValidationActions({ recommendation, bucketLabel }),
@@ -304,7 +309,7 @@ function readCalibrationGuardDefaultPlanSkippedBacklogItem(item: CalibrationDefa
     batchId,
     id: `calibration-default-plan-skipped:${proposalId}`,
     reviewStatus: "open",
-    severity: reason === "not_holdout_replay" ? "low" : "medium",
+    severity: reason === calibrationGuardDefaultPlanSkippedReasonNotHoldoutReplay ? "low" : "medium",
     kind: calibrationDefaultPlanSkippedAttentionKind(reason),
     reason: `${bucketLabel} default-plan row skipped: ${reason} (${validationMode}, ${recommendation}).`,
     recommendedActions: recommendCalibrationDefaultPlanSkippedActions({ reason, bucketLabel }),

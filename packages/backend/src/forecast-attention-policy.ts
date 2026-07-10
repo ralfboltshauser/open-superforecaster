@@ -1,3 +1,9 @@
+import {
+  calibrationGuardDefaultPlanSkippedReasonNotHoldoutReplay,
+  calibrationGuardDefaultPlanSkippedReasonNotPromotedForDefault,
+  calibrationGuardRecommendationPromoteForDefault,
+  calibrationGuardRecommendationPromoteForHoldout,
+} from "./calibration-guard-validation-policy";
 import { isProbabilityScoreMetric } from "./forecast-score-policy";
 
 export type PerformanceAttentionKind =
@@ -71,10 +77,10 @@ export function attentionKindIdPrefix(kind: PerformanceAttentionKind) {
 }
 
 export function calibrationValidationAttentionKind(recommendation: string): SupplementalForecastAttentionKind {
-  if (recommendation === "promote_for_default") {
+  if (recommendation === calibrationGuardRecommendationPromoteForDefault) {
     return "calibration_guard_default_candidate";
   }
-  if (recommendation === "promote_for_holdout") {
+  if (recommendation === calibrationGuardRecommendationPromoteForHoldout) {
     return "calibration_guard_holdout_candidate";
   }
   return "calibration_guard_needs_more_evidence";
@@ -84,10 +90,10 @@ export function recommendCalibrationValidationActions(input: {
   recommendation: string;
   bucketLabel: string;
 }) {
-  if (input.recommendation === "promote_for_default") {
+  if (input.recommendation === calibrationGuardRecommendationPromoteForDefault) {
     return [`Run forecast:calibration-default-plan, then review this held-out ${input.bucketLabel} validation before enabling the calibration guard as a default.`];
   }
-  if (input.recommendation === "promote_for_holdout") {
+  if (input.recommendation === calibrationGuardRecommendationPromoteForHoldout) {
     return [`Run a held-out resolved batch before enabling this ${input.bucketLabel} calibration guard candidate.`];
   }
   return [`Collect more resolved binary forecasts before acting on this ${input.bucketLabel} calibration guard candidate.`];
@@ -101,10 +107,10 @@ export function recommendCalibrationDefaultPlanSkippedActions(input: {
   reason: string;
   bucketLabel: string;
 }) {
-  if (input.reason === "not_holdout_replay") {
+  if (input.reason === calibrationGuardDefaultPlanSkippedReasonNotHoldoutReplay) {
     return [`Run a held-out calibration validation before considering ${input.bucketLabel} as a default calibration guard.`];
   }
-  if (input.reason === "not_promoted_for_default") {
+  if (input.reason === calibrationGuardDefaultPlanSkippedReasonNotPromotedForDefault) {
     return [`Keep ${input.bucketLabel} out of default calibration guards unless held-out validation improves both Brier score and calibration error.`];
   }
   return [`Review why ${input.bucketLabel} was skipped before changing calibration guard defaults.`];

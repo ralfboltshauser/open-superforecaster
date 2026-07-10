@@ -6,6 +6,16 @@ import {
   type CalibrationGuardProposalDraft,
 } from "../packages/backend/src/calibration-guard-proposal-artifacts";
 import {
+  calibrationGuardRecommendationNeedsMoreEvidence,
+  calibrationGuardRecommendationPromoteForDefault,
+  calibrationGuardRecommendationPromoteForHoldout,
+  calibrationGuardRecommendationReject,
+  calibrationGuardValidationModeHoldoutReplay,
+  calibrationGuardValidationModeSourceReplay,
+  type CalibrationGuardValidationMode,
+  type CalibrationGuardValidationRecommendation,
+} from "../packages/backend/src/calibration-guard-validation-policy";
+import {
   readForecastPerformanceArtifacts,
   type ForecastPerformanceArtifact,
   type ForecastPerformanceCalibrationReplayRow,
@@ -34,11 +44,8 @@ type ProposalDraft = {
   };
 };
 
-type ValidationMode = "source_replay" | "holdout_replay";
-type ValidationRecommendation = "promote_for_holdout" | "promote_for_default" | "needs_more_evidence" | "reject";
-
 type ValidationRow = {
-  validationMode: ValidationMode;
+  validationMode: CalibrationGuardValidationMode;
   proposalId: string;
   sourceCandidateGuardId: string;
   bucketLabel: string;
@@ -50,7 +57,7 @@ type ValidationRow = {
   baselineCalibrationError: number | null;
   candidateCalibrationError: number | null;
   calibrationErrorDelta: number | null;
-  recommendation: ValidationRecommendation;
+  recommendation: CalibrationGuardValidationRecommendation;
 };
 
 type ValidationReport = {
@@ -144,8 +151,10 @@ function buildValidationReport(input: {
   const proposals = (input.proposalsArtifact?.proposalDrafts ?? []).flatMap(readProposalDraft);
   const sourceReplayRows = (input.performanceArtifact?.calibrationReplayRows ?? []).flatMap(readReplayRow);
   const holdoutReplayRows = (input.holdoutPerformanceArtifact?.calibrationReplayRows ?? []).flatMap(readReplayRow);
-  const validationMode: ValidationMode = input.holdoutPerformanceArtifact ? "holdout_replay" : "source_replay";
-  const replayRows = validationMode === "holdout_replay" ? holdoutReplayRows : sourceReplayRows;
+  const validationMode: CalibrationGuardValidationMode = input.holdoutPerformanceArtifact
+    ? calibrationGuardValidationModeHoldoutReplay
+    : calibrationGuardValidationModeSourceReplay;
+  const replayRows = validationMode === calibrationGuardValidationModeHoldoutReplay ? holdoutReplayRows : sourceReplayRows;
   const validations = proposals.flatMap((proposal) => validateProposal(proposal, replayRows, validationMode));
   return {
     reportType: "forecast_calibration_guard_validation",
@@ -155,10 +164,10 @@ function buildValidationReport(input: {
       replayRows: replayRows.length,
       holdoutReplayRows: holdoutReplayRows.length,
       validations: validations.length,
-      promoteForHoldout: validations.filter((row) => row.recommendation === "promote_for_holdout").length,
-      promoteForDefault: validations.filter((row) => row.recommendation === "promote_for_default").length,
-      needsMoreEvidence: validations.filter((row) => row.recommendation === "needs_more_evidence").length,
-      rejected: validations.filter((row) => row.recommendation === "reject").length,
+      promoteForHoldout: validations.filter((row) => row.recommendation === calibrationGuardRecommendationPromoteForHoldout).length,
+      promoteForDefault: validations.filter((row) => row.recommendation === calibrationGuardRecommendationPromoteForDefault).length,
+      needsMoreEvidence: validations.filter((row) => row.recommendation === calibrationGuardRecommendationNeedsMoreEvidence).length,
+      rejected: validations.filter((row) => row.recommendation === calibrationGuardRecommendationReject).length,
     },
     validations,
     paths: {
@@ -171,7 +180,7 @@ function buildValidationReport(input: {
   };
 }
 
-function validateProposal(proposal: ProposalDraft, replayRows: ReplayRow[], validationMode: ValidationMode): ValidationRow[] {
+function validateProposal(proposal: ProposalDraft, replayRows: ReplayRow[], validationMode: CalibrationGuardValidationMode): ValidationRow[] {
   const bucket = parseBucketLabel(proposal.calibrationEvidence.bucketLabel);
   const adjustment = proposal.calibrationEvidence.suggestedAdjustment;
   if (!bucket || adjustment === null) {
@@ -207,19 +216,19 @@ function validateProposal(proposal: ProposalDraft, replayRows: ReplayRow[], vali
 }
 
 function recommendationFor(input: {
-  validationMode: ValidationMode;
+  validationMode: CalibrationGuardValidationMode;
   matchedRows: number;
   baselineMeanBrier: number | null;
   candidateMeanBrier: number | null;
   baselineCalibrationError: number | null;
   candidateCalibrationError: number | null;
-}): ValidationRecommendation {
+}): CalibrationGuardValidationRecommendation {
   if (
     input.matchedRows < BINARY_CALIBRATION_POLICY.minimumBucketSampleSize ||
     input.baselineMeanBrier === null ||
     input.candidateMeanBrier === null
   ) {
-    return "needs_more_evidence";
+    return calibrationGuardRecommendationNeedsMoreEvidence;
   }
   if (
     input.candidateMeanBrier < input.baselineMeanBrier &&
@@ -227,9 +236,11 @@ function recommendationFor(input: {
     input.baselineCalibrationError !== null &&
     input.candidateCalibrationError <= input.baselineCalibrationError
   ) {
-    return input.validationMode === "holdout_replay" ? "promote_for_default" : "promote_for_holdout";
+    return input.validationMode === calibrationGuardValidationModeHoldoutReplay
+      ? calibrationGuardRecommendationPromoteForDefault
+      : calibrationGuardRecommendationPromoteForHoldout;
   }
-  return "reject";
+  return calibrationGuardRecommendationReject;
 }
 
 function renderMarkdown(report: ValidationReport) {

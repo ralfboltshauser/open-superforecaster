@@ -4,6 +4,7 @@ export * from "./btf2-importer";
 export * from "./calibration-default-plan-artifacts";
 export * from "./calibration-guard-proposal-artifacts";
 export * from "./calibration-guard-validation-artifacts";
+export * from "./calibration-guard-validation-policy";
 export * from "./calibration-guard-impact";
 export * from "./calibration-guard-metadata";
 export * from "./diagnostics-service";

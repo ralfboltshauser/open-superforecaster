@@ -14,6 +14,13 @@ import {
   minimumPromotionResultCases,
 } from "../packages/backend/src/benchmark-promotion-policy";
 import {
+  calibrationGuardDefaultPlanSkippedReasonNotHoldoutReplay,
+  calibrationGuardRecommendationPromoteForDefault,
+  calibrationGuardRecommendationPromoteForHoldout,
+  calibrationGuardValidationModeHoldoutReplay,
+  calibrationGuardValidationModeSourceReplay,
+} from "../packages/backend/src/calibration-guard-validation-policy";
+import {
   blockerInsufficientPrimaryPairedCases,
   blockerInsufficientPrimaryPairedHoldoutCases,
   blockerInsufficientValidationCaseCoverage,
@@ -380,6 +387,7 @@ await check("forecast calibration guard validation replays proposal impact", asy
   const holdoutPerformanceDir = resolve(fixtureRoot, "performance", "holdout-batch");
   const outputDir = resolve(fixtureRoot, "out");
   const validationSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-validation.ts"), "utf8");
+  const validationPolicySource = await readFile(resolve(root, "packages/backend/src/calibration-guard-validation-policy.ts"), "utf8");
   const proposalReaderSource = await readFile(resolve(root, "packages/backend/src/calibration-guard-proposal-artifacts.ts"), "utf8");
   const performanceReaderSource = await readFile(resolve(root, "packages/backend/src/forecast-performance-artifacts.ts"), "utf8");
   const backendIndexSource = await readFile(resolve(root, "packages/backend/src/index.ts"), "utf8");
@@ -435,8 +443,8 @@ await check("forecast calibration guard validation replays proposal impact", asy
   assert(readNumber(summary, "replayRows") === 3, "replay row count mismatch");
   assert(readNumber(summary, "holdoutReplayRows") === 0, "source replay should not count holdout rows");
   assert(readNumber(summary, "promoteForHoldout") === 1, "validation should promote for holdout");
-  assert(readString(validations[0], "recommendation") === "promote_for_holdout", "wrong validation recommendation");
-  assert(readString(validations[0], "validationMode") === "source_replay", "source validation mode mismatch");
+  assert(readString(validations[0], "recommendation") === calibrationGuardRecommendationPromoteForHoldout, "wrong validation recommendation");
+  assert(readString(validations[0], "validationMode") === calibrationGuardValidationModeSourceReplay, "source validation mode mismatch");
   assert(readNumber(validations[0], "matchedRows") === 3, "matched replay rows mismatch");
   assert((readNumber(validations[0], "brierDelta") ?? 0) < 0, "candidate guard did not improve Brier");
   await runScript("scripts/forecast-calibration-guard-validation.ts", [
@@ -454,10 +462,14 @@ await check("forecast calibration guard validation replays proposal impact", asy
   const holdoutValidations = readArray(holdoutReport, "validations");
   assert(readNumber(holdoutSummary, "holdoutReplayRows") === 3, "holdout replay row count mismatch");
   assert(readNumber(holdoutSummary, "promoteForDefault") === 1, "holdout validation should promote for default");
-  assert(readString(holdoutValidations[0], "validationMode") === "holdout_replay", "holdout validation mode mismatch");
-  assert(readString(holdoutValidations[0], "recommendation") === "promote_for_default", "holdout recommendation mismatch");
+  assert(readString(holdoutValidations[0], "validationMode") === calibrationGuardValidationModeHoldoutReplay, "holdout validation mode mismatch");
+  assert(readString(holdoutValidations[0], "recommendation") === calibrationGuardRecommendationPromoteForDefault, "holdout recommendation mismatch");
   assert(validationSource.includes("readCalibrationGuardProposalArtifacts"), "calibration validation does not use the shared proposal artifact reader");
   assert(validationSource.includes("readForecastPerformanceArtifacts"), "calibration validation does not use the shared performance artifact reader");
+  assert(validationSource.includes("calibrationGuardValidationModeHoldoutReplay"), "calibration validation does not use shared validation mode policy");
+  assert(validationSource.includes("calibrationGuardRecommendationPromoteForDefault"), "calibration validation does not use shared recommendation policy");
+  assert(validationPolicySource.includes("isCalibrationGuardDefaultPromotionCandidate"), "calibration validation policy does not expose the default promotion predicate");
+  assert(validationPolicySource.includes("calibrationGuardDefaultPlanSkippedReasonForValidation"), "calibration validation policy does not expose skipped-row reason mapping");
   assert(validationSource.includes("reportRoot: performanceRoot"), "calibration validation does not pass the configured performance directory to the shared reader");
   assert(!validationSource.includes("listFilesNamed(performanceRoot"), "calibration validation should not keep a local performance artifact scanner");
   assert(!validationSource.includes("readRecordArray(input.proposals"), "calibration validation should not parse proposal drafts from raw JSON");
@@ -465,6 +477,7 @@ await check("forecast calibration guard validation replays proposal impact", asy
   assert(proposalReaderSource.includes("proposalDrafts"), "shared proposal reader does not expose proposal drafts");
   assert(performanceReaderSource.includes("calibrationReplayRows"), "shared performance reader does not expose calibration replay rows");
   assert(backendIndexSource.includes("calibration-guard-proposal-artifacts"), "backend package barrel does not export calibration proposal artifacts");
+  assert(backendIndexSource.includes("calibration-guard-validation-policy"), "backend package barrel does not export calibration validation policy");
   assert(backendIndexSource.includes("forecast-performance-artifacts"), "backend package barrel does not export forecast performance artifacts");
   return "calibration guard proposals are replayed before promotion";
 });
@@ -480,7 +493,7 @@ await check("forecast calibration default plan requires held-out promotion", asy
     generatedAt: "2026-07-09T00:09:00.000Z",
     validations: [
       {
-        validationMode: "holdout_replay",
+        validationMode: calibrationGuardValidationModeHoldoutReplay,
         proposalId: "calibration-guard-proposal:contract-batch:candidate-guard:80-100%",
         sourceCandidateGuardId: "candidate-guard:80-100%",
         bucketLabel: "80-100%",
@@ -488,10 +501,10 @@ await check("forecast calibration default plan requires held-out promotion", asy
         matchedRows: 3,
         brierDelta: -0.12,
         calibrationErrorDelta: -15,
-        recommendation: "promote_for_default",
+        recommendation: calibrationGuardRecommendationPromoteForDefault,
       },
       {
-        validationMode: "source_replay",
+        validationMode: calibrationGuardValidationModeSourceReplay,
         proposalId: "calibration-guard-proposal:contract-batch:candidate-guard:60-80%",
         sourceCandidateGuardId: "candidate-guard:60-80%",
         bucketLabel: "60-80%",
@@ -499,10 +512,10 @@ await check("forecast calibration default plan requires held-out promotion", asy
         matchedRows: 4,
         brierDelta: -0.03,
         calibrationErrorDelta: -5,
-        recommendation: "promote_for_holdout",
+        recommendation: calibrationGuardRecommendationPromoteForHoldout,
       },
       {
-        validationMode: "holdout_replay",
+        validationMode: calibrationGuardValidationModeHoldoutReplay,
         proposalId: "calibration-guard-proposal:contract-batch:candidate-guard:20-40%",
         sourceCandidateGuardId: "candidate-guard:20-40%",
         bucketLabel: "20-40%",
@@ -565,6 +578,8 @@ await check("forecast calibration default plan requires held-out promotion", asy
   assert(staleIssues.some((issue) => readString(issue, "kind") === "validation_report_stale"), "default plan missing stale validation report issue");
   assert(staleMarkdown.includes("validation_report_stale"), "default plan markdown missing stale validation report issue");
   assert(defaultPlanSource.includes("readCalibrationGuardValidationArtifacts"), "default-plan generator does not use the shared calibration validation artifact reader");
+  assert(defaultPlanSource.includes("isCalibrationGuardDefaultPromotionCandidate"), "default-plan generator does not use shared default promotion predicate");
+  assert(defaultPlanSource.includes("calibrationGuardDefaultPlanSkippedReasonForValidation"), "default-plan generator does not use shared skipped-row reason policy");
   assert(defaultPlanSource.includes("reportRoot: validationReportDir"), "default-plan generator does not pass its configured validation directory to the shared reader");
   assert(!defaultPlanSource.includes("listFilesNamed(validationRoot"), "default-plan generator should not keep a local validation artifact scanner");
   assert(!defaultPlanSource.includes("readRecordArray(input.validationPayload"), "default-plan generator should not parse validation rows from raw JSON");
@@ -656,7 +671,7 @@ await check("forecast attention backlog filters batch review status", async () =
         matchedRows: 3,
         brierDelta: -0.12,
         calibrationErrorDelta: -15,
-        recommendation: "promote_for_holdout",
+        recommendation: calibrationGuardRecommendationPromoteForHoldout,
       },
       {
         proposalId: "calibration-guard-proposal:contract-batch:candidate-guard:20-40%",
@@ -676,9 +691,9 @@ await check("forecast attention backlog filters batch review status", async () =
       {
         proposalId: "calibration-guard-proposal:contract-batch:candidate-guard:80-100%",
         bucketLabel: "80-100%",
-        recommendation: "promote_for_holdout",
-        validationMode: "source_replay",
-        reason: "not_holdout_replay",
+        recommendation: calibrationGuardRecommendationPromoteForHoldout,
+        validationMode: calibrationGuardValidationModeSourceReplay,
+        reason: calibrationGuardDefaultPlanSkippedReasonNotHoldoutReplay,
       },
     ],
   });
