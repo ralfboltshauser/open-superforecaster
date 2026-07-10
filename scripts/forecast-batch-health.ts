@@ -21,6 +21,11 @@ type HealthIssue = {
   message: string;
 };
 
+type SelectedAttentionBacklog = {
+  path: string;
+  payload: JsonRecord;
+};
+
 type AttentionKindBreakdown = {
   kind: string;
   items: number;
@@ -189,7 +194,7 @@ async function selectBatchIndex(batchRoot: string, batchId: string | null) {
   return candidates[0] ?? null;
 }
 
-async function selectAttentionBacklog(backlogRoot: string) {
+async function selectAttentionBacklog(backlogRoot: string): Promise<SelectedAttentionBacklog | null> {
   const paths = await listFilesNamed(backlogRoot, "attention-backlog.json");
   const candidates: { path: string; payload: JsonRecord; generatedAt: string | null }[] = [];
   for (const path of paths) {
@@ -223,10 +228,12 @@ function buildHealthReport(
   const counts = readRecord(batchIndex, "counts") ?? {};
   const batchAttentionItems = readRecordArray(batchIndex, "attentionItems").flatMap(readHealthAttentionItem);
   const candidateCalibrationGuardRules = readRecordArray(batchIndex, "candidateCalibrationGuardRules").flatMap(readHealthCandidateCalibrationGuardRule);
+  const attentionBacklogIssues = attentionBacklog ? attentionBacklogCompatibilityIssues(attentionBacklog.payload, batchId) : [];
+  const compatibleAttentionBacklog = attentionBacklog && attentionBacklogIssues.length === 0 ? attentionBacklog : null;
   const attentionItems = mergeSupplementalAttentionItems(
     batchAttentionItems,
     candidateCalibrationGuardRules,
-    readSupplementalAttentionItems(attentionBacklog, batchId),
+    readSupplementalAttentionItems(compatibleAttentionBacklog, batchId),
   );
   const summary = {
     entries: readNumber(counts, "entries") ?? 0,
@@ -257,7 +264,7 @@ function buildHealthReport(
   const attentionByKind = summarizeAttentionByKind(attentionItems);
   const attentionBySeverity = summarizeAttentionBySeverity(attentionItems);
   const attentionByForecastType = summarizeAttentionByForecastType(attentionItems);
-  const issues = buildIssues(summary, missingPhases, attentionByKind);
+  const issues = buildIssues(summary, missingPhases, attentionByKind, attentionBacklogIssues);
   return {
     reportType: "forecast_batch_health",
     generatedAt: new Date().toISOString(),
@@ -343,8 +350,9 @@ function buildIssues(
   summary: HealthReport["summary"],
   missingPhases: BatchPhase[],
   attentionByKind: AttentionKindBreakdown[],
+  attentionBacklogIssues: HealthIssue[] = [],
 ): HealthIssue[] {
-  const issues: HealthIssue[] = [];
+  const issues: HealthIssue[] = [...attentionBacklogIssues];
   for (const phase of missingPhases) {
     issues.push({ severity: "high", kind: "missing_phase", message: `Missing ${phase} artifact in the batch index.` });
   }
@@ -389,6 +397,29 @@ function buildIssues(
   }
   if (summary.performanceReports > 0 && summary.performanceScoreRows === 0) {
     issues.push({ severity: "medium", kind: "empty_performance_report", message: "Performance report has zero score rows." });
+  }
+  return issues;
+}
+
+function attentionBacklogCompatibilityIssues(backlog: JsonRecord, batchId: string | null): HealthIssue[] {
+  const issues: HealthIssue[] = [];
+  const filters = readRecord(backlog, "filters");
+  const statuses = readStringArray(filters, "statuses");
+  const batchIds = readStringArray(filters, "batchIds");
+  const missingStatuses = ["open", "deferred"].filter((status) => !statuses.includes(status));
+  if (statuses.length > 0 && missingStatuses.length > 0) {
+    issues.push({
+      severity: "medium",
+      kind: "attention_backlog_status_filter",
+      message: `Attention backlog was generated without ${missingStatuses.join(" and ")} item(s), so supplemental unresolved attention was not merged.`,
+    });
+  }
+  if (batchId && batchIds.length > 0 && !batchIds.includes(batchId)) {
+    issues.push({
+      severity: "medium",
+      kind: "attention_backlog_batch_filter",
+      message: `Attention backlog was generated for ${batchIds.join(", ")} and does not cover selected batch ${batchId}.`,
+    });
   }
   return issues;
 }

@@ -1013,6 +1013,97 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   return "batch health summarizes latest indexed batch issues";
 });
 
+await check("forecast batch health rejects incompatible attention backlog filters", async () => {
+  const batchIndexRoot = resolve(tempRoot, "batch-health-filtered-backlog", "batches");
+  const attentionBacklogRoot = resolve(tempRoot, "batch-health-filtered-backlog", "attention-backlog");
+  const outputDir = resolve(tempRoot, "batch-health-filtered-backlog", "out");
+  await mkdir(resolve(batchIndexRoot, "filtered-batch"), { recursive: true });
+  await mkdir(attentionBacklogRoot, { recursive: true });
+  await writeJson(resolve(batchIndexRoot, "filtered-batch", "batch-index.json"), {
+    reportType: "forecast_batch_index",
+    batchId: "filtered-batch",
+    generatedAt: "2026-07-09T00:00:00.000Z",
+    counts: {
+      entries: 3,
+      forecastOps: 1,
+      resolutions: 1,
+      performanceReports: 1,
+      completedForecasts: 1,
+      failedForecasts: 0,
+      resolvedCases: 1,
+      failedResolutions: 0,
+      performanceScoreRows: 1,
+      attentionItems: 0,
+      openAttentionItems: 0,
+      reviewedAttentionItems: 0,
+      deferredAttentionItems: 0,
+      candidateCalibrationGuardRules: 0,
+      openCandidateCalibrationGuardRules: 0,
+      reviewedCandidateCalibrationGuardRules: 0,
+      deferredCandidateCalibrationGuardRules: 0,
+    },
+    attentionItems: [],
+    candidateCalibrationGuardRules: [],
+  });
+  await writeJson(resolve(attentionBacklogRoot, "attention-backlog.json"), {
+    reportType: "forecast_attention_backlog",
+    generatedAt: "2026-07-09T00:05:00.000Z",
+    filters: {
+      statuses: ["reviewed"],
+      batchIds: ["other-batch"],
+    },
+    counts: {
+      items: 1,
+      open: 0,
+      deferred: 0,
+      reviewed: 1,
+      high: 0,
+      medium: 1,
+      low: 0,
+    },
+    byForecastType: [],
+    byKind: [],
+    items: [
+      {
+        batchId: "filtered-batch",
+        id: "calibration-default-plan-skipped:filtered-batch:80-100%",
+        reviewStatus: "open",
+        severity: "medium",
+        kind: "calibration_guard_default_plan_not_promoted_for_default",
+        reason: "Filtered backlog item should not be merged.",
+        recommendedActions: ["Review compatible backlog generation."],
+        metric: "default_plan_skip",
+        score: null,
+        delta: null,
+        taskId: null,
+        taskLabel: "80-100% default-plan skip",
+        forecastType: "binary",
+        sourcePath: "calibration-guard-default-plan.json",
+      },
+    ],
+  });
+  await runScript("scripts/forecast-batch-health.ts", [
+    "--batch-index-dir",
+    batchIndexRoot,
+    "--attention-backlog-dir",
+    attentionBacklogRoot,
+    "--out-dir",
+    outputDir,
+  ]);
+  const report = readRecord(await readJson(resolve(outputDir, "batch-health.json")));
+  const summary = readRecord(report, "summary");
+  const issues = readArray(report, "issues");
+  const attentionItems = readArray(report, "attentionItems");
+  const markdown = await readFile(resolve(outputDir, "batch-health.md"), "utf8");
+  assert(readNumber(summary, "unresolvedAttentionItems") === 0, "filtered attention backlog should not inflate unresolved health count");
+  assert(!attentionItems.some((item) => readString(item, "id") === "calibration-default-plan-skipped:filtered-batch:80-100%"), "filtered attention backlog item was merged into health");
+  assert(issues.some((issue) => readString(issue, "kind") === "attention_backlog_status_filter"), "health report missing attention backlog status-filter issue");
+  assert(issues.some((issue) => readString(issue, "kind") === "attention_backlog_batch_filter"), "health report missing attention backlog batch-filter issue");
+  assert(markdown.includes("attention_backlog_status_filter"), "health markdown missing attention backlog status-filter issue");
+  assert(markdown.includes("attention_backlog_batch_filter"), "health markdown missing attention backlog batch-filter issue");
+  return "batch health ignores filtered supplemental attention backlog reports";
+});
+
 await check("diagnostics surface latest forecast batch health", async () => {
   const fixtureRoot = resolve(tempRoot, "diagnostics-batch-health");
   await mkdir(resolve(fixtureRoot, "data/reports/forecast-batch-health"), { recursive: true });
