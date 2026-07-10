@@ -1,8 +1,9 @@
 import { mkdir } from "node:fs/promises";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { DuckDBInstance, type DuckDBAppender, type DuckDBConnection } from "@duckdb/node-api";
 import postgres from "postgres";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
+import { isExportCompatibleAttentionBacklog } from "../packages/backend/src/forecast-attention-backlog";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "../packages/backend/src/forecast-batch-health";
 import { buildBinaryCalibrationReport, type BinaryCalibrationInput } from "../packages/backend/src/performance-calibration";
@@ -2163,7 +2164,7 @@ async function readForecastAttentionItemRows(root: string): Promise<ForecastAtte
     if (!payload) {
       continue;
     }
-    if (!(await isExportCompatibleAttentionBacklog(payload))) {
+    if (!(await isExportCompatibleAttentionBacklog(root, payload))) {
       continue;
     }
     const generatedAt = readString(payload, "generatedAt");
@@ -2203,48 +2204,6 @@ async function readForecastAttentionItemRows(root: string): Promise<ForecastAtte
     || String(left.attention_item_id ?? "").localeCompare(String(right.attention_item_id ?? ""))
     || String(left.report_path ?? "").localeCompare(String(right.report_path ?? ""))
   );
-}
-
-async function isExportCompatibleAttentionBacklog(payload: JsonRecord) {
-  const generatedAt = readString(payload, "generatedAt");
-  if (!generatedAt) {
-    return false;
-  }
-  const filters = readRecord(payload.filters);
-  const statuses = readStringArray(filters, "statuses");
-  const batchIds = readStringArray(filters, "batchIds");
-  if (batchIds.length > 0) {
-    return false;
-  }
-  const missingStatuses = ["open", "deferred"].filter((status) => !statuses.includes(status));
-  if (statuses.length > 0 && missingStatuses.length > 0) {
-    return false;
-  }
-  const reviewsUpdatedAt = await readAttentionBacklogReviewsUpdatedAt(payload);
-  return !reviewsUpdatedAt || timestampValue(generatedAt) >= timestampValue(reviewsUpdatedAt);
-}
-
-async function readAttentionBacklogReviewsUpdatedAt(payload: JsonRecord) {
-  const paths = readRecord(payload.paths);
-  const reviewsPath = readString(paths, "reviews");
-  if (!reviewsPath) {
-    return null;
-  }
-  try {
-    const resolvedPath = isAbsolute(reviewsPath) ? reviewsPath : resolve(root, reviewsPath);
-    const reviews = readRecord(await readJson(resolvedPath));
-    return readString(reviews, "updatedAt");
-  } catch {
-    return null;
-  }
-}
-
-function timestampValue(value: string | null) {
-  if (!value) {
-    return 0;
-  }
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function buildForecastBatchHealthMartRows(health: ForecastBatchHealthSnapshot): ForecastBatchHealthMartRow[] {

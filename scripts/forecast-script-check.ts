@@ -1929,6 +1929,7 @@ await check("binary confidence metadata reaches resolved score analytics", async
 
 await check("forecast calibration health is exported as metrics", async () => {
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const attentionBacklogSource = await readFile(resolve(root, "packages/backend/src/forecast-attention-backlog.ts"), "utf8");
   const smokeSource = await readFile(resolve(root, "scripts/smoke-check.ts"), "utf8");
   const metricsRouteSource = await readFile(resolve(root, "apps/web/src/app/metrics/route.ts"), "utf8");
   assert(metricsSource.includes("buildBinaryCalibrationReport"), "metrics exporter does not use shared calibration report builder");
@@ -1971,7 +1972,10 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("readForecastAttentionMetricRows"), "metrics exporter does not read forecast attention items");
   assert(metricsSource.includes("data/reports/forecast-attention-backlog"), "metrics exporter does not read generated forecast attention backlog items");
   assert(metricsSource.includes("isExportCompatibleAttentionBacklog"), "metrics exporter does not guard generated forecast attention backlog compatibility");
-  assert(metricsSource.includes("readAttentionBacklogReviewsUpdatedAt"), "metrics exporter does not reject review-stale generated attention backlog items");
+  assert(metricsSource.includes("./forecast-attention-backlog"), "metrics exporter does not use the shared attention backlog compatibility helper");
+  assert(attentionBacklogSource.includes("readAttentionBacklogReviewsUpdatedAt"), "shared attention backlog helper does not reject review-stale generated attention backlog items");
+  assert(attentionBacklogSource.includes("batchIds.length > 0"), "shared attention backlog helper does not reject batch-filtered exports");
+  assert(!metricsSource.includes("function readAttentionBacklogReviewsUpdatedAt"), "metrics exporter should not keep a local attention backlog freshness reader");
   assert(metricsSource.includes("emitForecastBatchHealthAttentionBreakdownMetrics"), "metrics exporter does not emit batch-health attention breakdowns from the shared health snapshot");
   assert(metricsSource.includes("open_superforecaster_forecast_batch_health_attention_breakdown_items"), "forecast batch health attention breakdown metric missing");
   assert(metricsSource.includes("open_superforecaster_forecast_attention_reports_total"), "forecast attention report metric missing");
@@ -2019,6 +2023,7 @@ await check("forecast calibration health is exported as metrics", async () => {
 
 await check("forecast calibration health is exported to DuckDB", async () => {
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
+  const attentionBacklogSource = await readFile(resolve(root, "packages/backend/src/forecast-attention-backlog.ts"), "utf8");
   const validationSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-validation.ts"), "utf8");
   assert(syncSource.includes("osf_forecast_scores"), "DuckDB sync missing forecast score mart");
   assert(syncSource.includes("osf_binary_calibration_buckets"), "DuckDB sync missing binary calibration bucket mart");
@@ -2030,7 +2035,9 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("osf_forecast_attention_items"), "DuckDB sync missing forecast attention item mart");
   assert(syncSource.includes("data/reports/forecast-attention-backlog"), "DuckDB sync does not merge generated forecast attention backlog items");
   assert(syncSource.includes("isExportCompatibleAttentionBacklog"), "DuckDB sync does not guard generated forecast attention backlog compatibility");
-  assert(syncSource.includes("readAttentionBacklogReviewsUpdatedAt"), "DuckDB sync does not reject review-stale generated attention backlog items");
+  assert(syncSource.includes("../packages/backend/src/forecast-attention-backlog"), "DuckDB sync does not use the shared attention backlog compatibility helper");
+  assert(attentionBacklogSource.includes("readAttentionBacklogReviewsUpdatedAt"), "shared attention backlog helper does not reject review-stale generated attention backlog items");
+  assert(!syncSource.includes("function readAttentionBacklogReviewsUpdatedAt"), "DuckDB sync should not keep a local attention backlog freshness reader");
   assert(syncSource.includes("osf_source_bank_domains"), "DuckDB sync missing source-bank domain mart");
   assert(syncSource.includes("osf_smithers_token_usage"), "DuckDB sync missing detailed token-usage mart");
   assert(syncSource.includes("osf_smithers_token_usage_by_task"), "DuckDB sync missing task token-usage summary mart");

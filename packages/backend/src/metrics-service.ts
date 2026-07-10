@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
+import { resolve } from "node:path";
 import { desc, eq, inArray } from "drizzle-orm";
 import {
   artifactRows,
@@ -30,6 +30,7 @@ import { readComponentWeightingSnapshot } from "./component-weighting-metadata";
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
+import { isExportCompatibleAttentionBacklog } from "./forecast-attention-backlog";
 import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "./forecast-batch-health";
 import { readForecastInputContextSnapshot } from "./forecast-input-context-metadata";
 import { readForecastRunSnapshot } from "./forecast-run-metadata";
@@ -2358,53 +2359,6 @@ async function readForecastAttentionMetricRows(root: string): Promise<ForecastAt
     || String(left.attentionItemId ?? "").localeCompare(String(right.attentionItemId ?? ""))
     || left.reportPath.localeCompare(right.reportPath)
   );
-}
-
-async function isExportCompatibleAttentionBacklog(root: string, payload: Record<string, unknown>) {
-  const generatedAt = readString(payload, "generatedAt");
-  if (!generatedAt) {
-    return false;
-  }
-  const filters = readRecord(payload, "filters");
-  const statuses = readStringArray(filters, "statuses");
-  const batchIds = readStringArray(filters, "batchIds");
-  if (batchIds.length > 0) {
-    return false;
-  }
-  const missingStatuses = ["open", "deferred"].filter((status) => !statuses.includes(status));
-  if (statuses.length > 0 && missingStatuses.length > 0) {
-    return false;
-  }
-  const reviewsUpdatedAt = await readAttentionBacklogReviewsUpdatedAt(root, payload);
-  return !reviewsUpdatedAt || timestampValue(generatedAt) >= timestampValue(reviewsUpdatedAt);
-}
-
-async function readAttentionBacklogReviewsUpdatedAt(root: string, payload: Record<string, unknown>) {
-  const paths = readRecord(payload, "paths");
-  const reviewsPath = readString(paths, "reviews");
-  if (!reviewsPath) {
-    return null;
-  }
-  try {
-    const resolvedPath = isAbsolute(reviewsPath) ? reviewsPath : resolve(root, reviewsPath);
-    const reviews = asRecord(JSON.parse(await readFile(resolvedPath, "utf8")));
-    return readString(reviews, "updatedAt");
-  } catch {
-    return null;
-  }
-}
-
-function readStringArray(value: Record<string, unknown> | null | undefined, key: string) {
-  const raw = value?.[key];
-  return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string") : [];
-}
-
-function timestampValue(value: string | null) {
-  if (!value) {
-    return 0;
-  }
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 async function listFilesNamed(path: string, name: string): Promise<string[]> {
