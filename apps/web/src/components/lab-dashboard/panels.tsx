@@ -626,6 +626,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byAggregateQuality = readArray(groups, "byAggregateQuality").filter(isRecord)
   const byAggregateDisagreement = readArray(groups, "byAggregateDisagreement").filter(isRecord)
   const byAggregateFinalComponentPosition = readArray(groups, "byAggregateFinalComponentPosition").filter(isRecord)
+  const byAggregateMeanConfidenceDistance = readArray(groups, "byAggregateMeanConfidenceDistance").filter(isRecord)
   const byAggregateFinalConfidenceShift = readArray(groups, "byAggregateFinalConfidenceShift").filter(isRecord)
   const byAggregateMedianAdjustment = readArray(groups, "byAggregateMedianAdjustment").filter(isRecord)
   const byAggregateInsideViewShift = readArray(groups, "byAggregateInsideViewShift").filter(isRecord)
@@ -752,6 +753,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byAggregateQuality.length ? <PerformanceAggregateQualityGroupList groups={byAggregateQuality} /> : null}
         {byAggregateDisagreement.length ? <PerformanceComponentDisagreementGroupList groups={byAggregateDisagreement} /> : null}
         {byAggregateFinalComponentPosition.length ? <PerformancePlanShapeGroupList groups={byAggregateFinalComponentPosition} title="Component envelope outcomes" skipKey="component_envelope:unrecorded" fallback="component envelope" /> : null}
+        {byAggregateMeanConfidenceDistance.length ? <PerformancePlanShapeGroupList groups={byAggregateMeanConfidenceDistance} title="Aggregate panel-confidence outcomes" skipKey="aggregate_panel_confidence:unrecorded" fallback="panel confidence" /> : null}
         {byAggregateFinalConfidenceShift.length ? <PerformancePlanShapeGroupList groups={byAggregateFinalConfidenceShift} title="Final confidence shift outcomes" skipKey="aggregate_confidence:unrecorded" fallback="confidence shift" /> : null}
         {byAggregateMedianAdjustment.length ? <PerformancePlanShapeGroupList groups={byAggregateMedianAdjustment} title="Median adjustment outcomes" skipKey="median_adjustment:unrecorded" fallback="median adjustment" /> : null}
         {byAggregateInsideViewShift.length ? <PerformancePlanShapeGroupList groups={byAggregateInsideViewShift} title="Inside-view shift outcomes" skipKey="inside_view_shift:unrecorded" fallback="inside-view shift" /> : null}

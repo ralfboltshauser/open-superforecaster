@@ -319,6 +319,28 @@ try {
       nullif(fs.score_config #>> '{aggregateStats,componentMaxProbability}', '')::double precision as aggregate_component_max_probability,
       fs.score_config #>> '{aggregateStats,finalComponentPositionBand}' as aggregate_final_component_position_band,
       nullif(fs.score_config #>> '{aggregateStats,meanConfidenceDistance}', '')::double precision as aggregate_mean_confidence_distance,
+      coalesce(
+        fs.score_config #>> '{aggregateStats,meanConfidenceDistanceBand}',
+        case
+          when coalesce(
+            nullif(fs.score_config #>> '{aggregateStats,meanConfidenceDistance}', '')::double precision,
+            abs(nullif(fs.score_config #>> '{aggregateStats,meanProbability}', '')::double precision - 50)
+          ) >= 40 then 'extreme'
+          when coalesce(
+            nullif(fs.score_config #>> '{aggregateStats,meanConfidenceDistance}', '')::double precision,
+            abs(nullif(fs.score_config #>> '{aggregateStats,meanProbability}', '')::double precision - 50)
+          ) >= 25 then 'very_likely'
+          when coalesce(
+            nullif(fs.score_config #>> '{aggregateStats,meanConfidenceDistance}', '')::double precision,
+            abs(nullif(fs.score_config #>> '{aggregateStats,meanProbability}', '')::double precision - 50)
+          ) >= 10 then 'likely'
+          when coalesce(
+            nullif(fs.score_config #>> '{aggregateStats,meanConfidenceDistance}', '')::double precision,
+            abs(nullif(fs.score_config #>> '{aggregateStats,meanProbability}', '')::double precision - 50)
+          ) >= 0 then 'near_even'
+          else 'unknown'
+        end
+      ) as aggregate_mean_confidence_distance_band,
       nullif(fs.score_config #>> '{aggregateStats,finalConfidenceShift}', '')::double precision as aggregate_final_confidence_shift,
       fs.score_config #>> '{aggregateStats,finalConfidenceShiftBand}' as aggregate_final_confidence_shift_band,
       nullif(fs.score_config #>> '{aggregateStats,meanBaseRateProbability}', '')::double precision as aggregate_mean_base_rate_probability,
@@ -839,6 +861,7 @@ const forecastScoreColumns = [
   { name: "aggregate_component_max_probability", type: "DOUBLE" },
   { name: "aggregate_final_component_position_band", type: "VARCHAR" },
   { name: "aggregate_mean_confidence_distance", type: "DOUBLE" },
+  { name: "aggregate_mean_confidence_distance_band", type: "VARCHAR" },
   { name: "aggregate_final_confidence_shift", type: "DOUBLE" },
   { name: "aggregate_final_confidence_shift_band", type: "VARCHAR" },
   { name: "aggregate_mean_base_rate_probability", type: "DOUBLE" },

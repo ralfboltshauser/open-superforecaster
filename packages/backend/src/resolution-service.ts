@@ -131,6 +131,7 @@ type PerformanceAttentionItem = {
     | "aggregate_quality_miss"
     | "component_disagreement_miss"
     | "component_envelope_miss"
+    | "aggregate_panel_confidence_miss"
     | "aggregate_confidence_miss"
     | "median_adjustment_miss"
     | "inside_view_shift_miss"
@@ -410,6 +411,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byAggregateQuality = groupScores(aggregateScores, aggregateQualityGroupKey);
   const byAggregateDisagreement = groupScores(aggregateScores, aggregateDisagreementGroupKey);
   const byAggregateFinalComponentPosition = groupScores(aggregateScores, aggregateFinalComponentPositionGroupKey);
+  const byAggregateMeanConfidenceDistance = groupScores(aggregateScores, aggregateMeanConfidenceDistanceGroupKey);
   const byAggregateFinalConfidenceShift = groupScores(aggregateScores, aggregateFinalConfidenceShiftGroupKey);
   const byAggregateMedianAdjustment = groupScores(aggregateScores, aggregateMedianAdjustmentGroupKey);
   const byAggregateInsideViewShift = groupScores(aggregateScores, aggregateInsideViewShiftGroupKey);
@@ -527,6 +529,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregateFinalComponentPosition,
+      byAggregateMeanConfidenceDistance,
       byAggregateFinalConfidenceShift,
       byAggregateMedianAdjustment,
       byAggregateInsideViewShift,
@@ -634,6 +637,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregateFinalComponentPosition,
+      byAggregateMeanConfidenceDistance,
       byAggregateFinalConfidenceShift,
       byAggregateMedianAdjustment,
       byAggregateInsideViewShift,
@@ -1421,6 +1425,11 @@ function aggregateDisagreementGroupKey(score: typeof forecastScores.$inferSelect
 function aggregateFinalComponentPositionGroupKey(score: typeof forecastScores.$inferSelect) {
   const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
   return `component_envelope:${aggregateStats?.finalComponentPositionBand ?? "unrecorded"}`;
+}
+
+function aggregateMeanConfidenceDistanceGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `aggregate_panel_confidence:${aggregateStats?.meanConfidenceDistanceBand ?? "unrecorded"}`;
 }
 
 function aggregateFinalConfidenceShiftGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2349,6 +2358,14 @@ function buildNeedsAttentionQueue(
       rank: 72 + index,
     }));
 
+  const aggregatePanelConfidenceItems = buildMetadataAttentionItems({
+    worstCases,
+    idPrefix: "aggregate-panel-confidence",
+    kind: "aggregate_panel_confidence_miss",
+    rankStart: 73,
+    signal: aggregatePanelConfidenceMissSignal,
+  });
+
   const aggregateConfidenceCandidates = worstCases.flatMap((item) => {
     const threshold = poorScoreThreshold(item.primaryMetric);
     const signal = aggregateConfidenceMissSignal(item);
@@ -2623,6 +2640,7 @@ function buildNeedsAttentionQueue(
     ...binaryConfidenceItems,
     ...componentDisagreementItems,
     ...componentEnvelopeItems,
+    ...aggregatePanelConfidenceItems,
     ...aggregateConfidenceItems,
     ...medianAdjustmentItems,
     ...insideViewShiftItems,
@@ -2884,6 +2902,21 @@ function componentEnvelopeMissSignal(item: PerformanceCase): { reason: string; d
     reason: `final probability was ${stats.finalComponentPositionBand.replace(/_/g, " ")} (${formatNullableMetric(stats.componentMinProbability)}-${formatNullableMetric(stats.componentMaxProbability)} component envelope)`,
     delta: distance,
     severity: distance !== null && distance >= 5 ? "high" : "medium",
+  };
+}
+
+function aggregatePanelConfidenceMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  if (item.forecastType !== "binary" || !stats) {
+    return null;
+  }
+  if (stats.meanConfidenceDistanceBand !== "extreme" && stats.meanConfidenceDistanceBand !== "very_likely") {
+    return null;
+  }
+  return {
+    reason: `mean component probability was ${stats.meanConfidenceDistanceBand.replace(/_/g, " ")} at ${formatNullableMetric(stats.meanProbability)}% (${formatNullableMetric(stats.meanConfidenceDistance)} points from 50%)`,
+    delta: stats.meanConfidenceDistance,
+    severity: stats.meanConfidenceDistanceBand === "extreme" ? "high" : "medium",
   };
 }
 
@@ -3260,6 +3293,9 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "component_envelope_miss") {
     actions.add("Audit why the final probability moved outside every component forecast before changing calibration or role-weight defaults.");
     actions.add("Compare the final rationale, calibration guard, and component probabilities to decide whether the out-of-envelope move was justified.");
+  } else if (input.kind === "aggregate_panel_confidence_miss") {
+    actions.add("Audit whether the component panel was collectively too far from 50% for the available evidence.");
+    actions.add("Compare component probabilities, base rates, and cited uncertainty before changing confidence defaults.");
   } else if (input.kind === "aggregate_confidence_miss") {
     actions.add("Audit why final aggregation became more confident than the mean component forecast.");
     actions.add("Compare component probabilities, final rationale, and calibration guard before changing aggregation defaults.");
@@ -3396,6 +3432,7 @@ function renderPerformanceMarkdown(input: {
   byAggregateQuality: PerformanceGroup[];
   byAggregateDisagreement: PerformanceGroup[];
   byAggregateFinalComponentPosition: PerformanceGroup[];
+  byAggregateMeanConfidenceDistance: PerformanceGroup[];
   byAggregateFinalConfidenceShift: PerformanceGroup[];
   byAggregateMedianAdjustment: PerformanceGroup[];
   byAggregateInsideViewShift: PerformanceGroup[];
@@ -3522,6 +3559,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Component envelope groups",
     ...renderGroupTable(input.byAggregateFinalComponentPosition),
+    "",
+    "## Aggregate panel-confidence groups",
+    ...renderGroupTable(input.byAggregateMeanConfidenceDistance),
     "",
     "## Final confidence shift groups",
     ...renderGroupTable(input.byAggregateFinalConfidenceShift),
