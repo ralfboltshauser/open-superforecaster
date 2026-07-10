@@ -6,6 +6,7 @@ export * from "./calibration-guard-validation-artifacts";
 export * from "./calibration-guard-impact";
 export * from "./calibration-guard-metadata";
 export * from "./diagnostics-service";
+export * from "./forecast-attention-policy";
 export * from "./forecast-attention-backlog";
 export * from "./forecast-attention-backlog-artifacts";
 export * from "./forecast-batch-index-artifacts";
