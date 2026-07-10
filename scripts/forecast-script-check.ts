@@ -3157,6 +3157,8 @@ await check("benchmark comparison selects primary baseline by evidence", async (
   assert(backendSource.includes("promotionStateRank"), "primary-baseline selector does not use promotion state as a tie-breaker");
   assert(backendSource.includes("baselineBenchmarkRunId.localeCompare"), "primary-baseline selector does not have a deterministic final tie-breaker");
   assert(backendSource.includes("primaryBaselineBenchmarkRunId"), "comparison recommendation does not report the primary baseline");
+  assert(backendSource.includes("primaryBaselinePairedCaseCount"), "comparison recommendation does not report primary paired case count");
+  assert(backendSource.includes("primaryBaselinePairedHoldoutCaseCount"), "comparison recommendation does not report primary paired holdout count");
   assert(dashboardSource.includes("primaryBaselineBenchmarkRunId"), "lab dashboard does not surface primary baseline selection");
   return "comparison recommendation uses the strongest paired baseline evidence";
 });
@@ -3321,6 +3323,8 @@ await check("workflow change proposals are visible in the lab dashboard", async 
   assert(dashboardSource.includes("validationComparisonReport"), "lab dashboard proposal section missing validation comparison report");
   assert(dashboardSource.includes("validationRecommendationStatus"), "lab dashboard proposal section missing validation recommendation status");
   assert(dashboardSource.includes("validationPairedMeanBrierDelta"), "lab dashboard proposal section missing validation paired Brier delta");
+  assert(dashboardSource.includes("validationPrimaryPairedCaseCount"), "lab dashboard proposal section missing validation paired case count");
+  assert(dashboardSource.includes("validationPrimaryPairedHoldoutCaseCount"), "lab dashboard proposal section missing validation paired holdout count");
   assert(dashboardSource.includes("validationGateStatus"), "lab dashboard proposal section missing validation gate status");
   assert(dashboardSource.includes("validationGateBlockers"), "lab dashboard proposal section missing validation gate blockers");
   assert(dashboardSource.includes("canMarkImplemented"), "lab dashboard does not gate implemented action on validation result");

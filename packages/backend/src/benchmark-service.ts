@@ -1790,6 +1790,8 @@ function comparisonRecommendation(input: {
       status: "needs_more_cases",
       summary: `Only ${primaryComparison.pairedCaseCount} paired case(s) are available against the primary baseline. Use this as debugging evidence, not a promotion gate.`,
       primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
+      primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
+      primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
     };
   }
   if (primaryComparison.pairedHoldoutCaseCount < minimumPromotionHoldoutCases) {
@@ -1797,6 +1799,8 @@ function comparisonRecommendation(input: {
       status: "needs_holdout_evidence",
       summary: `Only ${primaryComparison.pairedHoldoutCaseCount} paired held-out case(s) are available against the primary baseline. Run paired holdout cases before promotion review.`,
       primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
+      primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
+      primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
     };
   }
   const brierInterval = primaryComparison.pairedUncertainty.brierDelta;
@@ -1810,6 +1814,8 @@ function comparisonRecommendation(input: {
       status: "candidate_better",
       summary: `Candidate improved paired mean Brier by ${Math.abs(primaryComparison.pairedMeanBrierDelta).toFixed(4)} against the primary baseline and the 95% bootstrap interval stays below zero. Check trace/source regressions before promotion.`,
       primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
+      primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
+      primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
     };
   }
   if (
@@ -1822,12 +1828,16 @@ function comparisonRecommendation(input: {
       status: "candidate_worse",
       summary: `Candidate worsened paired mean Brier by ${primaryComparison.pairedMeanBrierDelta.toFixed(4)} against the primary baseline and the 95% bootstrap interval stays above zero. Reject or revise the workflow.`,
       primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
+      primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
+      primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
     };
   }
   return {
     status: "indistinguishable",
     summary: "Candidate and primary baseline are too close or the bootstrap interval crosses zero. Add cases or inspect secondary trace/cost metrics.",
     primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
+    primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
+    primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
   };
 }
 

@@ -613,6 +613,10 @@ function WorkflowProposalSummary({
   const validationRecommendationStatus = typeof validationRecommendation?.status === "string" ? validationRecommendation.status : null
   const validationPrimaryBaselineId =
     typeof validationRecommendation?.primaryBaselineBenchmarkRunId === "string" ? validationRecommendation.primaryBaselineBenchmarkRunId : null
+  const validationPrimaryPairedCaseCount =
+    typeof validationRecommendation?.primaryBaselinePairedCaseCount === "number" ? validationRecommendation.primaryBaselinePairedCaseCount : null
+  const validationPrimaryPairedHoldoutCaseCount =
+    typeof validationRecommendation?.primaryBaselinePairedHoldoutCaseCount === "number" ? validationRecommendation.primaryBaselinePairedHoldoutCaseCount : null
   const validationBaselines = readArray(validationComparisonReport, "baselines").filter(isRecord)
   const validationPrimaryBaseline =
     validationBaselines.find((baseline) => baseline.baselineBenchmarkRunId === validationPrimaryBaselineId) ?? validationBaselines[0] ?? null
@@ -693,6 +697,8 @@ function WorkflowProposalSummary({
           {validationRecommendationStatus ? (
             <p className="mt-1 truncate">
               comparison {validationRecommendationStatus}
+              {validationPrimaryPairedCaseCount === null ? "" : ` · paired ${validationPrimaryPairedCaseCount}`}
+              {validationPrimaryPairedHoldoutCaseCount === null ? "" : ` · holdout ${validationPrimaryPairedHoldoutCaseCount}`}
               {validationPairedMeanBrierDelta === null ? "" : ` · paired delta ${formatMetric(validationPairedMeanBrierDelta)}`}
             </p>
           ) : null}
