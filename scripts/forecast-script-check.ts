@@ -1468,6 +1468,8 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("osf_calibration_guard_default_plan_candidates"), "DuckDB sync missing calibration guard default plan mart");
   assert(syncSource.includes("osf_forecast_attention_items"), "DuckDB sync missing forecast attention item mart");
   assert(syncSource.includes("osf_source_bank_domains"), "DuckDB sync missing source-bank domain mart");
+  assert(syncSource.includes("osf_smithers_token_usage"), "DuckDB sync missing detailed token-usage mart");
+  assert(syncSource.includes("osf_smithers_token_usage_by_task"), "DuckDB sync missing task token-usage summary mart");
   assert(syncSource.includes("osf_forecast_batch_health"), "DuckDB sync missing forecast batch health mart");
   assert(syncSource.includes("osf_forecast_batch_health_issues"), "DuckDB sync missing forecast batch health issue mart");
   assert(syncSource.includes("osf_forecast_batch_health_attention_types"), "DuckDB sync missing forecast batch health attention-type mart");
@@ -1477,6 +1479,9 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("readLatestForecastBatchHealth"), "DuckDB sync does not use shared batch health reader");
   assert(syncSource.includes("buildCalibrationGuardRuleImpactMartRows"), "DuckDB sync missing rule-level calibration guard impact mapper");
   assert(syncSource.includes("buildBinaryCalibrationBucketMartRows"), "DuckDB sync missing calibration bucket mart mapper");
+  assert(syncSource.includes("readSmithersTokenUsage"), "DuckDB token-usage mart does not use the shared durable-log parser");
+  assert(syncSource.includes("summarizeSmithersTokenUsage"), "DuckDB token-usage mart does not use the shared token summary reducer");
+  assert(syncSource.includes("buildSmithersTokenUsageMarts"), "DuckDB sync missing token-usage mart mapper");
   assert(syncSource.includes("buildForecastBatchHealthMartRows"), "DuckDB sync missing batch health mart mapper");
   assert(syncSource.includes("buildForecastBatchHealthAttentionTypeMartRows"), "DuckDB sync missing batch health attention-type mapper");
   assert(syncSource.includes("buildForecastBatchHealthCandidateGuardMartRows"), "DuckDB sync missing batch health candidate guard mapper");
@@ -1494,6 +1499,9 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("reviewed_at"), "batch health candidate guard mart missing review timestamp");
   assert(syncSource.includes("source_types_json"), "source-bank domain mart missing source-type summary");
   assert(syncSource.includes("mean_quality_score"), "source-bank domain mart missing quality-score summary");
+  assert(syncSource.includes("agent_calls"), "token-usage summary mart missing agent-call count");
+  assert(syncSource.includes("reasoning_output_tokens"), "token-usage marts missing reasoning-token columns");
+  assert(syncSource.includes("join osf_smithers_token_usage_by_task usage using (task_id)"), "DuckDB examples do not show score/token joins");
   assert(syncSource.includes("baseline_sanity_status"), "forecast score mart missing baseline sanity status");
   assert(syncSource.includes("baseline_delta"), "forecast score mart missing baseline sanity delta");
   assert(syncSource.includes("market_anchor_status"), "forecast score mart missing market anchor status");

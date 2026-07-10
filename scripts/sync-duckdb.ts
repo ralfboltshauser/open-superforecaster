@@ -6,6 +6,7 @@ import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "../packages/backend/src/forecast-batch-health";
 import { buildBinaryCalibrationReport, type BinaryCalibrationInput } from "../packages/backend/src/performance-calibration";
+import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "../packages/backend/src/smithers-usage";
 import { summarizeSourceDomains } from "../packages/backend/src/source-domain-summary";
 import { loadAppConfig } from "../packages/config/src/index";
 import { listFilesNamed, readJson, readRecord, readString, type JsonRecord } from "./lib/forecast-script-utils";
@@ -43,6 +44,9 @@ try {
     order by created_at
   `;
   await replaceTable(duck, "osf_tasks", taskColumns, tasks);
+  const smithersUsageMarts = await buildSmithersTokenUsageMarts(tasks);
+  await replaceTable(duck, "osf_smithers_token_usage", smithersTokenUsageColumns, smithersUsageMarts.usageRows);
+  await replaceTable(duck, "osf_smithers_token_usage_by_task", smithersTokenUsageByTaskColumns, smithersUsageMarts.summaryRows);
 
   const artifactRows = await pg<ArtifactRowMartRow[]>`
     select
@@ -729,6 +733,8 @@ try {
     osf_forecast_batch_health_candidate_guards: forecastBatchHealthCandidateGuards.length,
     osf_source_bank_domains: sourceDomains.length,
     osf_source_bank_entries: sources.length,
+    osf_smithers_token_usage: smithersUsageMarts.usageRows.length,
+    osf_smithers_token_usage_by_task: smithersUsageMarts.summaryRows.length,
   };
   console.log(JSON.stringify({
     ok: true,
@@ -750,6 +756,8 @@ try {
       "select batch_id, forecast_type, open_items, deferred_items, high_items from osf_forecast_batch_health_attention_types order by unresolved_items desc, high_items desc;",
       "select batch_id, review_status, bucket_label, direction, suggested_adjustment, calibration_error, review_note from osf_forecast_batch_health_candidate_guards order by review_status, calibration_error desc;",
       "select domain, entries, used_in_final_entries, task_count, mean_quality_score from osf_source_bank_domains order by entries desc, used_in_final_entries desc limit 20;",
+      "select task_id, operation_mode, operation_submode, agent_calls, total_tokens from osf_smithers_token_usage_by_task order by total_tokens desc limit 20;",
+      "select fs.forecast_type, avg(fs.score_value) as mean_score, avg(usage.total_tokens) as mean_tokens from osf_forecast_scores fs join osf_smithers_token_usage_by_task usage using (task_id) group by 1 order by 1;",
       "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label, validation_benchmark_run_id, validation_result_status, validation_recommendation_status, validation_paired_mean_brier_delta, validation_gate_status from osf_workflow_change_proposals order by created_at desc limit 5;",
       "select operation_mode, operation_submode, status, count(*) from osf_tasks group by 1,2,3 order by 4 desc;",
     ],
@@ -780,6 +788,45 @@ const taskColumns = [
   { name: "completed_at", type: "VARCHAR" },
   { name: "duration_seconds", type: "DOUBLE" },
   { name: "config_json", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
+const smithersTokenUsageColumns = [
+  { name: "task_id", type: "VARCHAR" },
+  { name: "smithers_run_id", type: "VARCHAR" },
+  { name: "operation_mode", type: "VARCHAR" },
+  { name: "operation_submode", type: "VARCHAR" },
+  { name: "status", type: "VARCHAR" },
+  { name: "benchmark_run_id", type: "VARCHAR" },
+  { name: "workflow_variant_id", type: "VARCHAR" },
+  { name: "experiment_label", type: "VARCHAR" },
+  { name: "node_id", type: "VARCHAR" },
+  { name: "iteration", type: "INTEGER" },
+  { name: "attempt", type: "INTEGER" },
+  { name: "model", type: "VARCHAR" },
+  { name: "usage_source", type: "VARCHAR" },
+  { name: "input_tokens", type: "INTEGER" },
+  { name: "cached_input_tokens", type: "INTEGER" },
+  { name: "output_tokens", type: "INTEGER" },
+  { name: "reasoning_output_tokens", type: "INTEGER" },
+  { name: "total_tokens", type: "INTEGER" },
+  { name: "timestamp_ms", type: "DOUBLE" },
+] satisfies DuckColumn[];
+
+const smithersTokenUsageByTaskColumns = [
+  { name: "task_id", type: "VARCHAR" },
+  { name: "smithers_run_id", type: "VARCHAR" },
+  { name: "operation_mode", type: "VARCHAR" },
+  { name: "operation_submode", type: "VARCHAR" },
+  { name: "status", type: "VARCHAR" },
+  { name: "benchmark_run_id", type: "VARCHAR" },
+  { name: "workflow_variant_id", type: "VARCHAR" },
+  { name: "experiment_label", type: "VARCHAR" },
+  { name: "agent_calls", type: "INTEGER" },
+  { name: "input_tokens", type: "INTEGER" },
+  { name: "cached_input_tokens", type: "INTEGER" },
+  { name: "output_tokens", type: "INTEGER" },
+  { name: "reasoning_output_tokens", type: "INTEGER" },
+  { name: "total_tokens", type: "INTEGER" },
 ] satisfies DuckColumn[];
 
 const artifactRowColumns = [
@@ -1381,6 +1428,8 @@ const forecastBatchHealthCandidateGuardColumns = [
 ] satisfies DuckColumn[];
 
 type TaskMartRow = RowFor<typeof taskColumns>;
+type SmithersTokenUsageMartRow = RowFor<typeof smithersTokenUsageColumns>;
+type SmithersTokenUsageByTaskMartRow = RowFor<typeof smithersTokenUsageByTaskColumns>;
 type ArtifactRowMartRow = RowFor<typeof artifactRowColumns>;
 type BenchmarkRunMartRow = RowFor<typeof benchmarkRunColumns>;
 type BenchmarkCaseMartRow = RowFor<typeof benchmarkCaseColumns>;
@@ -1571,6 +1620,79 @@ function buildSourceDomainMartRows(sources: SourceMartRow[]): SourceDomainMartRo
     source_types_json: JSON.stringify(row.sourceTypes),
     mean_quality_score: row.meanQualityScore,
   }));
+}
+
+async function buildSmithersTokenUsageMarts(tasks: TaskMartRow[]): Promise<{
+  usageRows: SmithersTokenUsageMartRow[];
+  summaryRows: SmithersTokenUsageByTaskMartRow[];
+}> {
+  const entries = await Promise.all(
+    tasks.map(async (task) => {
+      const runId = readTaskString(task, "smithers_run_id");
+      if (!runId) {
+        return null;
+      }
+      return {
+        task,
+        runId,
+        usage: await readSmithersTokenUsage(root, runId),
+      };
+    }),
+  );
+
+  const usageRows: SmithersTokenUsageMartRow[] = [];
+  const summaryRows: SmithersTokenUsageByTaskMartRow[] = [];
+  for (const entry of entries) {
+    if (!entry || entry.usage.length === 0) {
+      continue;
+    }
+    const taskLabels = smithersTaskLabels(entry.task, entry.runId);
+    for (const usage of entry.usage) {
+      usageRows.push({
+        ...taskLabels,
+        node_id: usage.nodeId,
+        iteration: usage.iteration,
+        attempt: usage.attempt,
+        model: usage.model,
+        usage_source: usage.source,
+        input_tokens: usage.inputTokens,
+        cached_input_tokens: usage.cachedInputTokens,
+        output_tokens: usage.outputTokens,
+        reasoning_output_tokens: usage.reasoningOutputTokens,
+        total_tokens: usage.totalTokens,
+        timestamp_ms: usage.timestampMs,
+      });
+    }
+    const summary = summarizeSmithersTokenUsage(entry.usage);
+    summaryRows.push({
+      ...taskLabels,
+      agent_calls: summary.calls,
+      input_tokens: summary.inputTokens,
+      cached_input_tokens: summary.cachedInputTokens,
+      output_tokens: summary.outputTokens,
+      reasoning_output_tokens: summary.reasoningOutputTokens,
+      total_tokens: summary.totalTokens,
+    });
+  }
+  return { usageRows, summaryRows };
+}
+
+function smithersTaskLabels(task: TaskMartRow, runId: string) {
+  return {
+    task_id: readTaskString(task, "task_id"),
+    smithers_run_id: runId,
+    operation_mode: readTaskString(task, "operation_mode"),
+    operation_submode: readTaskString(task, "operation_submode"),
+    status: readTaskString(task, "status"),
+    benchmark_run_id: readTaskString(task, "benchmark_run_id"),
+    workflow_variant_id: readTaskString(task, "workflow_variant_id"),
+    experiment_label: readTaskString(task, "experiment_label"),
+  };
+}
+
+function readTaskString(task: TaskMartRow, key: keyof TaskMartRow) {
+  const value = task[key];
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
 async function readCalibrationGuardValidationRows(reportRoot: string): Promise<CalibrationGuardValidationMartRow[]> {

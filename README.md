@@ -372,6 +372,11 @@ Score rows also keep workflow version,
 workflow variant, experiment label, and run duration bands, and resolved
 performance reports group by each run-lineage signal so quality changes can be
 compared against runtime and variant changes.
+`bun run duckdb:sync` also parses durable run token usage into
+`osf_smithers_token_usage` and task-level summaries in
+`osf_smithers_token_usage_by_task`, so resolved scores can be joined against
+agent-call volume, model, token mix, and total-token usage without re-reading
+raw execution logs.
 The local DuckDB sync also derives `osf_source_bank_domains` from persisted
 source-bank entries so source concentration, final-use count, source-type mix,
 and mean source quality can be audited by domain. Prometheus metrics expose the
