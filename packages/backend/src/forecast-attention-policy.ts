@@ -89,8 +89,16 @@ export function forecastAttentionReviewStatusRank(status: ForecastAttentionRevie
   return 2;
 }
 
+export function isForecastAttentionReviewOpen(status: string | null | undefined) {
+  return normalizeForecastAttentionReviewStatus(status) === "open";
+}
+
 export function isForecastAttentionReviewResolved(status: string | null | undefined) {
   return status === "reviewed";
+}
+
+export function isForecastAttentionReviewDeferred(status: string | null | undefined) {
+  return normalizeForecastAttentionReviewStatus(status) === "deferred";
 }
 
 export function isForecastAttentionReviewUnresolved(status: string | null | undefined) {

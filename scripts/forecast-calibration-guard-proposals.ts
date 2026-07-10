@@ -6,6 +6,8 @@ import {
   type ForecastBatchIndexCandidateCalibrationGuardRule,
 } from "../packages/backend/src/forecast-batch-index-artifacts";
 import {
+  isForecastAttentionReviewDeferred,
+  isForecastAttentionReviewOpen,
   isForecastAttentionReviewResolved,
   normalizeForecastAttentionReviewStatus,
   summarizeForecastAttentionReviewStatuses,
@@ -287,11 +289,11 @@ function isEligibleCandidateRule(rule: CandidateCalibrationGuardRule, includeOpe
   if (!isCalibrationGuardReadyForReview(rule.activationStatus)) {
     return false;
   }
-  if (rule.reviewStatus === "deferred") {
+  if (isForecastAttentionReviewDeferred(rule.reviewStatus)) {
     return false;
   }
   return includeOpenRules
-    ? rule.reviewStatus === "open" || isForecastAttentionReviewResolved(rule.reviewStatus)
+    ? isForecastAttentionReviewOpen(rule.reviewStatus) || isForecastAttentionReviewResolved(rule.reviewStatus)
     : isForecastAttentionReviewResolved(rule.reviewStatus);
 }
 
