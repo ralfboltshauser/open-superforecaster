@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import {
   listFilesNamed,
   readArgValue,
@@ -25,6 +25,7 @@ type SelectedAttentionBacklog = {
   path: string;
   payload: JsonRecord;
   generatedAt: string | null;
+  reviewsUpdatedAt: string | null;
 };
 
 type AttentionKindBreakdown = {
@@ -198,7 +199,7 @@ async function selectBatchIndex(batchRoot: string, batchId: string | null) {
 
 async function selectAttentionBacklog(backlogRoot: string): Promise<SelectedAttentionBacklog | null> {
   const paths = await listFilesNamed(backlogRoot, "attention-backlog.json");
-  const candidates: { path: string; payload: JsonRecord; generatedAt: string | null }[] = [];
+  const candidates: SelectedAttentionBacklog[] = [];
   for (const path of paths) {
     const payload = readRecord(await readJson(path));
     if (!payload) {
@@ -208,6 +209,7 @@ async function selectAttentionBacklog(backlogRoot: string): Promise<SelectedAtte
       path,
       payload,
       generatedAt: readString(payload, "generatedAt"),
+      reviewsUpdatedAt: await readAttentionBacklogReviewsUpdatedAt(payload),
     });
   }
   candidates.sort((left, right) =>
@@ -215,6 +217,21 @@ async function selectAttentionBacklog(backlogRoot: string): Promise<SelectedAtte
     || right.path.localeCompare(left.path)
   );
   return candidates[0] ?? null;
+}
+
+async function readAttentionBacklogReviewsUpdatedAt(backlog: JsonRecord) {
+  const paths = readRecord(backlog, "paths");
+  const reviewsPath = readString(paths, "reviews");
+  if (!reviewsPath) {
+    return null;
+  }
+  try {
+    const resolvedPath = isAbsolute(reviewsPath) ? reviewsPath : resolve(root, reviewsPath);
+    const reviews = readRecord(await readJson(resolvedPath));
+    return readString(reviews, "updatedAt");
+  } catch {
+    return null;
+  }
 }
 
 function buildHealthReport(
@@ -416,6 +433,7 @@ function attentionBacklogCompatibilityIssues(
   const batchIds = readStringArray(filters, "batchIds");
   const batchTimestamp = timestampValue(batchIndexGeneratedAt);
   const backlogTimestamp = timestampValue(attentionBacklog.generatedAt);
+  const reviewsTimestamp = timestampValue(attentionBacklog.reviewsUpdatedAt);
   if (backlogTimestamp === 0) {
     issues.push({
       severity: "medium",
@@ -428,6 +446,13 @@ function attentionBacklogCompatibilityIssues(
       severity: "medium",
       kind: "attention_backlog_stale",
       message: `Attention backlog was generated before selected batch ${batchId ?? "unknown"} and was not merged into health counts.`,
+    });
+  }
+  if (reviewsTimestamp > 0 && backlogTimestamp > 0 && backlogTimestamp < reviewsTimestamp) {
+    issues.push({
+      severity: "medium",
+      kind: "attention_backlog_reviews_stale",
+      message: "Attention backlog was generated before local attention reviews were updated and was not merged into health counts.",
     });
   }
   const missingStatuses = ["open", "deferred"].filter((status) => !statuses.includes(status));

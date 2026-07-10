@@ -1197,6 +1197,112 @@ await check("forecast batch health rejects stale attention backlog reports", asy
   return "batch health ignores stale supplemental attention backlog reports";
 });
 
+await check("forecast batch health rejects review-stale attention backlog reports", async () => {
+  const batchIndexRoot = resolve(tempRoot, "batch-health-review-stale-backlog", "batches");
+  const attentionBacklogRoot = resolve(tempRoot, "batch-health-review-stale-backlog", "attention-backlog");
+  const outputDir = resolve(tempRoot, "batch-health-review-stale-backlog", "out");
+  const reviewsFile = resolve(tempRoot, "batch-health-review-stale-backlog", "reviews.json");
+  await mkdir(resolve(batchIndexRoot, "reviewed-batch"), { recursive: true });
+  await mkdir(attentionBacklogRoot, { recursive: true });
+  await writeJson(resolve(batchIndexRoot, "reviewed-batch", "batch-index.json"), {
+    reportType: "forecast_batch_index",
+    batchId: "reviewed-batch",
+    generatedAt: "2026-07-09T01:00:00.000Z",
+    counts: {
+      entries: 3,
+      forecastOps: 1,
+      resolutions: 1,
+      performanceReports: 1,
+      completedForecasts: 1,
+      failedForecasts: 0,
+      resolvedCases: 1,
+      failedResolutions: 0,
+      performanceScoreRows: 1,
+      attentionItems: 0,
+      openAttentionItems: 0,
+      reviewedAttentionItems: 0,
+      deferredAttentionItems: 0,
+      candidateCalibrationGuardRules: 0,
+      openCandidateCalibrationGuardRules: 0,
+      reviewedCandidateCalibrationGuardRules: 0,
+      deferredCandidateCalibrationGuardRules: 0,
+    },
+    attentionItems: [],
+    candidateCalibrationGuardRules: [],
+  });
+  await writeJson(reviewsFile, {
+    reportType: "forecast_attention_reviews",
+    updatedAt: "2026-07-09T01:06:00.000Z",
+    reviews: [
+      {
+        attentionItemId: "calibration-default-plan-skipped:reviewed-batch:80-100%",
+        status: "reviewed",
+        note: "Already reviewed locally.",
+        reviewer: "contract-check",
+        updatedAt: "2026-07-09T01:06:00.000Z",
+      },
+    ],
+  });
+  await writeJson(resolve(attentionBacklogRoot, "attention-backlog.json"), {
+    reportType: "forecast_attention_backlog",
+    generatedAt: "2026-07-09T01:05:00.000Z",
+    filters: {
+      statuses: ["open", "deferred"],
+      batchIds: [],
+    },
+    counts: {
+      items: 1,
+      open: 1,
+      deferred: 0,
+      reviewed: 0,
+      high: 0,
+      medium: 1,
+      low: 0,
+    },
+    byForecastType: [],
+    byKind: [],
+    items: [
+      {
+        batchId: "reviewed-batch",
+        id: "calibration-default-plan-skipped:reviewed-batch:80-100%",
+        reviewStatus: "open",
+        severity: "medium",
+        kind: "calibration_guard_default_plan_not_promoted_for_default",
+        reason: "Review-stale backlog item should not be merged.",
+        recommendedActions: ["Regenerate attention backlog after reviewing items."],
+        metric: "default_plan_skip",
+        score: null,
+        delta: null,
+        taskId: null,
+        taskLabel: "80-100% default-plan skip",
+        forecastType: "binary",
+        sourcePath: "calibration-guard-default-plan.json",
+      },
+    ],
+    paths: {
+      reviews: reviewsFile,
+    },
+  });
+  await runScript("scripts/forecast-batch-health.ts", [
+    "--batch-index-dir",
+    batchIndexRoot,
+    "--attention-backlog-dir",
+    attentionBacklogRoot,
+    "--out-dir",
+    outputDir,
+  ]);
+  const report = readRecord(await readJson(resolve(outputDir, "batch-health.json")));
+  const summary = readRecord(report, "summary");
+  const issues = readArray(report, "issues");
+  const attentionItems = readArray(report, "attentionItems");
+  const markdown = await readFile(resolve(outputDir, "batch-health.md"), "utf8");
+  assert(readNumber(summary, "unresolvedAttentionItems") === 0, "review-stale attention backlog should not inflate unresolved health count");
+  assert(!attentionItems.some((item) => readString(item, "id") === "calibration-default-plan-skipped:reviewed-batch:80-100%"), "review-stale attention backlog item was merged into health");
+  assert(issues.some((issue) => readString(issue, "kind") === "attention_backlog_reviews_stale"), "health report missing review-stale attention backlog issue");
+  assert(markdown.includes("attention_backlog_reviews_stale"), "health markdown missing review-stale attention backlog issue");
+  return "batch health ignores review-stale supplemental attention backlog reports";
+});
+
 await check("forecast batch health rejects undated attention backlog reports", async () => {
   const batchIndexRoot = resolve(tempRoot, "batch-health-undated-backlog", "batches");
   const attentionBacklogRoot = resolve(tempRoot, "batch-health-undated-backlog", "attention-backlog");
