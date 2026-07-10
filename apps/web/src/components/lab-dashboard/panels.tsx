@@ -310,6 +310,7 @@ export function ForecastBatchHealthCard({ forecastBatchHealth }: { forecastBatch
                 </div>
                 <p className="mt-1 line-clamp-2 text-muted-foreground">{String(item.reason ?? "")}</p>
                 {item.recommendedAction ? <p className="mt-1 line-clamp-1 text-muted-foreground">{String(item.recommendedAction)}</p> : null}
+                {item.sourcePath ? <p className="mt-1 line-clamp-1 text-muted-foreground">{String(item.sourcePath)}</p> : null}
                 {item.reviewNote ? (
                   <p className="mt-1 line-clamp-1 text-muted-foreground">
                     note: {String(item.reviewNote)}

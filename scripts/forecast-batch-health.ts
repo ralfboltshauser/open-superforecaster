@@ -117,6 +117,7 @@ type HealthAttentionItem = {
   forecastType: string;
   taskId: string | null;
   taskLabel: string | null;
+  sourcePath: string | null;
 };
 
 type HealthCandidateCalibrationGuardRule = {
@@ -226,7 +227,7 @@ function buildHealthReport(
 ): HealthReport {
   const batchId = readString(batchIndex, "batchId");
   const counts = readRecord(batchIndex, "counts") ?? {};
-  const batchAttentionItems = readRecordArray(batchIndex, "attentionItems").flatMap(readHealthAttentionItem);
+  const batchAttentionItems = readRecordArray(batchIndex, "attentionItems").flatMap((item) => readHealthAttentionItem(item, batchIndexPath));
   const candidateCalibrationGuardRules = readRecordArray(batchIndex, "candidateCalibrationGuardRules").flatMap(readHealthCandidateCalibrationGuardRule);
   const attentionBacklogIssues = attentionBacklog ? attentionBacklogCompatibilityIssues(attentionBacklog.payload, batchId) : [];
   const compatibleAttentionBacklog = attentionBacklog && attentionBacklogIssues.length === 0 ? attentionBacklog : null;
@@ -424,7 +425,7 @@ function attentionBacklogCompatibilityIssues(backlog: JsonRecord, batchId: strin
   return issues;
 }
 
-function readHealthAttentionItem(item: JsonRecord): HealthAttentionItem[] {
+function readHealthAttentionItem(item: JsonRecord, fallbackSourcePath: string | null = null): HealthAttentionItem[] {
   const id = readString(item, "id");
   const reviewStatus = readString(item, "reviewStatus");
   if (!id || !isReviewStatus(reviewStatus)) {
@@ -447,6 +448,7 @@ function readHealthAttentionItem(item: JsonRecord): HealthAttentionItem[] {
     forecastType: readString(item, "forecastType") ?? "unknown",
     taskId: readString(item, "taskId"),
     taskLabel: readString(item, "taskLabel"),
+    sourcePath: readString(item, "sourcePath") ?? fallbackSourcePath,
   }];
 }
 
@@ -459,7 +461,7 @@ function readSupplementalAttentionItems(
   }
   return readRecordArray(attentionBacklog.payload, "items")
     .filter((item) => readString(item, "batchId") === batchId)
-    .flatMap(readHealthAttentionItem);
+    .flatMap((item) => readHealthAttentionItem(item, attentionBacklog.path));
 }
 
 function mergeSupplementalAttentionItems(
@@ -615,14 +617,14 @@ function renderAttentionTable(items: HealthAttentionItem[]) {
     return ["No attention items found."];
   }
   return [
-    "| Status | Severity | Kind | Forecast type | Metric | Score | Delta | Task | Recommended action | Review note |",
-    "| --- | --- | --- | --- | --- | ---: | ---: | --- | --- | --- |",
+    "| Status | Severity | Kind | Forecast type | Metric | Score | Delta | Task | Recommended action | Review note | Source |",
+    "| --- | --- | --- | --- | --- | ---: | ---: | --- | --- | --- | --- |",
     ...items.map((item) =>
       `| ${item.reviewStatus} | ${item.severity} | ${item.kind} | ${item.forecastType} | ${item.metric} | ${formatNumber(item.score)} | ${
         formatNumber(item.delta)
       } | ${escapeMarkdownCell(item.taskLabel ?? item.taskId ?? "")} | ${escapeMarkdownCell(item.recommendedAction ?? "")} | ${
         escapeMarkdownCell(item.reviewNote ?? "")
-      } |`,
+      } | ${escapeMarkdownCell(item.sourcePath ?? "")} |`,
     ),
   ];
 }

@@ -990,10 +990,12 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   assert(markdown.includes("## Attention Breakdown"), "health markdown missing attention breakdown");
   assert(markdown.includes("## Attention Forecast Types"), "health markdown missing attention forecast-type breakdown");
   assert(markdown.includes("Review note"), "health markdown missing review note column");
+  assert(markdown.includes("Source"), "health markdown missing source column");
   assert(markdown.includes("Investigate thin source coverage before rerun."), "health markdown missing attention review note");
   assert(markdown.includes("Validate on a held-out batch first."), "health markdown missing candidate guard review note");
   assert(markdown.includes("Attention backlog:"), "health markdown missing attention backlog path");
   assert(markdown.includes("calibration_guard_default_plan_not_holdout_replay"), "health markdown missing supplemental default-plan skipped row");
+  assert(markdown.includes("calibration-guard-default-plan.json"), "health markdown missing supplemental attention source path");
   assert(markdown.includes("evidence_coverage_miss"), "health markdown missing attention kind row");
   assert(markdown.includes("| binary | 4 | 4 | 0 | 0 | 3 | 0 | 1 |"), "health markdown missing binary forecast-type row with supplemental item");
   assert(markdown.includes("| numeric | 1 | 0 | 1 | 0 | 0 | 1 | 0 |"), "health markdown missing numeric forecast-type row");
@@ -1003,6 +1005,8 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   assert(evidenceItem && readString(evidenceItem, "reviewNote") === "Investigate thin source coverage before rerun.", "health report did not preserve attention review note");
   assert(evidenceItem && readString(evidenceItem, "reviewer") === "contract-check", "health report did not preserve attention reviewer");
   assert(defaultPlanItem, "health report missing supplemental default-plan skipped item from attention backlog");
+  assert(defaultPlanItem && readString(defaultPlanItem, "sourcePath") === "calibration-guard-default-plan.json", "health report did not preserve supplemental attention source path");
+  assert(evidenceItem && readString(evidenceItem, "sourcePath")?.endsWith("latest-batch/batch-index.json"), "health report did not preserve batch-index attention source path");
   assert(attentionItems.filter((item) => readString(item, "id") === "poor:task-1:brier").length === 1, "health report duplicated batch-index attention item");
   assert(!attentionItems.some((item) => readString(item, "id") === "candidate-guard:80-100%"), "health report duplicated candidate guard as attention item");
   assert(candidateRule && readString(candidateRule, "reviewNote") === "Validate on a held-out batch first.", "health report did not preserve candidate guard review note");
@@ -1150,6 +1154,7 @@ await check("diagnostics surface latest forecast batch health", async () => {
         reviewNote: "Investigate thin source coverage before rerun.",
         reviewer: "contract-check",
         reviewedAt: "2026-07-09T00:06:00.000Z",
+        sourcePath: "data/reports/forecast-batches/diagnostics-batch/batch-index.json",
       },
     ],
     candidateCalibrationGuardRules: [
@@ -1190,6 +1195,7 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(health.attentionBySeverity.some((row) => row.severity === "high" && row.deferred === 1), "shared batch health reader did not expose attention severity breakdowns");
   assert(health.attentionByForecastType.some((row) => row.forecastType === "binary" && row.open === 1), "shared batch health reader did not expose attention forecast-type breakdowns");
   assert(health.attentionItems.some((item) => item.id === "evidence-coverage:task-1:brier" && item.recommendedAction === "Audit cited sources." && item.forecastType === "binary" && item.reviewNote === "Investigate thin source coverage before rerun."), "shared batch health reader did not expose actionable attention review context");
+  assert(health.attentionItems.some((item) => item.id === "evidence-coverage:task-1:brier" && item.sourcePath === "data/reports/forecast-batches/diagnostics-batch/batch-index.json"), "shared batch health reader did not expose attention source path");
   assert(health.candidateCalibrationGuardRules.some((rule) => rule.id === "candidate-guard:80-100%" && rule.suggestedAdjustment === -15 && rule.reviewNote === "Validate on a held-out batch first."), "shared batch health reader did not expose candidate guard review context");
   assert(diagnosticsSource.includes("readLatestForecastBatchHealth"), "diagnostics does not read local forecast batch health through the shared reader");
   assert(diagnosticsSource.includes("forecastBatchHealthDiagnostic"), "diagnostics does not turn forecast batch health into a check item");
@@ -1247,6 +1253,7 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(dashboardPanelSource.includes("attentionItems"), "lab dashboard does not render actionable attention items");
   assert(dashboardPanelSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not render candidate guard rules from batch health");
   assert(dashboardPanelSource.includes("item.reviewNote"), "lab dashboard does not render attention review notes from batch health");
+  assert(dashboardPanelSource.includes("item.sourcePath"), "lab dashboard does not render attention source paths from batch health");
   assert(dashboardPanelSource.includes("rule.reviewNote"), "lab dashboard does not render candidate guard review notes from batch health");
   assert(dashboardPanelSource.includes("Source domains"), "lab dashboard does not label source-domain diagnostics");
   assert(dashboardPanelSource.includes("sourceDomains"), "lab dashboard does not render source-domain diagnostics");
@@ -1728,6 +1735,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("osf_smithers_token_usage_by_task"), "DuckDB sync missing task token-usage summary mart");
   assert(syncSource.includes("osf_forecast_batch_health"), "DuckDB sync missing forecast batch health mart");
   assert(syncSource.includes("osf_forecast_batch_health_issues"), "DuckDB sync missing forecast batch health issue mart");
+  assert(syncSource.includes("osf_forecast_batch_health_attention_items"), "DuckDB sync missing forecast batch health attention-item mart");
   assert(syncSource.includes("osf_forecast_batch_health_attention_kinds"), "DuckDB sync missing forecast batch health attention-kind mart");
   assert(syncSource.includes("osf_forecast_batch_health_attention_severities"), "DuckDB sync missing forecast batch health attention-severity mart");
   assert(syncSource.includes("osf_forecast_batch_health_attention_types"), "DuckDB sync missing forecast batch health attention-type mart");
@@ -1743,6 +1751,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("summarizeSmithersTokenUsage"), "DuckDB token-usage mart does not use the shared token summary reducer");
   assert(syncSource.includes("buildSmithersTokenUsageMarts"), "DuckDB sync missing token-usage mart mapper");
   assert(syncSource.includes("buildForecastBatchHealthMartRows"), "DuckDB sync missing batch health mart mapper");
+  assert(syncSource.includes("buildForecastBatchHealthAttentionItemMartRows"), "DuckDB sync missing batch health attention-item mapper");
   assert(syncSource.includes("buildForecastBatchHealthAttentionTypeMartRows"), "DuckDB sync missing batch health attention-type mapper");
   assert(syncSource.includes("buildForecastBatchHealthCandidateGuardMartRows"), "DuckDB sync missing batch health candidate guard mapper");
   assert(syncSource.includes("buildSourceDomainMartRows"), "DuckDB sync missing source-bank domain mapper");
@@ -1753,6 +1762,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("unresolved_attention_items"), "batch health mart missing unresolved attention count");
   assert(syncSource.includes("unresolved_candidate_calibration_guard_rules"), "batch health mart missing unresolved candidate guard count");
   assert(syncSource.includes("missing_phases_json"), "batch health mart missing missing phases");
+  assert(syncSource.includes("source_path: item.sourcePath"), "batch health attention-item mart missing source path");
   assert(syncSource.includes("unresolved_items"), "batch health attention-type mart missing unresolved item count");
   assert(syncSource.includes("review_note"), "batch health candidate guard mart missing review note");
   assert(syncSource.includes("reviewer"), "batch health candidate guard mart missing reviewer");

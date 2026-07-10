@@ -870,6 +870,8 @@ try {
   await replaceTable(duck, "osf_forecast_batch_health", forecastBatchHealthColumns, forecastBatchHealth);
   const forecastBatchHealthIssues = buildForecastBatchHealthIssueMartRows(forecastBatchHealthSnapshot);
   await replaceTable(duck, "osf_forecast_batch_health_issues", forecastBatchHealthIssueColumns, forecastBatchHealthIssues);
+  const forecastBatchHealthAttentionItems = buildForecastBatchHealthAttentionItemMartRows(forecastBatchHealthSnapshot);
+  await replaceTable(duck, "osf_forecast_batch_health_attention_items", forecastBatchHealthAttentionItemColumns, forecastBatchHealthAttentionItems);
   const forecastBatchHealthAttentionKinds = buildForecastBatchHealthAttentionKindMartRows(forecastBatchHealthSnapshot);
   await replaceTable(duck, "osf_forecast_batch_health_attention_kinds", forecastBatchHealthAttentionKindColumns, forecastBatchHealthAttentionKinds);
   const forecastBatchHealthAttentionSeverities = buildForecastBatchHealthAttentionSeverityMartRows(forecastBatchHealthSnapshot);
@@ -897,6 +899,7 @@ try {
     osf_forecast_attention_items: forecastAttentionItems.length,
     osf_forecast_batch_health: forecastBatchHealth.length,
     osf_forecast_batch_health_issues: forecastBatchHealthIssues.length,
+    osf_forecast_batch_health_attention_items: forecastBatchHealthAttentionItems.length,
     osf_forecast_batch_health_attention_kinds: forecastBatchHealthAttentionKinds.length,
     osf_forecast_batch_health_attention_severities: forecastBatchHealthAttentionSeverities.length,
     osf_forecast_batch_health_attention_types: forecastBatchHealthAttentionTypes.length,
@@ -927,6 +930,7 @@ try {
       "select batch_id, review_status, severity, kind, metric, score, task_label from osf_forecast_attention_items order by generated_at desc, severity limit 10;",
       "select batch_id, status, unresolved_attention_items, unresolved_candidate_calibration_guard_rules, issue_count from osf_forecast_batch_health;",
       "select batch_id, severity, kind, message from osf_forecast_batch_health_issues order by severity, kind;",
+      "select batch_id, review_status, severity, kind, metric, task_label, source_path from osf_forecast_batch_health_attention_items order by review_status, severity limit 10;",
       "select batch_id, kind, unresolved_items, high_items from osf_forecast_batch_health_attention_kinds order by unresolved_items desc, high_items desc;",
       "select batch_id, severity, unresolved_items from osf_forecast_batch_health_attention_severities order by unresolved_items desc;",
       "select batch_id, forecast_type, open_items, deferred_items, high_items from osf_forecast_batch_health_attention_types order by unresolved_items desc, high_items desc;",
@@ -1652,6 +1656,29 @@ const forecastBatchHealthIssueColumns = [
   { name: "message", type: "VARCHAR" },
 ] satisfies DuckColumn[];
 
+const forecastBatchHealthAttentionItemColumns = [
+  { name: "report_path", type: "VARCHAR" },
+  { name: "batch_id", type: "VARCHAR" },
+  { name: "generated_at", type: "VARCHAR" },
+  { name: "status", type: "VARCHAR" },
+  { name: "attention_item_id", type: "VARCHAR" },
+  { name: "review_status", type: "VARCHAR" },
+  { name: "severity", type: "VARCHAR" },
+  { name: "kind", type: "VARCHAR" },
+  { name: "metric", type: "VARCHAR" },
+  { name: "score", type: "DOUBLE" },
+  { name: "delta", type: "DOUBLE" },
+  { name: "forecast_type", type: "VARCHAR" },
+  { name: "task_id", type: "VARCHAR" },
+  { name: "task_label", type: "VARCHAR" },
+  { name: "reason", type: "VARCHAR" },
+  { name: "recommended_action", type: "VARCHAR" },
+  { name: "review_note", type: "VARCHAR" },
+  { name: "reviewer", type: "VARCHAR" },
+  { name: "reviewed_at", type: "VARCHAR" },
+  { name: "source_path", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
 const forecastBatchHealthAttentionKindColumns = [
   { name: "report_path", type: "VARCHAR" },
   { name: "batch_id", type: "VARCHAR" },
@@ -1739,6 +1766,7 @@ type CalibrationGuardDefaultPlanSkippedMartRow = RowFor<typeof calibrationGuardD
 type ForecastAttentionItemMartRow = RowFor<typeof forecastAttentionItemColumns>;
 type ForecastBatchHealthMartRow = RowFor<typeof forecastBatchHealthColumns>;
 type ForecastBatchHealthIssueMartRow = RowFor<typeof forecastBatchHealthIssueColumns>;
+type ForecastBatchHealthAttentionItemMartRow = RowFor<typeof forecastBatchHealthAttentionItemColumns>;
 type ForecastBatchHealthAttentionKindMartRow = RowFor<typeof forecastBatchHealthAttentionKindColumns>;
 type ForecastBatchHealthAttentionSeverityMartRow = RowFor<typeof forecastBatchHealthAttentionSeverityColumns>;
 type ForecastBatchHealthAttentionTypeMartRow = RowFor<typeof forecastBatchHealthAttentionTypeColumns>;
@@ -2177,6 +2205,31 @@ function buildForecastBatchHealthIssueMartRows(health: ForecastBatchHealthSnapsh
     severity: issue.severity,
     kind: issue.kind,
     message: issue.message,
+  }));
+}
+
+function buildForecastBatchHealthAttentionItemMartRows(health: ForecastBatchHealthSnapshot): ForecastBatchHealthAttentionItemMartRow[] {
+  return health.attentionItems.map((item) => ({
+    report_path: health.path,
+    batch_id: health.batchId,
+    generated_at: health.generatedAt,
+    status: health.status,
+    attention_item_id: item.id,
+    review_status: item.reviewStatus,
+    severity: item.severity,
+    kind: item.kind,
+    metric: item.metric,
+    score: item.score,
+    delta: item.delta,
+    forecast_type: item.forecastType,
+    task_id: item.taskId,
+    task_label: item.taskLabel,
+    reason: item.reason,
+    recommended_action: item.recommendedAction,
+    review_note: item.reviewNote,
+    reviewer: item.reviewer,
+    reviewed_at: item.reviewedAt,
+    source_path: item.sourcePath,
   }));
 }
 

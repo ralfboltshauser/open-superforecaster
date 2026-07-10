@@ -481,8 +481,11 @@ breakdowns by kind, severity, and forecast type, so unresolved attention can be
 monitored without opening the raw JSON artifact. `bun run duckdb:sync`
 also exports the latest batch-health summary and issue rows into
 `osf_forecast_batch_health`, `osf_forecast_batch_health_issues`, and
-`osf_forecast_batch_health_attention_types`, with attention kind and severity
-breakdowns in `osf_forecast_batch_health_attention_kinds` and
+`osf_forecast_batch_health_attention_items`, with per-item source paths for
+tracing each health attention row back to the originating artifact. Attention
+type, kind, and severity breakdowns are exported in
+`osf_forecast_batch_health_attention_types`,
+`osf_forecast_batch_health_attention_kinds`, and
 `osf_forecast_batch_health_attention_severities`, plus candidate guard review
 rows in `osf_forecast_batch_health_candidate_guards`.
 

@@ -78,6 +78,7 @@ export type ForecastBatchAttentionItem = {
   forecastType: string;
   taskId: string | null;
   taskLabel: string | null;
+  sourcePath: string | null;
 };
 
 export type ForecastBatchCandidateCalibrationGuardRule = {
@@ -273,6 +274,7 @@ function readAttentionItemArray(value: Record<string, unknown> | null, key: stri
     forecastType: readString(record, "forecastType") ?? "unknown",
     taskId: readString(record, "taskId"),
     taskLabel: readString(record, "taskLabel"),
+    sourcePath: readString(record, "sourcePath"),
   }));
 }
 
