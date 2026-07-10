@@ -6,6 +6,10 @@ import { readCalibrationDefaultPlanArtifacts } from "../packages/backend/src/cal
 import { readCalibrationGuardValidationArtifacts } from "../packages/backend/src/calibration-guard-validation-artifacts";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
 import {
+  benchmarkCaseResultStatusFailed,
+  benchmarkCaseResultStatusNeedsReview,
+} from "../packages/backend/src/benchmark-case-result-policy";
+import {
   benchmarkPromotionGateStatusNeedsMoreEvidence,
   benchmarkPromotionGateStatusReview,
   blockerBenchmarkStillRunning,
@@ -204,7 +208,7 @@ try {
         select
           count(*)::integer as result_count,
           count(*) filter (where bcr.trace_bundle_uri is null)::integer as trace_missing_count,
-          count(*) filter (where bcr.status::text in ('failed', 'needs_review'))::integer as review_or_failed_count
+          count(*) filter (where bcr.status::text in (${benchmarkCaseResultStatusFailed}::text, ${benchmarkCaseResultStatusNeedsReview}::text))::integer as review_or_failed_count
         from benchmark_case_results bcr
         where bcr.benchmark_run_id = br.id
       ),

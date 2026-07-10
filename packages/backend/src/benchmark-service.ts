@@ -24,6 +24,14 @@ import {
 import { scoreBinaryForecast } from "@open-superforecaster/evals";
 import type { ObjectStorageTarget } from "@open-superforecaster/artifact-store";
 import {
+  benchmarkCaseResultStatusCompleted,
+  benchmarkCaseResultStatusFailed,
+  benchmarkCaseResultStatusNeedsReview,
+  benchmarkCaseResultStatusRunning,
+  isBenchmarkCaseResultPendingStatus,
+  summarizeBenchmarkCaseResultStatuses,
+} from "./benchmark-case-result-policy";
+import {
   benchmarkComparisonStatusBlocker,
   benchmarkHoldoutSplitIds,
   benchmarkPromotionGateStatusNeedsMoreEvidence,
@@ -600,7 +608,7 @@ export async function startBenchmarkRun(
           taskId: record.taskId,
           smithersRunId: launched.runId,
           workflowVariantId: variant.id,
-          status: "running",
+          status: benchmarkCaseResultStatusRunning,
         })
         .returning({ id: benchmarkCaseResults.id });
 
@@ -624,7 +632,7 @@ export async function startBenchmarkRun(
           taskId: record.taskId,
           smithersRunId: record.smithersRunId,
           workflowVariantId: variant.id,
-          status: "failed",
+          status: benchmarkCaseResultStatusFailed,
           failureLabels: ["launch_failed"],
         })
         .returning({ id: benchmarkCaseResults.id });
@@ -801,6 +809,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
     const sourceQualityFindings = readRecord(analysisReportRow, "sourceQualityFindings", "source_quality_findings") ?? null;
     const traceQualityFindings = readRecord(analysisReportRow, "traceQualityFindings", "trace_quality_findings") ?? null;
     const costLatencyFindings = readRecord(analysisReportRow, "costLatencyFindings", "cost_latency_findings") ?? null;
+    const statusCounts = summarizeBenchmarkCaseResultStatuses(results);
     enriched.push({
       ...row,
       workflowId: variant?.workflowId ?? null,
@@ -817,9 +826,9 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
       splitFindings,
       promotionGate: summarizeBenchmarkPromotionGateEvidence({
         runStatus: row.status,
-        resultCount: results.length,
+        resultCount: statusCounts.totalCases,
         traceMissing: results.filter((result) => !result.traceBundleUri).length,
-        reviewOrFailed: results.filter((result) => result.status === "failed" || result.status === "needs_review").length,
+        reviewOrFailed: statusCounts.reviewOrFailedCases,
         comparisonStatus: readComparisonRecommendationStatus(comparisonReportRow?.rowJson ?? null),
         baselineSanityFindings,
         componentDisagreementFindings,
@@ -828,10 +837,10 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
         sourceQualityFindings,
         traceQualityFindings,
       }),
-      completedCases: results.filter((result) => result.status === "completed").length,
-      failedCases: results.filter((result) => result.status === "failed").length,
-      runningCases: results.filter((result) => result.status === "running").length,
-      reviewCases: results.filter((result) => result.status === "needs_review").length,
+      completedCases: statusCounts.completedCases,
+      failedCases: statusCounts.failedCases,
+      runningCases: statusCounts.runningCases,
+      reviewCases: statusCounts.reviewCases,
       meanBrier: meanScore(results, "brier"),
       meanLog: meanScore(results, "log"),
       meanBaselineBrier: meanScore(results, "baseline_brier"),
@@ -1776,11 +1785,12 @@ function buildBaselineComparison(input: {
 }
 
 function benchmarkRunMetrics(results: BenchmarkCaseResultRow[]) {
+  const statusCounts = summarizeBenchmarkCaseResultStatuses(results);
   return {
-    completedCases: results.filter((result) => result.status === "completed").length,
-    failedCases: results.filter((result) => result.status === "failed").length,
-    reviewCases: results.filter((result) => result.status === "needs_review").length,
-    runningCases: results.filter((result) => result.status === "running").length,
+    completedCases: statusCounts.completedCases,
+    failedCases: statusCounts.failedCases,
+    reviewCases: statusCounts.reviewCases,
+    runningCases: statusCounts.runningCases,
     meanBrier: meanScore(results, "brier"),
     meanLog: meanScore(results, "log"),
     meanBaselineBrier: meanScore(results, "baseline_brier"),
@@ -2201,7 +2211,7 @@ async function reconcileCaseResults(db: Db, input: {
   const runningResults = await db
     .select()
     .from(benchmarkCaseResults)
-    .where(eq(benchmarkCaseResults.status, "running"));
+    .where(eq(benchmarkCaseResults.status, benchmarkCaseResultStatusRunning));
 
   for (const result of runningResults) {
     if (!result.taskId) {
@@ -2216,7 +2226,7 @@ async function reconcileCaseResults(db: Db, input: {
       await db
         .update(benchmarkCaseResults)
         .set({
-          status: "failed",
+          status: benchmarkCaseResultStatusFailed,
           failureLabels: ["task_failed"],
           updatedAt: new Date(),
         })
@@ -2262,7 +2272,7 @@ async function reconcileCaseResults(db: Db, input: {
     await db
       .update(benchmarkCaseResults)
       .set({
-        status: failureLabels.length ? "needs_review" : "completed",
+        status: failureLabels.length ? benchmarkCaseResultStatusNeedsReview : benchmarkCaseResultStatusCompleted,
         forecastOutputArtifactId: task.outputArtifactId,
         scoreRows,
         traceBundleUri: traceBundle.storageUri,
@@ -2277,7 +2287,7 @@ async function backfillBenchmarkForecastScoreRows(db: Db) {
   const results = await db
     .select()
     .from(benchmarkCaseResults)
-    .where(eq(benchmarkCaseResults.status, "completed"));
+    .where(eq(benchmarkCaseResults.status, benchmarkCaseResultStatusCompleted));
 
   for (const result of results) {
     if (!result.taskId || result.scoreRows.length === 0) {
@@ -2393,7 +2403,7 @@ async function finalizeReadyBenchmarkRuns(db: Db, input: { root?: string } = {})
     if (results.length < run.caseCount) {
       continue;
     }
-    if (results.some((result) => result.status === "running" || result.status === "queued")) {
+    if (results.some((result) => isBenchmarkCaseResultPendingStatus(result.status))) {
       continue;
     }
 
@@ -2401,9 +2411,10 @@ async function finalizeReadyBenchmarkRuns(db: Db, input: { root?: string } = {})
     const meanLog = meanScore(results, "log");
     const meanBaselineBrier = meanScore(results, "baseline_brier");
     const meanBrierDelta = meanScore(results, "baseline_delta_brier");
-    const completedCases = results.filter((result) => result.status === "completed").length;
-    const failedCases = results.filter((result) => result.status === "failed").length;
-    const reviewCases = results.filter((result) => result.status === "needs_review").length;
+    const statusCounts = summarizeBenchmarkCaseResultStatuses(results);
+    const completedCases = statusCounts.completedCases;
+    const failedCases = statusCounts.failedCases;
+    const reviewCases = statusCounts.reviewCases;
     const caseAnalyses = await buildBenchmarkCaseAnalyses(db, {
       benchmarkRunId: run.id,
       evalMode: run.evalMode,
@@ -3110,7 +3121,7 @@ function classifyPrimaryFailure(input: {
   sourceAudit: Record<string, unknown>;
   traceAudit: Record<string, unknown>;
 }) {
-  if (input.status === "failed") {
+  if (input.status === benchmarkCaseResultStatusFailed) {
     return "execution_failed";
   }
   if (input.probability === null || input.failureLabels.includes("missing_probability")) {
@@ -3131,7 +3142,7 @@ function classifyPrimaryFailure(input: {
   if (typeof input.brier === "number" && input.brier > 0.16) {
     return "large_probability_miss";
   }
-  if (input.status === "needs_review") {
+  if (input.status === benchmarkCaseResultStatusNeedsReview) {
     return "manual_review_required";
   }
   return "passed_smoke_gate";
@@ -3930,7 +3941,7 @@ function clusterFailures(
   for (const result of results) {
     const analysis = analysesByResultId.get(result.id);
     const labels = uniqueStrings([
-      ...(result.status === "completed" ? [] : result.failureLabels),
+      ...(result.status === benchmarkCaseResultStatusCompleted ? [] : result.failureLabels),
       ...(analysis && analysis.primaryFailureMode !== "passed_smoke_gate" ? [analysis.primaryFailureMode] : []),
     ]);
     for (const label of labels) {

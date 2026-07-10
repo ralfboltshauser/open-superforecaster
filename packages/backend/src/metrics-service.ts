@@ -18,6 +18,7 @@ import {
   workflowProposalValidationCoverage,
   workflowProposalValidationReadiness,
 } from "./benchmark-service";
+import { summarizeBenchmarkCaseResultStatuses } from "./benchmark-case-result-policy";
 import { readCalibrationDefaultPlanArtifacts } from "./calibration-default-plan-artifacts";
 import { readCalibrationGuardValidationArtifacts } from "./calibration-guard-validation-artifacts";
 import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
@@ -375,13 +376,14 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge("open_superforecaster_benchmark_run_info", "Recent benchmark run metadata.", 1, labels);
     metrics.gauge("open_superforecaster_benchmark_cases_expected", "Expected case count per recent benchmark run.", run.caseCount, labels);
     const caseRows = recentCasesByRunId.get(run.id) ?? [];
+    const statusCounts = summarizeBenchmarkCaseResultStatuses(caseRows);
     const comparisonReport = run.comparisonReportArtifactId ? reportRowsByArtifactId.get(run.comparisonReportArtifactId) ?? null : null;
     const analysisReport = run.analysisReportArtifactId ? reportRowsByArtifactId.get(run.analysisReportArtifactId) ?? null : null;
     const promotionGate = summarizeBenchmarkPromotionGateEvidence({
       runStatus: run.status,
-      resultCount: caseRows.length,
+      resultCount: statusCounts.totalCases,
       traceMissing: caseRows.filter((row) => !row.traceBundleUri).length,
-      reviewOrFailed: caseRows.filter((row) => row.status === "failed" || row.status === "needs_review").length,
+      reviewOrFailed: statusCounts.reviewOrFailedCases,
       comparisonStatus: readComparisonRecommendationStatus(comparisonReport),
       baselineSanityFindings: readRecord(analysisReport, "baselineSanityFindings", "baseline_sanity_findings"),
       componentDisagreementFindings: readRecord(analysisReport, "componentDisagreementFindings", "component_disagreement_findings"),

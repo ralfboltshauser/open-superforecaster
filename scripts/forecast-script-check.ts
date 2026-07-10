@@ -3961,11 +3961,17 @@ await check("benchmark primary baseline is exported to DuckDB", async () => {
 });
 
 await check("benchmark promotion gate blockers are exported as metrics", async () => {
+  const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
+  const backendIndexSource = await readFile(resolve(root, "packages/backend/src/index.ts"), "utf8");
   const smokeSource = await readFile(resolve(root, "scripts/smoke-check.ts"), "utf8");
   assert(metricsSource.includes("open_superforecaster_benchmark_promotion_gate_status"), "promotion gate status metric missing");
   assert(metricsSource.includes("open_superforecaster_benchmark_promotion_gate_blocker"), "promotion gate blocker metric missing");
   assert(metricsSource.includes("summarizeBenchmarkPromotionGateEvidence"), "metrics exporter does not use shared promotion gate helper");
+  assert(metricsSource.includes("summarizeBenchmarkCaseResultStatuses"), "metrics exporter does not use shared benchmark case result status counts");
+  assert(backendSource.includes("summarizeBenchmarkCaseResultStatuses"), "benchmark service does not use shared benchmark case result status counts");
+  assert(backendSource.includes("isBenchmarkCaseResultPendingStatus"), "benchmark service does not use shared benchmark case pending status policy");
+  assert(backendIndexSource.includes("benchmark-case-result-policy"), "backend package barrel does not export benchmark case result policy");
   assert(smokeSource.includes("open_superforecaster_benchmark_promotion_gate_status"), "smoke check does not require promotion gate status metric");
   assert(smokeSource.includes("open_superforecaster_benchmark_cost_summary_present"), "smoke check does not require benchmark cost summary presence metric");
   return "promotion gate blockers are visible in Prometheus metrics";
@@ -4012,12 +4018,14 @@ await check("workflow change proposal lifecycle is exported as metrics", async (
 await check("benchmark promotion gate blockers are exported to DuckDB", async () => {
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
   assert(syncSource.includes("../packages/backend/src/benchmark-promotion-policy"), "DuckDB sync does not import shared benchmark promotion policy");
+  assert(syncSource.includes("../packages/backend/src/benchmark-case-result-policy"), "DuckDB sync does not import shared benchmark case result policy");
   assert(syncSource.includes("minimumPromotionResultCases"), "DuckDB sync does not use shared minimum result case policy");
   assert(syncSource.includes("minimumPromotionHoldoutCases"), "DuckDB sync does not use shared minimum holdout case policy");
   assert(syncSource.includes("benchmarkPromotionGateStatusReview"), "DuckDB sync does not use shared promotion review status");
   assert(syncSource.includes("benchmarkPromotionGateStatusNeedsMoreEvidence"), "DuckDB sync does not use shared promotion blocked status");
   assert(syncSource.includes("promotion_gate_status"), "DuckDB benchmark run mart missing promotion gate status");
   assert(syncSource.includes("promotion_gate_blockers"), "DuckDB benchmark run mart missing promotion gate blockers");
+  assert(syncSource.includes("benchmarkCaseResultStatusFailed") && syncSource.includes("benchmarkCaseResultStatusNeedsReview"), "DuckDB promotion gate review/fail count does not use shared benchmark case result statuses");
   assert(syncSource.includes("missing_baseline_sanity_cases"), "DuckDB benchmark run mart missing baseline sanity count");
   assert(syncSource.includes("unexplained_component_disagreement_cases"), "DuckDB benchmark run mart missing component disagreement count");
   assert(syncSource.includes("large_probability_miss_cases"), "DuckDB benchmark run mart missing large miss count");
