@@ -45,6 +45,12 @@ export type ForecastAttentionSeverity = typeof forecastAttentionSeverities[numbe
 
 export type PerformanceAttentionSeverity = Extract<ForecastAttentionSeverity, "high" | "medium">;
 
+export type ForecastAttentionSeverityCounts = {
+  high: number;
+  medium: number;
+  low: number;
+};
+
 export const forecastAttentionReviewStatuses = ["open", "reviewed", "deferred"] as const;
 
 export type ForecastAttentionReviewStatus = typeof forecastAttentionReviewStatuses[number];
@@ -105,6 +111,16 @@ export function forecastAttentionSeveritySortRank(severity: string | null | unde
     return 2;
   }
   return 3;
+}
+
+export function summarizeForecastAttentionSeverities<T extends { severity: string | null | undefined }>(
+  items: T[],
+): ForecastAttentionSeverityCounts {
+  return {
+    high: items.filter((item) => item.severity === "high").length,
+    medium: items.filter((item) => item.severity === "medium").length,
+    low: items.filter((item) => item.severity === "low").length,
+  };
 }
 
 export function performanceAttentionSeverityRank(severity: PerformanceAttentionSeverity) {

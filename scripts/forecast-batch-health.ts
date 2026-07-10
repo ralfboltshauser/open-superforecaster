@@ -9,6 +9,7 @@ import {
   forecastAttentionSeveritySortRank,
   forecastAttentionReviewStatusRank,
   isForecastAttentionReviewStatus,
+  summarizeForecastAttentionSeverities,
   summarizeForecastAttentionReviewStatuses,
   type ForecastAttentionReviewStatus,
 } from "../packages/backend/src/forecast-attention-policy";
@@ -731,15 +732,16 @@ function summarizeAttentionByKind(items: HealthAttentionItem[]): AttentionKindBr
   return [...groupBy(items, (item) => item.kind).entries()]
     .map(([kind, rows]) => {
       const reviewCounts = summarizeForecastAttentionReviewStatuses(rows);
+      const severityCounts = summarizeForecastAttentionSeverities(rows);
       return {
         kind,
         items: rows.length,
         open: reviewCounts.open,
         deferred: reviewCounts.deferred,
         reviewed: reviewCounts.reviewed,
-        high: countSeverity(rows, "high"),
-        medium: countSeverity(rows, "medium"),
-        low: countSeverity(rows, "low"),
+        high: severityCounts.high,
+        medium: severityCounts.medium,
+        low: severityCounts.low,
       };
     })
     .sort((left, right) =>
@@ -768,15 +770,16 @@ function summarizeAttentionByForecastType(items: HealthAttentionItem[]): Attenti
   return [...groupBy(items, (item) => item.forecastType).entries()]
     .map(([forecastType, rows]) => {
       const reviewCounts = summarizeForecastAttentionReviewStatuses(rows);
+      const severityCounts = summarizeForecastAttentionSeverities(rows);
       return {
         forecastType,
         items: rows.length,
         open: reviewCounts.open,
         deferred: reviewCounts.deferred,
         reviewed: reviewCounts.reviewed,
-        high: countSeverity(rows, "high"),
-        medium: countSeverity(rows, "medium"),
-        low: countSeverity(rows, "low"),
+        high: severityCounts.high,
+        medium: severityCounts.medium,
+        low: severityCounts.low,
       };
     })
     .sort((left, right) =>
@@ -784,10 +787,6 @@ function summarizeAttentionByForecastType(items: HealthAttentionItem[]): Attenti
       || forecastAttentionSeveritySortRank(left.high > 0 ? "high" : left.medium > 0 ? "medium" : "low") - forecastAttentionSeveritySortRank(right.high > 0 ? "high" : right.medium > 0 ? "medium" : "low")
       || left.forecastType.localeCompare(right.forecastType)
     );
-}
-
-function countSeverity(items: HealthAttentionItem[], severity: string) {
-  return items.filter((item) => item.severity === severity).length;
 }
 
 function groupBy<T>(items: T[], keyFor: (item: T) => string) {

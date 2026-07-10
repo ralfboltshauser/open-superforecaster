@@ -20,6 +20,7 @@ import {
   recommendCalibrationDefaultPlanSkippedActions,
   recommendCalibrationValidationActions,
   recommendCandidateCalibrationGuardActions,
+  summarizeForecastAttentionSeverities,
   summarizeForecastAttentionReviewStatuses,
   type ForecastAttentionReviewStatus,
 } from "../packages/backend/src/forecast-attention-policy";
@@ -341,6 +342,7 @@ function buildReport(
   reviewPath: string,
 ): BacklogReport {
   const reviewCounts = summarizeForecastAttentionReviewStatuses(items);
+  const severityCounts = summarizeForecastAttentionSeverities(items);
   return {
     reportType: "forecast_attention_backlog",
     generatedAt: new Date().toISOString(),
@@ -353,9 +355,9 @@ function buildReport(
       open: reviewCounts.open,
       deferred: reviewCounts.deferred,
       reviewed: reviewCounts.reviewed,
-      high: countSeverity(items, "high"),
-      medium: countSeverity(items, "medium"),
-      low: countSeverity(items, "low"),
+      high: severityCounts.high,
+      medium: severityCounts.medium,
+      low: severityCounts.low,
     },
     byForecastType: summarizeByForecastType(items),
     byKind: summarizeByKind(items),
@@ -463,10 +465,6 @@ function batchIdFromProposalId(proposalId: string) {
   return match?.[1] ?? null;
 }
 
-function countSeverity(items: BacklogItem[], severity: string) {
-  return items.filter((item) => item.severity === severity).length;
-}
-
 function summarizeByForecastType(items: BacklogItem[]) {
   return summarizeBacklogGroups(items, (item) => item.forecastType ?? "unknown").map((row) => ({
     forecastType: row.key,
@@ -508,14 +506,15 @@ function summarizeBacklogGroups(items: BacklogItem[], keyFor: (item: BacklogItem
 
 function countBreakdown(items: BacklogItem[]): BacklogBreakdownCounts {
   const reviewCounts = summarizeForecastAttentionReviewStatuses(items);
+  const severityCounts = summarizeForecastAttentionSeverities(items);
   return {
     items: items.length,
     open: reviewCounts.open,
     deferred: reviewCounts.deferred,
     reviewed: reviewCounts.reviewed,
-    high: countSeverity(items, "high"),
-    medium: countSeverity(items, "medium"),
-    low: countSeverity(items, "low"),
+    high: severityCounts.high,
+    medium: severityCounts.medium,
+    low: severityCounts.low,
   };
 }
 
