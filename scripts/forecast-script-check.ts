@@ -3315,6 +3315,7 @@ await check("workflow change proposals are visible in the lab dashboard", async 
   assert(dashboardSource.includes("validationGateBlockers"), "lab dashboard proposal section missing validation gate blockers");
   assert(dashboardSource.includes("canMarkImplemented"), "lab dashboard does not gate implemented action on validation result");
   assert(dashboardSource.includes("validationGateStatus === \"review_for_promotion\""), "lab dashboard does not require passing validation gate before implemented action");
+  assert(dashboardSource.includes("hasValidationCoverage"), "lab dashboard does not require validation case coverage before implemented action");
   return "benchmark-derived workflow proposals are visible where promotion blockers are reviewed";
 });
 
@@ -3357,6 +3358,9 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(backendSource.includes("assertWorkflowChangeProposalStatusTransitionAllowed"), "backend missing workflow proposal transition guard");
   assert(backendSource.includes("validationResultStatus !== \"completed\""), "backend implemented transition does not require completed validation");
   assert(backendSource.includes("validationGateStatus !== \"review_for_promotion\""), "backend implemented transition does not require a passing validation gate");
+  assert(backendSource.includes("Source benchmark run not found for workflow change proposal"), "backend implemented transition does not load source benchmark case count");
+  assert(backendSource.includes("requiredValidationCases = Math.max(sourceBenchmarkCaseCount, 1)"), "backend implemented transition does not require source-sized validation coverage");
+  assert(backendSource.includes("validationCompletedCases ?? 0"), "backend implemented transition does not check completed validation case count");
   assert(backendSource.includes("validationGateBlockers") && backendSource.includes("validation gate blockers remain"), "backend implemented transition does not block remaining validation blockers");
   assert(backendSource.includes("implementationStatusForProposalTransition"), "backend missing proposal implementation transition helper");
   assert(backendSource.includes("proposal-${existing.id.slice(0, 8)}"), "backend missing deterministic proposal experiment label");

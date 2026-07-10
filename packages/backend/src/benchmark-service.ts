@@ -1080,7 +1080,19 @@ export async function updateWorkflowChangeProposalStatus(
   if (!existing) {
     throw new Error(`Workflow change proposal not found for benchmark run: ${input.proposalId}`);
   }
-  assertWorkflowChangeProposalStatusTransitionAllowed(status, existing);
+  let sourceBenchmarkCaseCount = 0;
+  if (status === "implemented") {
+    const [sourceRun] = await db
+      .select({ caseCount: benchmarkRuns.caseCount })
+      .from(benchmarkRuns)
+      .where(eq(benchmarkRuns.id, input.benchmarkRunId))
+      .limit(1);
+    if (!sourceRun) {
+      throw new Error(`Source benchmark run not found for workflow change proposal: ${input.proposalId}`);
+    }
+    sourceBenchmarkCaseCount = sourceRun.caseCount;
+  }
+  assertWorkflowChangeProposalStatusTransitionAllowed(status, existing, sourceBenchmarkCaseCount);
   const implementationStatus = input.implementationStatus
     ? normalizeWorkflowChangeProposalImplementationStatus(input.implementationStatus)
     : implementationStatusForProposalTransition(status, existing.implementationStatus);
@@ -1401,6 +1413,7 @@ function normalizeWorkflowChangeProposalImplementationStatus(raw: string): Workf
 function assertWorkflowChangeProposalStatusTransitionAllowed(
   status: WorkflowChangeProposalStatus,
   proposal: typeof workflowChangeProposals.$inferSelect,
+  sourceBenchmarkCaseCount: number,
 ) {
   if (status !== "implemented") {
     return;
@@ -1410,6 +1423,12 @@ function assertWorkflowChangeProposalStatusTransitionAllowed(
   }
   if (proposal.validationGateStatus !== "review_for_promotion") {
     throw new Error("Cannot mark workflow change proposal implemented until validation gate is review_for_promotion.");
+  }
+  const requiredValidationCases = Math.max(sourceBenchmarkCaseCount, 1);
+  if ((proposal.validationCompletedCases ?? 0) < requiredValidationCases) {
+    throw new Error(
+      `Cannot mark workflow change proposal implemented until validation covers at least ${requiredValidationCases} source benchmark case(s).`,
+    );
   }
   const gateBlockers = Array.isArray(proposal.validationGateBlockers) ? proposal.validationGateBlockers.filter(Boolean) : [];
   if (gateBlockers.length > 0) {

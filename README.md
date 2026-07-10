@@ -392,8 +392,8 @@ and proposal validation records cost deltas against the source benchmark before
 a workflow patch is marked implemented. Proposal validation reuses the source
 benchmark's case count by default unless a reviewer explicitly narrows
 `maxCases` for a debug run. Proposal patches can only be marked implemented
-after validation completes with a passing promotion gate and no remaining
-blockers.
+after validation completes with at least the source benchmark's case coverage, a
+passing promotion gate, and no remaining blockers.
 The local DuckDB sync also derives `osf_source_bank_domains` from persisted
 source-bank entries so source concentration, final-use count, source-type mix,
 and mean source quality can be audited by domain. Prometheus metrics expose the

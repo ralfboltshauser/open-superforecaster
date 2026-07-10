@@ -410,6 +410,7 @@ function BenchmarkRunSummary({
   const heaviestCostCases = readArray(costLatency, "heaviestCases").filter(isRecord)
   const slowestCostCases = readArray(costLatency, "slowestCases").filter(isRecord)
   const benchmarkRunId = typeof run.id === "string" ? run.id : null
+  const sourceBenchmarkCaseCount = typeof run.caseCount === "number" ? run.caseCount : null
   return (
     <div className="rounded-md border p-3 text-sm">
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -485,6 +486,7 @@ function BenchmarkRunSummary({
                 busy={busy}
                 launchWorkflowProposalValidation={launchWorkflowProposalValidation}
                 proposal={proposal}
+                sourceBenchmarkCaseCount={sourceBenchmarkCaseCount}
                 updateWorkflowChangeProposal={updateWorkflowChangeProposal}
                 key={String(proposal.id ?? proposal.proposedChange)}
               />
@@ -574,12 +576,14 @@ function WorkflowProposalSummary({
   busy,
   launchWorkflowProposalValidation,
   proposal,
+  sourceBenchmarkCaseCount,
   updateWorkflowChangeProposal,
 }: {
   benchmarkRunId: string | null
   busy: string | null
   launchWorkflowProposalValidation: (benchmarkRunId: string, proposalId: string) => Promise<void>
   proposal: JsonRecord
+  sourceBenchmarkCaseCount: number | null
   updateWorkflowChangeProposal: (
     benchmarkRunId: string,
     proposalId: string,
@@ -596,6 +600,7 @@ function WorkflowProposalSummary({
   const validationResultStatus = typeof proposal.validationResultStatus === "string" ? proposal.validationResultStatus : null
   const validationResultSummary = typeof proposal.validationResultSummary === "string" ? proposal.validationResultSummary : null
   const validationMeanBrierDelta = typeof proposal.validationMeanBrierDelta === "number" ? proposal.validationMeanBrierDelta : null
+  const validationCompletedCases = typeof proposal.validationCompletedCases === "number" ? proposal.validationCompletedCases : null
   const validationCostTotalTokensDelta = typeof proposal.validationCostTotalTokensDelta === "number" ? proposal.validationCostTotalTokensDelta : null
   const validationCostAgentCallsDelta = typeof proposal.validationCostAgentCallsDelta === "number" ? proposal.validationCostAgentCallsDelta : null
   const validationCostMeanDurationSecondsDelta =
@@ -616,7 +621,10 @@ function WorkflowProposalSummary({
   const reviewedBy = typeof proposal.reviewedBy === "string" ? proposal.reviewedBy : null
   const reviewedAt = typeof proposal.reviewedAt === "string" ? proposal.reviewedAt : null
   const canUpdate = Boolean(benchmarkRunId && proposalId)
-  const canMarkImplemented = validationResultStatus === "completed" && validationGateStatus === "review_for_promotion" && !validationGateBlockers.length
+  const requiredValidationCases = sourceBenchmarkCaseCount === null ? 1 : Math.max(sourceBenchmarkCaseCount, 1)
+  const hasValidationCoverage = (validationCompletedCases ?? 0) >= requiredValidationCases
+  const canMarkImplemented =
+    validationResultStatus === "completed" && validationGateStatus === "review_for_promotion" && hasValidationCoverage && !validationGateBlockers.length
   const updateStatus = (
     nextStatus: WorkflowChangeProposalStatus,
     nextImplementationStatus?: WorkflowChangeProposalImplementationStatus,
@@ -663,6 +671,7 @@ function WorkflowProposalSummary({
           {validationBenchmarkRunId ? (
             <p className="mt-1 truncate">
               validation run {validationBenchmarkRunId}{validationResultStatus ? ` · ${validationResultStatus}` : ""}
+              {validationCompletedCases === null ? "" : ` · ${validationCompletedCases}/${requiredValidationCases} cases`}
               {validationMeanBrierDelta === null ? "" : ` · delta ${formatMetric(validationMeanBrierDelta)}`}
             </p>
           ) : null}
