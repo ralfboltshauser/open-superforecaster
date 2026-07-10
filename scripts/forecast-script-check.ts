@@ -18,7 +18,7 @@ import { readConditionalForecastSnapshot } from "../packages/backend/src/conditi
 import { readDateForecastSnapshot } from "../packages/backend/src/date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "../packages/backend/src/evidence-coverage-metadata";
 import { FORECAST_BATCH_HEALTH_REPORT_PATH, readLatestForecastBatchHealth } from "../packages/backend/src/forecast-batch-health";
-import { readForecastInputContextSnapshot } from "../packages/backend/src/forecast-input-context-metadata";
+import { contextCompletenessScore, readForecastInputContextSnapshot } from "../packages/backend/src/forecast-input-context-metadata";
 import { readForecastRunSnapshot } from "../packages/backend/src/forecast-run-metadata";
 import { readMarketAnchorSnapshot } from "../packages/backend/src/market-anchor-metadata";
 import { readNumericForecastSnapshot } from "../packages/backend/src/numeric-forecast-metadata";
@@ -2335,8 +2335,24 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(snapshot?.hasUnit === true, "input context unit flag mismatch");
   assert(snapshot?.unit === "units", "input context unit mismatch");
   assert(snapshot?.unitSpecificityBand === "generic", "input context unit specificity band mismatch");
-  assert(snapshot?.contextCompleteness === 9, "input context completeness mismatch");
+  assert(snapshot?.contextCompleteness === 13, "input context completeness mismatch");
   assert(snapshot?.contextCompletenessBand === "rich", "input context completeness band mismatch");
+  assert(contextCompletenessScore({
+    hasRequestedForecastType: true,
+    hasRoutedForecastType: true,
+    hasRoutingConfidence: true,
+    hasInputSource: true,
+    hasResolutionCriteria: true,
+    hasResolutionDate: true,
+    hasEvidenceAsOfDate: true,
+    hasBackground: true,
+    hasMarketPrice: true,
+    hasCategories: true,
+    hasThresholds: true,
+    hasCondition: true,
+    hasConditionResolutionCriteria: true,
+    hasUnit: true,
+  }) === 14, "input context completeness score contract mismatch");
 
   const fallbackSnapshot = readForecastInputContextSnapshot({
     prompt: "Will this launch happen?",

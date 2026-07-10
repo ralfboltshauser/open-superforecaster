@@ -356,7 +356,9 @@ type, routing confidence, input source, market price and market-price recency, b
 market metadata and market creation age, option counts and coverage, threshold counts, values,
 direction and bands, condition/unit flags, unit specificity,
 condition-criteria coverage, condition depth, condition-criteria depth, and
-question length, so missing-as-of, short-horizon, thin-resolution-criteria,
+question length. The context-completeness score counts explicit type/provenance,
+timing, resolution, background, market, option, threshold, condition, and unit
+fields, so missing-as-of, short-horizon, thin-resolution-criteria,
 requested/routed-type mismatches, low-confidence routing, source-specific templates, thin-background, stale-market, market-anchored,
 market-traceability, option-heavy, open-category, missing-threshold-value,
 missing-threshold-direction, threshold-curve, generic-unit,

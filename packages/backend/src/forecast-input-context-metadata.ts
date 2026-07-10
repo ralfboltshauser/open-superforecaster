@@ -113,17 +113,22 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     : null;
   const unit = normalized.unit?.trim() || null;
   const hasUnit = unit !== null;
-  const contextCompleteness = [
+  const contextCompleteness = contextCompletenessScore({
+    hasRequestedForecastType: requestedForecastType !== null,
+    hasRoutedForecastType: routedForecastType !== null,
+    hasRoutingConfidence: routingConfidence !== null,
+    hasInputSource: inputSource !== null,
     hasResolutionCriteria,
     hasResolutionDate,
+    hasEvidenceAsOfDate,
     hasBackground,
     hasMarketPrice,
-    categoryCount > 0,
-    thresholdCount > 0,
+    hasCategories: categoryCount > 0,
+    hasThresholds: thresholdCount > 0,
     hasCondition,
     hasConditionResolutionCriteria,
     hasUnit,
-  ].filter(Boolean).length;
+  });
   return {
     requestedForecastType,
     requestedForecastTypeBand: requestedForecastTypeBand(requestedForecastType),
@@ -393,6 +398,40 @@ export function evidenceAsOfDateBand(hasEvidenceAsOfDate: boolean): ForecastInpu
   return hasEvidenceAsOfDate ? "specified" : "missing";
 }
 
+export function contextCompletenessScore(input: {
+  hasRequestedForecastType: boolean;
+  hasRoutedForecastType: boolean;
+  hasRoutingConfidence: boolean;
+  hasInputSource: boolean;
+  hasResolutionCriteria: boolean;
+  hasResolutionDate: boolean;
+  hasEvidenceAsOfDate: boolean;
+  hasBackground: boolean;
+  hasMarketPrice: boolean;
+  hasCategories: boolean;
+  hasThresholds: boolean;
+  hasCondition: boolean;
+  hasConditionResolutionCriteria: boolean;
+  hasUnit: boolean;
+}) {
+  return [
+    input.hasRequestedForecastType,
+    input.hasRoutedForecastType,
+    input.hasRoutingConfidence,
+    input.hasInputSource,
+    input.hasResolutionCriteria,
+    input.hasResolutionDate,
+    input.hasEvidenceAsOfDate,
+    input.hasBackground,
+    input.hasMarketPrice,
+    input.hasCategories,
+    input.hasThresholds,
+    input.hasCondition,
+    input.hasConditionResolutionCriteria,
+    input.hasUnit,
+  ].filter(Boolean).length;
+}
+
 export function inputSourceBand(source: string | null): ForecastInputContextSnapshot["inputSourceBand"] {
   if (source === null) {
     return "unspecified";
@@ -583,10 +622,10 @@ export function conditionTextLengthBand(count: number | null): ForecastInputCont
 }
 
 export function contextCompletenessBand(count: number): ForecastInputContextSnapshot["contextCompletenessBand"] {
-  if (count >= 4) {
+  if (count >= 7) {
     return "rich";
   }
-  if (count >= 2) {
+  if (count >= 3) {
     return "partial";
   }
   return "sparse";
