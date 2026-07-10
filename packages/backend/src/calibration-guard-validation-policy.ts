@@ -68,7 +68,8 @@ export type CalibrationGuardValidationResult = {
   recommendation: CalibrationGuardValidationRecommendation;
 };
 
-export const calibrationGuardDefaultPlanTargetWorkflowId = "binary-calibration-guard" as const;
+export const calibrationGuardTargetWorkflowId = "binary-calibration-guard" as const;
+export const calibrationGuardDefaultPlanTargetWorkflowId = calibrationGuardTargetWorkflowId;
 export const calibrationGuardDefaultPlanTargetFile = "packages/workflows/src/binary-calibration-guard.ts" as const;
 export const calibrationGuardDefaultPlanManualReviewStatus = "manual_review_required" as const;
 

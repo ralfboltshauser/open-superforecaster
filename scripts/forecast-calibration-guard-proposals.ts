@@ -15,6 +15,7 @@ import {
   summarizeCalibrationGuardProposalEligibility,
   type CalibrationGuardActivationStatus,
 } from "../packages/backend/src/calibration-guard-activation-policy";
+import { calibrationGuardTargetWorkflowId } from "../packages/backend/src/calibration-guard-validation-policy";
 import { timestampValue } from "../packages/backend/src/json-artifacts";
 import {
   hasArg,
@@ -45,7 +46,7 @@ type CalibrationGuardProposal = {
   id: string;
   sourceBatchId: string;
   sourceCandidateGuardId: string;
-  targetWorkflowId: "binary-calibration-guard";
+  targetWorkflowId: typeof calibrationGuardTargetWorkflowId;
   status: "draft";
   problemStatement: string;
   evidenceRuleIds: string[];
@@ -209,7 +210,7 @@ function buildProposal(batchId: string, rule: CandidateCalibrationGuardRule): Ca
     id: `calibration-guard-proposal:${batchId}:${rule.id}`,
     sourceBatchId: batchId,
     sourceCandidateGuardId: rule.id,
-    targetWorkflowId: "binary-calibration-guard",
+    targetWorkflowId: calibrationGuardTargetWorkflowId,
     status: "draft",
     problemStatement:
       `${rule.bucketLabel} binary forecasts show ${rule.direction} calibration drift: mean forecast ${forecast}, observed rate ${observed}, absolute calibration error ${error}.`,

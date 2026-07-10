@@ -331,6 +331,7 @@ await check("forecast calibration guard proposals require reviewed ready candida
   const proposalSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-proposals.ts"), "utf8");
   const batchIndexReaderSource = await readFile(resolve(root, "packages/backend/src/forecast-batch-index-artifacts.ts"), "utf8");
   const activationPolicySource = await readFile(resolve(root, "packages/backend/src/calibration-guard-activation-policy.ts"), "utf8");
+  const validationPolicySource = await readFile(resolve(root, "packages/backend/src/calibration-guard-validation-policy.ts"), "utf8");
   await mkdir(batchIndexRoot, { recursive: true });
   await writeJson(resolve(batchIndexRoot, "batch-index.json"), {
     reportType: "forecast_batch_index",
@@ -403,6 +404,7 @@ await check("forecast calibration guard proposals require reviewed ready candida
   assert(proposalSource.includes("normalizeForecastAttentionReviewStatus"), "calibration guard proposal generator does not use shared review status normalization");
   assert(proposalSource.includes("summarizeCalibrationGuardProposalEligibility"), "calibration guard proposal generator does not use shared eligibility counts");
   assert(proposalSource.includes("isCalibrationGuardProposalEligible"), "calibration guard proposal generator does not use shared eligibility policy");
+  assert(proposalSource.includes("calibrationGuardTargetWorkflowId"), "calibration guard proposal generator does not use shared target workflow policy");
   assert(proposalSource.includes("../packages/backend/src/json-artifacts"), "calibration guard proposal generator does not use shared timestamp parsing");
   assert(activationPolicySource.includes("summarizeCalibrationGuardProposalEligibility"), "calibration guard activation policy does not expose proposal eligibility counts");
   assert(activationPolicySource.includes("isCalibrationGuardProposalEligible"), "calibration guard activation policy does not expose proposal eligibility policy");
@@ -410,12 +412,14 @@ await check("forecast calibration guard proposals require reviewed ready candida
   assert(activationPolicySource.includes("isForecastAttentionReviewOpen"), "calibration guard activation policy does not use shared open review policy");
   assert(activationPolicySource.includes("isForecastAttentionReviewResolved"), "calibration guard activation policy does not use shared resolved review policy");
   assert(activationPolicySource.includes("isForecastAttentionReviewDeferred"), "calibration guard activation policy does not use shared deferred review policy");
+  assert(validationPolicySource.includes("calibrationGuardTargetWorkflowId"), "calibration validation policy does not expose shared target workflow policy");
   assert(proposalSource.includes("reportRoot: batchRoot"), "calibration guard proposal generator does not pass its configured batch-index directory to the shared reader");
   assert(!proposalSource.includes("listFilesNamed(batchRoot"), "calibration guard proposal generator should not keep a local batch-index scanner");
   assert(!proposalSource.includes("readRecordArray(batchIndex"), "calibration guard proposal generator should not parse candidate rules from raw batch-index JSON");
   assert(!proposalSource.includes("function readReviewStatus("), "calibration guard proposal generator should not keep a local review status reader");
   assert(!proposalSource.includes("function isEligibleCandidateRule("), "calibration guard proposal generator should not keep local eligibility policy");
   assert(!proposalSource.includes("function timestampValue("), "calibration guard proposal generator should not keep local timestamp parsing");
+  assert(!proposalSource.includes("targetWorkflowId: \"binary-calibration-guard\""), "calibration guard proposal generator should not keep local target workflow policy");
   assert(!proposalSource.includes("reviewStatus === \"open\""), "calibration guard proposal generator should not keep local open review checks");
   assert(!proposalSource.includes("reviewStatus === \"deferred\""), "calibration guard proposal generator should not keep local deferred review checks");
   assert(!proposalSource.includes("reviewStatus === \"reviewed\""), "calibration guard proposal generator should not keep local resolved review checks");
