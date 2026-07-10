@@ -117,6 +117,7 @@ const [
 ] = benchmarkPromotionGateBlockerIds;
 
 export const benchmarkHoldoutSplitIds = ["holdout", "test", "validation", "eval", "evaluation"] as const;
+const minimumPromotionPairedCases = 10;
 const minimumPromotionHoldoutCases = 10;
 
 export type BenchmarkPromotionGateEvidenceInput = {
@@ -1084,6 +1085,7 @@ export async function updateWorkflowChangeProposalStatus(
     throw new Error(`Workflow change proposal not found for benchmark run: ${input.proposalId}`);
   }
   let sourceBenchmarkCaseCount = 0;
+  let validationComparisonReport: Record<string, unknown> | null = null;
   if (status === "implemented" || requestedImplementationStatus === "validated") {
     const [sourceRun] = await db
       .select({ caseCount: benchmarkRuns.caseCount })
@@ -1094,10 +1096,13 @@ export async function updateWorkflowChangeProposalStatus(
       throw new Error(`Source benchmark run not found for workflow change proposal: ${input.proposalId}`);
     }
     sourceBenchmarkCaseCount = sourceRun.caseCount;
+    validationComparisonReport = existing.validationBenchmarkRunId
+      ? await loadBenchmarkComparisonReport(db, existing.validationBenchmarkRunId)
+      : null;
   }
-  assertWorkflowChangeProposalStatusTransitionAllowed(status, existing, sourceBenchmarkCaseCount);
+  assertWorkflowChangeProposalStatusTransitionAllowed(status, existing, sourceBenchmarkCaseCount, validationComparisonReport);
   const implementationStatus = requestedImplementationStatus ?? implementationStatusForProposalTransition(status, existing.implementationStatus);
-  assertWorkflowChangeProposalImplementationStatusAllowed(implementationStatus, existing, sourceBenchmarkCaseCount);
+  assertWorkflowChangeProposalImplementationStatusAllowed(implementationStatus, existing, sourceBenchmarkCaseCount, validationComparisonReport);
   if (status === "implemented" && implementationStatus !== "validated") {
     throw new Error("Cannot mark workflow change proposal implemented without validated implementation status.");
   }
@@ -1419,32 +1424,35 @@ function assertWorkflowChangeProposalStatusTransitionAllowed(
   status: WorkflowChangeProposalStatus,
   proposal: typeof workflowChangeProposals.$inferSelect,
   sourceBenchmarkCaseCount: number,
+  validationComparisonReport: Record<string, unknown> | null,
 ) {
   if (status !== "implemented") {
     return;
   }
-  const gateBlockers = workflowProposalValidationGateBlockers(proposal.validationGateBlockers);
-  if (!workflowProposalValidationGatePassed({
+  const readiness = workflowProposalValidationReadiness({
     resultStatus: proposal.validationResultStatus,
     gateStatus: proposal.validationGateStatus,
-    gateBlockers,
-  })) {
+    gateBlockers: proposal.validationGateBlockers,
+    completedCases: proposal.validationCompletedCases,
+    sourceBenchmarkCaseCount,
+    comparisonReport: validationComparisonReport,
+  });
+  if (!readiness.passed) {
     if (proposal.validationResultStatus !== "completed") {
       throw new Error("Cannot mark workflow change proposal implemented until validation result status is completed.");
     }
     if (proposal.validationGateStatus !== "review_for_promotion") {
       throw new Error("Cannot mark workflow change proposal implemented until validation gate is review_for_promotion.");
     }
-    throw new Error("Cannot mark workflow change proposal implemented while validation gate blockers remain.");
-  }
-  const validationCoverage = workflowProposalValidationCoverage({
-    completedCases: proposal.validationCompletedCases,
-    sourceBenchmarkCaseCount,
-  });
-  if (!validationCoverage.hasCoverage) {
-    throw new Error(
-      `Cannot mark workflow change proposal implemented until validation covers at least ${validationCoverage.requiredCases} source benchmark case(s).`,
-    );
+    if (readiness.gateBlockers.length) {
+      throw new Error("Cannot mark workflow change proposal implemented while validation gate blockers remain.");
+    }
+    if (!readiness.coverage.hasCoverage) {
+      throw new Error(
+        `Cannot mark workflow change proposal implemented until validation covers at least ${readiness.coverage.requiredCases} source benchmark case(s).`,
+      );
+    }
+    throw new Error("Cannot mark workflow change proposal implemented until validation has primary paired holdout evidence.");
   }
 }
 
@@ -1452,25 +1460,34 @@ function assertWorkflowChangeProposalImplementationStatusAllowed(
   implementationStatus: WorkflowChangeProposalImplementationStatus,
   proposal: typeof workflowChangeProposals.$inferSelect,
   sourceBenchmarkCaseCount: number,
+  validationComparisonReport: Record<string, unknown> | null,
 ) {
   if (implementationStatus !== "validated") {
     return;
   }
-  const gateBlockers = workflowProposalValidationGateBlockers(proposal.validationGateBlockers);
-  if (!workflowProposalValidationGatePassed({
+  const readiness = workflowProposalValidationReadiness({
     resultStatus: proposal.validationResultStatus,
     gateStatus: proposal.validationGateStatus,
-    gateBlockers,
-  })) {
-    throw new Error("Cannot mark workflow change proposal validated until validation passes the promotion gate with no blockers.");
-  }
-  const validationCoverage = workflowProposalValidationCoverage({
+    gateBlockers: proposal.validationGateBlockers,
     completedCases: proposal.validationCompletedCases,
     sourceBenchmarkCaseCount,
+    comparisonReport: validationComparisonReport,
   });
-  if (!validationCoverage.hasCoverage) {
+  if (!readiness.passed) {
+    if (!workflowProposalValidationGatePassed({
+      resultStatus: proposal.validationResultStatus,
+      gateStatus: proposal.validationGateStatus,
+      gateBlockers: readiness.gateBlockers,
+    })) {
+      throw new Error("Cannot mark workflow change proposal validated until validation passes the promotion gate with no blockers.");
+    }
+    if (!readiness.coverage.hasCoverage) {
+      throw new Error(
+        `Cannot mark workflow change proposal validated until validation covers at least ${readiness.coverage.requiredCases} source benchmark case(s).`,
+      );
+    }
     throw new Error(
-      `Cannot mark workflow change proposal validated until validation covers at least ${validationCoverage.requiredCases} source benchmark case(s).`,
+      "Cannot mark workflow change proposal validated until validation has primary paired holdout evidence.",
     );
   }
 }
@@ -1502,6 +1519,62 @@ export function workflowProposalValidationCoverage(input: {
     requiredCases,
     coverageRatio: completedCases / requiredCases,
     hasCoverage: completedCases >= requiredCases,
+  };
+}
+
+export function workflowProposalValidationPrimaryEvidence(comparisonReport: Record<string, unknown> | null) {
+  const recommendation = readRecord(comparisonReport, "recommendation");
+  const status = recommendation ? readString(recommendation, "status") : null;
+  const pairedCaseCount = recommendation ? readNumber(recommendation, "primaryBaselinePairedCaseCount") : null;
+  const pairedHoldoutCaseCount = recommendation ? readNumber(recommendation, "primaryBaselinePairedHoldoutCaseCount") : null;
+  const blockers = [];
+  if (status !== "candidate_better") {
+    blockers.push("validation_recommendation_not_candidate_better");
+  }
+  if ((pairedCaseCount ?? 0) < minimumPromotionPairedCases) {
+    blockers.push("insufficient_primary_paired_cases");
+  }
+  if ((pairedHoldoutCaseCount ?? 0) < minimumPromotionHoldoutCases) {
+    blockers.push("insufficient_primary_paired_holdout_cases");
+  }
+  return {
+    status,
+    pairedCaseCount: pairedCaseCount ?? 0,
+    pairedHoldoutCaseCount: pairedHoldoutCaseCount ?? 0,
+    requiredPairedCases: minimumPromotionPairedCases,
+    requiredPairedHoldoutCases: minimumPromotionHoldoutCases,
+    blockers,
+    hasEvidence: blockers.length === 0,
+  };
+}
+
+export function workflowProposalValidationReadiness(input: {
+  resultStatus: string | null;
+  gateStatus: string | null;
+  gateBlockers: unknown;
+  completedCases: number | null;
+  sourceBenchmarkCaseCount: number | null;
+  comparisonReport: Record<string, unknown> | null;
+}) {
+  const gateBlockers = workflowProposalValidationGateBlockers(input.gateBlockers);
+  const coverage = workflowProposalValidationCoverage({
+    completedCases: input.completedCases,
+    sourceBenchmarkCaseCount: input.sourceBenchmarkCaseCount,
+  });
+  const primaryEvidence = workflowProposalValidationPrimaryEvidence(input.comparisonReport);
+  const blockers = [
+    input.resultStatus === "completed" ? null : "validation_result_incomplete",
+    input.gateStatus === "review_for_promotion" ? null : "validation_gate_not_passing",
+    ...gateBlockers,
+    coverage.hasCoverage ? null : "insufficient_validation_case_coverage",
+    ...primaryEvidence.blockers,
+  ].filter((blocker): blocker is string => Boolean(blocker));
+  return {
+    passed: blockers.length === 0,
+    blockers,
+    gateBlockers,
+    coverage,
+    primaryEvidence,
   };
 }
 
@@ -2424,13 +2497,13 @@ async function finalizeReadyBenchmarkRuns(db: Db, input: { root?: string } = {})
       })
       .where(eq(benchmarkRuns.id, run.id));
 
-    const validationComparisonStatus = await createWorkflowProposalValidationComparison(db, run.id);
+    const validationComparison = await createWorkflowProposalValidationComparison(db, run.id);
     const validationGate = summarizeBenchmarkPromotionGateEvidence({
       runStatus: failedCases || reviewCases ? "partial_failure" : "completed",
       resultCount: results.length,
       traceMissing: results.filter((result) => !result.traceBundleUri).length,
       reviewOrFailed: failedCases + reviewCases,
-      comparisonStatus: validationComparisonStatus,
+      comparisonStatus: validationComparison?.recommendationStatus ?? null,
       baselineSanityFindings: analysis.baselineSanityFindings,
       componentDisagreementFindings: analysis.componentDisagreementFindings,
       forecastErrorFindings: analysis.forecastErrorFindings,
@@ -2447,6 +2520,7 @@ async function finalizeReadyBenchmarkRuns(db: Db, input: { root?: string } = {})
       costLatencyFindings,
       gateStatus: validationGate.status,
       gateBlockers: validationGate.blockers,
+      comparisonReport: validationComparison?.report ?? null,
       completedAt: new Date(),
     });
   }
@@ -2467,7 +2541,10 @@ async function createWorkflowProposalValidationComparison(db: Db, validationBenc
     benchmarkRunId: validationBenchmarkRunId,
     baselineBenchmarkRunIds: [proposal.sourceBenchmarkRunId],
   });
-  return readComparisonRecommendationStatus(comparison.report);
+  return {
+    recommendationStatus: readComparisonRecommendationStatus(comparison.report),
+    report: comparison.report,
+  };
 }
 
 async function syncWorkflowProposalValidationEvidence(
@@ -2481,6 +2558,7 @@ async function syncWorkflowProposalValidationEvidence(
     costLatencyFindings: Record<string, unknown>;
     gateStatus: string;
     gateBlockers: string[];
+    comparisonReport: Record<string, unknown> | null;
     completedAt: Date;
   },
 ) {
@@ -2488,10 +2566,14 @@ async function syncWorkflowProposalValidationEvidence(
     validationBenchmarkRunId: input.benchmarkRunId,
     validationCostLatencyFindings: input.costLatencyFindings,
   });
-  const validationPassed = workflowProposalValidationGatePassed({
+  const sourceBenchmarkCaseCount = await workflowProposalValidationSourceBenchmarkCaseCount(db, input.benchmarkRunId);
+  const validationReadiness = workflowProposalValidationReadiness({
     resultStatus: input.resultStatus,
     gateStatus: input.gateStatus,
     gateBlockers: input.gateBlockers,
+    completedCases: input.completedCases,
+    sourceBenchmarkCaseCount,
+    comparisonReport: input.comparisonReport,
   });
   await db
     .update(workflowChangeProposals)
@@ -2507,13 +2589,34 @@ async function syncWorkflowProposalValidationEvidence(
       validationGateStatus: input.gateStatus,
       validationGateBlockers: input.gateBlockers,
       validationCompletedAt: input.completedAt,
-      implementationStatus: validationPassed ? "validated" : "in_progress",
+      implementationStatus: validationReadiness.passed ? "validated" : "in_progress",
       implementationNote:
-        validationPassed ? `Validation passed: ${input.resultSummary}` : `Validation needs review: ${input.resultSummary}`,
+        validationReadiness.passed ? `Validation passed: ${input.resultSummary}` : `Validation needs review: ${input.resultSummary}`,
       implementationUpdatedAt: input.completedAt,
       updatedAt: new Date(),
     })
     .where(eq(workflowChangeProposals.validationBenchmarkRunId, input.benchmarkRunId));
+}
+
+async function loadBenchmarkComparisonReport(db: Db, benchmarkRunId: string) {
+  const [run] = await db
+    .select({ comparisonReportArtifactId: benchmarkRuns.comparisonReportArtifactId })
+    .from(benchmarkRuns)
+    .where(eq(benchmarkRuns.id, benchmarkRunId))
+    .limit(1);
+  return readArtifactReportRow(db, run?.comparisonReportArtifactId ?? null);
+}
+
+async function workflowProposalValidationSourceBenchmarkCaseCount(db: Db, validationBenchmarkRunId: string) {
+  const [proposal] = await db
+    .select({
+      sourceBenchmarkCaseCount: benchmarkRuns.caseCount,
+    })
+    .from(workflowChangeProposals)
+    .leftJoin(benchmarkRuns, eq(workflowChangeProposals.sourceBenchmarkRunId, benchmarkRuns.id))
+    .where(eq(workflowChangeProposals.validationBenchmarkRunId, validationBenchmarkRunId))
+    .limit(1);
+  return proposal?.sourceBenchmarkCaseCount ?? null;
 }
 
 async function workflowProposalValidationCostEvidence(

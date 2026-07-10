@@ -17,8 +17,7 @@ import {
 import {
   summarizeBenchmarkPromotionGateEvidence,
   workflowProposalValidationCoverage,
-  workflowProposalValidationGateBlockers,
-  workflowProposalValidationGatePassed,
+  workflowProposalValidationReadiness,
 } from "./benchmark-service";
 import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
 import { aggregateSideAgreementBand, attemptCountBand, readAggregateStatsSnapshot } from "./aggregate-stats-metadata";
@@ -458,7 +457,14 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       completedCases: proposal.validationCompletedCases,
       sourceBenchmarkCaseCount: sourceCaseCount,
     });
-    const validationGateBlockers = workflowProposalValidationGateBlockers(proposal.validationGateBlockers);
+    const validationReadiness = workflowProposalValidationReadiness({
+      resultStatus: proposal.validationResultStatus,
+      gateStatus: proposal.validationGateStatus,
+      gateBlockers: proposal.validationGateBlockers,
+      completedCases: proposal.validationCompletedCases,
+      sourceBenchmarkCaseCount: sourceCaseCount,
+      comparisonReport: validationComparisonReport,
+    });
     metrics.gauge(
       "open_superforecaster_workflow_change_proposal_validation_completed_cases",
       "Completed validation benchmark cases for a workflow change proposal.",
@@ -473,14 +479,8 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     );
     metrics.gauge(
       "open_superforecaster_workflow_change_proposal_validation_passed",
-      "Whether proposal validation completed with a passing gate and no blockers.",
-      workflowProposalValidationGatePassed({
-        resultStatus: proposal.validationResultStatus,
-        gateStatus: proposal.validationGateStatus,
-        gateBlockers: validationGateBlockers,
-      })
-        ? 1
-        : 0,
+      "Whether proposal validation completed with passing gate, source-sized coverage, and primary paired holdout evidence.",
+      validationReadiness.passed ? 1 : 0,
       proposalLabels,
     );
     emitOptionalGauge(

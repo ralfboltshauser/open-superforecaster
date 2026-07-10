@@ -626,11 +626,18 @@ function WorkflowProposalSummary({
   const reviewedAt = typeof proposal.reviewedAt === "string" ? proposal.reviewedAt : null
   const canUpdate = Boolean(benchmarkRunId && proposalId)
   const requiredValidationCases = sourceBenchmarkCaseCount === null ? 1 : Math.max(sourceBenchmarkCaseCount, 1)
+  const requiredValidationPairedCases = 10
+  const requiredValidationPairedHoldoutCases = 10
   const hasValidationCoverage = (validationCompletedCases ?? 0) >= requiredValidationCases
+  const hasPrimaryPairedEvidence = (validationPrimaryPairedCaseCount ?? 0) >= requiredValidationPairedCases
+  const hasPrimaryPairedHoldoutEvidence = (validationPrimaryPairedHoldoutCaseCount ?? 0) >= requiredValidationPairedHoldoutCases
   const validationReadinessBlockers = [
     validationResultStatus === "completed" ? null : "validation incomplete",
     validationGateStatus === "review_for_promotion" ? null : "gate not passing",
     hasValidationCoverage ? null : `coverage ${validationCompletedCases ?? 0}/${requiredValidationCases}`,
+    validationRecommendationStatus === "candidate_better" ? null : "comparison not better",
+    hasPrimaryPairedEvidence ? null : `paired evidence ${validationPrimaryPairedCaseCount ?? 0}/${requiredValidationPairedCases}`,
+    hasPrimaryPairedHoldoutEvidence ? null : `holdout evidence ${validationPrimaryPairedHoldoutCaseCount ?? 0}/${requiredValidationPairedHoldoutCases}`,
     validationGateBlockers.length ? `blockers ${validationGateBlockers.slice(0, 2).join(", ")}` : null,
   ].filter((blocker): blocker is string => Boolean(blocker))
   const canMarkImplemented = validationReadinessBlockers.length === 0

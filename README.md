@@ -392,14 +392,13 @@ and proposal validation records cost deltas against the source benchmark before
 a workflow patch is marked implemented. Proposal validation reuses the source
 benchmark's case count by default unless a reviewer explicitly narrows
 `maxCases` for a debug run. Proposal validation only marks implementation work
-`validated` after the validation result completes with a passing promotion gate
-and no blockers, and manual lifecycle updates use the same rule. Proposal
-patches can only be marked implemented after validation completes with at least
-the source benchmark's case coverage, a passing promotion gate, and no remaining
-blockers. Prometheus exposes proposal
+`validated` after the validation result completes with a passing promotion gate,
+source-sized case coverage, and primary paired holdout evidence. Manual
+lifecycle updates use the same rule. Proposal patches can only be marked
+implemented after validation satisfies that same readiness contract. Prometheus exposes proposal
 validation completed-case counts, coverage ratios, pass state, and cost deltas
 so weak or expensive validations can be monitored outside the lab UI. The
-DuckDB proposal mart exports the same validation coverage and pass-state fields
+DuckDB proposal mart exports the same validation coverage, paired-evidence, and pass-state fields
 for local audit queries. The lab proposal card also shows the concrete
 implementation-readiness blockers when validation evidence is not yet enough to
 promote a patch, plus paired and held-out case counts for the primary validation

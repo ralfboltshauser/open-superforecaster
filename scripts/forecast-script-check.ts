@@ -3204,8 +3204,7 @@ await check("workflow change proposal lifecycle is exported as metrics", async (
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_coverage_ratio"), "workflow proposal metric missing validation coverage ratio");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_passed"), "workflow proposal metric missing validation pass state");
   assert(metricsSource.includes("workflowProposalValidationCoverage"), "workflow proposal metric does not reuse shared validation coverage helper");
-  assert(metricsSource.includes("workflowProposalValidationGatePassed"), "workflow proposal metric does not reuse shared validation pass helper");
-  assert(metricsSource.includes("workflowProposalValidationGateBlockers"), "workflow proposal metric does not reuse shared validation blocker helper");
+  assert(metricsSource.includes("workflowProposalValidationReadiness"), "workflow proposal metric does not reuse shared validation readiness helper");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_cost_total_tokens_delta"), "workflow proposal metric missing validation token cost delta");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_cost_agent_calls_delta"), "workflow proposal metric missing validation agent-call delta");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_cost_mean_duration_seconds_delta"), "workflow proposal metric missing validation duration delta");
@@ -3292,6 +3291,11 @@ await check("workflow change proposals are exported to DuckDB", async () => {
   assert(syncSource.includes("validation_required_cases"), "workflow proposal mart missing required validation case count");
   assert(syncSource.includes("validation_coverage_ratio"), "workflow proposal mart missing validation coverage ratio");
   assert(syncSource.includes("validation_passed"), "workflow proposal mart missing validation pass state");
+  assert(syncSource.includes("wcp.validation_completed_cases is null") && syncSource.includes("wcp.validation_completed_cases::double precision"), "workflow proposal mart missing validation coverage ratio");
+  assert(syncSource.includes("coalesce(wcp.validation_completed_cases, 0) >= greatest(coalesce(sbr.case_count, 1), 1)"), "workflow proposal mart pass state does not require source-sized coverage");
+  assert(syncSource.includes("vcr.row_json #>> '{recommendation,status}' = 'candidate_better'"), "workflow proposal mart pass state does not require better validation comparison");
+  assert(syncSource.includes("primaryBaselinePairedCaseCount}', '')::integer, 0) >= 10"), "workflow proposal mart pass state does not require primary paired cases");
+  assert(syncSource.includes("primaryBaselinePairedHoldoutCaseCount}', '')::integer, 0) >= 10"), "workflow proposal mart pass state does not require primary paired holdout cases");
   assert(syncSource.includes("validation_gate_status"), "workflow proposal mart missing validation gate status");
   assert(syncSource.includes("validation_gate_blockers_json"), "workflow proposal mart missing validation gate blockers");
   assert(syncSource.includes("validation_comparison_report_artifact_id"), "workflow proposal mart missing validation comparison artifact id");
@@ -3336,6 +3340,8 @@ await check("workflow change proposals are visible in the lab dashboard", async 
   assert(dashboardSource.includes("implementation blocked"), "lab dashboard does not render implementation readiness blockers");
   assert(dashboardSource.includes("validationGateStatus === \"review_for_promotion\""), "lab dashboard does not require passing validation gate before implemented action");
   assert(dashboardSource.includes("hasValidationCoverage"), "lab dashboard does not require validation case coverage before implemented action");
+  assert(dashboardSource.includes("hasPrimaryPairedEvidence"), "lab dashboard does not require primary paired validation evidence before implemented action");
+  assert(dashboardSource.includes("hasPrimaryPairedHoldoutEvidence"), "lab dashboard does not require primary paired holdout validation evidence before implemented action");
   return "benchmark-derived workflow proposals are visible where promotion blockers are reviewed";
 });
 
@@ -3380,7 +3386,12 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(backendSource.includes("validationResultStatus !== \"completed\""), "backend implemented transition does not require completed validation");
   assert(backendSource.includes("validationGateStatus !== \"review_for_promotion\""), "backend implemented transition does not require a passing validation gate");
   assert(backendSource.includes("workflowProposalValidationGatePassed"), "backend missing shared validation gate pass helper");
-  assert(backendSource.includes("implementationStatus: validationPassed ? \"validated\" : \"in_progress\""), "backend marks proposal validated without requiring a passing validation gate");
+  assert(backendSource.includes("workflowProposalValidationReadiness"), "backend missing shared validation readiness helper");
+  assert(backendSource.includes("workflowProposalValidationPrimaryEvidence"), "backend missing primary paired validation evidence helper");
+  assert(backendSource.includes("validation_recommendation_not_candidate_better"), "backend readiness does not require a better validation comparison");
+  assert(backendSource.includes("insufficient_primary_paired_cases"), "backend readiness does not require primary paired validation cases");
+  assert(backendSource.includes("insufficient_primary_paired_holdout_cases"), "backend readiness does not require primary paired holdout validation cases");
+  assert(backendSource.includes("implementationStatus: validationReadiness.passed ? \"validated\" : \"in_progress\""), "backend marks proposal validated without full validation readiness");
   assert(backendSource.includes("Validation passed: ${input.resultSummary}"), "backend validation sync does not distinguish passed validation from completed validation");
   assert(backendSource.includes("requestedImplementationStatus === \"validated\""), "backend explicit validated transition does not require validation evidence");
   assert(backendSource.includes("Cannot mark workflow change proposal validated until validation passes"), "backend explicit validated transition is not blocked by failed validation gate");
@@ -3390,6 +3401,8 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(backendSource.includes("requiredCases = Math.max(input.sourceBenchmarkCaseCount ?? 1, 1)"), "backend implemented transition does not require source-sized validation coverage");
   assert(backendSource.includes("completedCases = input.completedCases ?? 0"), "backend implemented transition does not check completed validation case count");
   assert(backendSource.includes("validationGateBlockers") && backendSource.includes("validation gate blockers remain"), "backend implemented transition does not block remaining validation blockers");
+  assert(backendSource.includes("Cannot mark workflow change proposal implemented until validation has primary paired holdout evidence"), "backend implemented transition does not block thin paired holdout validation evidence");
+  assert(backendSource.includes("Cannot mark workflow change proposal validated until validation has primary paired holdout evidence"), "backend validated transition does not block thin paired holdout validation evidence");
   assert(backendSource.includes("implementationStatusForProposalTransition"), "backend missing proposal implementation transition helper");
   assert(backendSource.includes("proposal-${existing.id.slice(0, 8)}"), "backend missing deterministic proposal experiment label");
   assert(backendSource.includes("startWorkflowChangeProposalValidation"), "backend missing proposal validation launcher");

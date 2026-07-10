@@ -742,6 +742,10 @@ try {
         when wcp.validation_result_status = 'completed'
           and wcp.validation_gate_status = 'review_for_promotion'
           and coalesce(jsonb_array_length(wcp.validation_gate_blockers), 0) = 0
+          and coalesce(wcp.validation_completed_cases, 0) >= greatest(coalesce(sbr.case_count, 1), 1)
+          and vcr.row_json #>> '{recommendation,status}' = 'candidate_better'
+          and coalesce(nullif(vcr.row_json #>> '{recommendation,primaryBaselinePairedCaseCount}', '')::integer, 0) >= 10
+          and coalesce(nullif(vcr.row_json #>> '{recommendation,primaryBaselinePairedHoldoutCaseCount}', '')::integer, 0) >= 10
         then 1
         else 0
       end as validation_passed,
