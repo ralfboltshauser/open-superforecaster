@@ -1447,6 +1447,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("osf_calibration_guard_validations"), "DuckDB sync missing calibration guard validation mart");
   assert(syncSource.includes("osf_calibration_guard_default_plan_candidates"), "DuckDB sync missing calibration guard default plan mart");
   assert(syncSource.includes("osf_forecast_attention_items"), "DuckDB sync missing forecast attention item mart");
+  assert(syncSource.includes("osf_source_bank_domains"), "DuckDB sync missing source-bank domain mart");
   assert(syncSource.includes("osf_forecast_batch_health"), "DuckDB sync missing forecast batch health mart");
   assert(syncSource.includes("osf_forecast_batch_health_issues"), "DuckDB sync missing forecast batch health issue mart");
   assert(syncSource.includes("osf_forecast_batch_health_attention_types"), "DuckDB sync missing forecast batch health attention-type mart");
@@ -1459,6 +1460,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("buildForecastBatchHealthMartRows"), "DuckDB sync missing batch health mart mapper");
   assert(syncSource.includes("buildForecastBatchHealthAttentionTypeMartRows"), "DuckDB sync missing batch health attention-type mapper");
   assert(syncSource.includes("buildForecastBatchHealthCandidateGuardMartRows"), "DuckDB sync missing batch health candidate guard mapper");
+  assert(syncSource.includes("buildSourceDomainMartRows"), "DuckDB sync missing source-bank domain mapper");
   assert(syncSource.includes("calibration_guard_adjustment"), "forecast score mart missing calibration guard adjustment");
   assert(syncSource.includes("calibration_guard_rules_json"), "forecast score mart missing calibration guard rules");
   assert(syncSource.includes("unresolved_attention_items"), "batch health mart missing unresolved attention count");
@@ -1468,6 +1470,8 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("review_note"), "batch health candidate guard mart missing review note");
   assert(syncSource.includes("reviewer"), "batch health candidate guard mart missing reviewer");
   assert(syncSource.includes("reviewed_at"), "batch health candidate guard mart missing review timestamp");
+  assert(syncSource.includes("source_types_json"), "source-bank domain mart missing source-type summary");
+  assert(syncSource.includes("mean_quality_score"), "source-bank domain mart missing quality-score summary");
   assert(syncSource.includes("baseline_sanity_status"), "forecast score mart missing baseline sanity status");
   assert(syncSource.includes("baseline_delta"), "forecast score mart missing baseline sanity delta");
   assert(syncSource.includes("market_anchor_status"), "forecast score mart missing market anchor status");

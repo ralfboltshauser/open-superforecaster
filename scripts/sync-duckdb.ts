@@ -690,6 +690,8 @@ try {
     order by created_at
   `;
   await replaceTable(duck, "osf_source_bank_entries", sourceColumns, sources);
+  const sourceDomains = buildSourceDomainMartRows(sources);
+  await replaceTable(duck, "osf_source_bank_domains", sourceDomainColumns, sourceDomains);
 
   const calibrationGuardValidations = await readCalibrationGuardValidationRows(resolve(root, "data/reports/forecast-calibration-guard-validation"));
   await replaceTable(duck, "osf_calibration_guard_validations", calibrationGuardValidationColumns, calibrationGuardValidations);
@@ -724,6 +726,7 @@ try {
     osf_forecast_batch_health_issues: forecastBatchHealthIssues.length,
     osf_forecast_batch_health_attention_types: forecastBatchHealthAttentionTypes.length,
     osf_forecast_batch_health_candidate_guards: forecastBatchHealthCandidateGuards.length,
+    osf_source_bank_domains: sourceDomains.length,
     osf_source_bank_entries: sources.length,
   };
   console.log(JSON.stringify({
@@ -745,6 +748,7 @@ try {
       "select batch_id, severity, kind, message from osf_forecast_batch_health_issues order by severity, kind;",
       "select batch_id, forecast_type, open_items, deferred_items, high_items from osf_forecast_batch_health_attention_types order by unresolved_items desc, high_items desc;",
       "select batch_id, review_status, bucket_label, direction, suggested_adjustment, calibration_error, review_note from osf_forecast_batch_health_candidate_guards order by review_status, calibration_error desc;",
+      "select domain, entries, used_in_final_entries, task_count, mean_quality_score from osf_source_bank_domains order by entries desc, used_in_final_entries desc limit 20;",
       "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label, validation_benchmark_run_id, validation_result_status, validation_recommendation_status, validation_paired_mean_brier_delta, validation_gate_status from osf_workflow_change_proposals order by created_at desc limit 5;",
       "select operation_mode, operation_submode, status, count(*) from osf_tasks group by 1,2,3 order by 4 desc;",
     ],
@@ -1227,6 +1231,15 @@ const sourceColumns = [
   { name: "created_at", type: "VARCHAR" },
 ] satisfies DuckColumn[];
 
+const sourceDomainColumns = [
+  { name: "domain", type: "VARCHAR" },
+  { name: "entries", type: "INTEGER" },
+  { name: "used_in_final_entries", type: "INTEGER" },
+  { name: "task_count", type: "INTEGER" },
+  { name: "source_types_json", type: "VARCHAR" },
+  { name: "mean_quality_score", type: "DOUBLE" },
+] satisfies DuckColumn[];
+
 const calibrationGuardValidationColumns = [
   { name: "report_path", type: "VARCHAR" },
   { name: "generated_at", type: "VARCHAR" },
@@ -1376,6 +1389,7 @@ type CalibrationGuardImpactMartRow = RowFor<typeof calibrationGuardImpactColumns
 type CalibrationGuardRuleImpactMartRow = RowFor<typeof calibrationGuardRuleImpactColumns>;
 type WorkflowChangeProposalMartRow = RowFor<typeof workflowChangeProposalColumns>;
 type SourceMartRow = RowFor<typeof sourceColumns>;
+type SourceDomainMartRow = RowFor<typeof sourceDomainColumns>;
 type CalibrationGuardValidationMartRow = RowFor<typeof calibrationGuardValidationColumns>;
 type CalibrationGuardDefaultPlanMartRow = RowFor<typeof calibrationGuardDefaultPlanColumns>;
 type ForecastAttentionItemMartRow = RowFor<typeof forecastAttentionItemColumns>;
@@ -1545,6 +1559,38 @@ function scoreToCalibrationInput(score: ForecastScoreMartRow): BinaryCalibration
     resolved: readBoolean(config, "resolved"),
     score: typeof score.score_value === "number" && Number.isFinite(score.score_value) ? score.score_value : null,
   };
+}
+
+function buildSourceDomainMartRows(sources: SourceMartRow[]): SourceDomainMartRow[] {
+  const grouped = new Map<string, SourceMartRow[]>();
+  for (const source of sources) {
+    const domain = String(source.domain ?? "unknown") || "unknown";
+    const rows = grouped.get(domain);
+    if (rows) {
+      rows.push(source);
+    } else {
+      grouped.set(domain, [source]);
+    }
+  }
+  return [...grouped.entries()]
+    .map(([domain, rows]) => {
+      const qualityScores = rows
+        .map((row) => typeof row.quality_score === "number" && Number.isFinite(row.quality_score) ? row.quality_score : null)
+        .filter((value): value is number => value !== null);
+      return {
+        domain,
+        entries: rows.length,
+        used_in_final_entries: rows.filter((row) => row.used_in_final === true).length,
+        task_count: new Set(rows.map((row) => row.task_id).filter(Boolean)).size,
+        source_types_json: JSON.stringify([...new Set(rows.map((row) => row.source_type).filter(Boolean))].sort()),
+        mean_quality_score: qualityScores.length ? average(qualityScores) : null,
+      };
+    })
+    .sort((left, right) =>
+      Number(right.entries ?? 0) - Number(left.entries ?? 0)
+      || Number(right.used_in_final_entries ?? 0) - Number(left.used_in_final_entries ?? 0)
+      || String(left.domain ?? "").localeCompare(String(right.domain ?? ""))
+    );
 }
 
 async function readCalibrationGuardValidationRows(reportRoot: string): Promise<CalibrationGuardValidationMartRow[]> {
@@ -1780,6 +1826,10 @@ function readNumber(value: unknown, key: string) {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function average(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 function readBoolean(value: unknown, key: string) {

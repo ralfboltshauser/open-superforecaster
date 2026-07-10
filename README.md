@@ -372,6 +372,9 @@ Score rows also keep workflow version,
 workflow variant, experiment label, and run duration bands, and resolved
 performance reports group by each run-lineage signal so quality changes can be
 compared against runtime and variant changes.
+The local DuckDB sync also derives `osf_source_bank_domains` from persisted
+source-bank entries so source concentration, final-use count, source-type mix,
+and mean source quality can be audited by domain.
 
 To consolidate those local artifacts into one audit file:
 
