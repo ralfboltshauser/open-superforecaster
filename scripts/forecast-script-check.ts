@@ -3341,6 +3341,9 @@ await check("workflow change proposals are exported to DuckDB", async () => {
   assert(syncSource.includes("validation_required_cases"), "workflow proposal mart missing required validation case count");
   assert(syncSource.includes("validation_coverage_ratio"), "workflow proposal mart missing validation coverage ratio");
   assert(syncSource.includes("validation_passed"), "workflow proposal mart missing validation pass state");
+  assert(syncSource.includes("validation_readiness_blockers_json"), "workflow proposal mart missing validation readiness blockers");
+  assert(syncSource.includes("validation_readiness_blockers.blockers_json::text"), "workflow proposal mart does not export shared readiness blockers");
+  assert(syncSource.includes("jsonb_array_length(validation_readiness_blockers.blockers_json) = 0"), "workflow proposal mart pass state is not derived from readiness blockers");
   assert(syncSource.includes("wcp.validation_completed_cases is null") && syncSource.includes("wcp.validation_completed_cases::double precision"), "workflow proposal mart missing validation coverage ratio");
   assert(syncSource.includes("coalesce(wcp.validation_completed_cases, 0) >= greatest(coalesce(sbr.case_count, 1), 1)"), "workflow proposal mart pass state does not require source-sized coverage");
   assert(syncSource.includes("vcr.row_json #>> '{recommendation,status}' = 'candidate_better'"), "workflow proposal mart pass state does not require better validation comparison");

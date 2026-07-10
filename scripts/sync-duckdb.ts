@@ -773,17 +773,8 @@ try {
       wcp.validation_cost_summary,
       wcp.validation_gate_status,
       wcp.validation_gate_blockers::text as validation_gate_blockers_json,
-      case
-        when wcp.validation_result_status = 'completed'
-          and wcp.validation_gate_status = 'review_for_promotion'
-          and coalesce(jsonb_array_length(wcp.validation_gate_blockers), 0) = 0
-          and coalesce(wcp.validation_completed_cases, 0) >= greatest(coalesce(sbr.case_count, 1), 1)
-          and vcr.row_json #>> '{recommendation,status}' = 'candidate_better'
-          and coalesce(nullif(vcr.row_json #>> '{recommendation,primaryBaselinePairedCaseCount}', '')::integer, 0) >= 10
-          and coalesce(nullif(vcr.row_json #>> '{recommendation,primaryBaselinePairedHoldoutCaseCount}', '')::integer, 0) >= 10
-        then 1
-        else 0
-      end as validation_passed,
+      validation_readiness_blockers.blockers_json::text as validation_readiness_blockers_json,
+      case when jsonb_array_length(validation_readiness_blockers.blockers_json) = 0 then 1 else 0 end as validation_passed,
       wcp.validation_completed_at::text as validation_completed_at,
       vbr.comparison_report_artifact_id::text as validation_comparison_report_artifact_id,
       vcr.row_json #>> '{recommendation,status}' as validation_recommendation_status,
@@ -802,6 +793,33 @@ try {
     left join benchmark_runs sbr on sbr.id = wcp.source_benchmark_run_id
     left join benchmark_runs vbr on vbr.id = wcp.validation_benchmark_run_id
     left join artifact_rows vcr on vcr.artifact_id = vbr.comparison_report_artifact_id and vcr.row_index = 0
+    left join lateral (
+      select (
+        to_jsonb(array_remove(array[
+          case when wcp.validation_result_status = 'completed' then null::text else 'validation_result_incomplete' end,
+          case when wcp.validation_gate_status = 'review_for_promotion' then null::text else 'validation_gate_not_passing' end
+        ], null))
+        || coalesce(wcp.validation_gate_blockers, '[]'::jsonb)
+        || to_jsonb(array_remove(array[
+          case
+            when coalesce(wcp.validation_completed_cases, 0) >= greatest(coalesce(sbr.case_count, 1), 1) then null::text
+            else 'insufficient_validation_case_coverage'
+          end,
+          case
+            when vcr.row_json #>> '{recommendation,status}' = 'candidate_better' then null::text
+            else 'validation_recommendation_not_candidate_better'
+          end,
+          case
+            when coalesce(nullif(vcr.row_json #>> '{recommendation,primaryBaselinePairedCaseCount}', '')::integer, 0) >= 10 then null::text
+            else 'insufficient_primary_paired_cases'
+          end,
+          case
+            when coalesce(nullif(vcr.row_json #>> '{recommendation,primaryBaselinePairedHoldoutCaseCount}', '')::integer, 0) >= 10 then null::text
+            else 'insufficient_primary_paired_holdout_cases'
+          end
+        ], null))
+      ) as blockers_json
+    ) validation_readiness_blockers on true
     left join lateral (
       select baseline.row_json
       from jsonb_array_elements(coalesce(vcr.row_json #> '{baselines}', '[]'::jsonb)) as baseline(row_json)
@@ -903,7 +921,7 @@ try {
       "select domain, entries, used_in_final_entries, task_count, mean_quality_score from osf_source_bank_domains order by entries desc, used_in_final_entries desc limit 20;",
       "select task_id, operation_mode, operation_submode, agent_calls, total_tokens from osf_smithers_token_usage_by_task order by total_tokens desc limit 20;",
       "select fs.forecast_type, avg(fs.score_value) as mean_score, avg(usage.total_tokens) as mean_tokens from osf_forecast_scores fs join osf_smithers_token_usage_by_task usage using (task_id) group by 1 order by 1;",
-      "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label, validation_benchmark_run_id, validation_result_status, validation_recommendation_status, validation_paired_mean_brier_delta, validation_cost_total_tokens_delta, validation_cost_mean_duration_seconds_delta, validation_gate_status from osf_workflow_change_proposals order by created_at desc limit 5;",
+      "select source_benchmark_run_id, target_workflow_id, status, implementation_status, validation_passed, validation_readiness_blockers_json, validation_benchmark_run_id, validation_result_status, validation_recommendation_status, validation_paired_mean_brier_delta, validation_gate_status from osf_workflow_change_proposals order by created_at desc limit 5;",
       "select operation_mode, operation_submode, status, count(*) from osf_tasks group by 1,2,3 order by 4 desc;",
     ],
   }, null, 2));
@@ -1466,6 +1484,7 @@ const workflowChangeProposalColumns = [
   { name: "validation_cost_summary", type: "VARCHAR" },
   { name: "validation_gate_status", type: "VARCHAR" },
   { name: "validation_gate_blockers_json", type: "VARCHAR" },
+  { name: "validation_readiness_blockers_json", type: "VARCHAR" },
   { name: "validation_passed", type: "INTEGER" },
   { name: "validation_completed_at", type: "VARCHAR" },
   { name: "validation_comparison_report_artifact_id", type: "VARCHAR" },

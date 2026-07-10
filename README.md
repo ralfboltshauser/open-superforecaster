@@ -399,8 +399,8 @@ implemented after validation satisfies that same readiness contract. Prometheus 
 validation completed-case counts, coverage ratios, pass state, aggregate blocked
 readiness counts, blocker counts, and cost deltas so weak or expensive
 validations can be monitored outside the lab UI. The
-DuckDB proposal mart exports the same validation coverage, paired-evidence, and pass-state fields
-for local audit queries. The lab proposal card also shows the concrete
+DuckDB proposal mart exports the same validation coverage, paired-evidence, pass-state,
+and readiness-blocker fields for local audit queries. The lab proposal card also shows the concrete
 implementation-readiness blockers when validation evidence is not yet enough to
 promote a patch, plus paired and held-out case counts for the primary validation
 baseline. Metrics and DuckDB also expose those recommendation-level paired
