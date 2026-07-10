@@ -23,6 +23,7 @@ import { readDateForecastSnapshot, type DateForecastSnapshot } from "./date-fore
 import { readEvidenceCoverageSnapshot, type EvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
 import { readForecastInputContextSnapshot, type ForecastInputContextSnapshot } from "./forecast-input-context-metadata";
 import { readForecastRunSnapshot, type ForecastRunSnapshot } from "./forecast-run-metadata";
+import { isProbabilityScoreMetric, poorScoreThreshold, selectPrimaryScoreMetric, trendDeltaHighThreshold } from "./forecast-score-policy";
 import { readMarketAnchorSnapshot, type MarketAnchorSnapshot } from "./market-anchor-metadata";
 import { readNumericForecastSnapshot, type NumericForecastSnapshot } from "./numeric-forecast-metadata";
 import { buildBinaryCalibrationReport, type BinaryCalibrationReport } from "./performance-calibration";
@@ -3500,7 +3501,7 @@ function recommendAttentionActions(input: {
     actions.add("Defer default guard promotion until the guarded-vs-unguarded Brier delta recovers on later resolved forecasts.");
   }
 
-  if (isProbabilityMetric(input.metric)) {
+  if (isProbabilityScoreMetric(input.metric)) {
     actions.add("Check for overconfidence: compare predicted probability, resolved outcome, and calibration bucket.");
   }
   if (input.metric.includes("log")) {
@@ -3524,30 +3525,6 @@ function recommendAttentionActions(input: {
   return [...actions].slice(0, 5);
 }
 
-function isProbabilityMetric(metric: string) {
-  return metric.includes("brier") || metric.includes("log") || metric === "condition_brier" || metric === "condition_log";
-}
-
-function poorScoreThreshold(metric: string) {
-  if (metric === "brier" || metric === "categorical_brier" || metric === "thresholded_brier" || metric === "conditional_brier") {
-    return 0.25;
-  }
-  if (metric === "log" || metric === "categorical_log" || metric === "thresholded_log" || metric === "conditional_log") {
-    return 0.69;
-  }
-  if (metric === "absolute_percentage_error") {
-    return 0.25;
-  }
-  if (metric === "absolute_days_error") {
-    return 30;
-  }
-  return null;
-}
-
-function trendDeltaHighThreshold(metric: string) {
-  return poorScoreThreshold(metric) ? (poorScoreThreshold(metric) ?? 0) / 2 : 0.1;
-}
-
 function severityRank(severity: PerformanceAttentionItem["severity"]) {
   return severity === "high" ? 2 : 1;
 }
@@ -3561,16 +3538,7 @@ function formatSignedMetric(value: number) {
 }
 
 function selectPrimaryMetric(meanScores: Record<string, number>) {
-  const preference = [
-    "brier",
-    "categorical_brier",
-    "thresholded_brier",
-    "conditional_brier",
-    "absolute_error",
-    "absolute_days_error",
-    "absolute_percentage_error",
-  ];
-  return preference.find((metric) => metric in meanScores) ?? Object.keys(meanScores).sort()[0] ?? null;
+  return selectPrimaryScoreMetric(meanScores);
 }
 
 function forecastAttemptCount(scoreConfig: unknown, forecastType: string) {

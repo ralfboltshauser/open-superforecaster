@@ -1699,6 +1699,12 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("guarded-vs-unguarded Brier delta recovers"), "calibration guard regression action missing");
   assert(resolutionSource.includes("calibrationGuardImpact.byRule"), "performance report does not inspect rule-level guard impact");
   assert(resolutionSource.includes("calibrationReplayRows: calibrationReplayRows(aggregateBrierScores)"), "performance report missing calibration replay rows");
+  assert(resolutionSource.includes("from \"./forecast-score-policy\""), "performance report does not import the shared forecast score policy");
+  assert(!resolutionSource.includes("function poorScoreThreshold("), "performance report should not keep local poor-score thresholds");
+  assert(!resolutionSource.includes("function trendDeltaHighThreshold("), "performance report should not keep local trend threshold policy");
+  assert(!resolutionSource.includes("function isProbabilityMetric("), "performance report should not keep local probability metric policy");
+  assert((await readFile(resolve(root, "packages/backend/src/forecast-score-policy.ts"), "utf8")).includes("selectPrimaryScoreMetric"), "shared forecast score policy does not expose primary metric selection");
+  assert((await readFile(resolve(root, "packages/backend/src/index.ts"), "utf8")).includes("forecast-score-policy"), "backend package barrel does not export forecast score policy");
   assert(resolutionSource.includes("evidence_coverage_miss"), "performance report does not turn weak evidence coverage into attention");
   assert(resolutionSource.includes("input_context_miss"), "performance report does not turn weak input context into attention");
   assert(resolutionSource.includes("run_metadata_miss"), "performance report does not turn suspicious run metadata into attention");

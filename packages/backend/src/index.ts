@@ -10,6 +10,7 @@ export * from "./forecast-attention-backlog";
 export * from "./forecast-attention-backlog-artifacts";
 export * from "./forecast-batch-index-artifacts";
 export * from "./forecast-performance-artifacts";
+export * from "./forecast-score-policy";
 export * from "./health";
 export * from "./maintenance-service";
 export * from "./metrics-service";
