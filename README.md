@@ -377,6 +377,10 @@ compared against runtime and variant changes.
 `osf_smithers_token_usage_by_task`, so resolved scores can be joined against
 agent-call volume, model, token mix, and total-token usage without re-reading
 raw execution logs.
+Benchmark analysis reports use the same durable-log parser to summarize
+measured agent calls, token totals, slow cases, and missing usage logs before a
+workflow proposal is promoted, so quality gains can be weighed against runtime
+cost at review time.
 The local DuckDB sync also derives `osf_source_bank_domains` from persisted
 source-bank entries so source concentration, final-use count, source-type mix,
 and mean source quality can be audited by domain. Prometheus metrics expose the

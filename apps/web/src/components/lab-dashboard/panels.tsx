@@ -381,6 +381,7 @@ function BenchmarkRunSummary({
   const splitFindings = isRecord(run.splitFindings) ? run.splitFindings : null
   const sourceQuality = isRecord(run.sourceQualityFindings) ? run.sourceQualityFindings : null
   const traceQuality = isRecord(run.traceQualityFindings) ? run.traceQualityFindings : null
+  const costLatency = isRecord(run.costLatencyFindings) ? run.costLatencyFindings : null
   const comparison = isRecord(run.comparison) ? run.comparison : null
   const recommendation = isRecord(comparison?.recommendation) ? comparison.recommendation : null
   const workflowChangeProposals = readArray(run, "workflowChangeProposals").filter(isRecord)
@@ -402,6 +403,10 @@ function BenchmarkRunSummary({
   const missingProbabilityCases = typeof traceQuality?.missingProbabilityCases === "number" ? traceQuality.missingProbabilityCases : null
   const missingScoreRowsCases = typeof traceQuality?.missingScoreRowsCases === "number" ? traceQuality.missingScoreRowsCases : null
   const missingAggregateRationaleCases = typeof traceQuality?.missingAggregateRationaleCases === "number" ? traceQuality.missingAggregateRationaleCases : null
+  const measuredCostCases = typeof costLatency?.measuredCases === "number" ? costLatency.measuredCases : null
+  const totalAgentCalls = typeof costLatency?.totalAgentCalls === "number" ? costLatency.totalAgentCalls : null
+  const totalTokens = typeof costLatency?.totalTokens === "number" ? costLatency.totalTokens : null
+  const meanDurationSeconds = typeof costLatency?.meanDurationSeconds === "number" ? costLatency.meanDurationSeconds : null
   const benchmarkRunId = typeof run.id === "string" ? run.id : null
   return (
     <div className="rounded-md border p-3 text-sm">
@@ -449,6 +454,11 @@ function BenchmarkRunSummary({
       {traceQuality ? (
         <p className="mt-2 truncate text-xs text-muted-foreground">
           trace quality {String(weakTraceCompletenessCases ?? 0)} weak · {String(missingProbabilityCases ?? 0)} missing probability · {String(missingScoreRowsCases ?? 0)} missing score · {String(missingAggregateRationaleCases ?? 0)} missing rationale
+        </p>
+      ) : null}
+      {costLatency ? (
+        <p className="mt-2 truncate text-xs text-muted-foreground">
+          cost {formatCount(measuredCostCases ?? 0)} measured · {formatCount(totalAgentCalls ?? 0)} calls · {formatCount(totalTokens ?? 0)} tokens{meanDurationSeconds === null ? "" : ` · ${formatMetric(meanDurationSeconds)}s avg`}
         </p>
       ) : null}
       {blockers.length ? (

@@ -25,6 +25,7 @@ import { scoreBinaryForecast } from "@open-superforecaster/evals";
 import type { ObjectStorageTarget } from "@open-superforecaster/artifact-store";
 import { createBootstrapArtifact, createQueuedWorkflowTask, markTaskFailed, markTaskRunning } from "./run-service";
 import { launchSmithersDetached } from "./smithers-launcher";
+import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
 import { exportTraceBundle } from "./trace-bundle";
 
 type Db = ReturnType<typeof createDb>["db"];
@@ -647,7 +648,7 @@ export async function reconcileBenchmarkRuns(db: Db, input: {
 }) {
   await reconcileCaseResults(db, input);
   await backfillBenchmarkForecastScoreRows(db);
-  await finalizeReadyBenchmarkRuns(db);
+  await finalizeReadyBenchmarkRuns(db, { root: input.root });
 }
 
 export async function listBenchmarkRuns(db: Db, limit = 20) {
@@ -790,6 +791,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
     const forecastErrorFindings = readRecord(analysisReportRow, "forecastErrorFindings", "forecast_error_findings") ?? null;
     const sourceQualityFindings = readRecord(analysisReportRow, "sourceQualityFindings", "source_quality_findings") ?? null;
     const traceQualityFindings = readRecord(analysisReportRow, "traceQualityFindings", "trace_quality_findings") ?? null;
+    const costLatencyFindings = readRecord(analysisReportRow, "costLatencyFindings", "cost_latency_findings") ?? null;
     enriched.push({
       ...row,
       workflowId: variant?.workflowId ?? null,
@@ -802,6 +804,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
       forecastErrorFindings,
       sourceQualityFindings,
       traceQualityFindings,
+      costLatencyFindings,
       splitFindings,
       promotionGate: summarizeBenchmarkPromotionGateEvidence({
         runStatus: row.status,
@@ -2118,7 +2121,7 @@ async function backfillBenchmarkForecastScoreRows(db: Db) {
   }
 }
 
-async function finalizeReadyBenchmarkRuns(db: Db) {
+async function finalizeReadyBenchmarkRuns(db: Db, input: { root?: string } = {}) {
   const activeRuns = await db
     .select()
     .from(benchmarkRuns)
@@ -2233,10 +2236,7 @@ async function finalizeReadyBenchmarkRuns(db: Db) {
       componentDisagreementFindings: componentDisagreementFindingsForRun(caseAnalyses),
       forecastErrorFindings: forecastErrorFindingsForRun(caseAnalyses),
       splitFindings,
-      costLatencyFindings: {
-        note: "V1 records Smithers run IDs, trace bundles, agent-call counts, and token totals parsed from durable Smithers logs.",
-        runnableLoopSignal: "Use task_id, smithers_run_id, benchmark_run_id, and workflow_variant_id labels to correlate benchmark quality with runtime cost proxies.",
-      },
+      costLatencyFindings: await costLatencyFindingsForRun(db, { root: input.root, results }),
       holdoutRiskNotes: isFixedEvidence
         ? isBtf2Suite
           ? "This is an imported BTF-2 fixed-evidence suite. Use it for local workflow iteration with the dataset contamination caveat; require larger paired subsets before promotion."
@@ -2980,6 +2980,148 @@ function sourceQualityFindingsForRun(
     noSourceCases: caseAnalyses.filter((analysis) => Number(analysis.sourceAudit.sourceCount ?? 0) === 0).length,
     note: "Agentic pastcasting v1 uses agent-reported source, cutoff, and trace metadata. Live-web date bounding is a weak eval condition and should not be compared to frozen-corpus scores.",
   };
+}
+
+async function costLatencyFindingsForRun(
+  db: Db,
+  input: { root?: string; results: BenchmarkCaseResultRow[] },
+) {
+  const taskIds = input.results.map((result) => result.taskId).filter((id): id is string => typeof id === "string");
+  const taskRows = taskIds.length
+    ? await db
+        .select({
+          id: tasks.id,
+          operationMode: tasks.operationMode,
+          operationSubmode: tasks.operationSubmode,
+          status: tasks.status,
+          startedAt: tasks.startedAt,
+          completedAt: tasks.completedAt,
+          createdAt: tasks.createdAt,
+        })
+        .from(tasks)
+        .where(inArray(tasks.id, taskIds))
+    : [];
+  const tasksById = new Map(taskRows.map((task) => [task.id, task]));
+  const cases = await Promise.all(input.results.map(async (result) => {
+    const usage = input.root && result.smithersRunId ? await readSmithersTokenUsage(input.root, result.smithersRunId) : [];
+    const summary = summarizeSmithersTokenUsage(usage);
+    const task = result.taskId ? tasksById.get(result.taskId) : null;
+    const durationSeconds = task ? durationSecondsBetween(task.startedAt ?? task.createdAt, task.completedAt) : null;
+    return {
+      benchmarkCaseResultId: result.id,
+      benchmarkCaseId: result.benchmarkCaseId,
+      taskId: result.taskId,
+      smithersRunId: result.smithersRunId,
+      status: result.status,
+      operationMode: task?.operationMode ?? null,
+      operationSubmode: task?.operationSubmode ?? null,
+      agentCalls: summary.calls,
+      inputTokens: summary.inputTokens,
+      cachedInputTokens: summary.cachedInputTokens,
+      outputTokens: summary.outputTokens,
+      reasoningOutputTokens: summary.reasoningOutputTokens,
+      totalTokens: summary.totalTokens,
+      durationSeconds,
+    };
+  }));
+  const measuredCases = cases.filter((row) => row.agentCalls > 0);
+  const missingUsageCases = cases.filter((row) => row.smithersRunId && row.agentCalls === 0).length;
+  const tokenValues = measuredCases.map((row) => row.totalTokens).sort((left, right) => left - right);
+  const durationValues = cases
+    .map((row) => row.durationSeconds)
+    .filter((value): value is number => typeof value === "number")
+    .sort((left, right) => left - right);
+  return {
+    note: measuredCases.length
+      ? "Measured from durable run logs with the shared token-usage parser."
+      : "No durable token usage was available for this benchmark run.",
+    runnableLoopSignal: "Compare score deltas against agent calls, total tokens, and duration before promoting workflow changes.",
+    measured: measuredCases.length > 0,
+    caseCount: cases.length,
+    measuredCases: measuredCases.length,
+    missingUsageCases,
+    totalAgentCalls: sumNumbers(measuredCases.map((row) => row.agentCalls)),
+    totalInputTokens: sumNumbers(measuredCases.map((row) => row.inputTokens)),
+    totalCachedInputTokens: sumNumbers(measuredCases.map((row) => row.cachedInputTokens)),
+    totalOutputTokens: sumNumbers(measuredCases.map((row) => row.outputTokens)),
+    totalReasoningOutputTokens: sumNumbers(measuredCases.map((row) => row.reasoningOutputTokens)),
+    totalTokens: sumNumbers(measuredCases.map((row) => row.totalTokens)),
+    meanAgentCallsPerMeasuredCase: meanNumbers(measuredCases.map((row) => row.agentCalls)),
+    meanTokensPerMeasuredCase: meanNumbers(measuredCases.map((row) => row.totalTokens)),
+    medianTokensPerMeasuredCase: quantile(tokenValues, 0.5),
+    meanDurationSeconds: meanNumbers(durationValues),
+    medianDurationSeconds: quantile(durationValues, 0.5),
+    byStatus: costLatencyByStatus(cases),
+    heaviestCases: [...cases]
+      .sort((left, right) => right.totalTokens - left.totalTokens)
+      .slice(0, 5)
+      .map(costLatencyCaseSummary),
+    slowestCases: [...cases]
+      .filter((row) => row.durationSeconds !== null)
+      .sort((left, right) => (right.durationSeconds ?? 0) - (left.durationSeconds ?? 0))
+      .slice(0, 5)
+      .map(costLatencyCaseSummary),
+  };
+}
+
+function costLatencyByStatus(cases: Array<{
+  status: string;
+  agentCalls: number;
+  totalTokens: number;
+  durationSeconds: number | null;
+}>) {
+  const grouped = new Map<string, typeof cases>();
+  for (const row of cases) {
+    grouped.set(row.status, [...(grouped.get(row.status) ?? []), row]);
+  }
+  return [...grouped.entries()]
+    .map(([status, rows]) => {
+      const measuredRows = rows.filter((row) => row.agentCalls > 0);
+      return {
+        status,
+        cases: rows.length,
+        measuredCases: measuredRows.length,
+        agentCalls: sumNumbers(measuredRows.map((row) => row.agentCalls)),
+        totalTokens: sumNumbers(measuredRows.map((row) => row.totalTokens)),
+        meanTokensPerMeasuredCase: meanNumbers(measuredRows.map((row) => row.totalTokens)),
+        meanDurationSeconds: meanNumbers(rows.map((row) => row.durationSeconds).filter((value): value is number => value !== null)),
+      };
+    })
+    .sort((left, right) => right.cases - left.cases || left.status.localeCompare(right.status));
+}
+
+function costLatencyCaseSummary(row: {
+  benchmarkCaseResultId: string;
+  benchmarkCaseId: string;
+  taskId: string | null;
+  smithersRunId: string | null;
+  status: string;
+  agentCalls: number;
+  totalTokens: number;
+  durationSeconds: number | null;
+}) {
+  return {
+    benchmarkCaseResultId: row.benchmarkCaseResultId,
+    benchmarkCaseId: row.benchmarkCaseId,
+    taskId: row.taskId,
+    smithersRunId: row.smithersRunId,
+    status: row.status,
+    agentCalls: row.agentCalls,
+    totalTokens: row.totalTokens,
+    durationSeconds: row.durationSeconds,
+  };
+}
+
+function sumNumbers(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0);
+}
+
+function durationSecondsBetween(start: Date | null, end: Date | null) {
+  if (!start || !end) {
+    return null;
+  }
+  const duration = (end.getTime() - start.getTime()) / 1000;
+  return Number.isFinite(duration) && duration >= 0 ? duration : null;
 }
 
 function baselineSanityFindingsForRun(caseAnalyses: BenchmarkCaseAnalysis[]) {
