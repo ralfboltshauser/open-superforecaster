@@ -368,6 +368,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       traceQualityFindings: readRecord(analysisReport, "traceQualityFindings", "trace_quality_findings"),
     });
     const costLatencyFindings = readRecord(analysisReport, "costLatencyFindings", "cost_latency_findings");
+    const sourceQualityFindings = readRecord(analysisReport, "sourceQualityFindings", "source_quality_findings");
     metrics.gauge("open_superforecaster_benchmark_promotion_gate_status", "Recent benchmark promotion gate status.", 1, {
       ...labels,
       gate_status: promotionGate.status,
@@ -383,6 +384,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     if (duration !== null) {
       metrics.gauge("open_superforecaster_benchmark_run_duration_seconds", "Recent benchmark run duration in seconds.", duration, labels);
     }
+    emitBenchmarkSourceQualityMetrics(metrics, labels, sourceQualityFindings);
     emitBenchmarkCostLatencyMetrics(metrics, labels, costLatencyFindings);
   }
 
@@ -1864,6 +1866,26 @@ function parseLabelKey(key: string) {
 
 function uniqueStrings(values: string[]) {
   return [...new Set(values.filter(Boolean))];
+}
+
+function emitBenchmarkSourceQualityMetrics(
+  metrics: MetricsBuilder,
+  labels: Record<string, string>,
+  findings: Record<string, unknown> | null,
+) {
+  metrics.gauge("open_superforecaster_benchmark_source_quality_summary_present", "Whether a benchmark run has persisted source-quality findings.", findings ? 1 : 0, labels);
+  if (!findings) {
+    return;
+  }
+  const topSourceDomain = readString(findings, "topSourceDomain") ?? "none";
+  const sourceLabels = { ...labels, top_source_domain: topSourceDomain };
+  emitOptionalGauge(metrics, "open_superforecaster_benchmark_source_domains", "Distinct source domains used by a benchmark run.", readNumber(findings, "sourceDomainCount"), sourceLabels);
+  emitOptionalGauge(metrics, "open_superforecaster_benchmark_source_entries", "Source-bank entries used by a benchmark run.", readNumber(findings, "sourceEntries"), sourceLabels);
+  emitOptionalGauge(metrics, "open_superforecaster_benchmark_source_top_domain_share", "Share of benchmark source-bank entries from the top source domain.", readNumber(findings, "topSourceDomainShare"), sourceLabels);
+  emitOptionalGauge(metrics, "open_superforecaster_benchmark_source_dominant_domain_cases", "Benchmark cases whose top source domain accounts for at least 80% of sources.", readNumber(findings, "dominantSourceDomainCases"), sourceLabels);
+  emitOptionalGauge(metrics, "open_superforecaster_benchmark_source_missing_published_at_cases", "Benchmark cases with one or more cited sources missing publication dates.", readNumber(findings, "missingPublishedAtCases"), sourceLabels);
+  emitOptionalGauge(metrics, "open_superforecaster_benchmark_source_low_quality_entries", "Benchmark source-bank entries with quality score below 0.5.", readNumber(findings, "lowQualitySourceEntries"), sourceLabels);
+  emitOptionalGauge(metrics, "open_superforecaster_benchmark_source_low_quality_final_entries", "Final-answer benchmark source-bank entries with quality score below 0.5.", readNumber(findings, "lowQualityFinalSourceEntries"), sourceLabels);
 }
 
 function emitBenchmarkCostLatencyMetrics(

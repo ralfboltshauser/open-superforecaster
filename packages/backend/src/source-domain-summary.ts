@@ -10,6 +10,16 @@ export type SourceDomainInput = {
   quality_score?: unknown;
 };
 
+export type SourceDomainCountInput = {
+  domain?: unknown;
+  count?: unknown;
+  entries?: unknown;
+  usedInFinal?: unknown;
+  used_in_final?: unknown;
+  usedInFinalCount?: unknown;
+  used_in_final_entries?: unknown;
+};
+
 export type SourceDomainSummary = {
   domain: string;
   entries: number;
@@ -17,6 +27,12 @@ export type SourceDomainSummary = {
   taskCount: number;
   sourceTypes: string[];
   meanQualityScore: number | null;
+};
+
+export type SourceDomainCountSummary = {
+  domain: string;
+  count: number;
+  usedInFinalCount: number;
 };
 
 export function summarizeSourceDomains(rows: SourceDomainInput[]): SourceDomainSummary[] {
@@ -49,6 +65,25 @@ export function summarizeSourceDomains(rows: SourceDomainInput[]): SourceDomainS
       || right.usedInFinalEntries - left.usedInFinalEntries
       || left.domain.localeCompare(right.domain)
     );
+}
+
+export function summarizeSourceDomainCounts(rows: SourceDomainCountInput[]): SourceDomainCountSummary[] {
+  const grouped = new Map<string, SourceDomainCountSummary>();
+  for (const row of rows) {
+    const domain = readString(row.domain) || "unknown";
+    const count = readFiniteNumber(row.count ?? row.entries) ?? 1;
+    const usedInFinalCount = readFiniteNumber(row.usedInFinalCount ?? row.used_in_final_entries)
+      ?? (readBoolean(row.usedInFinal ?? row.used_in_final) ? count : 0);
+    const summary = grouped.get(domain) ?? { domain, count: 0, usedInFinalCount: 0 };
+    summary.count += count;
+    summary.usedInFinalCount += usedInFinalCount;
+    grouped.set(domain, summary);
+  }
+  return [...grouped.values()].sort((left, right) =>
+    right.count - left.count ||
+    right.usedInFinalCount - left.usedInFinalCount ||
+    left.domain.localeCompare(right.domain)
+  );
 }
 
 function readString(value: unknown) {

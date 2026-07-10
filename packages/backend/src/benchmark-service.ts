@@ -25,6 +25,7 @@ import { scoreBinaryForecast } from "@open-superforecaster/evals";
 import type { ObjectStorageTarget } from "@open-superforecaster/artifact-store";
 import { createBootstrapArtifact, createQueuedWorkflowTask, markTaskFailed, markTaskRunning } from "./run-service";
 import { launchSmithersDetached } from "./smithers-launcher";
+import { summarizeSourceDomainCounts } from "./source-domain-summary";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
 import { exportTraceBundle } from "./trace-bundle";
 
@@ -2932,6 +2933,7 @@ function buildSourceAudit(input: {
     contentSummary: string;
     publishedAt: Date | null;
     usedInFinal: boolean;
+    qualityScore: number | null;
   }>;
   output: Record<string, unknown>;
   cutoff: Date | null;
@@ -2944,13 +2946,23 @@ function buildSourceAudit(input: {
   const humanForecastSources = input.sources.filter((source) =>
     looksLikeHumanForecastSource(`${source.domain ?? ""} ${source.title ?? ""} ${source.sourceType} ${source.contentSummary}`),
   );
+  const sourceDomains = summarizeSourceDomainCounts(input.sources);
+  const topSourceDomain = sourceDomains[0] ?? null;
+  const lowQualitySources = input.sources.filter((source) => source.qualityScore !== null && source.qualityScore < 0.5);
   const searchQueries = readStringArray(input.output, "searchQueries", "search_queries");
   const explicitProbabilityQuotes = readStringArray(input.output, "explicitProbabilityQuotes", "explicit_probability_quotes");
   const outputLeakageFlags = readStringArray(input.output, "leakageFlags", "leakage_flags");
   return {
     sourceCount: input.sources.length,
     usedInFinalCount: input.sources.filter((source) => source.usedInFinal).length,
+    sourceDomainCount: sourceDomains.length,
+    sourceDomains: sourceDomains.slice(0, 10),
+    topSourceDomain: topSourceDomain?.domain ?? null,
+    topSourceDomainCount: topSourceDomain?.count ?? 0,
+    topSourceDomainShare: input.sources.length ? Math.round(((topSourceDomain?.count ?? 0) / input.sources.length) * 1000) / 1000 : null,
     missingPublishedAtCount: input.sources.filter((source) => !source.publishedAt).length,
+    lowQualitySourceCount: lowQualitySources.length,
+    lowQualityUsedInFinalSourceCount: lowQualitySources.filter((source) => source.usedInFinal).length,
     postCutoffSourceCount: postCutoffSources.length,
     postCutoffSources: postCutoffSources.slice(0, 5).map((source) => ({
       title: source.title,
@@ -3266,8 +3278,19 @@ function sourceQualityFindingsForRun(
       sourceLeakageCases: 0,
       informationAdvantageCases: 0,
       postCutoffSourceCases: 0,
+      dominantSourceDomainCases: 0,
+      lowQualitySourceCases: 0,
     };
   }
+  const sourceDomainCounts = summarizeSourceDomainCounts(caseAnalyses.flatMap((analysis) =>
+    readRecordArray(analysis.sourceAudit, "sourceDomains").map((row) => ({
+      domain: readString(row, "domain"),
+      count: readNumber(row, "count") ?? 0,
+      usedInFinalCount: readNumber(row, "usedInFinalCount") ?? 0,
+    })),
+  ));
+  const topSourceDomain = sourceDomainCounts[0] ?? null;
+  const totalSourceEntries = sumAuditNumber(caseAnalyses, "sourceCount");
   return {
     sourceLeakageCases: countLabel(results, "source_leakage"),
     informationAdvantageCases: countLabel(results, "information_advantage"),
@@ -3275,8 +3298,24 @@ function sourceQualityFindingsForRun(
     postCutoffSourceCases: caseAnalyses.filter((analysis) => Number(analysis.sourceAudit.postCutoffSourceCount ?? 0) > 0).length,
     humanForecastSourceCases: caseAnalyses.filter((analysis) => Number(analysis.sourceAudit.humanForecastSourceCount ?? 0) > 0).length,
     noSourceCases: caseAnalyses.filter((analysis) => Number(analysis.sourceAudit.sourceCount ?? 0) === 0).length,
-    note: "Agentic pastcasting v1 uses agent-reported source, cutoff, and trace metadata. Live-web date bounding is a weak eval condition and should not be compared to frozen-corpus scores.",
+    missingPublishedAtCases: caseAnalyses.filter((analysis) => Number(analysis.sourceAudit.missingPublishedAtCount ?? 0) > 0).length,
+    dominantSourceDomainCases: caseAnalyses.filter((analysis) => Number(analysis.sourceAudit.topSourceDomainShare ?? 0) >= 0.8).length,
+    lowQualitySourceCases: caseAnalyses.filter((analysis) => Number(analysis.sourceAudit.lowQualitySourceCount ?? 0) > 0).length,
+    sourceEntries: totalSourceEntries,
+    usedInFinalSourceEntries: sumAuditNumber(caseAnalyses, "usedInFinalCount"),
+    sourceDomainCount: sourceDomainCounts.length,
+    topSourceDomain: topSourceDomain?.domain ?? null,
+    topSourceDomainEntries: topSourceDomain?.count ?? 0,
+    topSourceDomainShare: totalSourceEntries ? Math.round(((topSourceDomain?.count ?? 0) / totalSourceEntries) * 1000) / 1000 : null,
+    lowQualitySourceEntries: sumAuditNumber(caseAnalyses, "lowQualitySourceCount"),
+    lowQualityFinalSourceEntries: sumAuditNumber(caseAnalyses, "lowQualityUsedInFinalSourceCount"),
+    topSourceDomains: sourceDomainCounts.slice(0, 10),
+    note: "Agentic pastcasting v1 uses agent-reported source, cutoff, trace, and source-bank quality metadata. Live-web date bounding is a weak eval condition and should not be compared to frozen-corpus scores.",
   };
+}
+
+function sumAuditNumber(caseAnalyses: BenchmarkCaseAnalysis[], key: string) {
+  return caseAnalyses.reduce((sum, analysis) => sum + Number(analysis.sourceAudit[key] ?? 0), 0);
 }
 
 async function costLatencyFindingsForRun(

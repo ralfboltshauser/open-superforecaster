@@ -399,6 +399,13 @@ function BenchmarkRunSummary({
   const sourceLeakageCases = typeof sourceQuality?.sourceLeakageCases === "number" ? sourceQuality.sourceLeakageCases : null
   const informationAdvantageCases = typeof sourceQuality?.informationAdvantageCases === "number" ? sourceQuality.informationAdvantageCases : null
   const humanForecastSourceCases = typeof sourceQuality?.humanForecastSourceCases === "number" ? sourceQuality.humanForecastSourceCases : null
+  const sourceDomainCount = typeof sourceQuality?.sourceDomainCount === "number" ? sourceQuality.sourceDomainCount : null
+  const topSourceDomain = typeof sourceQuality?.topSourceDomain === "string" ? sourceQuality.topSourceDomain : null
+  const topSourceDomainShare = typeof sourceQuality?.topSourceDomainShare === "number" ? sourceQuality.topSourceDomainShare : null
+  const dominantSourceDomainCases = typeof sourceQuality?.dominantSourceDomainCases === "number" ? sourceQuality.dominantSourceDomainCases : null
+  const lowQualitySourceEntries = typeof sourceQuality?.lowQualitySourceEntries === "number" ? sourceQuality.lowQualitySourceEntries : null
+  const lowQualityFinalSourceEntries =
+    typeof sourceQuality?.lowQualityFinalSourceEntries === "number" ? sourceQuality.lowQualityFinalSourceEntries : null
   const weakTraceCompletenessCases = typeof traceQuality?.weakTraceCompletenessCases === "number" ? traceQuality.weakTraceCompletenessCases : null
   const missingProbabilityCases = typeof traceQuality?.missingProbabilityCases === "number" ? traceQuality.missingProbabilityCases : null
   const missingScoreRowsCases = typeof traceQuality?.missingScoreRowsCases === "number" ? traceQuality.missingScoreRowsCases : null
@@ -452,6 +459,11 @@ function BenchmarkRunSummary({
       {sourceQuality ? (
         <p className="mt-2 truncate text-xs text-muted-foreground">
           source quality {String(sourceLeakageCases ?? 0)} cutoff leak · {String(informationAdvantageCases ?? 0)} info advantage · {String(humanForecastSourceCases ?? 0)} human forecast
+          {sourceDomainCount === null ? "" : ` · ${sourceDomainCount} domains`}
+          {topSourceDomain ? ` · top ${topSourceDomain}${topSourceDomainShare === null ? "" : ` ${formatMetric(topSourceDomainShare * 100)}%`}` : ""}
+          {dominantSourceDomainCases === null ? "" : ` · ${dominantSourceDomainCases} dominant-domain cases`}
+          {lowQualitySourceEntries === null ? "" : ` · ${lowQualitySourceEntries} low-quality sources`}
+          {lowQualityFinalSourceEntries === null ? "" : ` · ${lowQualityFinalSourceEntries} final-use low-quality`}
         </p>
       ) : null}
       {traceQuality ? (

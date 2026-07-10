@@ -3115,8 +3115,19 @@ await check("benchmark promotion blocks source independence failures", async () 
   assert(backendSource.includes("sourceQualityFindings"), "benchmark promotion gate does not read source quality findings");
   assert(backendSource.includes("source_cutoff_leakage"), "source cutoff leakage blocker missing");
   assert(backendSource.includes("human_forecast_leakage"), "human forecast leakage blocker missing");
+  assert(backendSource.includes("summarizeSourceDomainCounts"), "benchmark source audit does not reuse the shared source-domain reducer");
+  assert(backendSource.includes("./source-domain-summary"), "benchmark source audit does not import shared source-domain utilities");
+  assert(!backendSource.includes("function sourceDomainCountsForAudit"), "benchmark source audit should not keep a local source-domain reducer");
+  assert(backendSource.includes("dominantSourceDomainCases"), "benchmark source quality findings missing dominant-domain case count");
+  assert(backendSource.includes("lowQualitySourceEntries"), "benchmark source quality findings missing low-quality source count");
+  assert(backendSource.includes("lowQualityFinalSourceEntries"), "benchmark source quality findings missing final-use low-quality source count");
   assert(metricsSource.includes("sourceQualityFindings"), "metrics promotion gate does not read source quality findings");
+  assert(metricsSource.includes("emitBenchmarkSourceQualityMetrics"), "metrics exporter does not emit benchmark source-quality risk gauges");
+  assert(metricsSource.includes("open_superforecaster_benchmark_source_top_domain_share"), "metrics exporter missing benchmark top source-domain share");
+  assert(metricsSource.includes("open_superforecaster_benchmark_source_low_quality_final_entries"), "metrics exporter missing benchmark final-use low-quality source count");
   assert(dashboardSource.includes("source quality"), "lab dashboard does not surface source quality findings");
+  assert(dashboardSource.includes("dominantSourceDomainCases"), "lab dashboard does not surface dominant source-domain cases");
+  assert(dashboardSource.includes("lowQualityFinalSourceEntries"), "lab dashboard does not surface final-use low-quality source count");
   return "source leakage and human forecast leakage block benchmark promotion";
 });
 
@@ -3227,6 +3238,10 @@ await check("benchmark promotion gate blockers are exported to DuckDB", async ()
   assert(syncSource.includes("source_leakage_cases"), "DuckDB benchmark run mart missing source leakage count");
   assert(syncSource.includes("information_advantage_cases"), "DuckDB benchmark run mart missing information advantage count");
   assert(syncSource.includes("human_forecast_source_cases"), "DuckDB benchmark run mart missing human forecast source count");
+  assert(syncSource.includes("dominant_source_domain_cases"), "DuckDB benchmark run mart missing dominant source-domain case count");
+  assert(syncSource.includes("top_source_domain_share"), "DuckDB benchmark run mart missing top source-domain share");
+  assert(syncSource.includes("low_quality_source_entries"), "DuckDB benchmark run mart missing low-quality source entries");
+  assert(syncSource.includes("low_quality_final_source_entries"), "DuckDB benchmark run mart missing final-use low-quality source entries");
   assert(syncSource.includes("weak_trace_completeness_cases"), "DuckDB benchmark run mart missing weak trace count");
   assert(syncSource.includes("missing_probability_cases"), "DuckDB benchmark run mart missing missing probability count");
   assert(syncSource.includes("missing_score_rows_cases"), "DuckDB benchmark run mart missing missing score rows count");

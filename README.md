@@ -410,7 +410,10 @@ and mean source quality can be audited by domain. Prometheus metrics expose the
 distinct source-domain count and the top source domains by source volume, final
 use, task count, and mean quality score. `/api/diagnostics` and the lab
 dashboard also show a capped top-domain summary for quick source-concentration
-checks.
+checks. Benchmark analysis also summarizes source-domain concentration,
+dominant-domain cases, missing source dates, and low-quality source usage, and
+exports those source-risk signals through Prometheus, DuckDB, and the lab run
+cards.
 
 To consolidate those local artifacts into one audit file:
 
