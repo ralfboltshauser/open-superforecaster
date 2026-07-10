@@ -393,9 +393,10 @@ a workflow patch is marked implemented. Proposal validation reuses the source
 benchmark's case count by default unless a reviewer explicitly narrows
 `maxCases` for a debug run. Proposal validation only marks implementation work
 `validated` after the validation result completes with a passing promotion gate
-and no blockers. Proposal patches can only be marked implemented after
-validation completes with at least the source benchmark's case coverage, a
-passing promotion gate, and no remaining blockers. Prometheus exposes proposal
+and no blockers, and manual lifecycle updates use the same rule. Proposal
+patches can only be marked implemented after validation completes with at least
+the source benchmark's case coverage, a passing promotion gate, and no remaining
+blockers. Prometheus exposes proposal
 validation completed-case counts, coverage ratios, pass state, and cost deltas
 so weak or expensive validations can be monitored outside the lab UI. The
 DuckDB proposal mart exports the same validation coverage and pass-state fields

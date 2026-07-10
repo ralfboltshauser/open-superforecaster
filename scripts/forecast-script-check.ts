@@ -3365,11 +3365,15 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(backendSource.includes("updateWorkflowChangeProposalStatus"), "backend missing workflow proposal lifecycle function");
   assert(backendSource.includes("eq(workflowChangeProposals.sourceBenchmarkRunId, input.benchmarkRunId)"), "proposal update does not verify benchmark ownership");
   assert(backendSource.includes("assertWorkflowChangeProposalStatusTransitionAllowed"), "backend missing workflow proposal transition guard");
+  assert(backendSource.includes("assertWorkflowChangeProposalImplementationStatusAllowed"), "backend missing workflow proposal implementation status guard");
   assert(backendSource.includes("validationResultStatus !== \"completed\""), "backend implemented transition does not require completed validation");
   assert(backendSource.includes("validationGateStatus !== \"review_for_promotion\""), "backend implemented transition does not require a passing validation gate");
   assert(backendSource.includes("workflowProposalValidationGatePassed"), "backend missing shared validation gate pass helper");
   assert(backendSource.includes("implementationStatus: validationPassed ? \"validated\" : \"in_progress\""), "backend marks proposal validated without requiring a passing validation gate");
   assert(backendSource.includes("Validation passed: ${input.resultSummary}"), "backend validation sync does not distinguish passed validation from completed validation");
+  assert(backendSource.includes("requestedImplementationStatus === \"validated\""), "backend explicit validated transition does not require validation evidence");
+  assert(backendSource.includes("Cannot mark workflow change proposal validated until validation passes"), "backend explicit validated transition is not blocked by failed validation gate");
+  assert(backendSource.includes("status === \"implemented\" && implementationStatus !== \"validated\""), "backend implemented transition can drift from validated implementation status");
   assert(backendSource.includes("Source benchmark run not found for workflow change proposal"), "backend implemented transition does not load source benchmark case count");
   assert(backendSource.includes("requiredValidationCases = Math.max(sourceBenchmarkCaseCount, 1)"), "backend implemented transition does not require source-sized validation coverage");
   assert(backendSource.includes("validationCompletedCases ?? 0"), "backend implemented transition does not check completed validation case count");

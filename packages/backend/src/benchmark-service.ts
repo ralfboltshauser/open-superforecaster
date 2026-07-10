@@ -1069,6 +1069,9 @@ export async function updateWorkflowChangeProposalStatus(
   },
 ) {
   const status = normalizeWorkflowChangeProposalStatus(input.status);
+  const requestedImplementationStatus = input.implementationStatus
+    ? normalizeWorkflowChangeProposalImplementationStatus(input.implementationStatus)
+    : null;
   const reviewNote = input.reviewNote?.trim() || null;
   const reviewedBy = input.reviewedBy?.trim() || "local-user";
   const reviewedAt = status === "candidate" ? null : new Date();
@@ -1081,7 +1084,7 @@ export async function updateWorkflowChangeProposalStatus(
     throw new Error(`Workflow change proposal not found for benchmark run: ${input.proposalId}`);
   }
   let sourceBenchmarkCaseCount = 0;
-  if (status === "implemented") {
+  if (status === "implemented" || requestedImplementationStatus === "validated") {
     const [sourceRun] = await db
       .select({ caseCount: benchmarkRuns.caseCount })
       .from(benchmarkRuns)
@@ -1093,9 +1096,11 @@ export async function updateWorkflowChangeProposalStatus(
     sourceBenchmarkCaseCount = sourceRun.caseCount;
   }
   assertWorkflowChangeProposalStatusTransitionAllowed(status, existing, sourceBenchmarkCaseCount);
-  const implementationStatus = input.implementationStatus
-    ? normalizeWorkflowChangeProposalImplementationStatus(input.implementationStatus)
-    : implementationStatusForProposalTransition(status, existing.implementationStatus);
+  const implementationStatus = requestedImplementationStatus ?? implementationStatusForProposalTransition(status, existing.implementationStatus);
+  assertWorkflowChangeProposalImplementationStatusAllowed(implementationStatus, existing, sourceBenchmarkCaseCount);
+  if (status === "implemented" && implementationStatus !== "validated") {
+    throw new Error("Cannot mark workflow change proposal implemented without validated implementation status.");
+  }
   const implementationUpdatedAt = implementationStatus === existing.implementationStatus ? existing.implementationUpdatedAt : new Date();
   const implementationUpdatedBy = implementationStatus === "not_started" ? null : reviewedBy;
   const implementationExperimentLabel =
@@ -1436,6 +1441,30 @@ function assertWorkflowChangeProposalStatusTransitionAllowed(
   if ((proposal.validationCompletedCases ?? 0) < requiredValidationCases) {
     throw new Error(
       `Cannot mark workflow change proposal implemented until validation covers at least ${requiredValidationCases} source benchmark case(s).`,
+    );
+  }
+}
+
+function assertWorkflowChangeProposalImplementationStatusAllowed(
+  implementationStatus: WorkflowChangeProposalImplementationStatus,
+  proposal: typeof workflowChangeProposals.$inferSelect,
+  sourceBenchmarkCaseCount: number,
+) {
+  if (implementationStatus !== "validated") {
+    return;
+  }
+  const gateBlockers = workflowProposalValidationGateBlockers(proposal.validationGateBlockers);
+  if (!workflowProposalValidationGatePassed({
+    resultStatus: proposal.validationResultStatus,
+    gateStatus: proposal.validationGateStatus,
+    gateBlockers,
+  })) {
+    throw new Error("Cannot mark workflow change proposal validated until validation passes the promotion gate with no blockers.");
+  }
+  const requiredValidationCases = Math.max(sourceBenchmarkCaseCount, 1);
+  if ((proposal.validationCompletedCases ?? 0) < requiredValidationCases) {
+    throw new Error(
+      `Cannot mark workflow change proposal validated until validation covers at least ${requiredValidationCases} source benchmark case(s).`,
     );
   }
 }
