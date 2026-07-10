@@ -704,6 +704,8 @@ try {
   await replaceTable(duck, "osf_forecast_batch_health_issues", forecastBatchHealthIssueColumns, forecastBatchHealthIssues);
   const forecastBatchHealthAttentionTypes = buildForecastBatchHealthAttentionTypeMartRows(forecastBatchHealthSnapshot);
   await replaceTable(duck, "osf_forecast_batch_health_attention_types", forecastBatchHealthAttentionTypeColumns, forecastBatchHealthAttentionTypes);
+  const forecastBatchHealthCandidateGuards = buildForecastBatchHealthCandidateGuardMartRows(forecastBatchHealthSnapshot);
+  await replaceTable(duck, "osf_forecast_batch_health_candidate_guards", forecastBatchHealthCandidateGuardColumns, forecastBatchHealthCandidateGuards);
 
   const counts = {
     osf_tasks: tasks.length,
@@ -721,6 +723,7 @@ try {
     osf_forecast_batch_health: forecastBatchHealth.length,
     osf_forecast_batch_health_issues: forecastBatchHealthIssues.length,
     osf_forecast_batch_health_attention_types: forecastBatchHealthAttentionTypes.length,
+    osf_forecast_batch_health_candidate_guards: forecastBatchHealthCandidateGuards.length,
     osf_source_bank_entries: sources.length,
   };
   console.log(JSON.stringify({
@@ -741,6 +744,7 @@ try {
       "select batch_id, status, unresolved_attention_items, unresolved_candidate_calibration_guard_rules, issue_count from osf_forecast_batch_health;",
       "select batch_id, severity, kind, message from osf_forecast_batch_health_issues order by severity, kind;",
       "select batch_id, forecast_type, open_items, deferred_items, high_items from osf_forecast_batch_health_attention_types order by unresolved_items desc, high_items desc;",
+      "select batch_id, review_status, bucket_label, direction, suggested_adjustment, calibration_error, review_note from osf_forecast_batch_health_candidate_guards order by review_status, calibration_error desc;",
       "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label, validation_benchmark_run_id, validation_result_status, validation_recommendation_status, validation_paired_mean_brier_delta, validation_gate_status from osf_workflow_change_proposals order by created_at desc limit 5;",
       "select operation_mode, operation_submode, status, count(*) from osf_tasks group by 1,2,3 order by 4 desc;",
     ],
@@ -1341,6 +1345,27 @@ const forecastBatchHealthAttentionTypeColumns = [
   { name: "low_items", type: "INTEGER" },
 ] satisfies DuckColumn[];
 
+const forecastBatchHealthCandidateGuardColumns = [
+  { name: "report_path", type: "VARCHAR" },
+  { name: "batch_id", type: "VARCHAR" },
+  { name: "generated_at", type: "VARCHAR" },
+  { name: "status", type: "VARCHAR" },
+  { name: "rule_id", type: "VARCHAR" },
+  { name: "review_status", type: "VARCHAR" },
+  { name: "bucket_label", type: "VARCHAR" },
+  { name: "direction", type: "VARCHAR" },
+  { name: "suggested_adjustment", type: "DOUBLE" },
+  { name: "sample_size", type: "INTEGER" },
+  { name: "mean_forecast", type: "DOUBLE" },
+  { name: "observed_rate", type: "DOUBLE" },
+  { name: "calibration_error", type: "DOUBLE" },
+  { name: "activation_status", type: "VARCHAR" },
+  { name: "rationale", type: "VARCHAR" },
+  { name: "review_note", type: "VARCHAR" },
+  { name: "reviewer", type: "VARCHAR" },
+  { name: "reviewed_at", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
 type TaskMartRow = RowFor<typeof taskColumns>;
 type ArtifactRowMartRow = RowFor<typeof artifactRowColumns>;
 type BenchmarkRunMartRow = RowFor<typeof benchmarkRunColumns>;
@@ -1357,6 +1382,7 @@ type ForecastAttentionItemMartRow = RowFor<typeof forecastAttentionItemColumns>;
 type ForecastBatchHealthMartRow = RowFor<typeof forecastBatchHealthColumns>;
 type ForecastBatchHealthIssueMartRow = RowFor<typeof forecastBatchHealthIssueColumns>;
 type ForecastBatchHealthAttentionTypeMartRow = RowFor<typeof forecastBatchHealthAttentionTypeColumns>;
+type ForecastBatchHealthCandidateGuardMartRow = RowFor<typeof forecastBatchHealthCandidateGuardColumns>;
 type RowFor<T extends readonly DuckColumn[]> = Record<T[number]["name"], unknown>;
 
 async function syncMetadata(duck: DuckDBConnection) {
@@ -1705,6 +1731,29 @@ function buildForecastBatchHealthAttentionTypeMartRows(health: ForecastBatchHeal
     high_items: row.high,
     medium_items: row.medium,
     low_items: row.low,
+  }));
+}
+
+function buildForecastBatchHealthCandidateGuardMartRows(health: ForecastBatchHealthSnapshot): ForecastBatchHealthCandidateGuardMartRow[] {
+  return health.candidateCalibrationGuardRules.map((rule) => ({
+    report_path: health.path,
+    batch_id: health.batchId,
+    generated_at: health.generatedAt,
+    status: health.status,
+    rule_id: rule.id,
+    review_status: rule.reviewStatus,
+    bucket_label: rule.bucketLabel,
+    direction: rule.direction,
+    suggested_adjustment: rule.suggestedAdjustment,
+    sample_size: rule.sampleSize,
+    mean_forecast: rule.meanForecast,
+    observed_rate: rule.observedRate,
+    calibration_error: rule.calibrationError,
+    activation_status: rule.activationStatus,
+    rationale: rule.rationale,
+    review_note: rule.reviewNote,
+    reviewer: rule.reviewer,
+    reviewed_at: rule.reviewedAt,
   }));
 }
 

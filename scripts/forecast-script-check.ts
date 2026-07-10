@@ -1450,6 +1450,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("osf_forecast_batch_health"), "DuckDB sync missing forecast batch health mart");
   assert(syncSource.includes("osf_forecast_batch_health_issues"), "DuckDB sync missing forecast batch health issue mart");
   assert(syncSource.includes("osf_forecast_batch_health_attention_types"), "DuckDB sync missing forecast batch health attention-type mart");
+  assert(syncSource.includes("osf_forecast_batch_health_candidate_guards"), "DuckDB sync missing forecast batch health candidate guard mart");
   assert(syncSource.includes("buildBinaryCalibrationReport"), "DuckDB sync does not use shared binary calibration report builder");
   assert(syncSource.includes("buildCalibrationGuardImpact"), "DuckDB sync does not use shared calibration guard impact builder");
   assert(syncSource.includes("readLatestForecastBatchHealth"), "DuckDB sync does not use shared batch health reader");
@@ -1457,12 +1458,16 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("buildBinaryCalibrationBucketMartRows"), "DuckDB sync missing calibration bucket mart mapper");
   assert(syncSource.includes("buildForecastBatchHealthMartRows"), "DuckDB sync missing batch health mart mapper");
   assert(syncSource.includes("buildForecastBatchHealthAttentionTypeMartRows"), "DuckDB sync missing batch health attention-type mapper");
+  assert(syncSource.includes("buildForecastBatchHealthCandidateGuardMartRows"), "DuckDB sync missing batch health candidate guard mapper");
   assert(syncSource.includes("calibration_guard_adjustment"), "forecast score mart missing calibration guard adjustment");
   assert(syncSource.includes("calibration_guard_rules_json"), "forecast score mart missing calibration guard rules");
   assert(syncSource.includes("unresolved_attention_items"), "batch health mart missing unresolved attention count");
   assert(syncSource.includes("unresolved_candidate_calibration_guard_rules"), "batch health mart missing unresolved candidate guard count");
   assert(syncSource.includes("missing_phases_json"), "batch health mart missing missing phases");
   assert(syncSource.includes("unresolved_items"), "batch health attention-type mart missing unresolved item count");
+  assert(syncSource.includes("review_note"), "batch health candidate guard mart missing review note");
+  assert(syncSource.includes("reviewer"), "batch health candidate guard mart missing reviewer");
+  assert(syncSource.includes("reviewed_at"), "batch health candidate guard mart missing review timestamp");
   assert(syncSource.includes("baseline_sanity_status"), "forecast score mart missing baseline sanity status");
   assert(syncSource.includes("baseline_delta"), "forecast score mart missing baseline sanity delta");
   assert(syncSource.includes("market_anchor_status"), "forecast score mart missing market anchor status");

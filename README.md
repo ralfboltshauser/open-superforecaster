@@ -417,7 +417,8 @@ guard rules. The latest local health report is also exposed through
 can be monitored without opening the raw JSON artifact. `bun run duckdb:sync`
 also exports the latest batch-health summary and issue rows into
 `osf_forecast_batch_health`, `osf_forecast_batch_health_issues`, and
-`osf_forecast_batch_health_attention_types`.
+`osf_forecast_batch_health_attention_types`, plus candidate guard review rows in
+`osf_forecast_batch_health_candidate_guards`.
 
 Reviewed candidate calibration guard rules can be promoted through a local
 evidence ladder:
