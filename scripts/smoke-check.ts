@@ -416,6 +416,7 @@ async function runSmokeChecks() {
       "open_superforecaster_benchmark_promotion_gate_status",
       "open_superforecaster_benchmark_cost_summary_present",
       "open_superforecaster_workflow_change_proposals_total",
+      "open_superforecaster_workflow_change_proposal_readiness_blocked",
       "open_superforecaster_workflow_variant_info",
       "open_superforecaster_binary_calibration_status",
       "open_superforecaster_binary_calibration_candidate_guard_rules_total",

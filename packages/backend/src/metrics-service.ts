@@ -426,10 +426,57 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
   )) {
     metrics.gauge("open_superforecaster_workflow_change_proposals_total", "Workflow change proposal count by lifecycle, implementation status, and target workflow.", count, parseLabelKey(key));
   }
-  for (const proposal of workflowProposalRows.slice(0, 50)) {
+  const workflowProposalReadinessRows = workflowProposalRows.map((proposal) => {
     const validationComparisonReport = proposal.validationComparisonReportArtifactId
       ? reportRowsByArtifactId.get(proposal.validationComparisonReportArtifactId) ?? null
       : null;
+    const sourceCaseCount = proposal.sourceBenchmarkRunId ? benchmarkRunCaseCountById.get(proposal.sourceBenchmarkRunId) ?? null : null;
+    return {
+      proposal,
+      validationComparisonReport,
+      validationCoverage: workflowProposalValidationCoverage({
+        completedCases: proposal.validationCompletedCases,
+        sourceBenchmarkCaseCount: sourceCaseCount,
+      }),
+      validationReadiness: workflowProposalValidationReadiness({
+        resultStatus: proposal.validationResultStatus,
+        gateStatus: proposal.validationGateStatus,
+        gateBlockers: proposal.validationGateBlockers,
+        completedCases: proposal.validationCompletedCases,
+        sourceBenchmarkCaseCount: sourceCaseCount,
+        comparisonReport: validationComparisonReport,
+      }),
+    };
+  });
+  const activeWorkflowProposalReadinessRows = workflowProposalReadinessRows.filter(({ proposal }) => proposal.status !== "rejected" && proposal.status !== "implemented");
+  const blockedActiveWorkflowProposalReadinessRows = activeWorkflowProposalReadinessRows.filter(({ validationReadiness }) => !validationReadiness.passed);
+  const validatedWorkflowProposalReadinessRows = workflowProposalReadinessRows.filter(({ validationReadiness }) => validationReadiness.passed);
+  metrics.gauge(
+    "open_superforecaster_workflow_change_proposal_readiness_active",
+    "Recent active workflow change proposals still eligible for implementation.",
+    activeWorkflowProposalReadinessRows.length,
+  );
+  metrics.gauge(
+    "open_superforecaster_workflow_change_proposal_readiness_blocked",
+    "Recent active workflow change proposals blocked by validation readiness.",
+    blockedActiveWorkflowProposalReadinessRows.length,
+  );
+  metrics.gauge(
+    "open_superforecaster_workflow_change_proposal_readiness_validated",
+    "Recent workflow change proposals whose validation readiness contract passes.",
+    validatedWorkflowProposalReadinessRows.length,
+  );
+  for (const [key, count] of countBy(blockedActiveWorkflowProposalReadinessRows.flatMap(({ validationReadiness }) => validationReadiness.blockers), (blocker) =>
+    labelKey({ blocker }),
+  )) {
+    metrics.gauge(
+      "open_superforecaster_workflow_change_proposal_readiness_blocker",
+      "Validation-readiness blockers on recent active workflow change proposals.",
+      count,
+      parseLabelKey(key),
+    );
+  }
+  for (const { proposal, validationComparisonReport, validationCoverage, validationReadiness } of workflowProposalReadinessRows.slice(0, 50)) {
     const validationRecommendation = readRecord(validationComparisonReport, "recommendation");
     metrics.gauge("open_superforecaster_workflow_change_proposal_info", "Recent workflow change proposal lifecycle metadata.", 1, {
       proposal_id: proposal.id,
@@ -454,19 +501,6 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       target_workflow_id: proposal.targetWorkflowId,
       validation_benchmark_run_id: proposal.validationBenchmarkRunId ?? "none",
     };
-    const sourceCaseCount = proposal.sourceBenchmarkRunId ? benchmarkRunCaseCountById.get(proposal.sourceBenchmarkRunId) ?? null : null;
-    const validationCoverage = workflowProposalValidationCoverage({
-      completedCases: proposal.validationCompletedCases,
-      sourceBenchmarkCaseCount: sourceCaseCount,
-    });
-    const validationReadiness = workflowProposalValidationReadiness({
-      resultStatus: proposal.validationResultStatus,
-      gateStatus: proposal.validationGateStatus,
-      gateBlockers: proposal.validationGateBlockers,
-      completedCases: proposal.validationCompletedCases,
-      sourceBenchmarkCaseCount: sourceCaseCount,
-      comparisonReport: validationComparisonReport,
-    });
     metrics.gauge(
       "open_superforecaster_workflow_change_proposal_validation_completed_cases",
       "Completed validation benchmark cases for a workflow change proposal.",
