@@ -1418,11 +1418,19 @@ function assertWorkflowChangeProposalStatusTransitionAllowed(
   if (status !== "implemented") {
     return;
   }
-  if (proposal.validationResultStatus !== "completed") {
-    throw new Error("Cannot mark workflow change proposal implemented until validation result status is completed.");
-  }
-  if (proposal.validationGateStatus !== "review_for_promotion") {
-    throw new Error("Cannot mark workflow change proposal implemented until validation gate is review_for_promotion.");
+  const gateBlockers = workflowProposalValidationGateBlockers(proposal.validationGateBlockers);
+  if (!workflowProposalValidationGatePassed({
+    resultStatus: proposal.validationResultStatus,
+    gateStatus: proposal.validationGateStatus,
+    gateBlockers,
+  })) {
+    if (proposal.validationResultStatus !== "completed") {
+      throw new Error("Cannot mark workflow change proposal implemented until validation result status is completed.");
+    }
+    if (proposal.validationGateStatus !== "review_for_promotion") {
+      throw new Error("Cannot mark workflow change proposal implemented until validation gate is review_for_promotion.");
+    }
+    throw new Error("Cannot mark workflow change proposal implemented while validation gate blockers remain.");
   }
   const requiredValidationCases = Math.max(sourceBenchmarkCaseCount, 1);
   if ((proposal.validationCompletedCases ?? 0) < requiredValidationCases) {
@@ -1430,10 +1438,22 @@ function assertWorkflowChangeProposalStatusTransitionAllowed(
       `Cannot mark workflow change proposal implemented until validation covers at least ${requiredValidationCases} source benchmark case(s).`,
     );
   }
-  const gateBlockers = Array.isArray(proposal.validationGateBlockers) ? proposal.validationGateBlockers.filter(Boolean) : [];
-  if (gateBlockers.length > 0) {
-    throw new Error("Cannot mark workflow change proposal implemented while validation gate blockers remain.");
-  }
+}
+
+function workflowProposalValidationGatePassed(input: {
+  resultStatus: string | null;
+  gateStatus: string | null;
+  gateBlockers: unknown;
+}) {
+  return (
+    input.resultStatus === "completed" &&
+    input.gateStatus === "review_for_promotion" &&
+    workflowProposalValidationGateBlockers(input.gateBlockers).length === 0
+  );
+}
+
+function workflowProposalValidationGateBlockers(raw: unknown) {
+  return Array.isArray(raw) ? raw.filter((blocker): blocker is string => typeof blocker === "string" && blocker.trim().length > 0) : [];
 }
 
 function implementationStatusForProposalTransition(
@@ -2409,6 +2429,11 @@ async function syncWorkflowProposalValidationEvidence(
     validationBenchmarkRunId: input.benchmarkRunId,
     validationCostLatencyFindings: input.costLatencyFindings,
   });
+  const validationPassed = workflowProposalValidationGatePassed({
+    resultStatus: input.resultStatus,
+    gateStatus: input.gateStatus,
+    gateBlockers: input.gateBlockers,
+  });
   await db
     .update(workflowChangeProposals)
     .set({
@@ -2423,11 +2448,9 @@ async function syncWorkflowProposalValidationEvidence(
       validationGateStatus: input.gateStatus,
       validationGateBlockers: input.gateBlockers,
       validationCompletedAt: input.completedAt,
-      implementationStatus: input.resultStatus === "completed" ? "validated" : "in_progress",
+      implementationStatus: validationPassed ? "validated" : "in_progress",
       implementationNote:
-        input.resultStatus === "completed"
-          ? `Validation completed: ${input.resultSummary}`
-          : `Validation needs review: ${input.resultSummary}`,
+        validationPassed ? `Validation passed: ${input.resultSummary}` : `Validation needs review: ${input.resultSummary}`,
       implementationUpdatedAt: input.completedAt,
       updatedAt: new Date(),
     })
