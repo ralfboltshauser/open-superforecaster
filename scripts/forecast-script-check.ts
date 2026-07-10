@@ -3090,6 +3090,11 @@ await check("benchmark analysis summarizes measured cost findings", async () => 
   assert(metricsSource.includes("open_superforecaster_benchmark_cost_tokens_by_status"), "benchmark cost status metric missing");
   assert(dashboardSource.includes("costLatencyFindings"), "lab dashboard does not read benchmark cost/latency findings");
   assert(dashboardSource.includes("cost {formatCount"), "lab dashboard does not surface benchmark cost summaries");
+  assert(dashboardSource.includes("heaviestCases"), "lab dashboard does not read heaviest benchmark cost cases");
+  assert(dashboardSource.includes("slowestCases"), "lab dashboard does not read slowest benchmark cost cases");
+  assert(dashboardSource.includes("BenchmarkCostOutlierSummary"), "lab dashboard does not render benchmark cost outlier summaries");
+  assert(dashboardSource.includes("Heaviest cost cases"), "lab dashboard does not label heaviest benchmark cost cases");
+  assert(dashboardSource.includes("Slowest cost cases"), "lab dashboard does not label slowest benchmark cost cases");
   return "benchmark analysis, metrics, and lab dashboard expose measured cost findings";
 });
 

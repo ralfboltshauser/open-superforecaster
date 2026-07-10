@@ -384,7 +384,9 @@ cost at review time. The same benchmark cost summary is exported through
 Prometheus, `osf_benchmark_runs`, the status-level
 `osf_benchmark_cost_status` mart, and `osf_benchmark_cost_outliers` so token
 and call regressions can be monitored outside the lab UI by run, case status,
-and highest-cost case.
+and highest-cost case. The lab dashboard also shows the heaviest and slowest
+benchmark cases directly on each run card when the analysis report includes
+those outlier lists.
 The local DuckDB sync also derives `osf_source_bank_domains` from persisted
 source-bank entries so source concentration, final-use count, source-type mix,
 and mean source quality can be audited by domain. Prometheus metrics expose the

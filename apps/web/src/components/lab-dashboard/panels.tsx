@@ -407,6 +407,8 @@ function BenchmarkRunSummary({
   const totalAgentCalls = typeof costLatency?.totalAgentCalls === "number" ? costLatency.totalAgentCalls : null
   const totalTokens = typeof costLatency?.totalTokens === "number" ? costLatency.totalTokens : null
   const meanDurationSeconds = typeof costLatency?.meanDurationSeconds === "number" ? costLatency.meanDurationSeconds : null
+  const heaviestCostCases = readArray(costLatency, "heaviestCases").filter(isRecord)
+  const slowestCostCases = readArray(costLatency, "slowestCases").filter(isRecord)
   const benchmarkRunId = typeof run.id === "string" ? run.id : null
   return (
     <div className="rounded-md border p-3 text-sm">
@@ -461,6 +463,9 @@ function BenchmarkRunSummary({
           cost {formatCount(measuredCostCases ?? 0)} measured · {formatCount(totalAgentCalls ?? 0)} calls · {formatCount(totalTokens ?? 0)} tokens{meanDurationSeconds === null ? "" : ` · ${formatMetric(meanDurationSeconds)}s avg`}
         </p>
       ) : null}
+      {heaviestCostCases.length || slowestCostCases.length ? (
+        <BenchmarkCostOutlierSummary heaviestCases={heaviestCostCases} slowestCases={slowestCostCases} />
+      ) : null}
       {blockers.length ? (
         <div className="mt-2 flex flex-wrap gap-1">
           {blockers.slice(0, 3).map((blocker) => (
@@ -489,6 +494,79 @@ function BenchmarkRunSummary({
       ) : null}
     </div>
   )
+}
+
+function BenchmarkCostOutlierSummary({
+  heaviestCases,
+  slowestCases,
+}: {
+  heaviestCases: JsonRecord[]
+  slowestCases: JsonRecord[]
+}) {
+  return (
+    <div className="mt-2 grid gap-2 md:grid-cols-2">
+      <BenchmarkCostOutlierList cases={heaviestCases} label="Heaviest cost cases" metric="tokens" />
+      <BenchmarkCostOutlierList cases={slowestCases} label="Slowest cost cases" metric="duration" />
+    </div>
+  )
+}
+
+function BenchmarkCostOutlierList({
+  cases,
+  label,
+  metric,
+}: {
+  cases: JsonRecord[]
+  label: string
+  metric: "duration" | "tokens"
+}) {
+  if (!cases.length) {
+    return null
+  }
+  return (
+    <div className="min-w-0 rounded-sm bg-muted/40 px-2 py-1.5 text-xs">
+      <p className="mb-1 font-medium uppercase text-muted-foreground">{label}</p>
+      <div className="flex flex-col gap-1">
+        {cases.slice(0, 3).map((row, index) => {
+          const taskId = typeof row.taskId === "string" ? row.taskId : null
+          const caseId = typeof row.benchmarkCaseId === "string" ? row.benchmarkCaseId : null
+          const caseResultId = typeof row.benchmarkCaseResultId === "string" ? row.benchmarkCaseResultId : null
+          const status = typeof row.status === "string" ? row.status : "unknown"
+          const agentCalls = readNumber(row, "agentCalls") ?? 0
+          const totalTokens = readNumber(row, "totalTokens")
+          const durationSeconds = readNumber(row, "durationSeconds")
+          const title = taskId ?? caseId ?? caseResultId ?? `case ${index + 1}`
+          const metricText = formatBenchmarkCostOutlierMetric(metric, { durationSeconds, totalTokens })
+          return (
+            <div className="min-w-0" key={`${label}:${caseResultId ?? taskId ?? caseId ?? index}`}>
+              <p className="truncate font-medium">
+                {taskId ? (
+                  <Link className="hover:underline" href={`/runs/${taskId}`}>
+                    {title}
+                  </Link>
+                ) : (
+                  title
+                )}
+              </p>
+              <p className="truncate text-muted-foreground">
+                {metricText} · {formatCount(agentCalls)} calls · {status}
+              </p>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function formatBenchmarkCostOutlierMetric(
+  metric: "duration" | "tokens",
+  values: { durationSeconds: number | null; totalTokens: number | null },
+) {
+  if (metric === "tokens") {
+    return `${formatCount(values.totalTokens ?? 0)} tokens`
+  }
+  return values.durationSeconds === null ? "duration n/a" : `${formatMetric(values.durationSeconds)}s`
 }
 
 function WorkflowProposalSummary({
