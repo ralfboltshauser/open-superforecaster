@@ -1,5 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
+import { resolve } from "node:path";
+import {
+  evaluateAttentionBacklogCompatibility,
+  type AttentionBacklogCompatibilityIssue,
+} from "../packages/backend/src/forecast-attention-backlog";
 import {
   listFilesNamed,
   readArgValue,
@@ -25,7 +29,6 @@ type SelectedAttentionBacklog = {
   path: string;
   payload: JsonRecord;
   generatedAt: string | null;
-  reviewsUpdatedAt: string | null;
 };
 
 type AttentionKindBreakdown = {
@@ -152,7 +155,7 @@ const markdownPath = resolve(outputDir, "batch-health.md");
 const selected = await selectBatchIndex(batchIndexDir, requestedBatchId);
 const selectedAttentionBacklog = await selectAttentionBacklog(attentionBacklogDir);
 const report = selected
-  ? buildHealthReport(selected.payload, selected.path, selectedAttentionBacklog, batchIndexDir, attentionBacklogDir, jsonPath, markdownPath)
+  ? await buildHealthReport(selected.payload, selected.path, selectedAttentionBacklog, batchIndexDir, attentionBacklogDir, jsonPath, markdownPath)
   : buildEmptyReport(batchIndexDir, attentionBacklogDir, selectedAttentionBacklog?.path ?? null, jsonPath, markdownPath, requestedBatchId);
 
 await mkdir(outputDir, { recursive: true });
@@ -209,7 +212,6 @@ async function selectAttentionBacklog(backlogRoot: string): Promise<SelectedAtte
       path,
       payload,
       generatedAt: readString(payload, "generatedAt"),
-      reviewsUpdatedAt: await readAttentionBacklogReviewsUpdatedAt(payload),
     });
   }
   candidates.sort((left, right) =>
@@ -219,22 +221,7 @@ async function selectAttentionBacklog(backlogRoot: string): Promise<SelectedAtte
   return candidates[0] ?? null;
 }
 
-async function readAttentionBacklogReviewsUpdatedAt(backlog: JsonRecord) {
-  const paths = readRecord(backlog, "paths");
-  const reviewsPath = readString(paths, "reviews");
-  if (!reviewsPath) {
-    return null;
-  }
-  try {
-    const resolvedPath = isAbsolute(reviewsPath) ? reviewsPath : resolve(root, reviewsPath);
-    const reviews = readRecord(await readJson(resolvedPath));
-    return readString(reviews, "updatedAt");
-  } catch {
-    return null;
-  }
-}
-
-function buildHealthReport(
+async function buildHealthReport(
   batchIndex: JsonRecord,
   batchIndexPath: string,
   attentionBacklog: SelectedAttentionBacklog | null,
@@ -242,13 +229,21 @@ function buildHealthReport(
   backlogDir: string,
   reportJsonPath: string,
   reportMarkdownPath: string,
-): HealthReport {
+): Promise<HealthReport> {
   const batchId = readString(batchIndex, "batchId");
   const counts = readRecord(batchIndex, "counts") ?? {};
   const batchAttentionItems = readRecordArray(batchIndex, "attentionItems").flatMap((item) => readHealthAttentionItem(item, batchIndexPath));
   const candidateCalibrationGuardRules = readRecordArray(batchIndex, "candidateCalibrationGuardRules").flatMap(readHealthCandidateCalibrationGuardRule);
   const batchIndexGeneratedAt = readString(batchIndex, "generatedAt");
-  const attentionBacklogIssues = attentionBacklog ? attentionBacklogCompatibilityIssues(attentionBacklog, batchId, batchIndexGeneratedAt) : [];
+  const attentionBacklogIssues = attentionBacklog
+    ? attentionBacklogCompatibilityIssues(
+      (await evaluateAttentionBacklogCompatibility(root, attentionBacklog.payload, {
+        selectedBatchId: batchId,
+        batchIndexGeneratedAt,
+      })).issues,
+      batchId,
+    )
+    : [];
   const compatibleAttentionBacklog = attentionBacklog && attentionBacklogIssues.length === 0 ? attentionBacklog : null;
   const attentionItems = mergeSupplementalAttentionItems(
     batchAttentionItems,
@@ -422,55 +417,30 @@ function buildIssues(
 }
 
 function attentionBacklogCompatibilityIssues(
-  attentionBacklog: SelectedAttentionBacklog,
+  compatibilityIssues: AttentionBacklogCompatibilityIssue[],
   batchId: string | null,
-  batchIndexGeneratedAt: string | null,
 ): HealthIssue[] {
-  const issues: HealthIssue[] = [];
-  const backlog = attentionBacklog.payload;
-  const filters = readRecord(backlog, "filters");
-  const statuses = readStringArray(filters, "statuses");
-  const batchIds = readStringArray(filters, "batchIds");
-  const batchTimestamp = timestampValue(batchIndexGeneratedAt);
-  const backlogTimestamp = timestampValue(attentionBacklog.generatedAt);
-  const reviewsTimestamp = timestampValue(attentionBacklog.reviewsUpdatedAt);
-  if (backlogTimestamp === 0) {
-    issues.push({
-      severity: "medium",
-      kind: "attention_backlog_timestamp_missing",
-      message: "Attention backlog has no parseable generatedAt timestamp and was not merged into health counts.",
-    });
+  return compatibilityIssues.map((issue) => ({
+    severity: "medium",
+    kind: issue.kind,
+    message: attentionBacklogCompatibilityMessage(issue, batchId),
+  }));
+}
+
+function attentionBacklogCompatibilityMessage(issue: AttentionBacklogCompatibilityIssue, batchId: string | null) {
+  if (issue.kind === "attention_backlog_timestamp_missing") {
+    return "Attention backlog has no parseable generatedAt timestamp and was not merged into health counts.";
   }
-  if (batchTimestamp > 0 && backlogTimestamp > 0 && backlogTimestamp < batchTimestamp) {
-    issues.push({
-      severity: "medium",
-      kind: "attention_backlog_stale",
-      message: `Attention backlog was generated before selected batch ${batchId ?? "unknown"} and was not merged into health counts.`,
-    });
+  if (issue.kind === "attention_backlog_stale") {
+    return `Attention backlog was generated before selected batch ${batchId ?? "unknown"} and was not merged into health counts.`;
   }
-  if (reviewsTimestamp > 0 && backlogTimestamp > 0 && backlogTimestamp < reviewsTimestamp) {
-    issues.push({
-      severity: "medium",
-      kind: "attention_backlog_reviews_stale",
-      message: "Attention backlog was generated before local attention reviews were updated and was not merged into health counts.",
-    });
+  if (issue.kind === "attention_backlog_reviews_stale") {
+    return "Attention backlog was generated before local attention reviews were updated and was not merged into health counts.";
   }
-  const missingStatuses = ["open", "deferred"].filter((status) => !statuses.includes(status));
-  if (statuses.length > 0 && missingStatuses.length > 0) {
-    issues.push({
-      severity: "medium",
-      kind: "attention_backlog_status_filter",
-      message: `Attention backlog was generated without ${missingStatuses.join(" and ")} item(s), so supplemental unresolved attention was not merged.`,
-    });
+  if (issue.kind === "attention_backlog_status_filter") {
+    return `Attention backlog was generated without ${(issue.missingStatuses ?? []).join(" and ")} item(s), so supplemental unresolved attention was not merged.`;
   }
-  if (batchId && batchIds.length > 0 && !batchIds.includes(batchId)) {
-    issues.push({
-      severity: "medium",
-      kind: "attention_backlog_batch_filter",
-      message: `Attention backlog was generated for ${batchIds.join(", ")} and does not cover selected batch ${batchId}.`,
-    });
-  }
-  return issues;
+  return `Attention backlog was generated for ${(issue.batchIds ?? []).join(", ")} and does not cover selected batch ${batchId ?? "unknown"}.`;
 }
 
 function readHealthAttentionItem(item: JsonRecord, fallbackSourcePath: string | null = null): HealthAttentionItem[] {

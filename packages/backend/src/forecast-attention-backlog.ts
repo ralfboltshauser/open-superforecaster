@@ -3,23 +3,65 @@ import { isAbsolute, resolve } from "node:path";
 
 type JsonRecord = Record<string, unknown>;
 
+export type AttentionBacklogCompatibilityIssue = {
+  kind:
+    | "attention_backlog_timestamp_missing"
+    | "attention_backlog_stale"
+    | "attention_backlog_reviews_stale"
+    | "attention_backlog_status_filter"
+    | "attention_backlog_batch_filter";
+  missingStatuses?: string[];
+  batchIds?: string[];
+};
+
+export type AttentionBacklogCompatibilityOptions = {
+  selectedBatchId?: string | null;
+  batchIndexGeneratedAt?: string | null;
+};
+
 export async function isExportCompatibleAttentionBacklog(root: string, payload: JsonRecord) {
+  return (await evaluateAttentionBacklogCompatibility(root, payload)).compatible;
+}
+
+export async function evaluateAttentionBacklogCompatibility(
+  root: string,
+  payload: JsonRecord,
+  options: AttentionBacklogCompatibilityOptions = {},
+) {
+  const issues: AttentionBacklogCompatibilityIssue[] = [];
   const generatedAt = readString(payload, "generatedAt");
-  if (!generatedAt) {
-    return false;
-  }
+  const backlogTimestamp = timestampValue(generatedAt);
   const filters = readRecord(payload, "filters");
   const statuses = readStringArray(filters, "statuses");
   const batchIds = readStringArray(filters, "batchIds");
-  if (batchIds.length > 0) {
-    return false;
+  const batchTimestamp = timestampValue(options.batchIndexGeneratedAt ?? null);
+  if (backlogTimestamp === 0) {
+    issues.push({ kind: "attention_backlog_timestamp_missing" });
+  }
+  if (batchTimestamp > 0 && backlogTimestamp > 0 && backlogTimestamp < batchTimestamp) {
+    issues.push({ kind: "attention_backlog_stale" });
   }
   const missingStatuses = ["open", "deferred"].filter((status) => !statuses.includes(status));
   if (statuses.length > 0 && missingStatuses.length > 0) {
-    return false;
+    issues.push({ kind: "attention_backlog_status_filter", missingStatuses });
   }
   const reviewsUpdatedAt = await readAttentionBacklogReviewsUpdatedAt(root, payload);
-  return !reviewsUpdatedAt || timestampValue(generatedAt) >= timestampValue(reviewsUpdatedAt);
+  const reviewsTimestamp = timestampValue(reviewsUpdatedAt);
+  if (reviewsTimestamp > 0 && backlogTimestamp > 0 && backlogTimestamp < reviewsTimestamp) {
+    issues.push({ kind: "attention_backlog_reviews_stale" });
+  }
+  if (batchIds.length > 0) {
+    const selectedBatchId = options.selectedBatchId ?? null;
+    if (!selectedBatchId || !batchIds.includes(selectedBatchId)) {
+      issues.push({ kind: "attention_backlog_batch_filter", batchIds });
+    }
+  }
+  return {
+    compatible: issues.length === 0,
+    generatedAt,
+    reviewsUpdatedAt,
+    issues,
+  };
 }
 
 export async function readAttentionBacklogReviewsUpdatedAt(root: string, payload: JsonRecord) {

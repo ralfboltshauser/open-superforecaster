@@ -1014,6 +1014,11 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   assert(issues.some((issue) => readString(issue, "kind") === "failed_forecasts"), "failed forecast issue missing");
   assert(issues.some((issue) => readString(issue, "kind") === "calibration_guard_regression"), "calibration guard regression issue missing");
   assert(issues.some((issue) => readString(issue, "kind") === "candidate_calibration_guard_review"), "candidate calibration guard issue missing");
+  const healthSource = await readFile(resolve(root, "scripts/forecast-batch-health.ts"), "utf8");
+  assert(healthSource.includes("evaluateAttentionBacklogCompatibility"), "batch health does not use the shared attention backlog compatibility evaluator");
+  assert(healthSource.includes("../packages/backend/src/forecast-attention-backlog"), "batch health does not import the shared attention backlog helper");
+  assert(!healthSource.includes("function readAttentionBacklogReviewsUpdatedAt"), "batch health should not keep a local attention backlog freshness reader");
+  assert(!healthSource.includes("readStringArray(filters"), "batch health should not keep local attention backlog filter compatibility parsing");
   return "batch health summarizes latest indexed batch issues";
 });
 
