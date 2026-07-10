@@ -18,6 +18,7 @@ export type AggregateStatsSnapshot = {
   disagreementBand: "low" | "moderate" | "high" | "extreme" | "unknown";
   aggregationAnchor: string | null;
   adjustmentFromMedian: number | null;
+  adjustmentFromMedianBand: "near_median" | "moderate_adjustment" | "large_adjustment" | "missing_components" | "unknown";
   attemptCount: number | null;
 };
 
@@ -47,7 +48,8 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
   const explicitFinalAdjustmentDirection = readFinalAdjustmentDirection(aggregateStats);
   const disagreement = readNumber(aggregateStats, "disagreement");
   const aggregationAnchor = readString(aggregateStats, "aggregationAnchor", "aggregation_anchor");
-  const adjustmentFromMedian = readNumber(aggregateStats, "adjustmentFromMedian", "adjustment_from_median");
+  const adjustmentFromMedian = readNumber(aggregateStats, "adjustmentFromMedian", "adjustment_from_median") ?? delta(finalProbability, medianProbability);
+  const explicitAdjustmentFromMedianBand = readAdjustmentFromMedianBand(aggregateStats);
   const attemptCount = readNumber(aggregateStats, "attemptCount", "attempt_count");
   if (
     meanProbability === null &&
@@ -103,6 +105,11 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
     disagreementBand: aggregateDisagreementBand(disagreement),
     aggregationAnchor,
     adjustmentFromMedian,
+    adjustmentFromMedianBand: explicitAdjustmentFromMedianBand ?? adjustmentFromMedianBand(
+      adjustmentFromMedian,
+      finalProbability === null && adjustmentFromMedian === null ? 0 : 1,
+      medianProbability === null && adjustmentFromMedian === null ? 0 : 1,
+    ),
     attemptCount,
   };
 }
@@ -241,6 +248,27 @@ export function aggregateDisagreementBand(disagreement: number | null): Aggregat
   return "low";
 }
 
+export function adjustmentFromMedianBand(
+  adjustmentFromMedian: number | null,
+  finalProbabilityCount: number,
+  medianProbabilityCount: number,
+): AggregateStatsSnapshot["adjustmentFromMedianBand"] {
+  if (finalProbabilityCount === 0 || medianProbabilityCount === 0) {
+    return "missing_components";
+  }
+  if (adjustmentFromMedian === null || !Number.isFinite(adjustmentFromMedian)) {
+    return "unknown";
+  }
+  const absoluteAdjustment = Math.abs(adjustmentFromMedian);
+  if (absoluteAdjustment >= 20) {
+    return "large_adjustment";
+  }
+  if (absoluteAdjustment >= 8) {
+    return "moderate_adjustment";
+  }
+  return "near_median";
+}
+
 function readString(value: unknown, ...keys: string[]) {
   const record = asRecord(value);
   if (!record) {
@@ -311,6 +339,20 @@ function readFinalAdjustmentDirection(value: unknown): AggregateStatsSnapshot["f
     direction === "unknown"
   ) {
     return direction;
+  }
+  return null;
+}
+
+function readAdjustmentFromMedianBand(value: unknown): AggregateStatsSnapshot["adjustmentFromMedianBand"] | null {
+  const band = readString(value, "adjustmentFromMedianBand", "adjustment_from_median_band");
+  if (
+    band === "near_median" ||
+    band === "moderate_adjustment" ||
+    band === "large_adjustment" ||
+    band === "missing_components" ||
+    band === "unknown"
+  ) {
+    return band;
   }
   return null;
 }
