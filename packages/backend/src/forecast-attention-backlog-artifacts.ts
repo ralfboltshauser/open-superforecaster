@@ -18,6 +18,8 @@ export type ForecastAttentionBacklogArtifact = {
     medium: number | null;
     low: number | null;
   };
+  byForecastType: ForecastAttentionBacklogForecastTypeBreakdown[];
+  byKind: ForecastAttentionBacklogKindBreakdown[];
   items: ForecastAttentionBacklogItem[];
   paths: {
     reviews: string | null;
@@ -25,6 +27,25 @@ export type ForecastAttentionBacklogArtifact = {
     validationReportDir: string | null;
     defaultPlanReportDir: string | null;
   };
+};
+
+export type ForecastAttentionBacklogBreakdownCounts = {
+  items: number | null;
+  open: number | null;
+  deferred: number | null;
+  reviewed: number | null;
+  unresolved: number | null;
+  high: number | null;
+  medium: number | null;
+  low: number | null;
+};
+
+export type ForecastAttentionBacklogForecastTypeBreakdown = ForecastAttentionBacklogBreakdownCounts & {
+  forecastType: string;
+};
+
+export type ForecastAttentionBacklogKindBreakdown = ForecastAttentionBacklogBreakdownCounts & {
+  kind: string;
 };
 
 export type ForecastAttentionBacklogItem = {
@@ -85,6 +106,14 @@ function readForecastAttentionBacklogArtifact(reportPath: string, payload: JsonR
       medium: readNumber(counts, "medium"),
       low: readNumber(counts, "low"),
     },
+    byForecastType: readRecordArray(payload, "byForecastType").map((row) => ({
+      forecastType: readString(row, "forecastType") ?? "unknown",
+      ...readBreakdownCounts(row),
+    })),
+    byKind: readRecordArray(payload, "byKind").map((row) => ({
+      kind: readString(row, "kind") ?? "unknown",
+      ...readBreakdownCounts(row),
+    })),
     items: readRecordArray(payload, "items").map((item) => ({
       batchId: readString(item, "batchId"),
       id: readString(item, "id"),
@@ -110,5 +139,18 @@ function readForecastAttentionBacklogArtifact(reportPath: string, payload: JsonR
       validationReportDir: readString(paths, "validationReportDir"),
       defaultPlanReportDir: readString(paths, "defaultPlanReportDir"),
     },
+  };
+}
+
+function readBreakdownCounts(row: JsonRecord): ForecastAttentionBacklogBreakdownCounts {
+  return {
+    items: readNumber(row, "items"),
+    open: readNumber(row, "open"),
+    deferred: readNumber(row, "deferred"),
+    reviewed: readNumber(row, "reviewed"),
+    unresolved: readNumber(row, "unresolved"),
+    high: readNumber(row, "high"),
+    medium: readNumber(row, "medium"),
+    low: readNumber(row, "low"),
   };
 }

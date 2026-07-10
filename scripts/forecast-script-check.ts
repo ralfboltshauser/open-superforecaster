@@ -771,6 +771,9 @@ await check("forecast attention backlog filters batch review status", async () =
   const backlogReaderSource = await readFile(resolve(root, "packages/backend/src/forecast-attention-backlog-artifacts.ts"), "utf8");
   assert(validationReaderSource.includes("reportRoot?: string"), "shared calibration validation reader does not support custom report roots");
   assert(backlogReaderSource.includes("unresolved: readNumber(counts, \"unresolved\")"), "shared attention backlog reader does not expose unresolved counts");
+  assert(backlogReaderSource.includes("byForecastType: readRecordArray(payload, \"byForecastType\")"), "shared attention backlog reader does not expose forecast-type breakdowns");
+  assert(backlogReaderSource.includes("byKind: readRecordArray(payload, \"byKind\")"), "shared attention backlog reader does not expose kind breakdowns");
+  assert(backlogReaderSource.includes("readBreakdownCounts(row)"), "shared attention backlog reader does not normalize breakdown counts");
   assert(defaultPlanReaderSource.includes("reportRoot?: string"), "shared default-plan reader does not support custom report roots");
   assert(counts, "backlog counts missing");
   assert(readNumber(counts, "items") === 3, "filtered item count mismatch");
