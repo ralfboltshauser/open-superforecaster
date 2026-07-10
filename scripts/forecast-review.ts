@@ -1,11 +1,11 @@
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import {
-  isAttentionReviewStatus,
   readAttentionReviewFile,
   upsertAttentionReview,
   type AttentionReviewRecord,
 } from "./lib/forecast-attention-reviews";
+import { isForecastAttentionReviewStatus } from "../packages/backend/src/forecast-attention-policy";
 import {
   readArgValue,
   writeJson,
@@ -23,7 +23,7 @@ const reviewsFile = resolve(root, readArgValue(args, "--reviews-file") ?? "data/
 if (!attentionItemId) {
   throw new Error("Expected --id <attentionItemId>.");
 }
-if (!isAttentionReviewStatus(status)) {
+if (!isForecastAttentionReviewStatus(status)) {
   throw new Error("Expected --status open, reviewed, or deferred.");
 }
 

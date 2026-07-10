@@ -448,7 +448,7 @@ function attentionBacklogCompatibilityMessage(issue: AttentionBacklogCompatibili
 function readHealthAttentionItem(item: ForecastAttentionBacklogItem, fallbackSourcePath: string | null = null): HealthAttentionItem[] {
   const id = item.id;
   const reviewStatus = item.reviewStatus;
-  if (!id || !isReviewStatus(reviewStatus)) {
+  if (!id || !isForecastAttentionReviewStatus(reviewStatus)) {
     return [];
   }
   return [{
@@ -474,7 +474,7 @@ function readHealthAttentionItem(item: ForecastAttentionBacklogItem, fallbackSou
 function readHealthBatchAttentionItem(item: ForecastBatchIndexAttentionItem, fallbackSourcePath: string | null = null): HealthAttentionItem[] {
   const id = item.id;
   const reviewStatus = item.reviewStatus;
-  if (!id || !isReviewStatus(reviewStatus)) {
+  if (!id || !isForecastAttentionReviewStatus(reviewStatus)) {
     return [];
   }
   return [{
@@ -532,7 +532,7 @@ function mergeSupplementalAttentionItems(
 function readHealthBatchCandidateCalibrationGuardRule(item: ForecastBatchIndexCandidateCalibrationGuardRule): HealthCandidateCalibrationGuardRule[] {
   const id = item.id;
   const reviewStatus = item.reviewStatus;
-  if (!id || !isReviewStatus(reviewStatus)) {
+  if (!id || !isForecastAttentionReviewStatus(reviewStatus)) {
     return [];
   }
   return [{
@@ -826,10 +826,6 @@ function timestampValue(value: string | null) {
 
 function formatNumber(value: number | null) {
   return value === null ? "" : String(Math.round(value * 10_000) / 10_000);
-}
-
-function isReviewStatus(value: string | undefined | null): value is ReviewStatus {
-  return isForecastAttentionReviewStatus(value);
 }
 
 function escapeMarkdownCell(value: string) {

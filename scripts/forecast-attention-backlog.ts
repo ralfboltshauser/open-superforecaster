@@ -1,7 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
-  isAttentionReviewStatus,
   loadAttentionReviews,
   type AttentionReviewRecord,
 } from "./lib/forecast-attention-reviews";
@@ -17,6 +16,7 @@ import {
   calibrationValidationAttentionKind,
   forecastAttentionSeveritySortRank,
   forecastAttentionReviewStatusRank,
+  isForecastAttentionReviewStatus,
   recommendCalibrationDefaultPlanSkippedActions,
   recommendCalibrationValidationActions,
   recommendCandidateCalibrationGuardActions,
@@ -121,7 +121,7 @@ const requestedStatuses = readArgValues(args, "--status");
 const statusFilters = requestedStatuses.length > 0 ? requestedStatuses : ["open", "deferred"];
 const batchFilters = readArgValues(args, "--batch-id");
 const statuses = statusFilters.map((status) => {
-  if (!isReviewStatus(status)) {
+  if (!isForecastAttentionReviewStatus(status)) {
     throw new Error(`Unsupported --status ${status}. Expected open, reviewed, or deferred.`);
   }
   return status;
@@ -205,7 +205,7 @@ async function readBacklogItems(
 function readBacklogItem(item: ForecastBatchIndexAttentionItem, batchId: string, sourcePath: string): BacklogItem | null {
   const id = item.id;
   const reviewStatus = item.reviewStatus;
-  if (!id || !isReviewStatus(reviewStatus)) {
+  if (!id || !isForecastAttentionReviewStatus(reviewStatus)) {
     return null;
   }
   return {
@@ -245,7 +245,7 @@ function withReview(item: BacklogItem, review: AttentionReview | undefined): Bac
 function readCandidateCalibrationGuardBacklogItem(item: ForecastBatchIndexCandidateCalibrationGuardRule, batchId: string, sourcePath: string): BacklogItem | null {
   const id = item.id;
   const reviewStatus = item.reviewStatus;
-  if (!id || !isReviewStatus(reviewStatus)) {
+  if (!id || !isForecastAttentionReviewStatus(reviewStatus)) {
     return null;
   }
   const bucketLabel = item.bucketLabel ?? "calibration bucket";
@@ -520,10 +520,6 @@ function countBreakdown(items: BacklogItem[]): BacklogBreakdownCounts {
 
 function formatNumber(value: number | null) {
   return value === null ? "" : String(Math.round(value * 10_000) / 10_000);
-}
-
-function isReviewStatus(value: string | undefined | null): value is ReviewStatus {
-  return isAttentionReviewStatus(value);
 }
 
 function escapeMarkdownCell(value: string) {

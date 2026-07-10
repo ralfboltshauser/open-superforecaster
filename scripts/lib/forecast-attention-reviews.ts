@@ -36,10 +36,6 @@ export function upsertAttentionReview(reviews: AttentionReviewRecord[], nextRevi
   return [...filtered, nextReview].sort((left, right) => left.attentionItemId.localeCompare(right.attentionItemId));
 }
 
-export function isAttentionReviewStatus(value: string | undefined | null): value is AttentionReviewStatus {
-  return isForecastAttentionReviewStatus(value);
-}
-
 function reviewsByItemId(reviews: AttentionReviewRecord[]) {
   const reviewsByItemId = new Map<string, AttentionReviewRecord>();
   for (const review of reviews) {
@@ -51,7 +47,7 @@ function reviewsByItemId(reviews: AttentionReviewRecord[]) {
 function readAttentionReviewRecord(row: JsonRecord): AttentionReviewRecord[] {
   const attentionItemId = readString(row, "attentionItemId") ?? readString(row, "id");
   const status = readString(row, "status");
-  if (!attentionItemId || !isAttentionReviewStatus(status)) {
+  if (!attentionItemId || !isForecastAttentionReviewStatus(status)) {
     return [];
   }
   return [{

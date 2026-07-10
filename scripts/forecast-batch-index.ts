@@ -1,6 +1,6 @@
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
-import { isAttentionReviewStatus, loadAttentionReviews, type AttentionReviewRecord } from "./lib/forecast-attention-reviews";
+import { loadAttentionReviews, type AttentionReviewRecord } from "./lib/forecast-attention-reviews";
 import {
   normalizeCalibrationGuardActivationStatus,
   type CalibrationGuardActivationStatus,
@@ -509,10 +509,6 @@ function formatSummary(summary: JsonRecord) {
 
 function formatNumber(value: number | null) {
   return value === null ? "" : String(Math.round(value * 10_000) / 10_000);
-}
-
-function isReviewStatus(value: string | null): value is AttentionReview["status"] {
-  return isAttentionReviewStatus(value);
 }
 
 function escapeMarkdownCell(value: string) {
