@@ -413,7 +413,9 @@ dashboard also show a capped top-domain summary for quick source-concentration
 checks. Benchmark analysis also summarizes source-domain concentration,
 dominant-domain cases, missing source dates, and low-quality source usage, and
 exports those source-risk signals through Prometheus, DuckDB, and the lab run
-cards.
+cards. Promotion review blocks on dominant source-domain cases or low-quality
+final-use sources, so workflow changes are not promoted from brittle source
+evidence.
 
 To consolidate those local artifacts into one audit file:
 

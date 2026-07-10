@@ -3011,7 +3011,7 @@ await check("benchmark promotion gate requires paired improvement", async () => 
     componentDisagreementFindings: { unexplainedHighDisagreementCases: 1 },
     forecastErrorFindings: { largeProbabilityMissCases: 1, worseThanBaselineCases: 1 },
     splitFindings: { holdoutCaseResults: 10 },
-    sourceQualityFindings: { sourceLeakageCases: 1, informationAdvantageCases: 1 },
+    sourceQualityFindings: { sourceLeakageCases: 1, informationAdvantageCases: 1, dominantSourceDomainCases: 1, lowQualityFinalSourceEntries: 1 },
     traceQualityFindings: { weakTraceCompletenessCases: 1, missingProbabilityCases: 1, missingScoreRowsCases: 1, missingAggregateRationaleCases: 1 },
   });
   assert(qualityBlocked.status === "needs_more_evidence", "analysis quality findings should block promotion review");
@@ -3021,6 +3021,8 @@ await check("benchmark promotion gate requires paired improvement", async () => 
   assert(qualityBlocked.blockers.includes("worse_than_baseline_cases"), "worse-than-baseline blocker missing");
   assert(qualityBlocked.blockers.includes("source_cutoff_leakage"), "source cutoff leakage blocker missing");
   assert(qualityBlocked.blockers.includes("human_forecast_leakage"), "human forecast leakage blocker missing");
+  assert(qualityBlocked.blockers.includes("source_concentration"), "source concentration blocker missing");
+  assert(qualityBlocked.blockers.includes("low_quality_sources"), "low-quality source blocker missing");
   assert(qualityBlocked.blockers.includes("weak_trace_completeness"), "weak trace blocker missing");
   assert(qualityBlocked.blockers.includes("schema_or_scoring_failures"), "schema or scoring blocker missing");
   assert(qualityBlocked.blockers.includes("missing_aggregate_rationale"), "missing rationale blocker missing");
@@ -3115,6 +3117,8 @@ await check("benchmark promotion blocks source independence failures", async () 
   assert(backendSource.includes("sourceQualityFindings"), "benchmark promotion gate does not read source quality findings");
   assert(backendSource.includes("source_cutoff_leakage"), "source cutoff leakage blocker missing");
   assert(backendSource.includes("human_forecast_leakage"), "human forecast leakage blocker missing");
+  assert(backendSource.includes("source_concentration"), "source concentration blocker missing");
+  assert(backendSource.includes("low_quality_sources"), "low-quality source blocker missing");
   assert(backendSource.includes("summarizeSourceDomainCounts"), "benchmark source audit does not reuse the shared source-domain reducer");
   assert(backendSource.includes("./source-domain-summary"), "benchmark source audit does not import shared source-domain utilities");
   assert(!backendSource.includes("function sourceDomainCountsForAudit"), "benchmark source audit should not keep a local source-domain reducer");
@@ -3242,6 +3246,8 @@ await check("benchmark promotion gate blockers are exported to DuckDB", async ()
   assert(syncSource.includes("top_source_domain_share"), "DuckDB benchmark run mart missing top source-domain share");
   assert(syncSource.includes("low_quality_source_entries"), "DuckDB benchmark run mart missing low-quality source entries");
   assert(syncSource.includes("low_quality_final_source_entries"), "DuckDB benchmark run mart missing final-use low-quality source entries");
+  assert(syncSource.includes("'source_concentration'"), "DuckDB promotion gate export missing source concentration blocker");
+  assert(syncSource.includes("'low_quality_sources'"), "DuckDB promotion gate export missing low-quality source blocker");
   assert(syncSource.includes("weak_trace_completeness_cases"), "DuckDB benchmark run mart missing weak trace count");
   assert(syncSource.includes("missing_probability_cases"), "DuckDB benchmark run mart missing missing probability count");
   assert(syncSource.includes("missing_score_rows_cases"), "DuckDB benchmark run mart missing missing score rows count");

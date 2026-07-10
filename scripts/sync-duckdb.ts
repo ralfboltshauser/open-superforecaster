@@ -218,6 +218,8 @@ try {
             case when findings.holdout_case_results < findings.required_holdout_case_results then 'insufficient_holdout_evidence' end,
             case when findings.source_leakage_cases > 0 or findings.post_cutoff_source_cases > 0 then 'source_cutoff_leakage' end,
             case when findings.information_advantage_cases > 0 or findings.human_forecast_source_cases > 0 then 'human_forecast_leakage' end,
+            case when findings.dominant_source_domain_cases > 0 then 'source_concentration' end,
+            case when findings.low_quality_final_source_entries > 0 or findings.low_quality_source_cases > 0 then 'low_quality_sources' end,
             case when findings.weak_trace_completeness_cases > 0 then 'weak_trace_completeness' end,
             case when findings.missing_probability_cases > 0 or findings.missing_score_rows_cases > 0 then 'schema_or_scoring_failures' end,
             case when findings.missing_aggregate_rationale_cases > 0 then 'missing_aggregate_rationale' end

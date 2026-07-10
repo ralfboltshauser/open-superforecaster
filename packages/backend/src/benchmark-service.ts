@@ -94,6 +94,8 @@ export const benchmarkPromotionGateBlockerIds = [
   "insufficient_holdout_evidence",
   "source_cutoff_leakage",
   "human_forecast_leakage",
+  "source_concentration",
+  "low_quality_sources",
   "weak_trace_completeness",
   "schema_or_scoring_failures",
   "missing_aggregate_rationale",
@@ -112,6 +114,8 @@ const [
   blockerInsufficientHoldoutEvidence,
   blockerSourceCutoffLeakage,
   blockerHumanForecastLeakage,
+  blockerSourceConcentration,
+  blockerLowQualitySources,
   blockerWeakTraceCompleteness,
   blockerSchemaOrScoringFailures,
   blockerMissingAggregateRationale,
@@ -180,6 +184,15 @@ export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotio
     readFindingCount(input.sourceQualityFindings, "humanForecastSourceCases", "human_forecast_source_cases") > 0
   ) {
     blockers.push(blockerHumanForecastLeakage);
+  }
+  if (readFindingCount(input.sourceQualityFindings, "dominantSourceDomainCases", "dominant_source_domain_cases") > 0) {
+    blockers.push(blockerSourceConcentration);
+  }
+  if (
+    readFindingCount(input.sourceQualityFindings, "lowQualityFinalSourceEntries", "low_quality_final_source_entries") > 0 ||
+    readFindingCount(input.sourceQualityFindings, "lowQualitySourceCases", "low_quality_source_cases") > 0
+  ) {
+    blockers.push(blockerLowQualitySources);
   }
   if (readFindingCount(input.traceQualityFindings, "weakTraceCompletenessCases", "weak_trace_completeness_cases") > 0) {
     blockers.push(blockerWeakTraceCompleteness);
