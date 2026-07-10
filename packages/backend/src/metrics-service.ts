@@ -357,6 +357,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       sourceQualityFindings: readRecord(analysisReport, "sourceQualityFindings", "source_quality_findings"),
       traceQualityFindings: readRecord(analysisReport, "traceQualityFindings", "trace_quality_findings"),
     });
+    const costLatencyFindings = readRecord(analysisReport, "costLatencyFindings", "cost_latency_findings");
     metrics.gauge("open_superforecaster_benchmark_promotion_gate_status", "Recent benchmark promotion gate status.", 1, {
       ...labels,
       gate_status: promotionGate.status,
@@ -372,6 +373,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     if (duration !== null) {
       metrics.gauge("open_superforecaster_benchmark_run_duration_seconds", "Recent benchmark run duration in seconds.", duration, labels);
     }
+    emitBenchmarkCostLatencyMetrics(metrics, labels, costLatencyFindings);
   }
 
   for (const caseResult of recentBenchmarkCases) {
@@ -1791,6 +1793,89 @@ function parseLabelKey(key: string) {
 
 function uniqueStrings(values: string[]) {
   return [...new Set(values.filter(Boolean))];
+}
+
+function emitBenchmarkCostLatencyMetrics(
+  metrics: MetricsBuilder,
+  labels: Record<string, string>,
+  findings: Record<string, unknown> | null,
+) {
+  metrics.gauge("open_superforecaster_benchmark_cost_summary_present", "Whether a benchmark run has persisted cost/latency findings.", findings ? 1 : 0, labels);
+  if (!findings) {
+    return;
+  }
+  emitOptionalGauge(
+    metrics,
+    "open_superforecaster_benchmark_cost_measured_cases",
+    "Benchmark cases with measured durable-log token usage.",
+    readNumber(findings, "measuredCases"),
+    labels,
+  );
+  emitOptionalGauge(
+    metrics,
+    "open_superforecaster_benchmark_cost_missing_usage_cases",
+    "Benchmark cases with a run id but no parsed durable-log token usage.",
+    readNumber(findings, "missingUsageCases"),
+    labels,
+  );
+  emitOptionalGauge(
+    metrics,
+    "open_superforecaster_benchmark_cost_agent_calls_total",
+    "Benchmark agent calls parsed from durable run logs.",
+    readNumber(findings, "totalAgentCalls"),
+    labels,
+  );
+  for (const [tokenType, key] of Object.entries({
+    input: "totalInputTokens",
+    cached_input: "totalCachedInputTokens",
+    output: "totalOutputTokens",
+    reasoning_output: "totalReasoningOutputTokens",
+    total: "totalTokens",
+  })) {
+    emitOptionalGauge(
+      metrics,
+      "open_superforecaster_benchmark_cost_token_total",
+      "Benchmark token usage parsed from durable run logs.",
+      readNumber(findings, key),
+      { ...labels, token_type: tokenType },
+    );
+  }
+  emitOptionalGauge(
+    metrics,
+    "open_superforecaster_benchmark_cost_mean_tokens_per_case",
+    "Mean token usage per measured benchmark case.",
+    readNumber(findings, "meanTokensPerMeasuredCase"),
+    labels,
+  );
+  emitOptionalGauge(
+    metrics,
+    "open_superforecaster_benchmark_cost_median_tokens_per_case",
+    "Median token usage per measured benchmark case.",
+    readNumber(findings, "medianTokensPerMeasuredCase"),
+    labels,
+  );
+  emitOptionalGauge(
+    metrics,
+    "open_superforecaster_benchmark_cost_mean_duration_seconds",
+    "Mean task duration for benchmark cases with completed task timestamps.",
+    readNumber(findings, "meanDurationSeconds"),
+    labels,
+  );
+  emitOptionalGauge(
+    metrics,
+    "open_superforecaster_benchmark_cost_median_duration_seconds",
+    "Median task duration for benchmark cases with completed task timestamps.",
+    readNumber(findings, "medianDurationSeconds"),
+    labels,
+  );
+  for (const row of readRecordArray(findings, "byStatus")) {
+    const status = readString(row, "status") ?? "unknown";
+    const statusLabels = { ...labels, case_status: status };
+    emitOptionalGauge(metrics, "open_superforecaster_benchmark_cost_cases_by_status", "Benchmark cases by status in cost analysis.", readNumber(row, "cases"), statusLabels);
+    emitOptionalGauge(metrics, "open_superforecaster_benchmark_cost_measured_cases_by_status", "Benchmark measured cases by status in cost analysis.", readNumber(row, "measuredCases"), statusLabels);
+    emitOptionalGauge(metrics, "open_superforecaster_benchmark_cost_agent_calls_by_status", "Benchmark agent calls by case status.", readNumber(row, "agentCalls"), statusLabels);
+    emitOptionalGauge(metrics, "open_superforecaster_benchmark_cost_tokens_by_status", "Benchmark token usage by case status.", readNumber(row, "totalTokens"), statusLabels);
+  }
 }
 
 function emitOptionalGauge(

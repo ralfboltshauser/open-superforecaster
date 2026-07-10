@@ -3074,6 +3074,7 @@ await check("benchmark analysis summarizes forecast error findings", async () =>
 
 await check("benchmark analysis summarizes measured cost findings", async () => {
   const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
+  const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
   assert(backendSource.includes("costLatencyFindingsForRun"), "benchmark analysis does not build measured cost/latency findings");
   assert(backendSource.includes("readSmithersTokenUsage"), "benchmark cost analysis does not use the shared durable-log parser");
@@ -3082,9 +3083,14 @@ await check("benchmark analysis summarizes measured cost findings", async () => 
   assert(backendSource.includes("medianTokensPerMeasuredCase"), "benchmark cost analysis missing median token summary");
   assert(backendSource.includes("heaviestCases"), "benchmark cost analysis missing heaviest case list");
   assert(backendSource.includes("costLatencyFindings,"), "benchmark list rows do not expose cost/latency findings");
+  assert(metricsSource.includes("costLatencyFindings"), "metrics exporter does not read benchmark cost/latency findings");
+  assert(metricsSource.includes("open_superforecaster_benchmark_cost_summary_present"), "benchmark cost summary-present metric missing");
+  assert(metricsSource.includes("open_superforecaster_benchmark_cost_agent_calls_total"), "benchmark cost agent-call metric missing");
+  assert(metricsSource.includes("open_superforecaster_benchmark_cost_token_total"), "benchmark cost token metric missing");
+  assert(metricsSource.includes("open_superforecaster_benchmark_cost_tokens_by_status"), "benchmark cost status metric missing");
   assert(dashboardSource.includes("costLatencyFindings"), "lab dashboard does not read benchmark cost/latency findings");
   assert(dashboardSource.includes("cost {formatCount"), "lab dashboard does not surface benchmark cost summaries");
-  return "benchmark analysis and lab dashboard expose measured cost findings";
+  return "benchmark analysis, metrics, and lab dashboard expose measured cost findings";
 });
 
 await check("benchmark promotion blocks source independence failures", async () => {
@@ -3158,6 +3164,7 @@ await check("benchmark promotion gate blockers are exported as metrics", async (
   assert(metricsSource.includes("open_superforecaster_benchmark_promotion_gate_blocker"), "promotion gate blocker metric missing");
   assert(metricsSource.includes("summarizeBenchmarkPromotionGateEvidence"), "metrics exporter does not use shared promotion gate helper");
   assert(smokeSource.includes("open_superforecaster_benchmark_promotion_gate_status"), "smoke check does not require promotion gate status metric");
+  assert(smokeSource.includes("open_superforecaster_benchmark_cost_summary_present"), "smoke check does not require benchmark cost summary presence metric");
   return "promotion gate blockers are visible in Prometheus metrics";
 });
 
