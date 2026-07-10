@@ -462,6 +462,7 @@ async function runSmokeChecks() {
       "open_superforecaster_calibration_guard_impact_status",
       "open_superforecaster_forecast_batch_health_status",
       "open_superforecaster_forecast_batch_health_report_present",
+      "open_superforecaster_forecast_batch_health_attention_breakdown_items",
       "open_superforecaster_forecast_attention_items_total",
       "open_superforecaster_source_bank_domains_total",
       "open_superforecaster_calibration_guard_validation_reports_total",

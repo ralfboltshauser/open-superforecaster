@@ -30,7 +30,7 @@ import { readComponentWeightingSnapshot } from "./component-weighting-metadata";
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
-import { readLatestForecastBatchHealth } from "./forecast-batch-health";
+import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "./forecast-batch-health";
 import { readForecastInputContextSnapshot } from "./forecast-input-context-metadata";
 import { readForecastRunSnapshot } from "./forecast-run-metadata";
 import { readMarketAnchorSnapshot } from "./market-anchor-metadata";
@@ -1682,6 +1682,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
         parseLabelKey(key),
       );
     }
+    emitForecastBatchHealthAttentionBreakdownMetrics(metrics, batchHealthLabels, batchHealth);
     metrics.gauge(
       "open_superforecaster_forecast_attention_reports_total",
       "Local forecast batch index report count containing forecast attention items.",
@@ -2068,6 +2069,79 @@ function emitOptionalGauge(
 ) {
   if (value !== null) {
     metrics.gauge(name, help, value, labels);
+  }
+}
+
+type ForecastBatchHealthAttentionBreakdownRow = {
+  items: number | null;
+  open: number | null;
+  deferred: number | null;
+  reviewed: number | null;
+  high?: number | null;
+  medium?: number | null;
+  low?: number | null;
+};
+
+function emitForecastBatchHealthAttentionBreakdownMetrics(
+  metrics: MetricsBuilder,
+  baseLabels: Record<string, string>,
+  health: ForecastBatchHealthSnapshot,
+) {
+  if (health.attentionByKind.length === 0 && health.attentionBySeverity.length === 0 && health.attentionByForecastType.length === 0) {
+    metrics.gauge(
+      "open_superforecaster_forecast_batch_health_attention_breakdown_items",
+      "Latest local forecast batch health attention items by breakdown dimension and count type.",
+      0,
+      {
+        ...baseLabels,
+        dimension: "none",
+        value: "none",
+        count_type: "items",
+      },
+    );
+    return;
+  }
+  for (const row of health.attentionByKind) {
+    emitForecastBatchHealthAttentionBreakdownRow(metrics, baseLabels, "kind", row.kind, row);
+  }
+  for (const row of health.attentionBySeverity) {
+    emitForecastBatchHealthAttentionBreakdownRow(metrics, baseLabels, "severity", row.severity, row);
+  }
+  for (const row of health.attentionByForecastType) {
+    emitForecastBatchHealthAttentionBreakdownRow(metrics, baseLabels, "forecast_type", row.forecastType, row);
+  }
+}
+
+function emitForecastBatchHealthAttentionBreakdownRow(
+  metrics: MetricsBuilder,
+  baseLabels: Record<string, string>,
+  dimension: string,
+  value: string | null,
+  row: ForecastBatchHealthAttentionBreakdownRow,
+) {
+  const counts = {
+    items: row.items,
+    open: row.open,
+    deferred: row.deferred,
+    reviewed: row.reviewed,
+    unresolved: (row.open ?? 0) + (row.deferred ?? 0),
+    high: row.high ?? null,
+    medium: row.medium ?? null,
+    low: row.low ?? null,
+  };
+  for (const [countType, count] of Object.entries(counts)) {
+    emitOptionalGauge(
+      metrics,
+      "open_superforecaster_forecast_batch_health_attention_breakdown_items",
+      "Latest local forecast batch health attention items by breakdown dimension and count type.",
+      count,
+      {
+        ...baseLabels,
+        dimension,
+        value: value ?? "unknown",
+        count_type: countType,
+      },
+    );
   }
 }
 
