@@ -1142,8 +1142,11 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   assert(healthSource.includes("readForecastAttentionBacklogArtifacts"), "batch health does not use the shared attention backlog artifact reader");
   assert(healthSource.includes("readForecastBatchIndexArtifacts"), "batch health does not use the shared batch-index artifact reader");
   assert(healthSource.includes("unresolved: reviewCounts.unresolved"), "batch health does not persist shared unresolved review counts in breakdowns");
+  assert(healthSource.includes("row.unresolved > 0"), "batch health issue summaries do not use shared unresolved breakdown counts");
+  assert(healthSource.includes("`${row.kind}=${row.unresolved}`"), "batch health top-kind issue summaries do not render shared unresolved breakdown counts");
   assert(!healthSource.includes("openAttentionItems + summary.deferredAttentionItems"), "batch health should not derive unresolved attention counts locally");
   assert(!healthSource.includes("openCandidateCalibrationGuardRules + summary.deferredCandidateCalibrationGuardRules"), "batch health should not derive unresolved candidate guard counts locally");
+  assert(!healthSource.includes("row.open + row.deferred"), "batch health should not derive unresolved attention breakdown counts locally");
   assert(!healthSource.includes("listFilesNamed(batchRoot"), "batch health should not keep a local batch-index scanner");
   assert(!healthSource.includes("listFilesNamed(backlogRoot"), "batch health should not keep a local attention backlog scanner");
   assert(!healthSource.includes("readRecordArray(attentionBacklog"), "batch health should not parse supplemental attention backlog rows from raw JSON");

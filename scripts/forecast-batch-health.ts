@@ -386,9 +386,9 @@ function buildIssues(
   }
   if (summary.unresolvedAttentionItems > 0) {
     const topKinds = attentionByKind
-      .filter((row) => row.open + row.deferred > 0)
+      .filter((row) => row.unresolved > 0)
       .slice(0, 3)
-      .map((row) => `${row.kind}=${row.open + row.deferred}`)
+      .map((row) => `${row.kind}=${row.unresolved}`)
       .join(", ");
     issues.push({
       severity: summary.openAttentionItems > 0 ? "high" : "medium",
