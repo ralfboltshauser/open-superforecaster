@@ -626,6 +626,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byAggregateQuality = readArray(groups, "byAggregateQuality").filter(isRecord)
   const byAggregateDisagreement = readArray(groups, "byAggregateDisagreement").filter(isRecord)
   const byAggregateFinalComponentPosition = readArray(groups, "byAggregateFinalComponentPosition").filter(isRecord)
+  const byAggregateInsideViewShift = readArray(groups, "byAggregateInsideViewShift").filter(isRecord)
   const byAggregationAnchor = readArray(groups, "byAggregationAnchor").filter(isRecord)
   const byResearchDepth = readArray(groups, "byResearchDepth").filter(isRecord)
   const byForecasterPanelSize = readArray(groups, "byForecasterPanelSize").filter(isRecord)
@@ -746,6 +747,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byAggregateQuality.length ? <PerformanceAggregateQualityGroupList groups={byAggregateQuality} /> : null}
         {byAggregateDisagreement.length ? <PerformanceComponentDisagreementGroupList groups={byAggregateDisagreement} /> : null}
         {byAggregateFinalComponentPosition.length ? <PerformancePlanShapeGroupList groups={byAggregateFinalComponentPosition} title="Component envelope outcomes" skipKey="component_envelope:unrecorded" fallback="component envelope" /> : null}
+        {byAggregateInsideViewShift.length ? <PerformancePlanShapeGroupList groups={byAggregateInsideViewShift} title="Inside-view shift outcomes" skipKey="inside_view_shift:unrecorded" fallback="inside-view shift" /> : null}
         {byAggregationAnchor.length ? <PerformanceAggregationAnchorGroupList groups={byAggregationAnchor} /> : null}
         {byResearchDepth.length ? <PerformancePlanShapeGroupList groups={byResearchDepth} title="Research depth outcomes" skipKey="research_depth:unrecorded" fallback="research depth" /> : null}
         {byForecasterPanelSize.length ? <PerformancePlanShapeGroupList groups={byForecasterPanelSize} title="Panel size outcomes" skipKey="forecaster_panel:unrecorded" fallback="panel size" /> : null}

@@ -131,6 +131,7 @@ type PerformanceAttentionItem = {
     | "aggregate_quality_miss"
     | "component_disagreement_miss"
     | "component_envelope_miss"
+    | "inside_view_shift_miss"
     | "evidence_coverage_miss"
     | "input_context_miss"
     | "run_metadata_miss";
@@ -404,6 +405,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byAggregateQuality = groupScores(aggregateScores, aggregateQualityGroupKey);
   const byAggregateDisagreement = groupScores(aggregateScores, aggregateDisagreementGroupKey);
   const byAggregateFinalComponentPosition = groupScores(aggregateScores, aggregateFinalComponentPositionGroupKey);
+  const byAggregateInsideViewShift = groupScores(aggregateScores, aggregateInsideViewShiftGroupKey);
   const byAggregationAnchor = groupScores(aggregateScores, aggregationAnchorGroupKey);
   const byResearchDepth = groupScores(aggregateScores, researchDepthGroupKey);
   const byForecasterPanelSize = groupScores(aggregateScores, forecasterPanelSizeGroupKey);
@@ -515,6 +517,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregateFinalComponentPosition,
+      byAggregateInsideViewShift,
       byAggregationAnchor,
       byResearchDepth,
       byForecasterPanelSize,
@@ -616,6 +619,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregateFinalComponentPosition,
+      byAggregateInsideViewShift,
       byAggregationAnchor,
       byResearchDepth,
       byForecasterPanelSize,
@@ -1397,6 +1401,11 @@ function aggregateDisagreementGroupKey(score: typeof forecastScores.$inferSelect
 function aggregateFinalComponentPositionGroupKey(score: typeof forecastScores.$inferSelect) {
   const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
   return `component_envelope:${aggregateStats?.finalComponentPositionBand ?? "unrecorded"}`;
+}
+
+function aggregateInsideViewShiftGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `inside_view_shift:${aggregateStats?.insideViewDeltaBand ?? "unrecorded"}`;
 }
 
 function aggregationAnchorGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2295,6 +2304,36 @@ function buildNeedsAttentionQueue(
       rank: 72 + index,
     }));
 
+  const insideViewShiftCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const signal = insideViewShiftMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
+      return [];
+    }
+    return [{ item, signal }];
+  });
+  const insideViewShiftItems = insideViewShiftCandidates
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `inside-view-shift:${item.taskId}:${item.primaryMetric}`,
+      kind: "inside_view_shift_miss" as const,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
+      recommendedActions: recommendAttentionActions({
+        kind: "inside_view_shift_miss",
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 74 + index,
+    }));
+
   const evidenceCoverageItems = buildMetadataAttentionItems({
     worstCases,
     idPrefix: "evidence-coverage",
@@ -2389,6 +2428,7 @@ function buildNeedsAttentionQueue(
     ...binaryConfidenceItems,
     ...componentDisagreementItems,
     ...componentEnvelopeItems,
+    ...insideViewShiftItems,
     ...evidenceCoverageItems,
     ...inputContextItems,
     ...runMetadataItems,
@@ -2644,6 +2684,18 @@ function componentEnvelopeMissSignal(item: PerformanceCase): { reason: string; d
     reason: `final probability was ${stats.finalComponentPositionBand.replace(/_/g, " ")} (${formatNullableMetric(stats.componentMinProbability)}-${formatNullableMetric(stats.componentMaxProbability)} component envelope)`,
     delta: distance,
     severity: distance !== null && distance >= 5 ? "high" : "medium",
+  };
+}
+
+function insideViewShiftMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  if (item.forecastType !== "binary" || !stats || stats.insideViewDeltaBand !== "large_shift") {
+    return null;
+  }
+  return {
+    reason: `large inside-view shift of ${formatSignedMetric(stats.insideViewDelta ?? 0)} points from mean base rate ${formatNullableMetric(stats.meanBaseRateProbability)} to mean inside view ${formatNullableMetric(stats.meanInsideViewProbability)}`,
+    delta: stats.insideViewDelta,
+    severity: "medium",
   };
 }
 
@@ -2942,6 +2994,9 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "component_envelope_miss") {
     actions.add("Audit why the final probability moved outside every component forecast before changing calibration or role-weight defaults.");
     actions.add("Compare the final rationale, calibration guard, and component probabilities to decide whether the out-of-envelope move was justified.");
+  } else if (input.kind === "inside_view_shift_miss") {
+    actions.add("Audit whether the inside-view evidence really justified moving far away from component base rates.");
+    actions.add("Compare base-rate, inside-view, and final aggregate probabilities before changing prompts or calibration defaults.");
   } else if (input.kind === "evidence_coverage_miss") {
     actions.add("Audit cited sources, dated-source coverage, uncertainty notes, and rationale depth before changing model or aggregation defaults.");
     actions.add("Add a benchmark case if sparse evidence repeatedly accompanies poor resolved forecasts in this forecast type.");
@@ -3060,6 +3115,7 @@ function renderPerformanceMarkdown(input: {
   byAggregateQuality: PerformanceGroup[];
   byAggregateDisagreement: PerformanceGroup[];
   byAggregateFinalComponentPosition: PerformanceGroup[];
+  byAggregateInsideViewShift: PerformanceGroup[];
   byAggregationAnchor: PerformanceGroup[];
   byResearchDepth: PerformanceGroup[];
   byForecasterPanelSize: PerformanceGroup[];
@@ -3180,6 +3236,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Component envelope groups",
     ...renderGroupTable(input.byAggregateFinalComponentPosition),
+    "",
+    "## Inside-view shift groups",
+    ...renderGroupTable(input.byAggregateInsideViewShift),
     "",
     "## Aggregation anchor groups",
     ...renderGroupTable(input.byAggregationAnchor),

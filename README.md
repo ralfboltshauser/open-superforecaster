@@ -311,7 +311,8 @@ the same guard, baseline-sanity, market-anchor, resolution-boundary, uncertainty
 selected plan-shape metadata in score config so performance snapshots can
 compare guarded forecasts, large baseline movements, high component
 market divergences, boundary ambiguity, narrow uncertainty ranges, component
-downweighting, final-probability confidence, disagreement, component-envelope position, aggregation anchors,
+downweighting, final-probability confidence, disagreement, component-envelope position,
+base-rate-to-inside-view movement, aggregation anchors,
 research depth, panel size, and complexity against outcomes, summarize score groups, and report guarded-vs-unguarded
 Brier impact overall and by applied rule id. Worse overall or rule-level
 guarded impact is also queued as a high-severity attention item

@@ -4,6 +4,10 @@ export type AggregateStatsSnapshot = {
   componentMinProbability: number | null;
   componentMaxProbability: number | null;
   finalComponentPositionBand: "below_components" | "inside_components" | "above_components" | "missing_components" | "unknown";
+  meanBaseRateProbability: number | null;
+  meanInsideViewProbability: number | null;
+  insideViewDelta: number | null;
+  insideViewDeltaBand: "near_base_rate" | "moderate_shift" | "large_shift" | "missing_components" | "unknown";
   disagreement: number | null;
   disagreementBand: "low" | "moderate" | "high" | "extreme" | "unknown";
   aggregationAnchor: string | null;
@@ -23,6 +27,12 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
   const componentProbabilities = readComponentProbabilities(aggregateStats);
   const componentMinProbability = readNumber(aggregateStats, "componentMinProbability", "component_min_probability") ?? min(componentProbabilities);
   const componentMaxProbability = readNumber(aggregateStats, "componentMaxProbability", "component_max_probability") ?? max(componentProbabilities);
+  const componentBaseRates = readComponentNumberArray(aggregateStats, "baseRateProbability", "base_rate_probability");
+  const componentInsideViews = readComponentNumberArray(aggregateStats, "insideViewProbability", "inside_view_probability");
+  const meanBaseRateProbability = readNumber(aggregateStats, "meanBaseRateProbability", "mean_base_rate_probability") ?? roundProbability(mean(componentBaseRates));
+  const meanInsideViewProbability = readNumber(aggregateStats, "meanInsideViewProbability", "mean_inside_view_probability") ?? roundProbability(mean(componentInsideViews));
+  const insideViewDelta = readNumber(aggregateStats, "insideViewDelta", "inside_view_delta") ?? delta(meanInsideViewProbability, meanBaseRateProbability);
+  const explicitInsideViewDeltaBand = readInsideViewDeltaBand(aggregateStats);
   const disagreement = readNumber(aggregateStats, "disagreement");
   const aggregationAnchor = readString(aggregateStats, "aggregationAnchor", "aggregation_anchor");
   const adjustmentFromMedian = readNumber(aggregateStats, "adjustmentFromMedian", "adjustment_from_median");
@@ -32,6 +42,9 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
     medianProbability === null &&
     componentMinProbability === null &&
     componentMaxProbability === null &&
+    meanBaseRateProbability === null &&
+    meanInsideViewProbability === null &&
+    insideViewDelta === null &&
     disagreement === null &&
     aggregationAnchor === null &&
     adjustmentFromMedian === null &&
@@ -49,12 +62,41 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
       componentMinProbability,
       componentMaxProbability,
     }),
+    meanBaseRateProbability,
+    meanInsideViewProbability,
+    insideViewDelta,
+    insideViewDeltaBand: explicitInsideViewDeltaBand ?? insideViewDeltaBand(
+      insideViewDelta,
+      componentBaseRates.length || (meanBaseRateProbability === null ? 0 : 1),
+      componentInsideViews.length || (meanInsideViewProbability === null ? 0 : 1),
+    ),
     disagreement,
     disagreementBand: aggregateDisagreementBand(disagreement),
     aggregationAnchor,
     adjustmentFromMedian,
     attemptCount,
   };
+}
+
+export function insideViewDeltaBand(
+  insideViewDelta: number | null,
+  baseRateCount: number,
+  insideViewCount: number,
+): AggregateStatsSnapshot["insideViewDeltaBand"] {
+  if (baseRateCount === 0 || insideViewCount === 0) {
+    return "missing_components";
+  }
+  if (insideViewDelta === null || !Number.isFinite(insideViewDelta)) {
+    return "unknown";
+  }
+  const absoluteDelta = Math.abs(insideViewDelta);
+  if (absoluteDelta >= 25) {
+    return "large_shift";
+  }
+  if (absoluteDelta >= 10) {
+    return "moderate_shift";
+  }
+  return "near_base_rate";
 }
 
 export function finalComponentPositionBand(input: {
@@ -107,6 +149,20 @@ function readString(value: unknown, ...keys: string[]) {
   return null;
 }
 
+function readInsideViewDeltaBand(value: unknown): AggregateStatsSnapshot["insideViewDeltaBand"] | null {
+  const band = readString(value, "insideViewDeltaBand", "inside_view_delta_band");
+  if (
+    band === "near_base_rate" ||
+    band === "moderate_shift" ||
+    band === "large_shift" ||
+    band === "missing_components" ||
+    band === "unknown"
+  ) {
+    return band;
+  }
+  return null;
+}
+
 function readNumber(value: unknown, ...keys: string[]) {
   const record = asRecord(value);
   if (!record) {
@@ -122,13 +178,17 @@ function readNumber(value: unknown, ...keys: string[]) {
 }
 
 function readComponentProbabilities(value: unknown) {
+  return readComponentNumberArray(value, "probability");
+}
+
+function readComponentNumberArray(value: unknown, ...keys: string[]) {
   const record = asRecord(value);
   const raw = record?.componentProbabilities ?? record?.component_probabilities;
   if (!Array.isArray(raw)) {
     return [];
   }
   return raw
-    .map((item) => readNumber(item, "probability"))
+    .map((item) => readNumber(item, ...keys))
     .filter((probability): probability is number => probability !== null);
 }
 
@@ -138,6 +198,21 @@ function min(values: number[]) {
 
 function max(values: number[]) {
   return values.length ? Math.max(...values) : null;
+}
+
+function mean(values: number[]) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
+function delta(left: number | null, right: number | null) {
+  if (left === null || right === null) {
+    return null;
+  }
+  return roundProbability(left - right);
+}
+
+function roundProbability(value: number | null) {
+  return value === null ? null : Math.round(value * 10) / 10;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

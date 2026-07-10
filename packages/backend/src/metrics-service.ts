@@ -755,6 +755,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     const labels = {
       component_disagreement_band: "none",
       final_component_position_band: "unknown",
+      inside_view_delta_band: "unknown",
       aggregation_anchor: "unknown",
       score_type: "all",
     };
@@ -777,6 +778,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       score_type: row.scoreType,
       component_disagreement_band: aggregateStats?.disagreementBand ?? "unknown",
       final_component_position_band: aggregateStats?.finalComponentPositionBand ?? "unknown",
+      inside_view_delta_band: aggregateStats?.insideViewDeltaBand ?? "unknown",
       aggregation_anchor: aggregateStats?.aggregationAnchor ?? "unknown",
     });
   })) {
