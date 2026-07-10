@@ -9,13 +9,13 @@ import {
 import { readCalibrationDefaultPlanArtifacts, type CalibrationDefaultPlanSkippedRow } from "../packages/backend/src/calibration-default-plan-artifacts";
 import { readCalibrationGuardValidationArtifacts, type CalibrationGuardValidationRow } from "../packages/backend/src/calibration-guard-validation-artifacts";
 import {
-  listFilesNamed,
+  readForecastBatchIndexArtifacts,
+  type ForecastBatchIndexAttentionItem,
+  type ForecastBatchIndexCandidateCalibrationGuardRule,
+} from "../packages/backend/src/forecast-batch-index-artifacts";
+import {
   readArgValue,
   readArgValues,
-  readJson,
-  readRecord,
-  readString,
-  type JsonRecord,
   writeJson,
 } from "./lib/forecast-script-utils";
 
@@ -138,26 +138,21 @@ async function readBacklogItems(
   batchIds: Set<string>,
   reviewsByItemId: Map<string, AttentionReview>,
 ) {
-  const paths = await listFilesNamed(batchRoot, "batch-index.json");
   const items: BacklogItem[] = [];
-  for (const path of paths) {
-    const payload = readRecord(await readJson(path));
-    if (!payload) {
+  const batchReports = await readForecastBatchIndexArtifacts(root, { reportRoot: batchRoot });
+  for (const report of batchReports) {
+    if (batchIds.size > 0 && !batchIds.has(report.batchId)) {
       continue;
     }
-    const batchId = readString(payload, "batchId");
-    if (!batchId || (batchIds.size > 0 && !batchIds.has(batchId))) {
-      continue;
-    }
-    for (const item of readRecordArray(payload, "attentionItems")) {
-      const rawBacklogItem = readBacklogItem(item, batchId, path);
+    for (const item of report.attentionItems) {
+      const rawBacklogItem = readBacklogItem(item, report.batchId, report.reportPath);
       const backlogItem = rawBacklogItem ? withReview(rawBacklogItem, reviewsByItemId.get(rawBacklogItem.id)) : null;
       if (backlogItem && statuses.includes(backlogItem.reviewStatus)) {
         items.push(backlogItem);
       }
     }
-    for (const rule of readRecordArray(payload, "candidateCalibrationGuardRules")) {
-      const rawBacklogItem = readCandidateCalibrationGuardBacklogItem(rule, batchId, path);
+    for (const rule of report.candidateCalibrationGuardRules) {
+      const rawBacklogItem = readCandidateCalibrationGuardBacklogItem(rule, report.batchId, report.reportPath);
       const backlogItem = rawBacklogItem ? withReview(rawBacklogItem, reviewsByItemId.get(rawBacklogItem.id)) : null;
       if (backlogItem && statuses.includes(backlogItem.reviewStatus)) {
         items.push(backlogItem);
@@ -187,9 +182,9 @@ async function readBacklogItems(
   return sortBacklog(items);
 }
 
-function readBacklogItem(item: JsonRecord, batchId: string, sourcePath: string): BacklogItem | null {
-  const id = readString(item, "id");
-  const reviewStatus = readString(item, "reviewStatus");
+function readBacklogItem(item: ForecastBatchIndexAttentionItem, batchId: string, sourcePath: string): BacklogItem | null {
+  const id = item.id;
+  const reviewStatus = item.reviewStatus;
   if (!id || !isReviewStatus(reviewStatus)) {
     return null;
   }
@@ -197,19 +192,19 @@ function readBacklogItem(item: JsonRecord, batchId: string, sourcePath: string):
     batchId,
     id,
     reviewStatus,
-    severity: readString(item, "severity") ?? "medium",
-    kind: readString(item, "kind") ?? "attention_item",
-    reason: readString(item, "reason") ?? "",
-    recommendedActions: readStringArray(item, "recommendedActions"),
-    metric: readString(item, "metric") ?? "metric",
-    score: readNumber(item, "score"),
-    delta: readNumber(item, "delta"),
-    taskId: readString(item, "taskId"),
-    taskLabel: readString(item, "taskLabel"),
-    forecastType: readString(item, "forecastType"),
-    reviewNote: readString(item, "reviewNote") ?? undefined,
-    reviewer: readString(item, "reviewer") ?? undefined,
-    reviewedAt: readString(item, "reviewedAt") ?? undefined,
+    severity: item.severity ?? "medium",
+    kind: item.kind ?? "attention_item",
+    reason: item.reason ?? "",
+    recommendedActions: item.recommendedActions,
+    metric: item.metric ?? "metric",
+    score: item.score,
+    delta: item.delta,
+    taskId: item.taskId,
+    taskLabel: item.taskLabel,
+    forecastType: item.forecastType,
+    reviewNote: item.reviewNote ?? undefined,
+    reviewer: item.reviewer ?? undefined,
+    reviewedAt: item.reviewedAt ?? undefined,
     sourcePath,
   };
 }
@@ -227,35 +222,35 @@ function withReview(item: BacklogItem, review: AttentionReview | undefined): Bac
   };
 }
 
-function readCandidateCalibrationGuardBacklogItem(item: JsonRecord, batchId: string, sourcePath: string): BacklogItem | null {
-  const id = readString(item, "id");
-  const reviewStatus = readString(item, "reviewStatus");
+function readCandidateCalibrationGuardBacklogItem(item: ForecastBatchIndexCandidateCalibrationGuardRule, batchId: string, sourcePath: string): BacklogItem | null {
+  const id = item.id;
+  const reviewStatus = item.reviewStatus;
   if (!id || !isReviewStatus(reviewStatus)) {
     return null;
   }
-  const bucketLabel = readString(item, "bucketLabel") ?? "calibration bucket";
-  const direction = readString(item, "direction") ?? "calibration_drift";
-  const activationStatus = readString(item, "activationStatus") ?? "needs_review";
-  const suggestedAdjustment = readNumber(item, "suggestedAdjustment");
+  const bucketLabel = item.bucketLabel ?? "calibration bucket";
+  const direction = item.direction ?? "calibration_drift";
+  const activationStatus = item.activationStatus ?? "needs_review";
+  const suggestedAdjustment = item.suggestedAdjustment;
   return {
     batchId,
     id,
     reviewStatus,
     severity: activationStatus === "ready_for_review" ? "high" : "medium",
     kind: "candidate_calibration_guard",
-    reason: readString(item, "rationale") ?? `${bucketLabel} has ${direction} and needs calibration guard review.`,
+    reason: item.rationale ?? `${bucketLabel} has ${direction} and needs calibration guard review.`,
     recommendedActions: [
       `Review candidate ${bucketLabel} guard${suggestedAdjustment === null ? "" : ` (${formatSignedNumber(suggestedAdjustment)} pts)`} before changing live calibration.`,
     ],
     metric: "calibration_error",
-    score: readNumber(item, "calibrationError"),
+    score: item.calibrationError,
     delta: suggestedAdjustment,
     taskId: null,
     taskLabel: `${bucketLabel} candidate calibration guard`,
     forecastType: "binary",
-    reviewNote: readString(item, "reviewNote") ?? undefined,
-    reviewer: readString(item, "reviewer") ?? undefined,
-    reviewedAt: readString(item, "reviewedAt") ?? undefined,
+    reviewNote: item.reviewNote ?? undefined,
+    reviewer: item.reviewer ?? undefined,
+    reviewedAt: item.reviewedAt ?? undefined,
     sourcePath,
   };
 }
@@ -473,23 +468,6 @@ function sortBacklog(items: BacklogItem[]) {
     || (left.taskLabel ?? left.taskId ?? "").localeCompare(right.taskLabel ?? right.taskId ?? "")
     || left.id.localeCompare(right.id)
   );
-}
-
-function readRecordArray(value: unknown, key: string) {
-  const record = readRecord(value);
-  const raw = record?.[key];
-  return Array.isArray(raw) ? raw.filter((item): item is JsonRecord => Boolean(readRecord(item))) : [];
-}
-
-function readStringArray(value: unknown, key: string) {
-  const record = readRecord(value);
-  const raw = record?.[key];
-  return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string") : [];
-}
-
-function readNumber(value: unknown, key: string) {
-  const raw = readRecord(value)?.[key];
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
 
 function batchIdFromProposalId(proposalId: string) {

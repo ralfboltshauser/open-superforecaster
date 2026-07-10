@@ -279,6 +279,8 @@ await check("forecast review helper upserts local attention reviews", async () =
 await check("forecast calibration guard proposals require reviewed ready candidates", async () => {
   const batchIndexRoot = resolve(tempRoot, "calibration-guard-proposals", "batches", "contract-batch");
   const outputDir = resolve(tempRoot, "calibration-guard-proposals", "out");
+  const proposalSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-proposals.ts"), "utf8");
+  const batchIndexReaderSource = await readFile(resolve(root, "packages/backend/src/forecast-batch-index-artifacts.ts"), "utf8");
   await mkdir(batchIndexRoot, { recursive: true });
   await writeJson(resolve(batchIndexRoot, "batch-index.json"), {
     reportType: "forecast_batch_index",
@@ -345,6 +347,11 @@ await check("forecast calibration guard proposals require reviewed ready candida
   assert(readNumber(summary, "proposalDrafts") === 1, "proposal draft count mismatch");
   assert(readString(proposals[0], "sourceCandidateGuardId") === "candidate-guard:80-100%", "wrong candidate guard became a proposal");
   assert(readString(proposals[0], "targetWorkflowId") === "binary-calibration-guard", "proposal target workflow mismatch");
+  assert(proposalSource.includes("readForecastBatchIndexArtifacts"), "calibration guard proposal generator does not use the shared batch-index artifact reader");
+  assert(proposalSource.includes("reportRoot: batchRoot"), "calibration guard proposal generator does not pass its configured batch-index directory to the shared reader");
+  assert(!proposalSource.includes("listFilesNamed(batchRoot"), "calibration guard proposal generator should not keep a local batch-index scanner");
+  assert(!proposalSource.includes("readRecordArray(batchIndex"), "calibration guard proposal generator should not parse candidate rules from raw batch-index JSON");
+  assert(batchIndexReaderSource.includes("candidateCalibrationGuardRules"), "shared batch-index reader does not expose candidate calibration guard rules");
   return "reviewed ready calibration guard candidates become proposal drafts";
 });
 
@@ -679,6 +686,9 @@ await check("forecast attention backlog filters batch review status", async () =
   assert(report, "backlog report is not an object");
   assert(readString(report, "reportType") === "forecast_attention_backlog", "report type mismatch");
   assert(readString(readRecord(report, "paths"), "defaultPlanReportDir") === defaultPlanRoot, "backlog report missing default-plan report path");
+  assert(backlogSource.includes("readForecastBatchIndexArtifacts"), "attention backlog does not use the shared batch-index artifact reader");
+  assert(backlogSource.includes("reportRoot: batchRoot"), "attention backlog does not pass its configured batch-index directory to the shared reader");
+  assert(!backlogSource.includes("listFilesNamed(batchRoot"), "attention backlog should not keep a local batch-index scanner");
   assert(backlogSource.includes("readCalibrationGuardValidationArtifacts"), "attention backlog does not use the shared calibration validation artifact reader");
   assert(backlogSource.includes("reportRoot: validationRoot"), "attention backlog does not pass its configured validation report directory to the shared reader");
   assert(!backlogSource.includes("listFilesNamed(validationRoot"), "attention backlog should not keep a local validation artifact scanner");

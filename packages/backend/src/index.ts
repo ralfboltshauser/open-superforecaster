@@ -6,6 +6,7 @@ export * from "./calibration-guard-impact";
 export * from "./calibration-guard-metadata";
 export * from "./diagnostics-service";
 export * from "./forecast-attention-backlog";
+export * from "./forecast-batch-index-artifacts";
 export * from "./health";
 export * from "./maintenance-service";
 export * from "./metrics-service";

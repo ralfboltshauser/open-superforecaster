@@ -1,13 +1,13 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
+  readForecastBatchIndexArtifacts,
+  type ForecastBatchIndexArtifact,
+  type ForecastBatchIndexCandidateCalibrationGuardRule,
+} from "../packages/backend/src/forecast-batch-index-artifacts";
+import {
   hasArg,
-  listFilesNamed,
   readArgValue,
-  readJson,
-  readRecord,
-  readString,
-  type JsonRecord,
   writeJson,
 } from "./lib/forecast-script-utils";
 
@@ -96,7 +96,7 @@ const selected = batchIndexPathArg
   ? await readExplicitBatchIndex(resolve(root, batchIndexPathArg), requestedBatchId)
   : await selectBatchIndex(batchIndexDir ?? "", requestedBatchId);
 const report = selected
-  ? buildProposalReport(selected.payload, selected.path, batchIndexDir, jsonPath, markdownPath, includeOpen)
+  ? buildProposalReport(selected, batchIndexDir, jsonPath, markdownPath, includeOpen)
   : buildEmptyReport(requestedBatchId, batchIndexDir, jsonPath, markdownPath);
 
 await mkdir(outputDir, { recursive: true });
@@ -108,50 +108,36 @@ console.log(`Batch: ${report.batchId ?? "none"}`);
 console.log(`Output: ${jsonPath}`);
 
 async function readExplicitBatchIndex(path: string, batchId: string | null) {
-  const payload = readRecord(await readJson(path));
-  const payloadBatchId = readString(payload, "batchId");
-  if (!payload || !payloadBatchId || (batchId && payloadBatchId !== batchId)) {
+  const artifacts = await readForecastBatchIndexArtifacts(root, { reportRoot: path });
+  const artifact = artifacts[artifacts.length - 1] ?? null;
+  if (!artifact || (batchId && artifact.batchId !== batchId)) {
     return null;
   }
-  return { path, payload, batchId: payloadBatchId, generatedAt: readString(payload, "generatedAt") };
+  return artifact;
 }
 
 async function selectBatchIndex(batchRoot: string, batchId: string | null) {
-  const paths = await listFilesNamed(batchRoot, "batch-index.json");
-  const candidates: { path: string; payload: JsonRecord; batchId: string; generatedAt: string | null }[] = [];
-  for (const path of paths) {
-    const payload = readRecord(await readJson(path));
-    const candidateBatchId = readString(payload, "batchId");
-    if (!payload || !candidateBatchId || (batchId && candidateBatchId !== batchId)) {
-      continue;
-    }
-    candidates.push({
-      path,
-      payload,
-      batchId: candidateBatchId,
-      generatedAt: readString(payload, "generatedAt"),
-    });
-  }
+  const candidates = (await readForecastBatchIndexArtifacts(root, { reportRoot: batchRoot }))
+    .filter((artifact) => !batchId || artifact.batchId === batchId);
   candidates.sort((left, right) =>
     timestampValue(right.generatedAt) - timestampValue(left.generatedAt)
     || right.batchId.localeCompare(left.batchId)
-    || right.path.localeCompare(left.path)
+    || right.reportPath.localeCompare(left.reportPath)
   );
   return candidates[0] ?? null;
 }
 
 function buildProposalReport(
-  batchIndex: JsonRecord,
-  batchIndexPath: string,
+  batchIndex: ForecastBatchIndexArtifact,
   sourceDir: string | null,
   jsonOutputPath: string,
   markdownOutputPath: string,
   includeOpenRules: boolean,
 ): ProposalReport {
-  const batchId = readString(batchIndex, "batchId");
-  const candidateRules = readRecordArray(batchIndex, "candidateCalibrationGuardRules").flatMap(readCandidateRule);
+  const batchId = batchIndex.batchId;
+  const candidateRules = batchIndex.candidateCalibrationGuardRules.flatMap(readCandidateRule);
   const eligibleRules = candidateRules.filter((rule) => isEligibleCandidateRule(rule, includeOpenRules));
-  const proposalDrafts = eligibleRules.map((rule) => buildProposal(batchId ?? "unknown-batch", rule));
+  const proposalDrafts = eligibleRules.map((rule) => buildProposal(batchId, rule));
   return {
     reportType: "forecast_calibration_guard_proposals",
     generatedAt: new Date().toISOString(),
@@ -168,7 +154,7 @@ function buildProposalReport(
     paths: {
       json: jsonOutputPath,
       markdown: markdownOutputPath,
-      batchIndex: batchIndexPath,
+      batchIndex: batchIndex.reportPath,
       batchIndexDir: sourceDir,
     },
   };
@@ -295,43 +281,32 @@ function isEligibleCandidateRule(rule: CandidateCalibrationGuardRule, includeOpe
   return includeOpenRules ? rule.reviewStatus === "open" || rule.reviewStatus === "reviewed" : rule.reviewStatus === "reviewed";
 }
 
-function readCandidateRule(rule: JsonRecord): CandidateCalibrationGuardRule[] {
-  const id = readString(rule, "id");
+function readCandidateRule(rule: ForecastBatchIndexCandidateCalibrationGuardRule): CandidateCalibrationGuardRule[] {
+  const id = rule.id;
   if (!id) {
     return [];
   }
-  const reviewStatus = readReviewStatus(readString(rule, "reviewStatus"));
+  const reviewStatus = readReviewStatus(rule.reviewStatus);
   return [{
     id,
     reviewStatus,
-    reviewNote: readString(rule, "reviewNote"),
-    reviewer: readString(rule, "reviewer"),
-    reviewedAt: readString(rule, "reviewedAt"),
-    bucketLabel: readString(rule, "bucketLabel") ?? "bucket",
-    direction: readString(rule, "direction") ?? "calibration_drift",
-    suggestedAdjustment: readNumber(rule, "suggestedAdjustment"),
-    sampleSize: readNumber(rule, "sampleSize"),
-    meanForecast: readNumber(rule, "meanForecast"),
-    observedRate: readNumber(rule, "observedRate"),
-    calibrationError: readNumber(rule, "calibrationError"),
-    activationStatus: readString(rule, "activationStatus") ?? "needs_more_resolved_forecasts",
-    rationale: readString(rule, "rationale") ?? "",
+    reviewNote: rule.reviewNote,
+    reviewer: rule.reviewer,
+    reviewedAt: rule.reviewedAt,
+    bucketLabel: rule.bucketLabel ?? "bucket",
+    direction: rule.direction ?? "calibration_drift",
+    suggestedAdjustment: rule.suggestedAdjustment,
+    sampleSize: rule.sampleSize,
+    meanForecast: rule.meanForecast,
+    observedRate: rule.observedRate,
+    calibrationError: rule.calibrationError,
+    activationStatus: rule.activationStatus ?? "needs_more_resolved_forecasts",
+    rationale: rule.rationale ?? "",
   }];
 }
 
 function readReviewStatus(value: string | null): ReviewStatus {
   return value === "reviewed" || value === "deferred" ? value : "open";
-}
-
-function readRecordArray(value: unknown, key: string) {
-  const record = readRecord(value);
-  const raw = record?.[key];
-  return Array.isArray(raw) ? raw.filter((item): item is JsonRecord => Boolean(readRecord(item))) : [];
-}
-
-function readNumber(value: unknown, key: string) {
-  const raw = readRecord(value)?.[key];
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
 
 function timestampValue(value: string | null) {
