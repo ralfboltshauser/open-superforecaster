@@ -15,6 +15,7 @@ import {
 import {
   calibrationDefaultPlanSkippedAttentionKind,
   calibrationValidationAttentionKind,
+  forecastAttentionSeveritySortRank,
   forecastAttentionReviewStatusRank,
   recommendCalibrationDefaultPlanSkippedActions,
   recommendCalibrationValidationActions,
@@ -448,7 +449,7 @@ function renderItemsTable(items: BacklogItem[]) {
 function sortBacklog(items: BacklogItem[]) {
   return [...items].sort((left, right) =>
     forecastAttentionReviewStatusRank(left.reviewStatus) - forecastAttentionReviewStatusRank(right.reviewStatus)
-    || severityRank(left.severity) - severityRank(right.severity)
+    || forecastAttentionSeveritySortRank(left.severity) - forecastAttentionSeveritySortRank(right.severity)
     || left.batchId.localeCompare(right.batchId)
     || (left.taskLabel ?? left.taskId ?? "").localeCompare(right.taskLabel ?? right.taskId ?? "")
     || left.id.localeCompare(right.id)
@@ -517,19 +518,6 @@ function countBreakdown(items: BacklogItem[]): BacklogBreakdownCounts {
     medium: countSeverity(items, "medium"),
     low: countSeverity(items, "low"),
   };
-}
-
-function severityRank(severity: string) {
-  if (severity === "high") {
-    return 0;
-  }
-  if (severity === "medium") {
-    return 1;
-  }
-  if (severity === "low") {
-    return 2;
-  }
-  return 3;
 }
 
 function formatNumber(value: number | null) {

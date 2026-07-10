@@ -21,7 +21,13 @@ import { readComponentWeightingSnapshot, type ComponentWeightingSnapshot } from 
 import { readConditionalForecastSnapshot, type ConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { readDateForecastSnapshot, type DateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot, type EvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
-import { attentionKindIdPrefix, recommendPerformanceAttentionActions, type PerformanceAttentionKind, type PerformanceAttentionSeverity } from "./forecast-attention-policy";
+import {
+  attentionKindIdPrefix,
+  performanceAttentionSeverityRank,
+  recommendPerformanceAttentionActions,
+  type PerformanceAttentionKind,
+  type PerformanceAttentionSeverity,
+} from "./forecast-attention-policy";
 import { readForecastInputContextSnapshot, type ForecastInputContextSnapshot } from "./forecast-input-context-metadata";
 import { readForecastRunSnapshot, type ForecastRunSnapshot } from "./forecast-run-metadata";
 import { poorScoreThreshold, selectPrimaryScoreMetric, trendDeltaHighThreshold } from "./forecast-score-policy";
@@ -2711,7 +2717,7 @@ function buildNeedsAttentionQueue(
     ...calibrationItems,
   ]
     .sort((left, right) => {
-      const severityDelta = severityRank(right.severity) - severityRank(left.severity);
+      const severityDelta = performanceAttentionSeverityRank(right.severity) - performanceAttentionSeverityRank(left.severity);
       if (severityDelta !== 0) {
         return severityDelta;
       }
@@ -3362,10 +3368,6 @@ function runMetadataMissSignal(item: PerformanceCase): { reason: string; delta: 
     };
   }
   return null;
-}
-
-function severityRank(severity: PerformanceAttentionItem["severity"]) {
-  return severity === "high" ? 2 : 1;
 }
 
 function formatNullableMetric(value: number | null) {

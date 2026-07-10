@@ -6,6 +6,7 @@ import {
   type CalibrationGuardActivationStatus,
 } from "../packages/backend/src/calibration-guard-activation-policy";
 import {
+  forecastAttentionSeveritySortRank,
   forecastAttentionReviewStatusRank,
   isForecastAttentionReviewStatus,
   type ForecastAttentionReviewStatus,
@@ -689,7 +690,7 @@ function renderCandidateCalibrationGuardTable(items: HealthCandidateCalibrationG
 function sortAttentionItems(items: HealthAttentionItem[]) {
   return [...items].sort((left, right) =>
     forecastAttentionReviewStatusRank(left.reviewStatus) - forecastAttentionReviewStatusRank(right.reviewStatus)
-    || severityRank(left.severity) - severityRank(right.severity)
+    || forecastAttentionSeveritySortRank(left.severity) - forecastAttentionSeveritySortRank(right.severity)
     || left.id.localeCompare(right.id)
   );
 }
@@ -697,7 +698,7 @@ function sortAttentionItems(items: HealthAttentionItem[]) {
 function sortCandidateCalibrationGuardRules(items: HealthCandidateCalibrationGuardRule[]) {
   return [...items].sort((left, right) =>
     forecastAttentionReviewStatusRank(left.reviewStatus) - forecastAttentionReviewStatusRank(right.reviewStatus)
-    || severityRank(calibrationGuardActivationSeverity(left.activationStatus)) - severityRank(calibrationGuardActivationSeverity(right.activationStatus))
+    || forecastAttentionSeveritySortRank(calibrationGuardActivationSeverity(left.activationStatus)) - forecastAttentionSeveritySortRank(calibrationGuardActivationSeverity(right.activationStatus))
     || left.id.localeCompare(right.id)
   );
 }
@@ -745,7 +746,7 @@ function summarizeAttentionByKind(items: HealthAttentionItem[]): AttentionKindBr
     }))
     .sort((left, right) =>
       (right.open + right.deferred) - (left.open + left.deferred)
-      || severityRank(left.high > 0 ? "high" : left.medium > 0 ? "medium" : "low") - severityRank(right.high > 0 ? "high" : right.medium > 0 ? "medium" : "low")
+      || forecastAttentionSeveritySortRank(left.high > 0 ? "high" : left.medium > 0 ? "medium" : "low") - forecastAttentionSeveritySortRank(right.high > 0 ? "high" : right.medium > 0 ? "medium" : "low")
       || left.kind.localeCompare(right.kind)
     );
 }
@@ -759,7 +760,7 @@ function summarizeAttentionBySeverity(items: HealthAttentionItem[]): AttentionSe
       deferred: countStatus(rows, "deferred"),
       reviewed: countStatus(rows, "reviewed"),
     }))
-    .sort((left, right) => severityRank(left.severity) - severityRank(right.severity) || left.severity.localeCompare(right.severity));
+    .sort((left, right) => forecastAttentionSeveritySortRank(left.severity) - forecastAttentionSeveritySortRank(right.severity) || left.severity.localeCompare(right.severity));
 }
 
 function summarizeAttentionByForecastType(items: HealthAttentionItem[]): AttentionForecastTypeBreakdown[] {
@@ -776,7 +777,7 @@ function summarizeAttentionByForecastType(items: HealthAttentionItem[]): Attenti
     }))
     .sort((left, right) =>
       (right.open + right.deferred) - (left.open + left.deferred)
-      || severityRank(left.high > 0 ? "high" : left.medium > 0 ? "medium" : "low") - severityRank(right.high > 0 ? "high" : right.medium > 0 ? "medium" : "low")
+      || forecastAttentionSeveritySortRank(left.high > 0 ? "high" : left.medium > 0 ? "medium" : "low") - forecastAttentionSeveritySortRank(right.high > 0 ? "high" : right.medium > 0 ? "medium" : "low")
       || left.forecastType.localeCompare(right.forecastType)
     );
 }
@@ -811,18 +812,6 @@ function healthStatus(issues: HealthIssue[]): HealthStatus {
   return "healthy";
 }
 
-function severityRank(severity: string) {
-  if (severity === "high") {
-    return 0;
-  }
-  if (severity === "medium") {
-    return 1;
-  }
-  if (severity === "low") {
-    return 2;
-  }
-  return 3;
-}
 
 function timestampValue(value: string | null) {
   if (!value) {

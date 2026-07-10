@@ -39,7 +39,11 @@ export type PerformanceAttentionKind =
   | "input_context_miss"
   | "run_metadata_miss";
 
-export type PerformanceAttentionSeverity = "high" | "medium";
+export const forecastAttentionSeverities = ["high", "medium", "low"] as const;
+
+export type ForecastAttentionSeverity = typeof forecastAttentionSeverities[number];
+
+export type PerformanceAttentionSeverity = Extract<ForecastAttentionSeverity, "high" | "medium">;
 
 export const forecastAttentionReviewStatuses = ["open", "reviewed", "deferred"] as const;
 
@@ -70,6 +74,23 @@ export function forecastAttentionReviewStatusRank(status: ForecastAttentionRevie
     return 1;
   }
   return 2;
+}
+
+export function forecastAttentionSeveritySortRank(severity: string | null | undefined) {
+  if (severity === "high") {
+    return 0;
+  }
+  if (severity === "medium") {
+    return 1;
+  }
+  if (severity === "low") {
+    return 2;
+  }
+  return 3;
+}
+
+export function performanceAttentionSeverityRank(severity: PerformanceAttentionSeverity) {
+  return severity === "high" ? 2 : 1;
 }
 
 export function attentionKindIdPrefix(kind: PerformanceAttentionKind) {
