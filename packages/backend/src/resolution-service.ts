@@ -132,6 +132,11 @@ type PerformanceAttentionItem = {
     | "aggregate_quality_rounds_miss"
     | "aggregate_quality_issues_miss"
     | "component_disagreement_miss"
+    | "conditional_branch_miss"
+    | "thresholded_curve_miss"
+    | "numeric_distribution_miss"
+    | "date_distribution_miss"
+    | "categorical_distribution_miss"
     | "component_envelope_miss"
     | "aggregate_side_flip_miss"
     | "aggregate_panel_confidence_miss"
@@ -2377,12 +2382,12 @@ function buildNeedsAttentionQueue(
   const componentDisagreementItems = componentDisagreementCandidates
     .slice(0, 5)
     .map(({ item, signal }, index) => ({
-      id: `component-disagreement:${item.taskId}:${item.primaryMetric}`,
-      kind: "component_disagreement_miss" as const,
+      id: `${attentionKindIdPrefix(signal.kind)}:${item.taskId}:${item.primaryMetric}`,
+      kind: signal.kind,
       severity: signal.severity,
       reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
       recommendedActions: recommendAttentionActions({
-        kind: "component_disagreement_miss",
+        kind: signal.kind,
         metric: item.primaryMetric,
         severity: signal.severity,
         forecastType: item.forecastType,
@@ -2745,7 +2750,9 @@ function buildNeedsAttentionQueue(
     .map(({ rank: _rank, ...item }) => item);
 }
 
-function componentDisagreementMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+function componentDisagreementMissSignal(
+  item: PerformanceCase,
+): { reason: string; delta: number | null; severity: "high" | "medium"; kind: PerformanceAttentionItem["kind"] } | null {
   if (
     item.forecastType === "binary" &&
     item.aggregateStats !== null &&
@@ -2755,6 +2762,7 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
       reason: `${item.aggregateStats.disagreementBand} component disagreement of ${formatNullableMetric(item.aggregateStats.disagreement)} points`,
       delta: item.aggregateStats.disagreement,
       severity: item.aggregateStats.disagreementBand === "extreme" ? "high" : "medium",
+      kind: "component_disagreement_miss",
     };
   }
 
@@ -2771,6 +2779,7 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
         item.conditionalForecast.resolvedBranchProbabilityBand === "zero"
         ? "high"
         : "medium",
+      kind: "conditional_branch_miss",
     };
   }
 
@@ -2791,6 +2800,7 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
         `${item.conditionalForecast.branchDisagreementBand} conditional branch disagreement with ${item.conditionalForecast.effectDirectionAgreement.replace(/_/g, " ")} effect direction`,
       delta: item.conditionalForecast.effectDisagreement,
       severity,
+      kind: "conditional_branch_miss",
     };
   }
 
@@ -2804,6 +2814,7 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
         `resolved value ${formatNullableMetric(item.thresholdedForecast.actualValue)} was ${item.thresholdedForecast.resolvedThresholdBand.replace(/_/g, " ")} for the threshold curve`,
       delta: item.thresholdedForecast.nearestThresholdDistance,
       severity: "high",
+      kind: "thresholded_curve_miss",
     };
   }
 
@@ -2817,6 +2828,7 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
         `${item.thresholdedForecast.componentDisagreementBand} threshold-curve component disagreement of ${formatNullableMetric(item.thresholdedForecast.componentProbabilityDisagreement)} points`,
       delta: item.thresholdedForecast.componentProbabilityDisagreement,
       severity: item.thresholdedForecast.componentDisagreementBand === "wide" ? "high" : "medium",
+      kind: "thresholded_curve_miss",
     };
   }
 
@@ -2830,6 +2842,7 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
         `resolved value was ${item.numericForecast.resolvedPositionBand.replace(/_/g, " ")} for numeric forecast interval ${formatNullableMetric(item.numericForecast.p10)}-${formatNullableMetric(item.numericForecast.p90)} ${item.numericForecast.unit ?? "units"}`,
       delta: item.numericForecast.actualValue,
       severity: "high",
+      kind: "numeric_distribution_miss",
     };
   }
 
@@ -2843,6 +2856,7 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
         `${item.numericForecast.p50ErrorBand} numeric median miss of ${formatNullableMetric(item.numericForecast.absoluteP50Error)} ${item.numericForecast.unit ?? "units"}`,
       delta: item.numericForecast.absoluteP50Error,
       severity: item.numericForecast.p50ErrorBand === "extreme" ? "high" : "medium",
+      kind: "numeric_distribution_miss",
     };
   }
 
@@ -2856,6 +2870,7 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
         `${item.numericForecast.p50DisagreementBand} numeric component-value disagreement of ${formatNullableMetric(item.numericForecast.p50Disagreement)} ${item.numericForecast.unit ?? "units"}`,
       delta: item.numericForecast.p50Disagreement,
       severity: item.numericForecast.p50DisagreementBand === "wide" ? "high" : "medium",
+      kind: "numeric_distribution_miss",
     };
   }
 
@@ -2869,6 +2884,7 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
         `resolved date was ${item.dateForecast.resolvedPositionBand.replace(/_/g, " ")} for date forecast interval ${item.dateForecast.p10 ?? "unknown"}-${item.dateForecast.p90 ?? "unknown"}`,
       delta: item.dateForecast.intervalDays,
       severity: "high",
+      kind: "date_distribution_miss",
     };
   }
 
@@ -2882,6 +2898,7 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
         `${item.dateForecast.p50ErrorBand} date median miss of ${formatNullableMetric(item.dateForecast.absoluteP50ErrorDays)} days`,
       delta: item.dateForecast.absoluteP50ErrorDays,
       severity: item.dateForecast.p50ErrorBand === "extreme" ? "high" : "medium",
+      kind: "date_distribution_miss",
     };
   }
 
@@ -2895,6 +2912,7 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
         `${item.dateForecast.p50DisagreementBand} component median-date disagreement of ${formatNullableMetric(item.dateForecast.p50DisagreementDays)} days`,
       delta: item.dateForecast.p50DisagreementDays,
       severity: item.dateForecast.p50DisagreementBand === "wide" ? "high" : "medium",
+      kind: "date_distribution_miss",
     };
   }
 
@@ -2908,6 +2926,7 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
         `resolved category ${item.categoricalForecast.actualCategory ?? "unknown"} was missing or assigned zero probability in the categorical distribution`,
       delta: item.categoricalForecast.actualProbability,
       severity: "high",
+      kind: "categorical_distribution_miss",
     };
   }
 
@@ -2921,10 +2940,15 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
         `${item.categoricalForecast.topCategoryAgreementBand} component agreement on the aggregate top category (${formatNullableMetric(item.categoricalForecast.topCategoryVoteShare)}% vote share)`,
       delta: item.categoricalForecast.topCategoryVoteShare,
       severity: item.categoricalForecast.topCategoryAgreementBand === "none" ? "high" : "medium",
+      kind: "categorical_distribution_miss",
     };
   }
 
   return null;
+}
+
+function attentionKindIdPrefix(kind: PerformanceAttentionItem["kind"]) {
+  return kind.replace(/_/g, "-");
 }
 
 function aggregateQualityRoundsMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
@@ -3413,6 +3437,21 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "component_disagreement_miss") {
     actions.add("Inspect component forecasts before changing aggregation defaults; identify whether one role captured the resolved signal or all roles missed different parts.");
     actions.add("Compare mean, median, aggregation anchor, and final rationale to see whether disagreement was explained or over-smoothed.");
+  } else if (input.kind === "conditional_branch_miss") {
+    actions.add("Separate condition resolution from outcome resolution and inspect which branch carried the resolved outcome.");
+    actions.add("Compare branch probabilities, effect direction, and component disagreement before changing conditional prompts.");
+  } else if (input.kind === "thresholded_curve_miss") {
+    actions.add("Review threshold ordering, monotonicity, and curve steepness around the resolved value.");
+    actions.add("Compare threshold points against the resolved numeric value before changing extraction or repair rules.");
+  } else if (input.kind === "numeric_distribution_miss") {
+    actions.add("Inspect numeric units, interval width, median error, and whether components disagreed on scale.");
+    actions.add("Compare p10/p50/p90 against the resolved value before changing numeric distribution prompts.");
+  } else if (input.kind === "date_distribution_miss") {
+    actions.add("Inspect date parsing, interval width, never probability, and component timing disagreement.");
+    actions.add("Compare p10/p50/p90 against the resolved date before changing date distribution prompts.");
+  } else if (input.kind === "categorical_distribution_miss") {
+    actions.add("Check whether the resolved category was absent, open-set, or assigned too little probability.");
+    actions.add("Compare category coverage and component top-choice agreement before changing categorical prompts.");
   } else if (input.kind === "component_envelope_miss") {
     actions.add("Audit why the final probability moved outside every component forecast before changing calibration or role-weight defaults.");
     actions.add("Compare the final rationale, calibration guard, and component probabilities to decide whether the out-of-envelope move was justified.");

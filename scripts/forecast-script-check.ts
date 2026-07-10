@@ -1940,6 +1940,7 @@ await check("conditional forecast metadata reaches resolved score analytics", as
   assert(resolutionSource.includes("byConditionalBranchDisagreement"), "performance report does not group by conditional branch disagreement");
   assert(resolutionSource.includes("byConditionalResolvedBranch"), "performance report does not group by conditional resolved branch");
   assert(resolutionSource.includes("byForecastAttemptCount"), "performance report does not group by forecast attempt count");
+  assert(resolutionSource.includes("conditional_branch_miss"), "attention queue does not classify conditional branch misses separately");
   assert(resolutionSource.includes("conditionalForecast.resolvedBranchPlacement"), "attention queue does not use conditional resolved branch placement");
   assert(metricsSource.includes("open_superforecaster_conditional_scores_total"), "metrics missing conditional score counts");
   assert(metricsSource.includes("conditional_branch_disagreement_band"), "metrics missing conditional branch disagreement labels");
@@ -2022,6 +2023,7 @@ await check("thresholded forecast metadata reaches resolved score analytics", as
   assert(resolutionSource.includes("byThresholdedCurveSpread"), "performance report does not group by threshold curve spread");
   assert(resolutionSource.includes("byThresholdedComponentDisagreement"), "performance report does not group by threshold component disagreement");
   assert(resolutionSource.includes("byThresholdedResolvedBand"), "performance report does not group by threshold resolved band");
+  assert(resolutionSource.includes("thresholded_curve_miss"), "attention queue does not classify threshold curve misses separately");
   assert(resolutionSource.includes("thresholdedForecast.resolvedThresholdBand"), "attention queue does not use threshold resolved band");
   assert(metricsSource.includes("open_superforecaster_thresholded_scores_total"), "metrics missing thresholded score counts");
   assert(metricsSource.includes("probability_spread_band"), "metrics missing threshold probability spread labels");
@@ -2141,6 +2143,8 @@ await check("numeric and date forecast distribution metadata reaches resolved sc
   assert(resolutionSource.includes("byDateP50Disagreement"), "performance report does not group by date component timing disagreement");
   assert(resolutionSource.includes("byDateP50Error"), "performance report does not group by date median error");
   assert(resolutionSource.includes("byDateResolvedPosition"), "performance report does not group by date resolved position");
+  assert(resolutionSource.includes("numeric_distribution_miss"), "attention queue does not classify numeric distribution misses separately");
+  assert(resolutionSource.includes("date_distribution_miss"), "attention queue does not classify date distribution misses separately");
   assert(resolutionSource.includes("numericForecast.resolvedPositionBand"), "attention queue does not use numeric resolved position");
   assert(resolutionSource.includes("numericForecast.p50ErrorBand"), "attention queue does not use numeric median-error band");
   assert(resolutionSource.includes("dateForecast.resolvedPositionBand"), "attention queue does not use date resolved position");
@@ -2255,6 +2259,7 @@ await check("categorical forecast distribution metadata reaches resolved score a
   assert(resolutionSource.includes("byCategoricalCoverage"), "performance report does not group by categorical coverage");
   assert(resolutionSource.includes("byCategoricalTopAgreement"), "performance report does not group by categorical top agreement");
   assert(resolutionSource.includes("byCategoricalResolvedCategory"), "performance report does not group by categorical resolved category");
+  assert(resolutionSource.includes("categorical_distribution_miss"), "attention queue does not classify categorical distribution misses separately");
   assert(resolutionSource.includes("categoricalForecast.resolvedCategoryBand"), "attention queue does not use categorical resolved category");
   assert(metricsSource.includes("open_superforecaster_categorical_distribution_scores_total"), "metrics missing categorical distribution score counts");
   assert(metricsSource.includes("category_coverage_band"), "metrics missing categorical coverage labels");

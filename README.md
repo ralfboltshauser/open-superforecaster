@@ -282,7 +282,8 @@ discounted the component that best matched reality.
 Poor resolved forecasts with high component disagreement are queued across
 forecast types too: binary component probabilities, conditional branches,
 threshold curves, numeric medians, date medians, and categorical top-choice
-agreement all feed the same component-disagreement review path.
+agreement are visible as explicit attention kinds instead of being flattened
+into one generic disagreement queue.
 The metrics endpoint exports baseline-sanity score counts and means as
 Prometheus series so large base-rate departures can be monitored outside the
 lab dashboard.
