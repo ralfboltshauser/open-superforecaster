@@ -1876,6 +1876,49 @@ function emitBenchmarkCostLatencyMetrics(
     emitOptionalGauge(metrics, "open_superforecaster_benchmark_cost_agent_calls_by_status", "Benchmark agent calls by case status.", readNumber(row, "agentCalls"), statusLabels);
     emitOptionalGauge(metrics, "open_superforecaster_benchmark_cost_tokens_by_status", "Benchmark token usage by case status.", readNumber(row, "totalTokens"), statusLabels);
   }
+  emitBenchmarkCostOutlierMetrics(metrics, labels, "heaviest", readRecordArray(findings, "heaviestCases"));
+  emitBenchmarkCostOutlierMetrics(metrics, labels, "slowest", readRecordArray(findings, "slowestCases"));
+}
+
+function emitBenchmarkCostOutlierMetrics(
+  metrics: MetricsBuilder,
+  labels: Record<string, string>,
+  outlierKind: "heaviest" | "slowest",
+  rows: Record<string, unknown>[],
+) {
+  rows.slice(0, 5).forEach((row, index) => {
+    const outlierLabels = {
+      ...labels,
+      outlier_kind: outlierKind,
+      outlier_rank: String(index + 1),
+      benchmark_case_result_id: readString(row, "benchmarkCaseResultId") ?? "none",
+      benchmark_case_id: readString(row, "benchmarkCaseId") ?? "none",
+      task_id: readString(row, "taskId") ?? "none",
+      smithers_run_id: readString(row, "smithersRunId") ?? "none",
+      case_status: readString(row, "status") ?? "unknown",
+    };
+    emitOptionalGauge(
+      metrics,
+      "open_superforecaster_benchmark_cost_outlier_tokens",
+      "Token usage for capped benchmark cost outlier cases.",
+      readNumber(row, "totalTokens"),
+      outlierLabels,
+    );
+    emitOptionalGauge(
+      metrics,
+      "open_superforecaster_benchmark_cost_outlier_duration_seconds",
+      "Task duration for capped benchmark cost outlier cases.",
+      readNumber(row, "durationSeconds"),
+      outlierLabels,
+    );
+    emitOptionalGauge(
+      metrics,
+      "open_superforecaster_benchmark_cost_outlier_agent_calls",
+      "Agent calls for capped benchmark cost outlier cases.",
+      readNumber(row, "agentCalls"),
+      outlierLabels,
+    );
+  });
 }
 
 function emitOptionalGauge(

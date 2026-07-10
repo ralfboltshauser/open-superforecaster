@@ -3088,6 +3088,12 @@ await check("benchmark analysis summarizes measured cost findings", async () => 
   assert(metricsSource.includes("open_superforecaster_benchmark_cost_agent_calls_total"), "benchmark cost agent-call metric missing");
   assert(metricsSource.includes("open_superforecaster_benchmark_cost_token_total"), "benchmark cost token metric missing");
   assert(metricsSource.includes("open_superforecaster_benchmark_cost_tokens_by_status"), "benchmark cost status metric missing");
+  assert(metricsSource.includes("emitBenchmarkCostOutlierMetrics"), "benchmark cost outlier metrics helper missing");
+  assert(metricsSource.includes("open_superforecaster_benchmark_cost_outlier_tokens"), "benchmark cost outlier token metric missing");
+  assert(metricsSource.includes("open_superforecaster_benchmark_cost_outlier_duration_seconds"), "benchmark cost outlier duration metric missing");
+  assert(metricsSource.includes("open_superforecaster_benchmark_cost_outlier_agent_calls"), "benchmark cost outlier agent-call metric missing");
+  assert(metricsSource.includes("outlier_rank"), "benchmark cost outlier metrics missing rank label");
+  assert(metricsSource.includes("benchmark_case_result_id"), "benchmark cost outlier metrics missing case result label");
   assert(dashboardSource.includes("costLatencyFindings"), "lab dashboard does not read benchmark cost/latency findings");
   assert(dashboardSource.includes("cost {formatCount"), "lab dashboard does not surface benchmark cost summaries");
   assert(dashboardSource.includes("heaviestCases"), "lab dashboard does not read heaviest benchmark cost cases");
