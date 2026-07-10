@@ -429,6 +429,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     const validationComparisonReport = proposal.validationComparisonReportArtifactId
       ? reportRowsByArtifactId.get(proposal.validationComparisonReportArtifactId) ?? null
       : null;
+    const validationRecommendation = readRecord(validationComparisonReport, "recommendation");
     metrics.gauge("open_superforecaster_workflow_change_proposal_info", "Recent workflow change proposal lifecycle metadata.", 1, {
       proposal_id: proposal.id,
       source_benchmark_run_id: proposal.sourceBenchmarkRunId ?? "none",
@@ -438,7 +439,9 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       implementation_experiment_label: proposal.implementationExperimentLabel ?? "none",
       validation_benchmark_run_id: proposal.validationBenchmarkRunId ?? "none",
       validation_comparison_report_artifact_id: proposal.validationComparisonReportArtifactId ?? "none",
-      validation_recommendation_status: readComparisonRecommendationStatus(validationComparisonReport) ?? "none",
+      validation_recommendation_status: readString(validationRecommendation, "status") ?? "none",
+      validation_primary_paired_case_count: String(readNumber(validationRecommendation, "primaryBaselinePairedCaseCount") ?? "none"),
+      validation_primary_paired_holdout_case_count: String(readNumber(validationRecommendation, "primaryBaselinePairedHoldoutCaseCount") ?? "none"),
       validation_result_status: proposal.validationResultStatus ?? "none",
       validation_gate_status: proposal.validationGateStatus ?? "none",
       reviewed_by: proposal.reviewedBy ?? "none",

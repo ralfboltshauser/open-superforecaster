@@ -3196,6 +3196,8 @@ await check("workflow change proposal lifecycle is exported as metrics", async (
   assert(metricsSource.includes("validation_benchmark_run_id"), "workflow proposal metric missing validation benchmark label");
   assert(metricsSource.includes("validation_comparison_report_artifact_id"), "workflow proposal metric missing validation comparison artifact label");
   assert(metricsSource.includes("validation_recommendation_status"), "workflow proposal metric missing validation recommendation status label");
+  assert(metricsSource.includes("validation_primary_paired_case_count"), "workflow proposal metric missing validation recommendation paired case label");
+  assert(metricsSource.includes("validation_primary_paired_holdout_case_count"), "workflow proposal metric missing validation recommendation paired holdout label");
   assert(metricsSource.includes("validation_result_status"), "workflow proposal metric missing validation result status");
   assert(metricsSource.includes("validation_gate_status"), "workflow proposal metric missing validation gate status");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_completed_cases"), "workflow proposal metric missing validation completed cases");
@@ -3294,6 +3296,8 @@ await check("workflow change proposals are exported to DuckDB", async () => {
   assert(syncSource.includes("validation_gate_blockers_json"), "workflow proposal mart missing validation gate blockers");
   assert(syncSource.includes("validation_comparison_report_artifact_id"), "workflow proposal mart missing validation comparison artifact id");
   assert(syncSource.includes("validation_recommendation_status"), "workflow proposal mart missing validation recommendation status");
+  assert(syncSource.includes("validation_recommendation_paired_case_count"), "workflow proposal mart missing validation recommendation paired case count");
+  assert(syncSource.includes("validation_recommendation_paired_holdout_case_count"), "workflow proposal mart missing validation recommendation paired holdout count");
   assert(syncSource.includes("validation_primary_baseline_benchmark_run_id"), "workflow proposal mart missing validation primary baseline id");
   assert(syncSource.includes("validation_paired_mean_brier_delta"), "workflow proposal mart missing validation paired Brier delta");
   assert(syncSource.includes("validation_paired_brier_ci_lower"), "workflow proposal mart missing validation paired uncertainty interval");
