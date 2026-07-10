@@ -5,6 +5,12 @@ import {
   type AttentionBacklogCompatibilityIssue,
 } from "../packages/backend/src/forecast-attention-backlog";
 import {
+  readForecastBatchIndexArtifacts,
+  type ForecastBatchIndexArtifact,
+  type ForecastBatchIndexAttentionItem,
+  type ForecastBatchIndexCandidateCalibrationGuardRule,
+} from "../packages/backend/src/forecast-batch-index-artifacts";
+import {
   listFilesNamed,
   readArgValue,
   readJson,
@@ -155,7 +161,7 @@ const markdownPath = resolve(outputDir, "batch-health.md");
 const selected = await selectBatchIndex(batchIndexDir, requestedBatchId);
 const selectedAttentionBacklog = await selectAttentionBacklog(attentionBacklogDir);
 const report = selected
-  ? await buildHealthReport(selected.payload, selected.path, selectedAttentionBacklog, batchIndexDir, attentionBacklogDir, jsonPath, markdownPath)
+  ? await buildHealthReport(selected, selectedAttentionBacklog, batchIndexDir, attentionBacklogDir, jsonPath, markdownPath)
   : buildEmptyReport(batchIndexDir, attentionBacklogDir, selectedAttentionBacklog?.path ?? null, jsonPath, markdownPath, requestedBatchId);
 
 await mkdir(outputDir, { recursive: true });
@@ -177,25 +183,12 @@ for (const issue of report.issues) {
 }
 
 async function selectBatchIndex(batchRoot: string, batchId: string | null) {
-  const paths = await listFilesNamed(batchRoot, "batch-index.json");
-  const candidates: { path: string; payload: JsonRecord; batchId: string; generatedAt: string | null }[] = [];
-  for (const path of paths) {
-    const payload = readRecord(await readJson(path));
-    const candidateBatchId = readString(payload, "batchId");
-    if (!payload || !candidateBatchId || (batchId && candidateBatchId !== batchId)) {
-      continue;
-    }
-    candidates.push({
-      path,
-      payload,
-      batchId: candidateBatchId,
-      generatedAt: readString(payload, "generatedAt"),
-    });
-  }
+  const candidates = (await readForecastBatchIndexArtifacts(root, { reportRoot: batchRoot }))
+    .filter((artifact) => !batchId || artifact.batchId === batchId);
   candidates.sort((left, right) =>
     timestampValue(right.generatedAt) - timestampValue(left.generatedAt)
     || right.batchId.localeCompare(left.batchId)
-    || right.path.localeCompare(left.path)
+    || right.reportPath.localeCompare(left.reportPath)
   );
   return candidates[0] ?? null;
 }
@@ -222,19 +215,18 @@ async function selectAttentionBacklog(backlogRoot: string): Promise<SelectedAtte
 }
 
 async function buildHealthReport(
-  batchIndex: JsonRecord,
-  batchIndexPath: string,
+  batchIndex: ForecastBatchIndexArtifact,
   attentionBacklog: SelectedAttentionBacklog | null,
   sourceDir: string,
   backlogDir: string,
   reportJsonPath: string,
   reportMarkdownPath: string,
 ): Promise<HealthReport> {
-  const batchId = readString(batchIndex, "batchId");
-  const counts = readRecord(batchIndex, "counts") ?? {};
-  const batchAttentionItems = readRecordArray(batchIndex, "attentionItems").flatMap((item) => readHealthAttentionItem(item, batchIndexPath));
-  const candidateCalibrationGuardRules = readRecordArray(batchIndex, "candidateCalibrationGuardRules").flatMap(readHealthCandidateCalibrationGuardRule);
-  const batchIndexGeneratedAt = readString(batchIndex, "generatedAt");
+  const batchId = batchIndex.batchId;
+  const counts = batchIndex.counts;
+  const batchAttentionItems = batchIndex.attentionItems.flatMap((item) => readHealthBatchAttentionItem(item, batchIndex.reportPath));
+  const candidateCalibrationGuardRules = batchIndex.candidateCalibrationGuardRules.flatMap(readHealthBatchCandidateCalibrationGuardRule);
+  const batchIndexGeneratedAt = batchIndex.generatedAt;
   const attentionBacklogIssues = attentionBacklog
     ? attentionBacklogCompatibilityIssues(
       (await evaluateAttentionBacklogCompatibility(root, attentionBacklog.payload, {
@@ -296,7 +288,7 @@ async function buildHealthReport(
     paths: {
       json: reportJsonPath,
       markdown: reportMarkdownPath,
-      batchIndex: batchIndexPath,
+      batchIndex: batchIndex.reportPath,
       batchIndexDir: sourceDir,
       attentionBacklog: attentionBacklog?.path ?? null,
       attentionBacklogDir: backlogDir,
@@ -470,6 +462,32 @@ function readHealthAttentionItem(item: JsonRecord, fallbackSourcePath: string | 
   }];
 }
 
+function readHealthBatchAttentionItem(item: ForecastBatchIndexAttentionItem, fallbackSourcePath: string | null = null): HealthAttentionItem[] {
+  const id = item.id;
+  const reviewStatus = item.reviewStatus;
+  if (!id || !isReviewStatus(reviewStatus)) {
+    return [];
+  }
+  return [{
+    id,
+    reviewStatus,
+    severity: item.severity ?? "medium",
+    kind: item.kind ?? "attention_item",
+    reason: item.reason ?? "",
+    recommendedAction: item.recommendedActions[0] ?? null,
+    reviewNote: item.reviewNote,
+    reviewer: item.reviewer,
+    reviewedAt: item.reviewedAt,
+    metric: item.metric ?? "metric",
+    score: item.score,
+    delta: item.delta,
+    forecastType: item.forecastType ?? "unknown",
+    taskId: item.taskId,
+    taskLabel: item.taskLabel,
+    sourcePath: fallbackSourcePath,
+  }];
+}
+
 function readSupplementalAttentionItems(
   attentionBacklog: { path: string; payload: JsonRecord } | null,
   batchId: string | null,
@@ -523,6 +541,30 @@ function readHealthCandidateCalibrationGuardRule(item: JsonRecord): HealthCandid
     reviewNote: readString(item, "reviewNote"),
     reviewer: readString(item, "reviewer"),
     reviewedAt: readString(item, "reviewedAt"),
+  }];
+}
+
+function readHealthBatchCandidateCalibrationGuardRule(item: ForecastBatchIndexCandidateCalibrationGuardRule): HealthCandidateCalibrationGuardRule[] {
+  const id = item.id;
+  const reviewStatus = item.reviewStatus;
+  if (!id || !isReviewStatus(reviewStatus)) {
+    return [];
+  }
+  return [{
+    id,
+    reviewStatus,
+    bucketLabel: item.bucketLabel ?? "bucket",
+    direction: item.direction ?? "calibration_drift",
+    suggestedAdjustment: item.suggestedAdjustment,
+    sampleSize: item.sampleSize,
+    meanForecast: item.meanForecast,
+    observedRate: item.observedRate,
+    calibrationError: item.calibrationError,
+    activationStatus: item.activationStatus ?? "needs_review",
+    rationale: item.rationale ?? "",
+    reviewNote: item.reviewNote,
+    reviewer: item.reviewer,
+    reviewedAt: item.reviewedAt,
   }];
 }
 

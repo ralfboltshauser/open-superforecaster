@@ -5,11 +5,32 @@ export type ForecastBatchIndexArtifact = {
   reportPath: string;
   batchId: string;
   generatedAt: string | null;
+  counts: ForecastBatchIndexCounts;
   attentionItems: ForecastBatchIndexAttentionItem[];
   candidateCalibrationGuardRules: ForecastBatchIndexCandidateCalibrationGuardRule[];
   paths: {
     reviews: string | null;
   };
+};
+
+export type ForecastBatchIndexCounts = {
+  entries: number | null;
+  forecastOps: number | null;
+  resolutions: number | null;
+  performanceReports: number | null;
+  completedForecasts: number | null;
+  failedForecasts: number | null;
+  resolvedCases: number | null;
+  failedResolutions: number | null;
+  performanceScoreRows: number | null;
+  attentionItems: number | null;
+  openAttentionItems: number | null;
+  deferredAttentionItems: number | null;
+  reviewedAttentionItems: number | null;
+  candidateCalibrationGuardRules: number | null;
+  openCandidateCalibrationGuardRules: number | null;
+  deferredCandidateCalibrationGuardRules: number | null;
+  reviewedCandidateCalibrationGuardRules: number | null;
 };
 
 export type ForecastBatchIndexAttentionItem = {
@@ -71,10 +92,30 @@ function readForecastBatchIndexArtifact(reportPath: string, payload: JsonRecord)
     return null;
   }
   const paths = readRecord(payload, "paths");
+  const counts = readRecord(payload, "counts");
   return {
     reportPath,
     batchId,
     generatedAt: readString(payload, "generatedAt"),
+    counts: {
+      entries: readNumber(counts, "entries"),
+      forecastOps: readNumber(counts, "forecastOps"),
+      resolutions: readNumber(counts, "resolutions"),
+      performanceReports: readNumber(counts, "performanceReports"),
+      completedForecasts: readNumber(counts, "completedForecasts"),
+      failedForecasts: readNumber(counts, "failedForecasts"),
+      resolvedCases: readNumber(counts, "resolvedCases"),
+      failedResolutions: readNumber(counts, "failedResolutions"),
+      performanceScoreRows: readNumber(counts, "performanceScoreRows"),
+      attentionItems: readNumber(counts, "attentionItems"),
+      openAttentionItems: readNumber(counts, "openAttentionItems"),
+      deferredAttentionItems: readNumber(counts, "deferredAttentionItems"),
+      reviewedAttentionItems: readNumber(counts, "reviewedAttentionItems"),
+      candidateCalibrationGuardRules: readNumber(counts, "candidateCalibrationGuardRules"),
+      openCandidateCalibrationGuardRules: readNumber(counts, "openCandidateCalibrationGuardRules"),
+      deferredCandidateCalibrationGuardRules: readNumber(counts, "deferredCandidateCalibrationGuardRules"),
+      reviewedCandidateCalibrationGuardRules: readNumber(counts, "reviewedCandidateCalibrationGuardRules"),
+    },
     attentionItems: readRecordArray(payload, "attentionItems").map((item) => ({
       id: readString(item, "id"),
       reviewStatus: readString(item, "reviewStatus"),

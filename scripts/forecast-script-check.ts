@@ -1069,8 +1069,11 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   const healthSource = await readFile(resolve(root, "scripts/forecast-batch-health.ts"), "utf8");
   assert(healthSource.includes("evaluateAttentionBacklogCompatibility"), "batch health does not use the shared attention backlog compatibility evaluator");
   assert(healthSource.includes("../packages/backend/src/forecast-attention-backlog"), "batch health does not import the shared attention backlog helper");
+  assert(healthSource.includes("readForecastBatchIndexArtifacts"), "batch health does not use the shared batch-index artifact reader");
+  assert(!healthSource.includes("listFilesNamed(batchRoot"), "batch health should not keep a local batch-index scanner");
   assert(!healthSource.includes("function readAttentionBacklogReviewsUpdatedAt"), "batch health should not keep a local attention backlog freshness reader");
   assert(!healthSource.includes("readStringArray(filters"), "batch health should not keep local attention backlog filter compatibility parsing");
+  assert((await readFile(resolve(root, "packages/backend/src/forecast-batch-index-artifacts.ts"), "utf8")).includes("counts: ForecastBatchIndexCounts"), "shared batch-index reader does not expose normalized counts");
   return "batch health summarizes latest indexed batch issues";
 });
 
