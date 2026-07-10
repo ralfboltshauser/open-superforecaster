@@ -5,7 +5,8 @@ import postgres from "postgres";
 import { readCalibrationDefaultPlanArtifacts } from "../packages/backend/src/calibration-default-plan-artifacts";
 import { readCalibrationGuardValidationArtifacts } from "../packages/backend/src/calibration-guard-validation-artifacts";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
-import { isExportCompatibleAttentionBacklog } from "../packages/backend/src/forecast-attention-backlog";
+import { isExportCompatibleAttentionBacklogArtifact } from "../packages/backend/src/forecast-attention-backlog";
+import { readForecastAttentionBacklogArtifacts } from "../packages/backend/src/forecast-attention-backlog-artifacts";
 import { readForecastBatchIndexArtifacts } from "../packages/backend/src/forecast-batch-index-artifacts";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
 import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "../packages/backend/src/forecast-batch-health";
@@ -13,7 +14,7 @@ import { buildBinaryCalibrationReport, type BinaryCalibrationInput } from "../pa
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "../packages/backend/src/smithers-usage";
 import { summarizeSourceDomains } from "../packages/backend/src/source-domain-summary";
 import { loadAppConfig } from "../packages/config/src/index";
-import { listFilesNamed, readJson, readRecord, readString, type JsonRecord } from "./lib/forecast-script-utils";
+import { readRecord, readString, type JsonRecord } from "./lib/forecast-script-utils";
 
 const config = loadAppConfig();
 const root = resolve(import.meta.dir, "..");
@@ -2173,42 +2174,37 @@ async function readForecastAttentionItemRows(root: string): Promise<ForecastAtte
       });
     }
   }
-  for (const path of await listFilesNamed(resolve(root, "data/reports/forecast-attention-backlog"), "attention-backlog.json")) {
-    const payload = await readJsonRecord(path);
-    if (!payload) {
+  for (const report of await readForecastAttentionBacklogArtifacts(root)) {
+    if (!(await isExportCompatibleAttentionBacklogArtifact(root, report))) {
       continue;
     }
-    if (!(await isExportCompatibleAttentionBacklog(root, payload))) {
-      continue;
-    }
-    const generatedAt = readString(payload, "generatedAt");
-    for (const item of readRecordArray(payload, "items")) {
-      const batchId = readString(item, "batchId");
-      const attentionItemId = readString(item, "id");
+    for (const item of report.items) {
+      const batchId = item.batchId;
+      const attentionItemId = item.id;
       if (!batchId || !attentionItemId) {
         continue;
       }
       const key = `${batchId}:${attentionItemId}`;
       rowsByKey.set(key, {
-        report_path: path,
+        report_path: report.reportPath,
         batch_id: batchId,
-        generated_at: generatedAt,
+        generated_at: report.generatedAt,
         attention_item_id: attentionItemId,
-        review_status: readString(item, "reviewStatus"),
-        severity: readString(item, "severity"),
-        kind: readString(item, "kind"),
-        metric: readString(item, "metric"),
-        score: readNumber(item, "score"),
-        delta: readNumber(item, "delta"),
-        forecast_type: readString(item, "forecastType"),
-        task_id: readString(item, "taskId"),
-        task_label: readString(item, "taskLabel"),
-        reason: readString(item, "reason"),
-        recommended_actions_json: JSON.stringify(readStringArray(item, "recommendedActions")),
-        review_note: readString(item, "reviewNote"),
-        reviewer: readString(item, "reviewer"),
-        reviewed_at: readString(item, "reviewedAt"),
-        source_path: readString(item, "sourcePath") ?? path,
+        review_status: item.reviewStatus,
+        severity: item.severity,
+        kind: item.kind,
+        metric: item.metric,
+        score: item.score,
+        delta: item.delta,
+        forecast_type: item.forecastType,
+        task_id: item.taskId,
+        task_label: item.taskLabel,
+        reason: item.reason,
+        recommended_actions_json: JSON.stringify(item.recommendedActions),
+        review_note: item.reviewNote,
+        reviewer: item.reviewer,
+        reviewed_at: item.reviewedAt,
+        source_path: item.sourcePath ?? report.reportPath,
       });
     }
   }
@@ -2370,19 +2366,6 @@ function buildForecastBatchHealthCandidateGuardMartRows(health: ForecastBatchHea
   }));
 }
 
-async function readJsonRecord(path: string) {
-  try {
-    return readRecord(await readJson(path));
-  } catch {
-    return null;
-  }
-}
-
-function readRecordArray(value: unknown, key: string) {
-  const raw = readRecord(value)?.[key];
-  return Array.isArray(raw) ? raw.filter((item): item is JsonRecord => Boolean(readRecord(item))) : [];
-}
-
 function readNumber(value: unknown, key: string) {
   const raw = readRecord(value)?.[key];
   if (typeof raw === "number" && Number.isFinite(raw)) {
@@ -2407,11 +2390,6 @@ function readBoolean(value: unknown, key: string) {
     return false;
   }
   return null;
-}
-
-function readStringArray(value: unknown, key: string) {
-  const raw = readRecord(value)?.[key];
-  return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string") : [];
 }
 
 function parseJsonRecord(value: unknown) {

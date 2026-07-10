@@ -1,4 +1,3 @@
-import { readdir, readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { desc, eq, inArray } from "drizzle-orm";
 import {
@@ -32,7 +31,8 @@ import { readComponentWeightingSnapshot } from "./component-weighting-metadata";
 import { readConditionalForecastSnapshot } from "./conditional-forecast-metadata";
 import { readDateForecastSnapshot } from "./date-forecast-metadata";
 import { readEvidenceCoverageSnapshot } from "./evidence-coverage-metadata";
-import { isExportCompatibleAttentionBacklog } from "./forecast-attention-backlog";
+import { isExportCompatibleAttentionBacklogArtifact } from "./forecast-attention-backlog";
+import { readForecastAttentionBacklogArtifacts } from "./forecast-attention-backlog-artifacts";
 import { readForecastBatchIndexArtifacts } from "./forecast-batch-index-artifacts";
 import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "./forecast-batch-health";
 import { readForecastInputContextSnapshot } from "./forecast-input-context-metadata";
@@ -2351,36 +2351,29 @@ async function readForecastAttentionMetricRows(root: string): Promise<ForecastAt
       });
     }
   }
-  for (const reportPath of await listFilesNamed(resolve(root, "data/reports/forecast-attention-backlog"), "attention-backlog.json")) {
-    let payload: Record<string, unknown> | null;
-    try {
-      payload = asRecord(JSON.parse(await readFile(reportPath, "utf8")));
-    } catch {
+  for (const report of await readForecastAttentionBacklogArtifacts(root)) {
+    if (!(await isExportCompatibleAttentionBacklogArtifact(root, report))) {
       continue;
     }
-    if (!payload || !(await isExportCompatibleAttentionBacklog(root, payload))) {
-      continue;
-    }
-    const generatedAt = readString(payload, "generatedAt");
-    for (const item of readRecordArray(payload, "items")) {
-      const batchId = readString(item, "batchId");
-      const attentionItemId = readString(item, "id");
+    for (const item of report.items) {
+      const batchId = item.batchId;
+      const attentionItemId = item.id;
       if (!batchId || !attentionItemId) {
         continue;
       }
       rowsByKey.set(`${batchId}:${attentionItemId}`, {
-        reportPath,
+        reportPath: report.reportPath,
         batchId,
-        generatedAt,
+        generatedAt: report.generatedAt,
         attentionItemId,
-        reviewStatus: readString(item, "reviewStatus"),
-        severity: readString(item, "severity"),
-        kind: readString(item, "kind"),
-        metric: readString(item, "metric"),
-        score: readNumber(item, "score"),
-        delta: readNumber(item, "delta"),
-        forecastType: readString(item, "forecastType"),
-        taskId: readString(item, "taskId"),
+        reviewStatus: item.reviewStatus,
+        severity: item.severity,
+        kind: item.kind,
+        metric: item.metric,
+        score: item.score,
+        delta: item.delta,
+        forecastType: item.forecastType,
+        taskId: item.taskId,
       });
     }
   }
@@ -2390,33 +2383,6 @@ async function readForecastAttentionMetricRows(root: string): Promise<ForecastAt
     || String(left.attentionItemId ?? "").localeCompare(String(right.attentionItemId ?? ""))
     || left.reportPath.localeCompare(right.reportPath)
   );
-}
-
-async function listFilesNamed(path: string, name: string): Promise<string[]> {
-  try {
-    const info = await stat(path);
-    if (info.isFile()) {
-      return path.endsWith(name) ? [path] : [];
-    }
-    if (!info.isDirectory()) {
-      return [];
-    }
-  } catch {
-    return [];
-  }
-
-  const children = await readdir(path, { withFileTypes: true });
-  const nested = await Promise.all(
-    children.map((child) => {
-      const childPath = resolve(path, child.name);
-      return child.isDirectory()
-        ? listFilesNamed(childPath, name)
-        : child.name === name
-          ? Promise.resolve([childPath])
-          : Promise.resolve([]);
-    }),
-  );
-  return nested.flat();
 }
 
 function readRecordArray(value: Record<string, unknown> | null | undefined, key: string) {

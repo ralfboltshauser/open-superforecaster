@@ -1,9 +1,14 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
-  evaluateAttentionBacklogCompatibility,
+  evaluateAttentionBacklogArtifactCompatibility,
   type AttentionBacklogCompatibilityIssue,
 } from "../packages/backend/src/forecast-attention-backlog";
+import {
+  readForecastAttentionBacklogArtifacts,
+  type ForecastAttentionBacklogArtifact,
+  type ForecastAttentionBacklogItem,
+} from "../packages/backend/src/forecast-attention-backlog-artifacts";
 import {
   readForecastBatchIndexArtifacts,
   type ForecastBatchIndexArtifact,
@@ -11,12 +16,9 @@ import {
   type ForecastBatchIndexCandidateCalibrationGuardRule,
 } from "../packages/backend/src/forecast-batch-index-artifacts";
 import {
-  listFilesNamed,
   readArgValue,
-  readJson,
   readRecord,
   readString,
-  type JsonRecord,
   writeJson,
 } from "./lib/forecast-script-utils";
 
@@ -32,8 +34,8 @@ type HealthIssue = {
 };
 
 type SelectedAttentionBacklog = {
+  artifact: ForecastAttentionBacklogArtifact;
   path: string;
-  payload: JsonRecord;
   generatedAt: string | null;
 };
 
@@ -194,19 +196,12 @@ async function selectBatchIndex(batchRoot: string, batchId: string | null) {
 }
 
 async function selectAttentionBacklog(backlogRoot: string): Promise<SelectedAttentionBacklog | null> {
-  const paths = await listFilesNamed(backlogRoot, "attention-backlog.json");
-  const candidates: SelectedAttentionBacklog[] = [];
-  for (const path of paths) {
-    const payload = readRecord(await readJson(path));
-    if (!payload) {
-      continue;
-    }
-    candidates.push({
-      path,
-      payload,
-      generatedAt: readString(payload, "generatedAt"),
-    });
-  }
+  const candidates = (await readForecastAttentionBacklogArtifacts(root, { reportRoot: backlogRoot }))
+    .map((artifact) => ({
+      artifact,
+      path: artifact.reportPath,
+      generatedAt: artifact.generatedAt,
+    }));
   candidates.sort((left, right) =>
     timestampValue(right.generatedAt) - timestampValue(left.generatedAt)
     || right.path.localeCompare(left.path)
@@ -229,7 +224,7 @@ async function buildHealthReport(
   const batchIndexGeneratedAt = batchIndex.generatedAt;
   const attentionBacklogIssues = attentionBacklog
     ? attentionBacklogCompatibilityIssues(
-      (await evaluateAttentionBacklogCompatibility(root, attentionBacklog.payload, {
+      (await evaluateAttentionBacklogArtifactCompatibility(root, attentionBacklog.artifact, {
         selectedBatchId: batchId,
         batchIndexGeneratedAt,
       })).issues,
@@ -435,30 +430,29 @@ function attentionBacklogCompatibilityMessage(issue: AttentionBacklogCompatibili
   return `Attention backlog was generated for ${(issue.batchIds ?? []).join(", ")} and does not cover selected batch ${batchId ?? "unknown"}.`;
 }
 
-function readHealthAttentionItem(item: JsonRecord, fallbackSourcePath: string | null = null): HealthAttentionItem[] {
-  const id = readString(item, "id");
-  const reviewStatus = readString(item, "reviewStatus");
+function readHealthAttentionItem(item: ForecastAttentionBacklogItem, fallbackSourcePath: string | null = null): HealthAttentionItem[] {
+  const id = item.id;
+  const reviewStatus = item.reviewStatus;
   if (!id || !isReviewStatus(reviewStatus)) {
     return [];
   }
-  const actions = readStringArray(item, "recommendedActions");
   return [{
     id,
     reviewStatus,
-    severity: readString(item, "severity") ?? "medium",
-    kind: readString(item, "kind") ?? "attention_item",
-    reason: readString(item, "reason") ?? "",
-    recommendedAction: actions[0] ?? null,
-    reviewNote: readString(item, "reviewNote"),
-    reviewer: readString(item, "reviewer"),
-    reviewedAt: readString(item, "reviewedAt"),
-    metric: readString(item, "metric") ?? "metric",
-    score: readNumber(item, "score"),
-    delta: readNumber(item, "delta"),
-    forecastType: readString(item, "forecastType") ?? "unknown",
-    taskId: readString(item, "taskId"),
-    taskLabel: readString(item, "taskLabel"),
-    sourcePath: readString(item, "sourcePath") ?? fallbackSourcePath,
+    severity: item.severity ?? "medium",
+    kind: item.kind ?? "attention_item",
+    reason: item.reason ?? "",
+    recommendedAction: item.recommendedActions[0] ?? null,
+    reviewNote: item.reviewNote,
+    reviewer: item.reviewer,
+    reviewedAt: item.reviewedAt,
+    metric: item.metric ?? "metric",
+    score: item.score,
+    delta: item.delta,
+    forecastType: item.forecastType ?? "unknown",
+    taskId: item.taskId,
+    taskLabel: item.taskLabel,
+    sourcePath: item.sourcePath ?? fallbackSourcePath,
   }];
 }
 
@@ -489,14 +483,14 @@ function readHealthBatchAttentionItem(item: ForecastBatchIndexAttentionItem, fal
 }
 
 function readSupplementalAttentionItems(
-  attentionBacklog: { path: string; payload: JsonRecord } | null,
+  attentionBacklog: SelectedAttentionBacklog | null,
   batchId: string | null,
 ): HealthAttentionItem[] {
   if (!attentionBacklog || !batchId) {
     return [];
   }
-  return readRecordArray(attentionBacklog.payload, "items")
-    .filter((item) => readString(item, "batchId") === batchId)
+  return attentionBacklog.artifact.items
+    .filter((item) => item.batchId === batchId)
     .flatMap((item) => readHealthAttentionItem(item, attentionBacklog.path));
 }
 
@@ -518,30 +512,6 @@ function mergeSupplementalAttentionItems(
     merged.push(item);
   }
   return merged;
-}
-
-function readHealthCandidateCalibrationGuardRule(item: JsonRecord): HealthCandidateCalibrationGuardRule[] {
-  const id = readString(item, "id");
-  const reviewStatus = readString(item, "reviewStatus");
-  if (!id || !isReviewStatus(reviewStatus)) {
-    return [];
-  }
-  return [{
-    id,
-    reviewStatus,
-    bucketLabel: readString(item, "bucketLabel") ?? "bucket",
-    direction: readString(item, "direction") ?? "calibration_drift",
-    suggestedAdjustment: readNumber(item, "suggestedAdjustment"),
-    sampleSize: readNumber(item, "sampleSize"),
-    meanForecast: readNumber(item, "meanForecast"),
-    observedRate: readNumber(item, "observedRate"),
-    calibrationError: readNumber(item, "calibrationError"),
-    activationStatus: readString(item, "activationStatus") ?? "needs_review",
-    rationale: readString(item, "rationale") ?? "",
-    reviewNote: readString(item, "reviewNote"),
-    reviewer: readString(item, "reviewer"),
-    reviewedAt: readString(item, "reviewedAt"),
-  }];
 }
 
 function readHealthBatchCandidateCalibrationGuardRule(item: ForecastBatchIndexCandidateCalibrationGuardRule): HealthCandidateCalibrationGuardRule[] {
@@ -814,16 +784,6 @@ function groupBy<T>(items: T[], keyFor: (item: T) => string) {
     grouped.set(key, rows);
   }
   return grouped;
-}
-
-function readRecordArray(value: unknown, key: string) {
-  const raw = readRecord(value)?.[key];
-  return Array.isArray(raw) ? raw.filter((item): item is JsonRecord => Boolean(readRecord(item))) : [];
-}
-
-function readStringArray(value: unknown, key: string) {
-  const raw = readRecord(value)?.[key];
-  return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string") : [];
 }
 
 function readNumber(value: unknown, key: string) {

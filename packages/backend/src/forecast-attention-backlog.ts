@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
+import type { ForecastAttentionBacklogArtifact } from "./forecast-attention-backlog-artifacts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -23,17 +24,50 @@ export async function isExportCompatibleAttentionBacklog(root: string, payload: 
   return (await evaluateAttentionBacklogCompatibility(root, payload)).compatible;
 }
 
+export async function isExportCompatibleAttentionBacklogArtifact(root: string, artifact: ForecastAttentionBacklogArtifact) {
+  return (await evaluateAttentionBacklogArtifactCompatibility(root, artifact)).compatible;
+}
+
 export async function evaluateAttentionBacklogCompatibility(
   root: string,
   payload: JsonRecord,
   options: AttentionBacklogCompatibilityOptions = {},
 ) {
-  const issues: AttentionBacklogCompatibilityIssue[] = [];
-  const generatedAt = readString(payload, "generatedAt");
-  const backlogTimestamp = timestampValue(generatedAt);
   const filters = readRecord(payload, "filters");
-  const statuses = readStringArray(filters, "statuses");
-  const batchIds = readStringArray(filters, "batchIds");
+  const paths = readRecord(payload, "paths");
+  return evaluateAttentionBacklogFields(root, {
+    generatedAt: readString(payload, "generatedAt"),
+    statuses: readStringArray(filters, "statuses"),
+    batchIds: readStringArray(filters, "batchIds"),
+    reviewsPath: readString(paths, "reviews"),
+  }, options);
+}
+
+export async function evaluateAttentionBacklogArtifactCompatibility(
+  root: string,
+  artifact: ForecastAttentionBacklogArtifact,
+  options: AttentionBacklogCompatibilityOptions = {},
+) {
+  return evaluateAttentionBacklogFields(root, {
+    generatedAt: artifact.generatedAt,
+    statuses: artifact.filters.statuses,
+    batchIds: artifact.filters.batchIds,
+    reviewsPath: artifact.paths.reviews,
+  }, options);
+}
+
+async function evaluateAttentionBacklogFields(
+  root: string,
+  input: {
+    generatedAt: string | null;
+    statuses: string[];
+    batchIds: string[];
+    reviewsPath: string | null;
+  },
+  options: AttentionBacklogCompatibilityOptions,
+) {
+  const issues: AttentionBacklogCompatibilityIssue[] = [];
+  const backlogTimestamp = timestampValue(input.generatedAt);
   const batchTimestamp = timestampValue(options.batchIndexGeneratedAt ?? null);
   if (backlogTimestamp === 0) {
     issues.push({ kind: "attention_backlog_timestamp_missing" });
@@ -41,32 +75,30 @@ export async function evaluateAttentionBacklogCompatibility(
   if (batchTimestamp > 0 && backlogTimestamp > 0 && backlogTimestamp < batchTimestamp) {
     issues.push({ kind: "attention_backlog_stale" });
   }
-  const missingStatuses = ["open", "deferred"].filter((status) => !statuses.includes(status));
-  if (statuses.length > 0 && missingStatuses.length > 0) {
+  const missingStatuses = ["open", "deferred"].filter((status) => !input.statuses.includes(status));
+  if (input.statuses.length > 0 && missingStatuses.length > 0) {
     issues.push({ kind: "attention_backlog_status_filter", missingStatuses });
   }
-  const reviewsUpdatedAt = await readAttentionBacklogReviewsUpdatedAt(root, payload);
+  const reviewsUpdatedAt = await readAttentionBacklogReviewsUpdatedAt(root, input.reviewsPath);
   const reviewsTimestamp = timestampValue(reviewsUpdatedAt);
   if (reviewsTimestamp > 0 && backlogTimestamp > 0 && backlogTimestamp < reviewsTimestamp) {
     issues.push({ kind: "attention_backlog_reviews_stale" });
   }
-  if (batchIds.length > 0) {
+  if (input.batchIds.length > 0) {
     const selectedBatchId = options.selectedBatchId ?? null;
-    if (!selectedBatchId || !batchIds.includes(selectedBatchId)) {
-      issues.push({ kind: "attention_backlog_batch_filter", batchIds });
+    if (!selectedBatchId || !input.batchIds.includes(selectedBatchId)) {
+      issues.push({ kind: "attention_backlog_batch_filter", batchIds: input.batchIds });
     }
   }
   return {
     compatible: issues.length === 0,
-    generatedAt,
+    generatedAt: input.generatedAt,
     reviewsUpdatedAt,
     issues,
   };
 }
 
-export async function readAttentionBacklogReviewsUpdatedAt(root: string, payload: JsonRecord) {
-  const paths = readRecord(payload, "paths");
-  const reviewsPath = readString(paths, "reviews");
+export async function readAttentionBacklogReviewsUpdatedAt(root: string, reviewsPath: string | null) {
   if (!reviewsPath) {
     return null;
   }
