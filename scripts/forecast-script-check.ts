@@ -1828,6 +1828,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(!attentionBacklogSource.includes("function severityRank("), "attention backlog should not keep local severity rank");
   assert(!attentionBacklogSource.includes("kind: \"candidate_calibration_guard\""), "attention backlog should not keep local candidate guard attention kind");
   assert(batchHealthSource.includes("forecastAttentionReviewStatusRank"), "batch health does not use shared review status rank");
+  assert(batchHealthSource.includes("determineForecastBatchHealthStatus"), "batch health does not use shared status derivation policy");
   assert(batchHealthSource.includes("isForecastScoreRegressionAttentionKind"), "batch health does not use shared score-regression attention kind policy");
   assert(batchHealthSource.includes("isCalibrationGuardRegressionAttentionKind"), "batch health does not use shared calibration-guard regression attention kind policy");
   assert(batchHealthSource.includes("calibrationGuardRegressionIssueKind"), "batch health does not use shared calibration-guard regression issue kind policy");
@@ -1839,6 +1840,9 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(batchHealthSource.includes("candidateCalibrationGuardAttentionKind"), "batch health does not use shared candidate guard attention kind");
   assert(batchHealthSource.includes("calibrationGuardActivationSeverity"), "batch health does not use shared candidate guard activation severity");
   assert(backendBatchHealthSource.includes("normalizeCalibrationGuardActivationStatus"), "shared batch health reader does not normalize candidate guard activation status");
+  assert(backendBatchHealthSource.includes("forecastBatchHealthStatuses"), "shared batch health reader does not expose health status vocabulary");
+  assert(backendBatchHealthSource.includes("normalizeForecastBatchHealthStatus"), "shared batch health reader does not normalize health status");
+  assert(backendBatchHealthSource.includes("determineForecastBatchHealthStatus"), "shared batch health reader does not expose health status derivation");
   assert(batchIndexSource.includes("normalizeCalibrationGuardActivationStatus"), "batch index does not normalize candidate guard activation status");
   assert(!batchHealthSource.includes("function statusRank("), "batch health should not keep local review status rank");
   assert(!batchHealthSource.includes("function isReviewStatus("), "batch health should not keep local review status validation");
@@ -1846,6 +1850,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(!batchHealthSource.includes("function countSeverity("), "batch health should not keep local severity counter");
   assert(!batchHealthSource.includes("function countCandidateRuleStatus("), "batch health should not keep local candidate guard review status counter");
   assert(!batchHealthSource.includes("function severityRank("), "batch health should not keep local severity rank");
+  assert(!batchHealthSource.includes("function healthStatus("), "batch health should not keep local health status derivation");
   assert(!batchHealthSource.includes("reviewStatus !== \"reviewed\""), "batch health should not keep local unresolved review checks");
   assert(!batchHealthSource.includes("item.kind === \"forecast_score_regression\""), "batch health should not keep local score-regression kind checks");
   assert(!batchHealthSource.includes("item.kind === \"worsening_trend\""), "batch health should not keep local worsening-trend kind checks");

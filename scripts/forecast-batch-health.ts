@@ -35,6 +35,10 @@ import {
   type ForecastBatchIndexCandidateCalibrationGuardRule,
 } from "../packages/backend/src/forecast-batch-index-artifacts";
 import {
+  determineForecastBatchHealthStatus,
+  type ForecastBatchHealthDerivedStatus,
+} from "../packages/backend/src/forecast-batch-health";
+import {
   readArgValue,
   readRecord,
   readString,
@@ -44,7 +48,7 @@ import {
 type BatchPhase = "forecast_ops" | "forecast_resolution" | "forecast_performance";
 type ReviewStatus = ForecastAttentionReviewStatus;
 
-type HealthStatus = "healthy" | "watch" | "needs_attention";
+type HealthStatus = ForecastBatchHealthDerivedStatus;
 
 type HealthIssue = {
   severity: "high" | "medium" | "low";
@@ -293,7 +297,7 @@ async function buildHealthReport(
     reportType: "forecast_batch_health",
     generatedAt: new Date().toISOString(),
     batchId,
-    status: healthStatus(issues),
+    status: determineForecastBatchHealthStatus(issues),
     summary,
     missingPhases,
     issues,
@@ -328,7 +332,7 @@ function buildEmptyReport(
     reportType: "forecast_batch_health",
     generatedAt: new Date().toISOString(),
     batchId: requestedBatchId,
-    status: "needs_attention",
+    status: determineForecastBatchHealthStatus([{ severity: "high" }]),
     summary: {
       entries: 0,
       forecastOps: 0,
@@ -815,17 +819,6 @@ function readNumber(value: unknown, key: string) {
   const raw = readRecord(value)?.[key];
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
-
-function healthStatus(issues: HealthIssue[]): HealthStatus {
-  if (issues.some((issue) => issue.severity === "high")) {
-    return "needs_attention";
-  }
-  if (issues.length > 0) {
-    return "watch";
-  }
-  return "healthy";
-}
-
 
 function timestampValue(value: string | null) {
   if (!value) {

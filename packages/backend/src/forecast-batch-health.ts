@@ -3,6 +3,11 @@ import { normalizeCalibrationGuardActivationStatus } from "./calibration-guard-a
 
 export const FORECAST_BATCH_HEALTH_REPORT_PATH = "data/reports/forecast-batch-health/batch-health.json";
 
+export const forecastBatchHealthStatuses = ["healthy", "watch", "needs_attention", "missing", "unknown"] as const;
+
+export type ForecastBatchHealthStatus = typeof forecastBatchHealthStatuses[number];
+export type ForecastBatchHealthDerivedStatus = Extract<ForecastBatchHealthStatus, "healthy" | "watch" | "needs_attention">;
+
 export type ForecastBatchHealthSummary = {
   entries: number | null;
   forecastOps: number | null;
@@ -106,7 +111,7 @@ export type ForecastBatchHealthSnapshot = {
   path: string;
   exists: boolean;
   batchId: string | null;
-  status: string;
+  status: ForecastBatchHealthStatus;
   generatedAt: string | null;
   paths: ForecastBatchHealthPaths;
   summary: ForecastBatchHealthSummary;
@@ -162,7 +167,7 @@ export function readLatestForecastBatchHealth(root: string): ForecastBatchHealth
       path,
       exists: true,
       batchId: readString(payload, "batchId"),
-      status: readString(payload, "status") ?? "unknown",
+      status: normalizeForecastBatchHealthStatus(readString(payload, "status")),
       generatedAt: readString(payload, "generatedAt"),
       paths: readPaths(paths),
       summary: readSummary(summary),
@@ -192,6 +197,20 @@ export function readLatestForecastBatchHealth(root: string): ForecastBatchHealth
       candidateCalibrationGuardRules: [],
     };
   }
+}
+
+export function normalizeForecastBatchHealthStatus(value: string | null | undefined): ForecastBatchHealthStatus {
+  return forecastBatchHealthStatuses.includes(value as ForecastBatchHealthStatus) ? value as ForecastBatchHealthStatus : "unknown";
+}
+
+export function determineForecastBatchHealthStatus(issues: Array<{ severity: string | null | undefined }>): ForecastBatchHealthDerivedStatus {
+  if (issues.some((issue) => issue.severity === "high")) {
+    return "needs_attention";
+  }
+  if (issues.length > 0) {
+    return "watch";
+  }
+  return "healthy";
 }
 
 function readPaths(paths: Record<string, unknown> | null): ForecastBatchHealthPaths {
