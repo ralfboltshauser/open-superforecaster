@@ -666,6 +666,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byInputRequestedForecastType = readArray(groups, "byInputRequestedForecastType").filter(isRecord)
   const byInputRoutedForecastType = readArray(groups, "byInputRoutedForecastType").filter(isRecord)
   const byInputRoutingConfidence = readArray(groups, "byInputRoutingConfidence").filter(isRecord)
+  const byInputSource = readArray(groups, "byInputSource").filter(isRecord)
   const byInputContextCompleteness = readArray(groups, "byInputContextCompleteness").filter(isRecord)
   const byInputResolutionCriteriaDepth = readArray(groups, "byInputResolutionCriteriaDepth").filter(isRecord)
   const byInputResolutionHorizon = readArray(groups, "byInputResolutionHorizon").filter(isRecord)
@@ -782,6 +783,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byInputRequestedForecastType.length ? <PerformancePlanShapeGroupList groups={byInputRequestedForecastType} title="Input requested-type outcomes" skipKey="input_requested_type:unrecorded" fallback="input requested type" /> : null}
         {byInputRoutedForecastType.length ? <PerformancePlanShapeGroupList groups={byInputRoutedForecastType} title="Input routed-type outcomes" skipKey="input_routed_type:unrecorded" fallback="input routed type" /> : null}
         {byInputRoutingConfidence.length ? <PerformancePlanShapeGroupList groups={byInputRoutingConfidence} title="Input routing-confidence outcomes" skipKey="input_routing_confidence:unrecorded" fallback="input routing confidence" /> : null}
+        {byInputSource.length ? <PerformancePlanShapeGroupList groups={byInputSource} title="Input source outcomes" skipKey="input_source:unrecorded" fallback="input source" /> : null}
         {byInputContextCompleteness.length ? <PerformancePlanShapeGroupList groups={byInputContextCompleteness} title="Input context outcomes" skipKey="input_context:unrecorded" fallback="input context" /> : null}
         {byInputResolutionCriteriaDepth.length ? <PerformancePlanShapeGroupList groups={byInputResolutionCriteriaDepth} title="Input resolution-criteria outcomes" skipKey="input_resolution_criteria:unrecorded" fallback="input resolution criteria" /> : null}
         {byInputResolutionHorizon.length ? <PerformancePlanShapeGroupList groups={byInputResolutionHorizon} title="Input horizon outcomes" skipKey="input_resolution_horizon:unrecorded" fallback="input resolution horizon" /> : null}

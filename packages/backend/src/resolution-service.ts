@@ -443,6 +443,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byInputRequestedForecastType = groupScores(aggregateScores, inputRequestedForecastTypeGroupKey);
   const byInputRoutedForecastType = groupScores(aggregateScores, inputRoutedForecastTypeGroupKey);
   const byInputRoutingConfidence = groupScores(aggregateScores, inputRoutingConfidenceGroupKey);
+  const byInputSource = groupScores(aggregateScores, inputSourceGroupKey);
   const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
   const byInputResolutionCriteriaDepth = groupScores(aggregateScores, inputResolutionCriteriaDepthGroupKey);
   const byInputResolutionHorizon = groupScores(aggregateScores, inputResolutionHorizonGroupKey);
@@ -550,6 +551,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputRequestedForecastType,
       byInputRoutedForecastType,
       byInputRoutingConfidence,
+      byInputSource,
       byInputContextCompleteness,
       byInputResolutionCriteriaDepth,
       byInputResolutionHorizon,
@@ -647,6 +649,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputRequestedForecastType,
       byInputRoutedForecastType,
       byInputRoutingConfidence,
+      byInputSource,
       byInputContextCompleteness,
       byInputResolutionCriteriaDepth,
       byInputResolutionHorizon,
@@ -1676,6 +1679,11 @@ function inputRoutedForecastTypeGroupKey(score: typeof forecastScores.$inferSele
 function inputRoutingConfidenceGroupKey(score: typeof forecastScores.$inferSelect) {
   const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
   return `input_routing_confidence:${inputContext?.routingConfidenceBand ?? "unrecorded"}`;
+}
+
+function inputSourceGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_source:${inputContext?.inputSourceBand ?? "unrecorded"}`;
 }
 
 function inputContextCompletenessGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -3000,6 +3008,7 @@ function renderPerformanceMarkdown(input: {
   byInputRequestedForecastType: PerformanceGroup[];
   byInputRoutedForecastType: PerformanceGroup[];
   byInputRoutingConfidence: PerformanceGroup[];
+  byInputSource: PerformanceGroup[];
   byInputContextCompleteness: PerformanceGroup[];
   byInputResolutionCriteriaDepth: PerformanceGroup[];
   byInputResolutionHorizon: PerformanceGroup[];
@@ -3196,6 +3205,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input routing-confidence groups",
     ...renderGroupTable(input.byInputRoutingConfidence),
+    "",
+    "## Input source groups",
+    ...renderGroupTable(input.byInputSource),
     "",
     "## Input context-completeness groups",
     ...renderGroupTable(input.byInputContextCompleteness),

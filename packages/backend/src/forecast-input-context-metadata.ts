@@ -7,6 +7,8 @@ export type ForecastInputContextSnapshot = {
   routedForecastTypeBand: "specified" | "unspecified" | "unknown";
   routingConfidence: number | null;
   routingConfidenceBand: "low" | "medium" | "high" | "unknown";
+  inputSource: string | null;
+  inputSourceBand: "ui" | "sample" | "benchmark" | "custom" | "unspecified" | "unknown";
   questionLength: number | null;
   questionLengthBand: "short" | "standard" | "long" | "unknown";
   hasResolutionCriteria: boolean;
@@ -74,6 +76,7 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   const classification = asRecord(record?.classification);
   const routedForecastType = readRoutedForecastType(classification ?? {});
   const routingConfidence = readNumber(classification ?? {}, "confidence");
+  const inputSource = readString(raw, "source");
   const questionLength = wordCount(normalized.question);
   const categoryCount = normalized.categories.length;
   const categoriesExhaustive = categoryCount > 0 ? normalized.categoriesExhaustive : null;
@@ -125,6 +128,8 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     routedForecastTypeBand: forecastTypePresenceBand(routedForecastType),
     routingConfidence,
     routingConfidenceBand: routingConfidenceBand(routingConfidence),
+    inputSource,
+    inputSourceBand: inputSourceBand(inputSource),
     questionLength,
     questionLengthBand: questionLengthBand(questionLength),
     hasResolutionCriteria,
@@ -187,6 +192,8 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   const routedForecastTypeBandValue = readString(value, "routedForecastTypeBand");
   const routingConfidence = readNumber(value, "routingConfidence");
   const routingConfidenceBandValue = readString(value, "routingConfidenceBand");
+  const inputSource = readString(value, "inputSource");
+  const inputSourceBandValue = readString(value, "inputSourceBand");
   const resolutionCriteriaLength = readNumber(value, "resolutionCriteriaLength");
   const resolutionCriteriaLengthBandValue = readString(value, "resolutionCriteriaLengthBand");
   const categoryCount = readNumber(value, "categoryCount");
@@ -228,6 +235,10 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
     routingConfidenceBand: isRoutingConfidenceBand(routingConfidenceBandValue)
       ? routingConfidenceBandValue
       : routingConfidenceBand(routingConfidence),
+    inputSource,
+    inputSourceBand: isInputSourceBand(inputSourceBandValue)
+      ? inputSourceBandValue
+      : inputSourceBand(inputSource),
     questionLength,
     questionLengthBand: readQuestionLengthBand(value) ?? questionLengthBand(questionLength),
     hasResolutionCriteria: readBoolean(value, "hasResolutionCriteria") ?? false,
@@ -364,6 +375,26 @@ export function routingConfidenceBand(confidence: number | null): ForecastInputC
     return "medium";
   }
   return "high";
+}
+
+export function inputSourceBand(source: string | null): ForecastInputContextSnapshot["inputSourceBand"] {
+  if (source === null) {
+    return "unspecified";
+  }
+  const normalized = source.trim().toLowerCase();
+  if (!normalized) {
+    return "unspecified";
+  }
+  if (normalized.includes("ui")) {
+    return "ui";
+  }
+  if (normalized.includes("sample") || normalized.includes("smoke")) {
+    return "sample";
+  }
+  if (normalized.includes("benchmark") || normalized.includes("eval") || normalized.includes("pastcast")) {
+    return "benchmark";
+  }
+  return "custom";
 }
 
 export function marketPriceBand(price: number | null): ForecastInputContextSnapshot["marketPriceBand"] {
@@ -686,6 +717,10 @@ function isForecastTypePresenceBand(value: string | null): value is ForecastInpu
 
 function isRoutingConfidenceBand(value: string | null): value is ForecastInputContextSnapshot["routingConfidenceBand"] {
   return value === "low" || value === "medium" || value === "high" || value === "unknown";
+}
+
+function isInputSourceBand(value: string | null): value is ForecastInputContextSnapshot["inputSourceBand"] {
+  return value === "ui" || value === "sample" || value === "benchmark" || value === "custom" || value === "unspecified" || value === "unknown";
 }
 
 function readCategoryCountBand(value: Record<string, unknown>) {

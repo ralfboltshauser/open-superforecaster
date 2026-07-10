@@ -1011,6 +1011,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Input requested-forecast-type groups"), "performance Markdown missing input requested-forecast-type group section");
   assert(resolutionSource.includes("## Input routed-forecast-type groups"), "performance Markdown missing input routed-forecast-type group section");
   assert(resolutionSource.includes("## Input routing-confidence groups"), "performance Markdown missing input routing-confidence group section");
+  assert(resolutionSource.includes("## Input source groups"), "performance Markdown missing input source group section");
   assert(resolutionSource.includes("## Input context-completeness groups"), "performance Markdown missing input context-completeness group section");
   assert(resolutionSource.includes("## Input resolution-criteria-depth groups"), "performance Markdown missing input resolution-criteria-depth group section");
   assert(resolutionSource.includes("## Input resolution-horizon groups"), "performance Markdown missing input resolution-horizon group section");
@@ -1117,6 +1118,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Input routed-type outcomes"), "lab dashboard does not render input routed-type performance groups");
   assert(dashboardSource.includes("byInputRoutingConfidence"), "lab dashboard does not read input routing-confidence performance groups");
   assert(dashboardSource.includes("Input routing-confidence outcomes"), "lab dashboard does not render input routing-confidence performance groups");
+  assert(dashboardSource.includes("byInputSource"), "lab dashboard does not read input source performance groups");
+  assert(dashboardSource.includes("Input source outcomes"), "lab dashboard does not render input source performance groups");
   assert(dashboardSource.includes("byInputContextCompleteness"), "lab dashboard does not read input context performance groups");
   assert(dashboardSource.includes("Input context outcomes"), "lab dashboard does not render input context performance groups");
   assert(dashboardSource.includes("byInputResolutionCriteriaDepth"), "lab dashboard does not read input resolution-criteria performance groups");
@@ -2253,6 +2256,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
       confidence: 0.74,
     },
     forecastInput: {
+      source: "open-superforecaster-ui",
       question: "Will ACME deliver at least 1000 units before January 1, 2028?",
       resolutionCriteria: "Resolve from audited delivery totals.",
       resolutionDate: "2028-01-01",
@@ -2279,6 +2283,8 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(snapshot?.routedForecastTypeBand === "specified", "input context routed forecast type band mismatch");
   assert(snapshot?.routingConfidence === 0.74, "input context routing confidence mismatch");
   assert(snapshot?.routingConfidenceBand === "medium", "input context routing confidence band mismatch");
+  assert(snapshot?.inputSource === "open-superforecaster-ui", "input context source mismatch");
+  assert(snapshot?.inputSourceBand === "ui", "input context source band mismatch");
   assert(snapshot?.questionLength === 11, "input context question length mismatch");
   assert(snapshot?.questionLengthBand === "short", "input context question length band mismatch");
   assert(snapshot?.hasResolutionCriteria === true, "input context resolution criteria flag mismatch");
@@ -2342,6 +2348,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(persistedSnapshot?.requestedForecastTypeBand === "unspecified", "persisted input context requested forecast type band mismatch");
   assert(persistedSnapshot?.routedForecastTypeBand === "specified", "persisted input context routed forecast type band mismatch");
   assert(persistedSnapshot?.routingConfidenceBand === "medium", "persisted input context routing confidence band mismatch");
+  assert(persistedSnapshot?.inputSourceBand === "ui", "persisted input context source band mismatch");
   assert(persistedSnapshot?.resolutionCriteriaLengthBand === "thin", "persisted input context resolution criteria length band mismatch");
   assert(persistedSnapshot?.backgroundLengthBand === "thin", "persisted input context background band mismatch");
   assert(persistedSnapshot?.marketPriceBand === "high", "persisted input context market band mismatch");
@@ -2370,6 +2377,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(resolutionSource.includes("context.routedForecastType"), "attention queue does not use routed forecast type");
   assert(resolutionSource.includes("byInputRoutingConfidence"), "performance report does not group by input routing confidence");
   assert(resolutionSource.includes("context.routingConfidenceBand"), "attention queue does not use input routing confidence");
+  assert(resolutionSource.includes("byInputSource"), "performance report does not group by input source");
   assert(resolutionSource.includes("byInputContextCompleteness"), "performance report does not group by input context completeness");
   assert(resolutionSource.includes("byInputResolutionCriteriaDepth"), "performance report does not group by input resolution criteria depth");
   assert(resolutionSource.includes("context.resolutionCriteriaLengthBand"), "attention queue does not use input resolution criteria depth");
@@ -2404,6 +2412,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(metricsSource.includes("requested_forecast_type_band"), "metrics missing requested forecast type labels");
   assert(metricsSource.includes("routed_forecast_type_band"), "metrics missing routed forecast type labels");
   assert(metricsSource.includes("routing_confidence_band"), "metrics missing input routing-confidence labels");
+  assert(metricsSource.includes("input_source_band"), "metrics missing input source labels");
   assert(metricsSource.includes("resolution_criteria_length_band"), "metrics missing input resolution-criteria labels");
   assert(metricsSource.includes("resolution_horizon_band"), "metrics missing input resolution-horizon labels");
   assert(metricsSource.includes("background_length_band"), "metrics missing input background-depth labels");
@@ -2426,6 +2435,8 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(syncSource.includes("input_routed_forecast_type_band"), "DuckDB forecast score mart missing routed forecast type band");
   assert(syncSource.includes("input_routing_confidence"), "DuckDB forecast score mart missing input routing confidence");
   assert(syncSource.includes("input_routing_confidence_band"), "DuckDB forecast score mart missing input routing confidence band");
+  assert(syncSource.includes("input_source"), "DuckDB forecast score mart missing input source");
+  assert(syncSource.includes("input_source_band"), "DuckDB forecast score mart missing input source band");
   assert(syncSource.includes("input_resolution_criteria_length"), "DuckDB forecast score mart missing input resolution criteria length");
   assert(syncSource.includes("input_resolution_criteria_length_band"), "DuckDB forecast score mart missing input resolution criteria length band");
   assert(syncSource.includes("input_resolution_horizon_days"), "DuckDB forecast score mart missing input resolution horizon days");
@@ -2455,6 +2466,7 @@ await check("forecast input context metadata reaches resolved score analytics", 
   assert(dashboardSource.includes("Input requested-type outcomes"), "lab dashboard does not render input requested type outcomes");
   assert(dashboardSource.includes("Input routed-type outcomes"), "lab dashboard does not render input routed type outcomes");
   assert(dashboardSource.includes("Input routing-confidence outcomes"), "lab dashboard does not render input routing confidence outcomes");
+  assert(dashboardSource.includes("Input source outcomes"), "lab dashboard does not render input source outcomes");
   assert(dashboardSource.includes("Input context outcomes"), "lab dashboard does not render input context outcomes");
   assert(dashboardSource.includes("Input resolution-criteria outcomes"), "lab dashboard does not render input resolution criteria outcomes");
   assert(dashboardSource.includes("Input horizon outcomes"), "lab dashboard does not render input horizon outcomes");
