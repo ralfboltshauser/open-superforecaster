@@ -11,7 +11,7 @@ import {
 } from "@open-superforecaster/db";
 import { scoreBinaryForecast } from "@open-superforecaster/evals";
 import { readAggregateQualitySnapshot, type AggregateQualitySnapshot } from "./aggregate-quality-metadata";
-import { readAggregateStatsSnapshot, type AggregateStatsSnapshot } from "./aggregate-stats-metadata";
+import { aggregateSideAgreementBand, readAggregateStatsSnapshot, type AggregateStatsSnapshot } from "./aggregate-stats-metadata";
 import { readBaselineSanitySnapshot, type BaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { buildBinaryConfidenceSnapshot, readBinaryConfidenceSnapshot, type BinaryConfidenceSnapshot } from "./binary-confidence-metadata";
 import { buildCalibrationGuardImpact, type CalibrationGuardImpact, type CalibrationGuardRuleImpact } from "./calibration-guard-impact";
@@ -131,6 +131,7 @@ type PerformanceAttentionItem = {
     | "aggregate_quality_miss"
     | "component_disagreement_miss"
     | "component_envelope_miss"
+    | "aggregate_side_flip_miss"
     | "aggregate_panel_confidence_miss"
     | "aggregate_confidence_miss"
     | "median_adjustment_miss"
@@ -411,6 +412,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byAggregateQuality = groupScores(aggregateScores, aggregateQualityGroupKey);
   const byAggregateDisagreement = groupScores(aggregateScores, aggregateDisagreementGroupKey);
   const byAggregateFinalComponentPosition = groupScores(aggregateScores, aggregateFinalComponentPositionGroupKey);
+  const byAggregateSideAgreement = groupScores(aggregateScores, aggregateSideAgreementGroupKey);
   const byAggregateMeanConfidenceDistance = groupScores(aggregateScores, aggregateMeanConfidenceDistanceGroupKey);
   const byAggregateFinalConfidenceShift = groupScores(aggregateScores, aggregateFinalConfidenceShiftGroupKey);
   const byAggregateMedianAdjustment = groupScores(aggregateScores, aggregateMedianAdjustmentGroupKey);
@@ -529,6 +531,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregateFinalComponentPosition,
+      byAggregateSideAgreement,
       byAggregateMeanConfidenceDistance,
       byAggregateFinalConfidenceShift,
       byAggregateMedianAdjustment,
@@ -637,6 +640,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byAggregateQuality,
       byAggregateDisagreement,
       byAggregateFinalComponentPosition,
+      byAggregateSideAgreement,
       byAggregateMeanConfidenceDistance,
       byAggregateFinalConfidenceShift,
       byAggregateMedianAdjustment,
@@ -1425,6 +1429,11 @@ function aggregateDisagreementGroupKey(score: typeof forecastScores.$inferSelect
 function aggregateFinalComponentPositionGroupKey(score: typeof forecastScores.$inferSelect) {
   const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
   return `component_envelope:${aggregateStats?.finalComponentPositionBand ?? "unrecorded"}`;
+}
+
+function aggregateSideAgreementGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `aggregate_side:${aggregateStats ? aggregateSideAgreementBand(readProbability(score.scoreConfig), aggregateStats.meanProbability) : "unrecorded"}`;
 }
 
 function aggregateMeanConfidenceDistanceGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2358,6 +2367,14 @@ function buildNeedsAttentionQueue(
       rank: 72 + index,
     }));
 
+  const aggregateSideFlipItems = buildMetadataAttentionItems({
+    worstCases,
+    idPrefix: "aggregate-side-flip",
+    kind: "aggregate_side_flip_miss",
+    rankStart: 72,
+    signal: aggregateSideFlipMissSignal,
+  });
+
   const aggregatePanelConfidenceItems = buildMetadataAttentionItems({
     worstCases,
     idPrefix: "aggregate-panel-confidence",
@@ -2640,6 +2657,7 @@ function buildNeedsAttentionQueue(
     ...binaryConfidenceItems,
     ...componentDisagreementItems,
     ...componentEnvelopeItems,
+    ...aggregateSideFlipItems,
     ...aggregatePanelConfidenceItems,
     ...aggregateConfidenceItems,
     ...medianAdjustmentItems,
@@ -2902,6 +2920,20 @@ function componentEnvelopeMissSignal(item: PerformanceCase): { reason: string; d
     reason: `final probability was ${stats.finalComponentPositionBand.replace(/_/g, " ")} (${formatNullableMetric(stats.componentMinProbability)}-${formatNullableMetric(stats.componentMaxProbability)} component envelope)`,
     delta: distance,
     severity: distance !== null && distance >= 5 ? "high" : "medium",
+  };
+}
+
+function aggregateSideFlipMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  const band = aggregateSideAgreementBand(item.probability, stats?.meanProbability ?? null);
+  if (item.forecastType !== "binary" || !stats || (band !== "final_flips_to_yes" && band !== "final_flips_to_no")) {
+    return null;
+  }
+  const delta = item.probability === null || stats.meanProbability === null ? null : item.probability - stats.meanProbability;
+  return {
+    reason: `final probability ${formatNullableMetric(item.probability)}% ${band.replace(/_/g, " ")} from mean component probability ${formatNullableMetric(stats.meanProbability)}%`,
+    delta,
+    severity: delta !== null && Math.abs(delta) >= 15 ? "high" : "medium",
   };
 }
 
@@ -3293,6 +3325,9 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "component_envelope_miss") {
     actions.add("Audit why the final probability moved outside every component forecast before changing calibration or role-weight defaults.");
     actions.add("Compare the final rationale, calibration guard, and component probabilities to decide whether the out-of-envelope move was justified.");
+  } else if (input.kind === "aggregate_side_flip_miss") {
+    actions.add("Audit why final aggregation crossed the component panel's mean side of 50%.");
+    actions.add("Compare the component probabilities, aggregation anchor, and final rationale before changing aggregation defaults.");
   } else if (input.kind === "aggregate_panel_confidence_miss") {
     actions.add("Audit whether the component panel was collectively too far from 50% for the available evidence.");
     actions.add("Compare component probabilities, base rates, and cited uncertainty before changing confidence defaults.");
@@ -3432,6 +3467,7 @@ function renderPerformanceMarkdown(input: {
   byAggregateQuality: PerformanceGroup[];
   byAggregateDisagreement: PerformanceGroup[];
   byAggregateFinalComponentPosition: PerformanceGroup[];
+  byAggregateSideAgreement: PerformanceGroup[];
   byAggregateMeanConfidenceDistance: PerformanceGroup[];
   byAggregateFinalConfidenceShift: PerformanceGroup[];
   byAggregateMedianAdjustment: PerformanceGroup[];
@@ -3559,6 +3595,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Component envelope groups",
     ...renderGroupTable(input.byAggregateFinalComponentPosition),
+    "",
+    "## Aggregate side-agreement groups",
+    ...renderGroupTable(input.byAggregateSideAgreement),
     "",
     "## Aggregate panel-confidence groups",
     ...renderGroupTable(input.byAggregateMeanConfidenceDistance),

@@ -7,7 +7,7 @@ import {
   summarizeBenchmarkPromotionGateEvidence,
 } from "../packages/backend/src/benchmark-service";
 import { readAggregateQualitySnapshot } from "../packages/backend/src/aggregate-quality-metadata";
-import { adjustmentFromMedianBand, attemptCountBand, finalAdjustmentDirection, finalComponentPositionBand, finalConfidenceShiftBand, finalInsideViewDeltaBand, insideViewDeltaBand, meanConfidenceDistanceBand, readAggregateStatsSnapshot } from "../packages/backend/src/aggregate-stats-metadata";
+import { adjustmentFromMedianBand, aggregateSideAgreementBand, attemptCountBand, finalAdjustmentDirection, finalComponentPositionBand, finalConfidenceShiftBand, finalInsideViewDeltaBand, insideViewDeltaBand, meanConfidenceDistanceBand, readAggregateStatsSnapshot } from "../packages/backend/src/aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "../packages/backend/src/baseline-sanity-metadata";
 import { buildBinaryConfidenceSnapshot, readBinaryConfidenceSnapshot } from "../packages/backend/src/binary-confidence-metadata";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
@@ -977,6 +977,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Aggregate quality groups"), "performance Markdown missing aggregate quality group section");
   assert(resolutionSource.includes("## Component disagreement groups"), "performance Markdown missing component disagreement group section");
   assert(resolutionSource.includes("## Component envelope groups"), "performance Markdown missing component envelope group section");
+  assert(resolutionSource.includes("## Aggregate side-agreement groups"), "performance Markdown missing aggregate side-agreement group section");
   assert(resolutionSource.includes("## Aggregate panel-confidence groups"), "performance Markdown missing aggregate panel-confidence group section");
   assert(resolutionSource.includes("## Final confidence shift groups"), "performance Markdown missing final confidence shift group section");
   assert(resolutionSource.includes("## Median adjustment groups"), "performance Markdown missing median adjustment group section");
@@ -1055,6 +1056,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Component disagreement outcomes"), "lab dashboard does not render component disagreement performance groups");
   assert(dashboardSource.includes("byAggregateFinalComponentPosition"), "lab dashboard does not read component envelope performance groups");
   assert(dashboardSource.includes("Component envelope outcomes"), "lab dashboard does not render component envelope performance groups");
+  assert(dashboardSource.includes("byAggregateSideAgreement"), "lab dashboard does not read aggregate side-agreement performance groups");
+  assert(dashboardSource.includes("Aggregate side-agreement outcomes"), "lab dashboard does not render aggregate side-agreement performance groups");
   assert(dashboardSource.includes("byAggregateMeanConfidenceDistance"), "lab dashboard does not read aggregate panel-confidence performance groups");
   assert(dashboardSource.includes("Aggregate panel-confidence outcomes"), "lab dashboard does not render aggregate panel-confidence performance groups");
   assert(dashboardSource.includes("byAggregateFinalConfidenceShift"), "lab dashboard does not read final confidence shift performance groups");
@@ -1725,6 +1728,8 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
     componentMinProbability: 55,
     componentMaxProbability: 75,
   }) === "below_components", "aggregate stats below-component contract mismatch");
+  assert(aggregateSideAgreementBand(62, 42) === "final_flips_to_yes", "aggregate stats side agreement contract mismatch");
+  assert(aggregateSideAgreementBand(53, 62) === "final_near_even", "aggregate stats side agreement neutral-zone contract mismatch");
   assert(meanConfidenceDistanceBand(41) === "extreme", "aggregate stats mean confidence distance contract mismatch");
   assert(finalConfidenceShiftBand(22, 1, 1) === "much_more_confident", "aggregate stats final confidence shift contract mismatch");
   assert(adjustmentFromMedianBand(21, 1, 1) === "large_adjustment", "aggregate stats median adjustment contract mismatch");
@@ -1757,6 +1762,7 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   assert(resolutionSource.includes("readAggregateStatsSnapshot(input.prediction)"), "resolution scoring does not persist aggregate stats");
   assert(resolutionSource.includes("byAggregateDisagreement"), "performance report does not group by component disagreement");
   assert(resolutionSource.includes("byAggregateFinalComponentPosition"), "performance report does not group by component envelope position");
+  assert(resolutionSource.includes("byAggregateSideAgreement"), "performance report does not group by aggregate side agreement");
   assert(resolutionSource.includes("byAggregateMeanConfidenceDistance"), "performance report does not group by aggregate panel confidence");
   assert(resolutionSource.includes("byAggregateFinalConfidenceShift"), "performance report does not group by final confidence shift");
   assert(resolutionSource.includes("byAggregateMedianAdjustment"), "performance report does not group by median adjustment");
@@ -1768,6 +1774,8 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   assert(resolutionSource.includes("component_disagreement_miss"), "performance report does not flag high-disagreement misses");
   assert(resolutionSource.includes("component_envelope_miss"), "performance report does not flag component envelope misses");
   assert(resolutionSource.includes("componentEnvelopeMissSignal"), "performance report does not centralize component envelope miss signals");
+  assert(resolutionSource.includes("aggregate_side_flip_miss"), "performance report does not flag aggregate side-flip misses");
+  assert(resolutionSource.includes("aggregateSideFlipMissSignal"), "performance report does not centralize aggregate side-flip miss signals");
   assert(resolutionSource.includes("aggregate_panel_confidence_miss"), "performance report does not flag aggregate panel-confidence misses");
   assert(resolutionSource.includes("aggregatePanelConfidenceMissSignal"), "performance report does not centralize aggregate panel-confidence miss signals");
   assert(resolutionSource.includes("aggregate_confidence_miss"), "performance report does not flag final confidence shift misses");
@@ -1790,6 +1798,7 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   assert(resolutionSource.includes("conditionalForecast.branchDisagreementBand"), "attention queue does not use conditional branch disagreement");
   assert(metricsSource.includes("open_superforecaster_aggregate_stats_scores_total"), "metrics missing aggregate stats score counts");
   assert(metricsSource.includes("final_component_position_band"), "metrics missing final component position labels");
+  assert(metricsSource.includes("aggregate_side_agreement"), "metrics missing aggregate side agreement labels");
   assert(metricsSource.includes("mean_confidence_distance_band"), "metrics missing mean confidence distance labels");
   assert(metricsSource.includes("final_confidence_shift_band"), "metrics missing final confidence shift labels");
   assert(metricsSource.includes("inside_view_delta_band"), "metrics missing inside-view delta labels");
@@ -1800,6 +1809,7 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   assert(syncSource.includes("aggregate_component_min_probability"), "DuckDB forecast score mart missing component minimum probability");
   assert(syncSource.includes("aggregate_component_max_probability"), "DuckDB forecast score mart missing component maximum probability");
   assert(syncSource.includes("aggregate_final_component_position_band"), "DuckDB forecast score mart missing final component position band");
+  assert(syncSource.includes("aggregate_side_agreement"), "DuckDB forecast score mart missing aggregate side agreement");
   assert(syncSource.includes("aggregate_mean_confidence_distance"), "DuckDB forecast score mart missing mean confidence distance");
   assert(syncSource.includes("aggregate_mean_confidence_distance_band"), "DuckDB forecast score mart missing mean confidence distance band");
   assert(syncSource.includes("aggregate_final_confidence_shift"), "DuckDB forecast score mart missing final confidence shift");
@@ -1816,6 +1826,7 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   assert(syncSource.includes("aggregate_attempt_count_band"), "DuckDB forecast score mart missing aggregate attempt count band");
   assert(dashboardSource.includes("Component disagreement outcomes"), "lab dashboard does not render component disagreement outcomes");
   assert(dashboardSource.includes("Component envelope outcomes"), "lab dashboard does not render component envelope outcomes");
+  assert(dashboardSource.includes("Aggregate side-agreement outcomes"), "lab dashboard does not render aggregate side-agreement outcomes");
   assert(dashboardSource.includes("Aggregate panel-confidence outcomes"), "lab dashboard does not render aggregate panel-confidence outcomes");
   assert(dashboardSource.includes("Final confidence shift outcomes"), "lab dashboard does not render final confidence shift outcomes");
   assert(dashboardSource.includes("Median adjustment outcomes"), "lab dashboard does not render median adjustment outcomes");

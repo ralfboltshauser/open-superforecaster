@@ -318,6 +318,23 @@ try {
       nullif(fs.score_config #>> '{aggregateStats,componentMinProbability}', '')::double precision as aggregate_component_min_probability,
       nullif(fs.score_config #>> '{aggregateStats,componentMaxProbability}', '')::double precision as aggregate_component_max_probability,
       fs.score_config #>> '{aggregateStats,finalComponentPositionBand}' as aggregate_final_component_position_band,
+      case
+        when nullif(fs.score_config #>> '{probability}', '')::double precision is null
+          or nullif(fs.score_config #>> '{aggregateStats,meanProbability}', '')::double precision is null then 'missing_components'
+        when nullif(fs.score_config #>> '{aggregateStats,meanProbability}', '')::double precision >= 47
+          and nullif(fs.score_config #>> '{aggregateStats,meanProbability}', '')::double precision <= 53 then 'mean_near_even'
+        when nullif(fs.score_config #>> '{probability}', '')::double precision >= 47
+          and nullif(fs.score_config #>> '{probability}', '')::double precision <= 53 then 'final_near_even'
+        when nullif(fs.score_config #>> '{probability}', '')::double precision > 53
+          and nullif(fs.score_config #>> '{aggregateStats,meanProbability}', '')::double precision > 53 then 'same_yes'
+        when nullif(fs.score_config #>> '{probability}', '')::double precision < 47
+          and nullif(fs.score_config #>> '{aggregateStats,meanProbability}', '')::double precision < 47 then 'same_no'
+        when nullif(fs.score_config #>> '{probability}', '')::double precision > 53
+          and nullif(fs.score_config #>> '{aggregateStats,meanProbability}', '')::double precision < 47 then 'final_flips_to_yes'
+        when nullif(fs.score_config #>> '{probability}', '')::double precision < 47
+          and nullif(fs.score_config #>> '{aggregateStats,meanProbability}', '')::double precision > 53 then 'final_flips_to_no'
+        else 'unknown'
+      end as aggregate_side_agreement,
       nullif(fs.score_config #>> '{aggregateStats,meanConfidenceDistance}', '')::double precision as aggregate_mean_confidence_distance,
       coalesce(
         fs.score_config #>> '{aggregateStats,meanConfidenceDistanceBand}',
@@ -860,6 +877,7 @@ const forecastScoreColumns = [
   { name: "aggregate_component_min_probability", type: "DOUBLE" },
   { name: "aggregate_component_max_probability", type: "DOUBLE" },
   { name: "aggregate_final_component_position_band", type: "VARCHAR" },
+  { name: "aggregate_side_agreement", type: "VARCHAR" },
   { name: "aggregate_mean_confidence_distance", type: "DOUBLE" },
   { name: "aggregate_mean_confidence_distance_band", type: "VARCHAR" },
   { name: "aggregate_final_confidence_shift", type: "DOUBLE" },

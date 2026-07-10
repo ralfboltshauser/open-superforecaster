@@ -24,6 +24,16 @@ export type AggregateStatsSnapshot = {
   attemptCountBand: "single_attempt" | "few_attempts" | "many_attempts" | "unknown";
 };
 
+export type AggregateSideAgreementBand =
+  | "same_yes"
+  | "same_no"
+  | "final_flips_to_yes"
+  | "final_flips_to_no"
+  | "mean_near_even"
+  | "final_near_even"
+  | "missing_components"
+  | "unknown";
+
 export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapshot | null {
   const record = asRecord(value);
   const aggregateStats = asRecord(record?.aggregateStats) ?? record;
@@ -254,6 +264,27 @@ export function meanConfidenceDistanceBand(meanConfidenceDistance: number | null
   return "near_even";
 }
 
+export function aggregateSideAgreementBand(finalProbability: number | null, meanProbability: number | null): AggregateSideAgreementBand {
+  if (finalProbability === null || meanProbability === null) {
+    return "missing_components";
+  }
+  const finalSide = probabilitySide(finalProbability);
+  const meanSide = probabilitySide(meanProbability);
+  if (finalSide === "unknown" || meanSide === "unknown") {
+    return "unknown";
+  }
+  if (meanSide === "near_even") {
+    return "mean_near_even";
+  }
+  if (finalSide === "near_even") {
+    return "final_near_even";
+  }
+  if (finalSide === meanSide) {
+    return finalSide === "yes" ? "same_yes" : "same_no";
+  }
+  return finalSide === "yes" ? "final_flips_to_yes" : "final_flips_to_no";
+}
+
 export function aggregateDisagreementBand(disagreement: number | null): AggregateStatsSnapshot["disagreementBand"] {
   if (disagreement === null || !Number.isFinite(disagreement)) {
     return "unknown";
@@ -456,6 +487,19 @@ function confidenceShift(finalProbability: number | null, meanProbability: numbe
     return null;
   }
   return roundProbability(finalDistance - meanDistance);
+}
+
+function probabilitySide(probability: number): "yes" | "no" | "near_even" | "unknown" {
+  if (!Number.isFinite(probability)) {
+    return "unknown";
+  }
+  if (probability > 53) {
+    return "yes";
+  }
+  if (probability < 47) {
+    return "no";
+  }
+  return "near_even";
 }
 
 function mean(values: number[]) {

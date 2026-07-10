@@ -16,7 +16,7 @@ import {
 } from "@open-superforecaster/db";
 import { summarizeBenchmarkPromotionGateEvidence } from "./benchmark-service";
 import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
-import { readAggregateStatsSnapshot } from "./aggregate-stats-metadata";
+import { aggregateSideAgreementBand, readAggregateStatsSnapshot } from "./aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { readBinaryConfidenceSnapshot } from "./binary-confidence-metadata";
 import { buildCalibrationGuardImpact } from "./calibration-guard-impact";
@@ -755,6 +755,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     const labels = {
       component_disagreement_band: "none",
       final_component_position_band: "unknown",
+      aggregate_side_agreement: "unknown",
       mean_confidence_distance_band: "unknown",
       final_confidence_shift_band: "unknown",
       inside_view_delta_band: "unknown",
@@ -784,6 +785,9 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       score_type: row.scoreType,
       component_disagreement_band: aggregateStats?.disagreementBand ?? "unknown",
       final_component_position_band: aggregateStats?.finalComponentPositionBand ?? "unknown",
+      aggregate_side_agreement: aggregateStats
+        ? aggregateSideAgreementBand(readCalibrationProbability(row.scoreConfig), aggregateStats.meanProbability)
+        : "unknown",
       mean_confidence_distance_band: aggregateStats?.meanConfidenceDistanceBand ?? "unknown",
       final_confidence_shift_band: aggregateStats?.finalConfidenceShiftBand ?? "unknown",
       inside_view_delta_band: aggregateStats?.insideViewDeltaBand ?? "unknown",
