@@ -1437,10 +1437,13 @@ function assertWorkflowChangeProposalStatusTransitionAllowed(
     }
     throw new Error("Cannot mark workflow change proposal implemented while validation gate blockers remain.");
   }
-  const requiredValidationCases = Math.max(sourceBenchmarkCaseCount, 1);
-  if ((proposal.validationCompletedCases ?? 0) < requiredValidationCases) {
+  const validationCoverage = workflowProposalValidationCoverage({
+    completedCases: proposal.validationCompletedCases,
+    sourceBenchmarkCaseCount,
+  });
+  if (!validationCoverage.hasCoverage) {
     throw new Error(
-      `Cannot mark workflow change proposal implemented until validation covers at least ${requiredValidationCases} source benchmark case(s).`,
+      `Cannot mark workflow change proposal implemented until validation covers at least ${validationCoverage.requiredCases} source benchmark case(s).`,
     );
   }
 }
@@ -1461,10 +1464,13 @@ function assertWorkflowChangeProposalImplementationStatusAllowed(
   })) {
     throw new Error("Cannot mark workflow change proposal validated until validation passes the promotion gate with no blockers.");
   }
-  const requiredValidationCases = Math.max(sourceBenchmarkCaseCount, 1);
-  if ((proposal.validationCompletedCases ?? 0) < requiredValidationCases) {
+  const validationCoverage = workflowProposalValidationCoverage({
+    completedCases: proposal.validationCompletedCases,
+    sourceBenchmarkCaseCount,
+  });
+  if (!validationCoverage.hasCoverage) {
     throw new Error(
-      `Cannot mark workflow change proposal validated until validation covers at least ${requiredValidationCases} source benchmark case(s).`,
+      `Cannot mark workflow change proposal validated until validation covers at least ${validationCoverage.requiredCases} source benchmark case(s).`,
     );
   }
 }
@@ -1483,6 +1489,20 @@ export function workflowProposalValidationGatePassed(input: {
 
 export function workflowProposalValidationGateBlockers(raw: unknown) {
   return Array.isArray(raw) ? raw.filter((blocker): blocker is string => typeof blocker === "string" && blocker.trim().length > 0) : [];
+}
+
+export function workflowProposalValidationCoverage(input: {
+  completedCases: number | null;
+  sourceBenchmarkCaseCount: number | null;
+}) {
+  const requiredCases = Math.max(input.sourceBenchmarkCaseCount ?? 1, 1);
+  const completedCases = input.completedCases ?? 0;
+  return {
+    completedCases,
+    requiredCases,
+    coverageRatio: completedCases / requiredCases,
+    hasCoverage: completedCases >= requiredCases,
+  };
 }
 
 function implementationStatusForProposalTransition(

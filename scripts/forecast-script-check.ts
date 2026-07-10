@@ -3199,6 +3199,7 @@ await check("workflow change proposal lifecycle is exported as metrics", async (
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_completed_cases"), "workflow proposal metric missing validation completed cases");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_coverage_ratio"), "workflow proposal metric missing validation coverage ratio");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_passed"), "workflow proposal metric missing validation pass state");
+  assert(metricsSource.includes("workflowProposalValidationCoverage"), "workflow proposal metric does not reuse shared validation coverage helper");
   assert(metricsSource.includes("workflowProposalValidationGatePassed"), "workflow proposal metric does not reuse shared validation pass helper");
   assert(metricsSource.includes("workflowProposalValidationGateBlockers"), "workflow proposal metric does not reuse shared validation blocker helper");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_cost_total_tokens_delta"), "workflow proposal metric missing validation token cost delta");
@@ -3377,8 +3378,9 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(backendSource.includes("Cannot mark workflow change proposal validated until validation passes"), "backend explicit validated transition is not blocked by failed validation gate");
   assert(backendSource.includes("status === \"implemented\" && implementationStatus !== \"validated\""), "backend implemented transition can drift from validated implementation status");
   assert(backendSource.includes("Source benchmark run not found for workflow change proposal"), "backend implemented transition does not load source benchmark case count");
-  assert(backendSource.includes("requiredValidationCases = Math.max(sourceBenchmarkCaseCount, 1)"), "backend implemented transition does not require source-sized validation coverage");
-  assert(backendSource.includes("validationCompletedCases ?? 0"), "backend implemented transition does not check completed validation case count");
+  assert(backendSource.includes("workflowProposalValidationCoverage"), "backend missing shared validation coverage helper");
+  assert(backendSource.includes("requiredCases = Math.max(input.sourceBenchmarkCaseCount ?? 1, 1)"), "backend implemented transition does not require source-sized validation coverage");
+  assert(backendSource.includes("completedCases = input.completedCases ?? 0"), "backend implemented transition does not check completed validation case count");
   assert(backendSource.includes("validationGateBlockers") && backendSource.includes("validation gate blockers remain"), "backend implemented transition does not block remaining validation blockers");
   assert(backendSource.includes("implementationStatusForProposalTransition"), "backend missing proposal implementation transition helper");
   assert(backendSource.includes("proposal-${existing.id.slice(0, 8)}"), "backend missing deterministic proposal experiment label");

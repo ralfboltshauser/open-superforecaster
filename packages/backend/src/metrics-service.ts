@@ -16,6 +16,7 @@ import {
 } from "@open-superforecaster/db";
 import {
   summarizeBenchmarkPromotionGateEvidence,
+  workflowProposalValidationCoverage,
   workflowProposalValidationGateBlockers,
   workflowProposalValidationGatePassed,
 } from "./benchmark-service";
@@ -450,19 +451,21 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       validation_benchmark_run_id: proposal.validationBenchmarkRunId ?? "none",
     };
     const sourceCaseCount = proposal.sourceBenchmarkRunId ? benchmarkRunCaseCountById.get(proposal.sourceBenchmarkRunId) ?? null : null;
-    const requiredValidationCases = Math.max(sourceCaseCount ?? 1, 1);
-    const validationCompletedCases = proposal.validationCompletedCases ?? 0;
+    const validationCoverage = workflowProposalValidationCoverage({
+      completedCases: proposal.validationCompletedCases,
+      sourceBenchmarkCaseCount: sourceCaseCount,
+    });
     const validationGateBlockers = workflowProposalValidationGateBlockers(proposal.validationGateBlockers);
     metrics.gauge(
       "open_superforecaster_workflow_change_proposal_validation_completed_cases",
       "Completed validation benchmark cases for a workflow change proposal.",
-      validationCompletedCases,
+      validationCoverage.completedCases,
       proposalLabels,
     );
     metrics.gauge(
       "open_superforecaster_workflow_change_proposal_validation_coverage_ratio",
       "Completed validation cases divided by required source benchmark case coverage for a workflow change proposal.",
-      requiredValidationCases === 0 ? 0 : validationCompletedCases / requiredValidationCases,
+      validationCoverage.coverageRatio,
       proposalLabels,
     );
     metrics.gauge(
