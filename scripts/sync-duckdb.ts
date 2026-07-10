@@ -334,6 +334,15 @@ try {
       nullif(fs.score_config #>> '{aggregateStats,adjustmentFromMedian}', '')::double precision as adjustment_from_median,
       fs.score_config #>> '{aggregateStats,adjustmentFromMedianBand}' as adjustment_from_median_band,
       nullif(fs.score_config #>> '{aggregateStats,attemptCount}', '')::integer as aggregate_attempt_count,
+      coalesce(
+        fs.score_config #>> '{aggregateStats,attemptCountBand}',
+        case
+          when nullif(fs.score_config #>> '{aggregateStats,attemptCount}', '')::integer >= 5 then 'many_attempts'
+          when nullif(fs.score_config #>> '{aggregateStats,attemptCount}', '')::integer >= 2 then 'few_attempts'
+          when nullif(fs.score_config #>> '{aggregateStats,attemptCount}', '')::integer >= 0 then 'single_attempt'
+          else 'unknown'
+        end
+      ) as aggregate_attempt_count_band,
       fs.score_config #>> '{branch}' as conditional_branch,
       nullif(fs.score_config #>> '{conditionResolved}', '')::boolean as condition_resolved,
       nullif(fs.score_config #>> '{outcomeResolved}', '')::boolean as outcome_resolved,
@@ -845,6 +854,7 @@ const forecastScoreColumns = [
   { name: "adjustment_from_median", type: "DOUBLE" },
   { name: "adjustment_from_median_band", type: "VARCHAR" },
   { name: "aggregate_attempt_count", type: "INTEGER" },
+  { name: "aggregate_attempt_count_band", type: "VARCHAR" },
   { name: "conditional_branch", type: "VARCHAR" },
   { name: "condition_resolved", type: "BOOLEAN" },
   { name: "outcome_resolved", type: "BOOLEAN" },

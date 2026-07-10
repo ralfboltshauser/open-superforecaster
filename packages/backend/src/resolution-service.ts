@@ -136,6 +136,7 @@ type PerformanceAttentionItem = {
     | "inside_view_shift_miss"
     | "aggregate_adjustment_miss"
     | "aggregate_direction_miss"
+    | "aggregate_attempt_miss"
     | "evidence_coverage_miss"
     | "input_context_miss"
     | "run_metadata_miss";
@@ -414,6 +415,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byAggregateInsideViewShift = groupScores(aggregateScores, aggregateInsideViewShiftGroupKey);
   const byAggregateFinalInsideViewAdjustment = groupScores(aggregateScores, aggregateFinalInsideViewAdjustmentGroupKey);
   const byAggregateFinalAdjustmentDirection = groupScores(aggregateScores, aggregateFinalAdjustmentDirectionGroupKey);
+  const byAggregateAttemptCount = groupScores(aggregateScores, aggregateAttemptCountGroupKey);
   const byAggregationAnchor = groupScores(aggregateScores, aggregationAnchorGroupKey);
   const byResearchDepth = groupScores(aggregateScores, researchDepthGroupKey);
   const byForecasterPanelSize = groupScores(aggregateScores, forecasterPanelSizeGroupKey);
@@ -530,6 +532,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byAggregateInsideViewShift,
       byAggregateFinalInsideViewAdjustment,
       byAggregateFinalAdjustmentDirection,
+      byAggregateAttemptCount,
       byAggregationAnchor,
       byResearchDepth,
       byForecasterPanelSize,
@@ -636,6 +639,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byAggregateInsideViewShift,
       byAggregateFinalInsideViewAdjustment,
       byAggregateFinalAdjustmentDirection,
+      byAggregateAttemptCount,
       byAggregationAnchor,
       byResearchDepth,
       byForecasterPanelSize,
@@ -1442,6 +1446,11 @@ function aggregateFinalInsideViewAdjustmentGroupKey(score: typeof forecastScores
 function aggregateFinalAdjustmentDirectionGroupKey(score: typeof forecastScores.$inferSelect) {
   const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
   return `aggregate_direction:${aggregateStats?.finalAdjustmentDirection ?? "unrecorded"}`;
+}
+
+function aggregateAttemptCountGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `aggregate_attempts:${aggregateStats?.attemptCountBand ?? "unrecorded"}`;
 }
 
 function aggregationAnchorGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2490,6 +2499,36 @@ function buildNeedsAttentionQueue(
       rank: 78 + index,
     }));
 
+  const aggregateAttemptCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const signal = aggregateAttemptMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
+      return [];
+    }
+    return [{ item, signal }];
+  });
+  const aggregateAttemptItems = aggregateAttemptCandidates
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `aggregate-attempts:${item.taskId}:${item.primaryMetric}`,
+      kind: "aggregate_attempt_miss" as const,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
+      recommendedActions: recommendAttentionActions({
+        kind: "aggregate_attempt_miss",
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 79 + index,
+    }));
+
   const evidenceCoverageItems = buildMetadataAttentionItems({
     worstCases,
     idPrefix: "evidence-coverage",
@@ -2589,6 +2628,7 @@ function buildNeedsAttentionQueue(
     ...insideViewShiftItems,
     ...aggregateAdjustmentItems,
     ...aggregateDirectionItems,
+    ...aggregateAttemptItems,
     ...evidenceCoverageItems,
     ...inputContextItems,
     ...runMetadataItems,
@@ -2913,6 +2953,18 @@ function aggregateDirectionMissSignal(item: PerformanceCase): { reason: string; 
   };
 }
 
+function aggregateAttemptMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  if (item.forecastType !== "binary" || !stats || stats.attemptCountBand !== "many_attempts") {
+    return null;
+  }
+  return {
+    reason: `aggregate required ${stats.attemptCount ?? "unknown"} attempt(s), which can indicate unstable aggregation or repeated repair`,
+    delta: stats.attemptCount,
+    severity: "medium",
+  };
+}
+
 function evidenceCoverageMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
   const evidence = item.evidenceCoverage;
   if (!evidence) {
@@ -3223,6 +3275,9 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "aggregate_direction_miss") {
     actions.add("Audit whether final aggregation should have reversed or introduced movement beyond the inside-view estimate.");
     actions.add("Compare base-rate, inside-view, and final probability direction before changing aggregation defaults.");
+  } else if (input.kind === "aggregate_attempt_miss") {
+    actions.add("Audit why the aggregate needed many attempts before finalizing.");
+    actions.add("Inspect repair traces, validation failures, and final rationale before changing prompts or defaults.");
   } else if (input.kind === "evidence_coverage_miss") {
     actions.add("Audit cited sources, dated-source coverage, uncertainty notes, and rationale depth before changing model or aggregation defaults.");
     actions.add("Add a benchmark case if sparse evidence repeatedly accompanies poor resolved forecasts in this forecast type.");
@@ -3346,6 +3401,7 @@ function renderPerformanceMarkdown(input: {
   byAggregateInsideViewShift: PerformanceGroup[];
   byAggregateFinalInsideViewAdjustment: PerformanceGroup[];
   byAggregateFinalAdjustmentDirection: PerformanceGroup[];
+  byAggregateAttemptCount: PerformanceGroup[];
   byAggregationAnchor: PerformanceGroup[];
   byResearchDepth: PerformanceGroup[];
   byForecasterPanelSize: PerformanceGroup[];
@@ -3481,6 +3537,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Final aggregation direction groups",
     ...renderGroupTable(input.byAggregateFinalAdjustmentDirection),
+    "",
+    "## Aggregate attempt-count groups",
+    ...renderGroupTable(input.byAggregateAttemptCount),
     "",
     "## Aggregation anchor groups",
     ...renderGroupTable(input.byAggregationAnchor),

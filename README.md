@@ -313,7 +313,7 @@ compare guarded forecasts, large baseline movements, high component
 market divergences, boundary ambiguity, narrow uncertainty ranges, component
 downweighting, final-probability confidence, disagreement, component-envelope position,
 final confidence shift, median adjustment, base-rate-to-inside-view movement,
-final aggregation adjustment, final aggregation direction, aggregation anchors,
+final aggregation adjustment, final aggregation direction, aggregate attempt count, aggregation anchors,
 research depth, panel size, and complexity against outcomes, summarize score groups, and report guarded-vs-unguarded
 Brier impact overall and by applied rule id. Worse overall or rule-level
 guarded impact is also queued as a high-severity attention item

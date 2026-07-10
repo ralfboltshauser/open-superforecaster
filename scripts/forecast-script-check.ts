@@ -7,7 +7,7 @@ import {
   summarizeBenchmarkPromotionGateEvidence,
 } from "../packages/backend/src/benchmark-service";
 import { readAggregateQualitySnapshot } from "../packages/backend/src/aggregate-quality-metadata";
-import { adjustmentFromMedianBand, finalAdjustmentDirection, finalComponentPositionBand, finalConfidenceShiftBand, finalInsideViewDeltaBand, insideViewDeltaBand, readAggregateStatsSnapshot } from "../packages/backend/src/aggregate-stats-metadata";
+import { adjustmentFromMedianBand, attemptCountBand, finalAdjustmentDirection, finalComponentPositionBand, finalConfidenceShiftBand, finalInsideViewDeltaBand, insideViewDeltaBand, readAggregateStatsSnapshot } from "../packages/backend/src/aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "../packages/backend/src/baseline-sanity-metadata";
 import { buildBinaryConfidenceSnapshot, readBinaryConfidenceSnapshot } from "../packages/backend/src/binary-confidence-metadata";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
@@ -982,6 +982,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Inside-view shift groups"), "performance Markdown missing inside-view shift group section");
   assert(resolutionSource.includes("## Final aggregation adjustment groups"), "performance Markdown missing final aggregation adjustment group section");
   assert(resolutionSource.includes("## Final aggregation direction groups"), "performance Markdown missing final aggregation direction group section");
+  assert(resolutionSource.includes("## Aggregate attempt-count groups"), "performance Markdown missing aggregate attempt-count group section");
   assert(resolutionSource.includes("## Aggregation anchor groups"), "performance Markdown missing aggregation anchor group section");
   assert(resolutionSource.includes("## Research depth groups"), "performance Markdown missing research depth group section");
   assert(resolutionSource.includes("## Forecaster panel size groups"), "performance Markdown missing forecaster panel size group section");
@@ -1063,6 +1064,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Final aggregation adjustment outcomes"), "lab dashboard does not render final aggregation adjustment performance groups");
   assert(dashboardSource.includes("byAggregateFinalAdjustmentDirection"), "lab dashboard does not read final aggregation direction performance groups");
   assert(dashboardSource.includes("Final aggregation direction outcomes"), "lab dashboard does not render final aggregation direction performance groups");
+  assert(dashboardSource.includes("byAggregateAttemptCount"), "lab dashboard does not read aggregate attempt-count performance groups");
+  assert(dashboardSource.includes("Aggregate attempt-count outcomes"), "lab dashboard does not render aggregate attempt-count performance groups");
   assert(dashboardSource.includes("byAggregationAnchor"), "lab dashboard does not read aggregation anchor performance groups");
   assert(dashboardSource.includes("Aggregation anchor outcomes"), "lab dashboard does not render aggregation anchor performance groups");
   assert(dashboardSource.includes("byResearchDepth"), "lab dashboard does not read research depth performance groups");
@@ -1711,6 +1714,8 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   assert(snapshot?.aggregationAnchor === "median", "aggregate stats anchor mismatch");
   assert(snapshot?.adjustmentFromMedian === -5, "aggregate stats adjustment mismatch");
   assert(snapshot?.adjustmentFromMedianBand === "near_median", "aggregate stats median adjustment band mismatch");
+  assert(snapshot?.attemptCount === 4, "aggregate stats attempt count mismatch");
+  assert(snapshot?.attemptCountBand === "few_attempts", "aggregate stats attempt count band mismatch");
   assert(finalComponentPositionBand({
     finalProbability: 50,
     componentMinProbability: 55,
@@ -1718,6 +1723,7 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   }) === "below_components", "aggregate stats below-component contract mismatch");
   assert(finalConfidenceShiftBand(22, 1, 1) === "much_more_confident", "aggregate stats final confidence shift contract mismatch");
   assert(adjustmentFromMedianBand(21, 1, 1) === "large_adjustment", "aggregate stats median adjustment contract mismatch");
+  assert(attemptCountBand(5) === "many_attempts", "aggregate stats attempt count contract mismatch");
   assert(insideViewDeltaBand(12, 2, 2) === "moderate_shift", "aggregate stats inside-view shift contract mismatch");
   assert(finalInsideViewDeltaBand(9, 1, 2) === "moderate_adjustment", "aggregate stats final adjustment contract mismatch");
   assert(finalAdjustmentDirection(20, -8) === "dampens_inside_view", "aggregate stats dampening direction mismatch");
@@ -1751,6 +1757,7 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   assert(resolutionSource.includes("byAggregateInsideViewShift"), "performance report does not group by inside-view shift");
   assert(resolutionSource.includes("byAggregateFinalInsideViewAdjustment"), "performance report does not group by final aggregation adjustment");
   assert(resolutionSource.includes("byAggregateFinalAdjustmentDirection"), "performance report does not group by final aggregation direction");
+  assert(resolutionSource.includes("byAggregateAttemptCount"), "performance report does not group by aggregate attempt count");
   assert(resolutionSource.includes("byAggregationAnchor"), "performance report does not group by aggregation anchor");
   assert(resolutionSource.includes("component_disagreement_miss"), "performance report does not flag high-disagreement misses");
   assert(resolutionSource.includes("component_envelope_miss"), "performance report does not flag component envelope misses");
@@ -1765,6 +1772,8 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   assert(resolutionSource.includes("aggregateAdjustmentMissSignal"), "performance report does not centralize final aggregation adjustment miss signals");
   assert(resolutionSource.includes("aggregate_direction_miss"), "performance report does not flag final aggregation direction misses");
   assert(resolutionSource.includes("aggregateDirectionMissSignal"), "performance report does not centralize final aggregation direction miss signals");
+  assert(resolutionSource.includes("aggregate_attempt_miss"), "performance report does not flag aggregate attempt-count misses");
+  assert(resolutionSource.includes("aggregateAttemptMissSignal"), "performance report does not centralize aggregate attempt-count miss signals");
   assert(resolutionSource.includes("componentDisagreementMissSignal"), "performance report does not centralize component disagreement miss signals");
   assert(resolutionSource.includes("thresholdedForecast.componentDisagreementBand"), "attention queue does not use thresholded component disagreement");
   assert(resolutionSource.includes("numericForecast.p50DisagreementBand"), "attention queue does not use numeric component disagreement");
@@ -1778,6 +1787,7 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   assert(metricsSource.includes("final_inside_view_delta_band"), "metrics missing final inside-view delta labels");
   assert(metricsSource.includes("final_adjustment_direction"), "metrics missing final adjustment direction labels");
   assert(metricsSource.includes("adjustment_from_median_band"), "metrics missing median adjustment labels");
+  assert(metricsSource.includes("aggregate_attempt_count_band"), "metrics missing aggregate attempt count labels");
   assert(syncSource.includes("aggregate_component_min_probability"), "DuckDB forecast score mart missing component minimum probability");
   assert(syncSource.includes("aggregate_component_max_probability"), "DuckDB forecast score mart missing component maximum probability");
   assert(syncSource.includes("aggregate_final_component_position_band"), "DuckDB forecast score mart missing final component position band");
@@ -1793,6 +1803,7 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   assert(syncSource.includes("aggregate_final_adjustment_direction"), "DuckDB forecast score mart missing final adjustment direction");
   assert(syncSource.includes("aggregate_component_disagreement_band"), "DuckDB forecast score mart missing disagreement band");
   assert(syncSource.includes("adjustment_from_median_band"), "DuckDB forecast score mart missing median adjustment band");
+  assert(syncSource.includes("aggregate_attempt_count_band"), "DuckDB forecast score mart missing aggregate attempt count band");
   assert(dashboardSource.includes("Component disagreement outcomes"), "lab dashboard does not render component disagreement outcomes");
   assert(dashboardSource.includes("Component envelope outcomes"), "lab dashboard does not render component envelope outcomes");
   assert(dashboardSource.includes("Final confidence shift outcomes"), "lab dashboard does not render final confidence shift outcomes");
@@ -1800,6 +1811,7 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   assert(dashboardSource.includes("Inside-view shift outcomes"), "lab dashboard does not render inside-view shift outcomes");
   assert(dashboardSource.includes("Final aggregation adjustment outcomes"), "lab dashboard does not render final aggregation adjustment outcomes");
   assert(dashboardSource.includes("Final aggregation direction outcomes"), "lab dashboard does not render final aggregation direction outcomes");
+  assert(dashboardSource.includes("Aggregate attempt-count outcomes"), "lab dashboard does not render aggregate attempt-count outcomes");
   assert(dashboardSource.includes("Aggregation anchor outcomes"), "lab dashboard does not render aggregation anchor outcomes");
   return "binary aggregate stats are persisted and visible in resolved score analytics";
 });

@@ -20,6 +20,7 @@ export type AggregateStatsSnapshot = {
   adjustmentFromMedian: number | null;
   adjustmentFromMedianBand: "near_median" | "moderate_adjustment" | "large_adjustment" | "missing_components" | "unknown";
   attemptCount: number | null;
+  attemptCountBand: "single_attempt" | "few_attempts" | "many_attempts" | "unknown";
 };
 
 export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapshot | null {
@@ -51,6 +52,7 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
   const adjustmentFromMedian = readNumber(aggregateStats, "adjustmentFromMedian", "adjustment_from_median") ?? delta(finalProbability, medianProbability);
   const explicitAdjustmentFromMedianBand = readAdjustmentFromMedianBand(aggregateStats);
   const attemptCount = readNumber(aggregateStats, "attemptCount", "attempt_count");
+  const explicitAttemptCountBand = readAttemptCountBand(aggregateStats);
   if (
     meanProbability === null &&
     medianProbability === null &&
@@ -111,6 +113,7 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
       medianProbability === null && adjustmentFromMedian === null ? 0 : 1,
     ),
     attemptCount,
+    attemptCountBand: explicitAttemptCountBand ?? attemptCountBand(attemptCount),
   };
 }
 
@@ -269,6 +272,19 @@ export function adjustmentFromMedianBand(
   return "near_median";
 }
 
+export function attemptCountBand(attemptCount: number | null): AggregateStatsSnapshot["attemptCountBand"] {
+  if (attemptCount === null || !Number.isFinite(attemptCount)) {
+    return "unknown";
+  }
+  if (attemptCount >= 5) {
+    return "many_attempts";
+  }
+  if (attemptCount >= 2) {
+    return "few_attempts";
+  }
+  return "single_attempt";
+}
+
 function readString(value: unknown, ...keys: string[]) {
   const record = asRecord(value);
   if (!record) {
@@ -352,6 +368,14 @@ function readAdjustmentFromMedianBand(value: unknown): AggregateStatsSnapshot["a
     band === "missing_components" ||
     band === "unknown"
   ) {
+    return band;
+  }
+  return null;
+}
+
+function readAttemptCountBand(value: unknown): AggregateStatsSnapshot["attemptCountBand"] | null {
+  const band = readString(value, "attemptCountBand", "attempt_count_band");
+  if (band === "single_attempt" || band === "few_attempts" || band === "many_attempts" || band === "unknown") {
     return band;
   }
   return null;
