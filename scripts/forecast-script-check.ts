@@ -1500,11 +1500,15 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("osf_smithers_token_usage_by_task"), "DuckDB sync missing task token-usage summary mart");
   assert(syncSource.includes("osf_forecast_batch_health"), "DuckDB sync missing forecast batch health mart");
   assert(syncSource.includes("osf_forecast_batch_health_issues"), "DuckDB sync missing forecast batch health issue mart");
+  assert(syncSource.includes("osf_forecast_batch_health_attention_kinds"), "DuckDB sync missing forecast batch health attention-kind mart");
+  assert(syncSource.includes("osf_forecast_batch_health_attention_severities"), "DuckDB sync missing forecast batch health attention-severity mart");
   assert(syncSource.includes("osf_forecast_batch_health_attention_types"), "DuckDB sync missing forecast batch health attention-type mart");
   assert(syncSource.includes("osf_forecast_batch_health_candidate_guards"), "DuckDB sync missing forecast batch health candidate guard mart");
   assert(syncSource.includes("buildBinaryCalibrationReport"), "DuckDB sync does not use shared binary calibration report builder");
   assert(syncSource.includes("buildCalibrationGuardImpact"), "DuckDB sync does not use shared calibration guard impact builder");
   assert(syncSource.includes("readLatestForecastBatchHealth"), "DuckDB sync does not use shared batch health reader");
+  assert(syncSource.includes("buildForecastBatchHealthAttentionKindMartRows"), "DuckDB sync missing batch-health attention-kind mapper");
+  assert(syncSource.includes("buildForecastBatchHealthAttentionSeverityMartRows"), "DuckDB sync missing batch-health attention-severity mapper");
   assert(syncSource.includes("buildCalibrationGuardRuleImpactMartRows"), "DuckDB sync missing rule-level calibration guard impact mapper");
   assert(syncSource.includes("buildBinaryCalibrationBucketMartRows"), "DuckDB sync missing calibration bucket mart mapper");
   assert(syncSource.includes("readSmithersTokenUsage"), "DuckDB token-usage mart does not use the shared durable-log parser");
