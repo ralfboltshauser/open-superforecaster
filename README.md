@@ -481,14 +481,16 @@ guard rules. The latest local health report is also exposed through
 `/api/diagnostics` and Prometheus batch-health series, including attention
 breakdowns by kind, severity, and forecast type, so unresolved attention can be
 monitored without opening the raw JSON artifact. The generic Prometheus
-forecast-attention series also reads generated attention backlog reports, so
+forecast-attention series also reads compatible generated attention backlog reports, so
 supplemental validation and default-plan rows are counted alongside batch-index
-attention items without double-counting matching item IDs. `bun run duckdb:sync`
+attention items without double-counting matching item IDs; batch-filtered,
+status-incomplete, undated, or review-stale backlogs are skipped there too.
+`bun run duckdb:sync`
 also exports the latest batch-health summary and issue rows into
 `osf_forecast_batch_health`, `osf_forecast_batch_health_issues`, and
 `osf_forecast_batch_health_attention_items`, with per-item source paths for
 tracing each health attention row back to the originating artifact. The generic
-`osf_forecast_attention_items` mart also merges generated attention backlog rows
+`osf_forecast_attention_items` mart follows the same compatible-backlog merge
 and preserves each item's source path, so report-derived attention can be queried
 outside the latest health snapshot. The summary row also carries the batch-index
 and attention-backlog artifact paths that produced the health snapshot. Attention
