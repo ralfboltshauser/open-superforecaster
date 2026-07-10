@@ -3125,6 +3125,7 @@ await check("benchmark promotion blocks source independence failures", async () 
   const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
+  const smokeSource = await readFile(resolve(root, "scripts/smoke-check.ts"), "utf8");
   assert(backendSource.includes("sourceQualityFindings"), "benchmark promotion gate does not read source quality findings");
   assert(backendSource.includes("source_cutoff_leakage"), "source cutoff leakage blocker missing");
   assert(backendSource.includes("human_forecast_leakage"), "human forecast leakage blocker missing");
@@ -3143,6 +3144,9 @@ await check("benchmark promotion blocks source independence failures", async () 
   assert(dashboardSource.includes("source quality"), "lab dashboard does not surface source quality findings");
   assert(dashboardSource.includes("dominantSourceDomainCases"), "lab dashboard does not surface dominant source-domain cases");
   assert(dashboardSource.includes("lowQualityFinalSourceEntries"), "lab dashboard does not surface final-use low-quality source count");
+  assert(smokeSource.includes("assertSourceRiskFindings"), "smoke check does not validate source-risk blocker findings");
+  assert(smokeSource.includes("source_concentration") && smokeSource.includes("low_quality_sources"), "smoke check does not preserve source-risk blocker names");
+  assert(smokeSource.includes("dominantSourceDomainCases") && smokeSource.includes("lowQualityFinalSourceEntries"), "smoke check does not require source-risk finding counts");
   return "source leakage and human forecast leakage block benchmark promotion";
 });
 

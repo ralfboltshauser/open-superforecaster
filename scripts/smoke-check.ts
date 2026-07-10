@@ -313,6 +313,17 @@ async function runSmokeChecks() {
     if (runMissingPromotionGate) {
       throw new Error("benchmark list run is missing promotion gate");
     }
+    const runMissingPromotionBlockers = benchmarkRunRecords.find((run) => !Array.isArray(readRecord(run, "promotionGate")?.blockers));
+    if (runMissingPromotionBlockers) {
+      throw new Error("benchmark list run promotion gate is missing blockers");
+    }
+    const runWithSourceRiskBlocker = benchmarkRunRecords.find((run) => {
+      const blockers = readArray(readRecord(run, "promotionGate"), "blockers");
+      return blockers.includes("source_concentration") || blockers.includes("low_quality_sources");
+    });
+    if (runWithSourceRiskBlocker) {
+      assertSourceRiskFindings(readRecord(runWithSourceRiskBlocker, "sourceQualityFindings"));
+    }
     return `${benchmarkRuns.length} run(s), ${benchmarkSuites.length} suite(s)`;
   });
 
@@ -334,6 +345,10 @@ async function runSmokeChecks() {
     const promotionGate = readRecord(scorecard, "promotionGate");
     if (!scorecard || !promotionGate || cases.length === 0) {
       throw new Error("benchmark detail is missing scorecard, promotion gate, or cases");
+    }
+    const blockers = readArray(promotionGate, "blockers");
+    if (blockers.includes("source_concentration") || blockers.includes("low_quality_sources")) {
+      assertSourceRiskFindings(readRecord(detail, "sourceQualityFindings"));
     }
     const firstCase = cases[0];
     const links = readRecord(firstCase, "links");
@@ -504,6 +519,17 @@ function assertClassification(testCase: ClassificationCase, classification: Json
   }
   if (workflow !== "codex-smoke" && /\bplaceholder\b/i.test(rationale)) {
     throw new Error(`unexpected placeholder rationale for ${workflow}: ${rationale}`);
+  }
+}
+
+function assertSourceRiskFindings(findings: JsonRecord | null) {
+  if (!findings) {
+    throw new Error("source-risk promotion blocker is missing source quality findings");
+  }
+  for (const key of ["dominantSourceDomainCases", "lowQualityFinalSourceEntries", "topSourceDomainShare"]) {
+    if (typeof findings[key] !== "number") {
+      throw new Error(`source quality findings missing numeric ${key}`);
+    }
   }
 }
 
