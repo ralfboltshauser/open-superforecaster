@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   artifactRows,
@@ -45,6 +45,14 @@ type WorkflowProposalDiagnosticRow = {
   validationGateStatus: string | null;
   validationGateBlockers: unknown;
   createdAt: Date | null;
+};
+
+type DefaultPlanIssue = {
+  severity: string | null;
+  kind: string | null;
+  message: string | null;
+  validationReport: string | null;
+  latestValidationReport: string | null;
 };
 
 const benchmarkSourceRiskBlockerIds = new Set<string>(benchmarkPromotionSourceRiskBlockerIds);
@@ -104,6 +112,7 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
     tryHeadBucket(objectStorage.exports),
   ]);
   const forecastBatchHealth = readLatestForecastBatchHealth(input.root);
+  const calibrationDefaultPlan = readLatestCalibrationDefaultPlan(input.root);
   const sourceDomains = summarizeSourceDomains(sourceRows);
   const benchmarkPromotion = benchmarkPromotionDiagnostics(recentBenchmarkRuns);
   const validationComparisonReportArtifactIds = recentWorkflowChangeProposals
@@ -137,6 +146,7 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
     bucketDiagnostic("evals_bucket", "Evals bucket", evalsBucket),
     bucketDiagnostic("exports_bucket", "Exports bucket", exportsBucket),
     forecastBatchHealthDiagnostic(forecastBatchHealth),
+    calibrationDefaultPlanDiagnostic(calibrationDefaultPlan),
     benchmarkPromotionDiagnostic(benchmarkPromotion),
     workflowProposalReadinessDiagnostic(workflowProposalReadiness),
   ];
@@ -196,6 +206,7 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
     },
     items,
     forecastBatchHealth,
+    calibrationDefaultPlan,
     benchmarkPromotion,
     workflowProposalReadiness,
     evalDatasets: {
@@ -242,6 +253,89 @@ export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input:
       minio: "http://localhost:9001",
       metrics: "http://localhost:3000/metrics",
     },
+  };
+}
+
+function readLatestCalibrationDefaultPlan(root: string) {
+  const paths = listFilesNamed(`${root}/data/reports/forecast-calibration-guard-default-plan`, "calibration-guard-default-plan.json");
+  const candidates = paths.flatMap((path) => {
+    const payload = readJsonRecord(path);
+    return payload
+      ? [{
+          path,
+          payload,
+          generatedAt: readString(payload, "generatedAt"),
+        }]
+      : [];
+  });
+  candidates.sort((left, right) =>
+    timestampValue(right.generatedAt) - timestampValue(left.generatedAt)
+    || right.path.localeCompare(left.path)
+  );
+  const selected = candidates[0] ?? null;
+  if (!selected) {
+    return {
+      exists: false,
+      path: `${root}/data/reports/forecast-calibration-guard-default-plan/calibration-guard-default-plan.json`,
+      generatedAt: null,
+      summary: {
+        validationRows: null,
+        defaultCandidates: null,
+        skippedNonHoldout: null,
+        skippedNotPromoted: null,
+        issues: null,
+      },
+      issues: [] as DefaultPlanIssue[],
+      paths: {
+        validationReport: null,
+        validationReportDir: null,
+      },
+    };
+  }
+  const summary = readRecord(selected.payload, "summary");
+  const pathsRecord = readRecord(selected.payload, "paths");
+  return {
+    exists: true,
+    path: selected.path,
+    generatedAt: selected.generatedAt,
+    summary: {
+      validationRows: readNumber(summary, "validationRows"),
+      defaultCandidates: readNumber(summary, "defaultCandidates"),
+      skippedNonHoldout: readNumber(summary, "skippedNonHoldout"),
+      skippedNotPromoted: readNumber(summary, "skippedNotPromoted"),
+      issues: readNumber(summary, "issues"),
+    },
+    issues: readRecordArray(selected.payload, "issues").map((issue) => ({
+      severity: readString(issue, "severity"),
+      kind: readString(issue, "kind"),
+      message: readString(issue, "message"),
+      validationReport: readString(issue, "validationReport"),
+      latestValidationReport: readString(issue, "latestValidationReport"),
+    })),
+    paths: {
+      validationReport: readString(pathsRecord, "validationReport"),
+      validationReportDir: readString(pathsRecord, "validationReportDir"),
+    },
+  };
+}
+
+function calibrationDefaultPlanDiagnostic(plan: ReturnType<typeof readLatestCalibrationDefaultPlan>): DiagnosticItem {
+  if (!plan.exists) {
+    return {
+      key: "calibration_default_plan",
+      label: "Calibration default plan",
+      ok: true,
+      status: "missing",
+      detail: "No local calibration default-plan report has been generated yet.",
+    };
+  }
+  const issues = plan.summary.issues ?? plan.issues.length;
+  return {
+    key: "calibration_default_plan",
+    label: "Calibration default plan",
+    ok: issues === 0,
+    status: issues === 0 ? "ready" : "check",
+    detail: `${plan.summary.defaultCandidates ?? 0} default candidate(s), ${plan.summary.skippedNonHoldout ?? 0} non-holdout skip(s), ${issues} artifact issue(s).`,
   };
 }
 
@@ -427,4 +521,61 @@ function readStringArray(value: unknown, key: string) {
   }
   const raw = (value as Record<string, unknown>)[key];
   return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string") : [];
+}
+
+function readNumber(value: unknown, key: string) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const raw = (value as Record<string, unknown>)[key];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+}
+
+function readRecordArray(value: unknown, key: string) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return [];
+  }
+  const raw = (value as Record<string, unknown>)[key];
+  return Array.isArray(raw)
+    ? raw.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+}
+
+function readJsonRecord(path: string) {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function listFilesNamed(path: string, name: string): string[] {
+  try {
+    const info = statSync(path);
+    if (info.isFile()) {
+      return path.endsWith(name) ? [path] : [];
+    }
+    if (!info.isDirectory()) {
+      return [];
+    }
+  } catch {
+    return [];
+  }
+  return readdirSync(path, { withFileTypes: true }).flatMap((child) => {
+    const childPath = `${path}/${child.name}`;
+    return child.isDirectory()
+      ? listFilesNamed(childPath, name)
+      : child.name === name
+        ? [childPath]
+        : [];
+  });
+}
+
+function timestampValue(value: string | null) {
+  if (!value) {
+    return 0;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }

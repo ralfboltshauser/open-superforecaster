@@ -121,6 +121,9 @@ export function DiagnosticsCard({ diagnosticCounts, diagnostics }: { diagnosticC
     (blocker): blocker is string => typeof blocker === "string",
   )
   const proposalReadinessBlockers = readArray(workflowProposalReadiness, "readinessBlockers").filter(isRecord)
+  const calibrationDefaultPlan = isRecord(diagnostics?.calibrationDefaultPlan) ? diagnostics.calibrationDefaultPlan : null
+  const calibrationDefaultPlanSummary = isRecord(calibrationDefaultPlan?.summary) ? calibrationDefaultPlan.summary : {}
+  const calibrationDefaultPlanIssues = readArray(calibrationDefaultPlan, "issues").filter(isRecord)
   return (
     <Card id="diagnostics">
       <CardHeader>
@@ -195,6 +198,29 @@ export function DiagnosticsCard({ diagnosticCounts, diagnostics }: { diagnosticC
                 {proposalReadinessBlockers.slice(0, 4).map((row) => (
                   <Badge variant="secondary" key={String(row.blocker ?? "blocker")}>
                     {String(row.blocker ?? "blocker").replaceAll("_", " ")} {formatCount(readNumber(row, "count") ?? 0)}
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {calibrationDefaultPlan ? (
+          <div className="rounded-md border px-3 py-2 text-xs">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium">Calibration default plan</span>
+              <Badge variant={(readNumber(calibrationDefaultPlanSummary, "issues") ?? calibrationDefaultPlanIssues.length) === 0 ? "outline" : "secondary"}>
+                {formatCount(readNumber(calibrationDefaultPlanSummary, "issues") ?? calibrationDefaultPlanIssues.length)} issues
+              </Badge>
+            </div>
+            <p className="mt-1 text-muted-foreground">
+              {formatCount(readNumber(calibrationDefaultPlanSummary, "defaultCandidates") ?? 0)} candidates ·{" "}
+              {formatCount(readNumber(calibrationDefaultPlanSummary, "skippedNonHoldout") ?? 0)} non-holdout skips
+            </p>
+            {calibrationDefaultPlanIssues.length ? (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {calibrationDefaultPlanIssues.slice(0, 4).map((issue) => (
+                  <Badge variant="secondary" key={String(issue.kind ?? "default-plan-issue")}>
+                    {String(issue.kind ?? "issue").replaceAll("_", " ")}
                   </Badge>
                 ))}
               </div>

@@ -1541,6 +1541,10 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(diagnosticsSource.includes("workflow_proposal_readiness"), "diagnostics does not turn workflow proposal readiness into a check item");
   assert(diagnosticsSource.includes("blockedActiveProposals"), "diagnostics does not expose blocked active proposal count");
   assert(diagnosticsSource.includes("readinessBlockers"), "diagnostics does not expose workflow proposal blocker breakdowns");
+  assert(diagnosticsSource.includes("readLatestCalibrationDefaultPlan"), "diagnostics does not read local calibration default-plan reports");
+  assert(diagnosticsSource.includes("calibrationDefaultPlanDiagnostic"), "diagnostics does not turn calibration default-plan issues into a check item");
+  assert(diagnosticsSource.includes("calibrationDefaultPlan"), "diagnostics snapshot does not expose calibration default-plan summary");
+  assert(diagnosticsSource.includes("validation_report_stale") || diagnosticsSource.includes("issues"), "diagnostics does not expose calibration default-plan issue rows");
   assert(smokeSource.includes("workflowProposalReadiness"), "smoke check does not validate workflow proposal readiness diagnostics");
   assert(smokeSource.includes("workflow_proposal_readiness"), "smoke check does not require the workflow proposal readiness diagnostic item");
   assert(smokeSource.includes("readinessBlockers"), "smoke check does not validate workflow proposal blocker breakdowns");
@@ -1568,6 +1572,9 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(dashboardPanelSource.includes("workflowProposalReadiness"), "lab dashboard does not render workflow proposal readiness diagnostics");
   assert(dashboardPanelSource.includes("latestBlockedReadinessBlockers"), "lab dashboard does not render proposal readiness blockers");
   assert(dashboardPanelSource.includes("proposalReadinessBlockers"), "lab dashboard does not render proposal readiness blocker breakdowns");
+  assert(dashboardPanelSource.includes("calibrationDefaultPlan"), "lab dashboard does not render calibration default-plan diagnostics");
+  assert(dashboardPanelSource.includes("Calibration default plan"), "lab dashboard does not label calibration default-plan diagnostics");
+  assert(dashboardPanelSource.includes("calibrationDefaultPlanIssues"), "lab dashboard does not render calibration default-plan issue rows");
   assert(dashboardPanelSource.includes("unresolvedCandidateCalibrationGuardRules"), "lab dashboard does not render candidate guard review count");
   assert(dashboardPanelSource.includes("calibrationGuardRegressionItems"), "lab dashboard does not render guard regression count");
   assert(dashboardPanelSource.includes("attentionByKind"), "lab dashboard does not render attention kind breakdowns");
