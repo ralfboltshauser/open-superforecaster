@@ -661,6 +661,8 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       aggregate_convergence_status: "none",
       aggregate_quality_approved: "unknown",
       aggregate_max_iterations_reached: "unknown",
+      aggregate_rounds_used_band: "unknown",
+      aggregate_quality_issue_count_band: "unknown",
       score_type: "all",
     };
     metrics.gauge(
@@ -683,6 +685,8 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       aggregate_convergence_status: aggregateQuality?.convergenceStatus ?? "unknown",
       aggregate_quality_approved: String(aggregateQuality?.qualityApproved ?? "unknown"),
       aggregate_max_iterations_reached: String(aggregateQuality?.maxIterationsReached ?? "unknown"),
+      aggregate_rounds_used_band: aggregateQuality?.roundsUsedBand ?? "unknown",
+      aggregate_quality_issue_count_band: aggregateQuality?.qualityIssueCountBand ?? "unknown",
     });
   })) {
     const labels = parseLabelKey(key);

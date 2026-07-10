@@ -308,10 +308,22 @@ try {
       nullif(fs.score_config #>> '{aggregateQuality,qualityApproved}', '')::boolean as aggregate_quality_approved,
       nullif(fs.score_config #>> '{aggregateQuality,maxIterationsReached}', '')::boolean as aggregate_max_iterations_reached,
       nullif(fs.score_config #>> '{aggregateQuality,roundsUsed}', '')::integer as aggregate_rounds_used,
+      case
+        when nullif(fs.score_config #>> '{aggregateQuality,roundsUsed}', '')::integer >= 4 then 'many_rounds'
+        when nullif(fs.score_config #>> '{aggregateQuality,roundsUsed}', '')::integer >= 2 then 'few_rounds'
+        when nullif(fs.score_config #>> '{aggregateQuality,roundsUsed}', '')::integer >= 0 then 'single_round'
+        else 'unknown'
+      end as aggregate_rounds_used_band,
       nullif(fs.score_config #>> '{aggregateQuality,forecasterCount}', '')::integer as aggregate_forecaster_count,
       nullif(fs.score_config #>> '{aggregateQuality,complexityScore}', '')::integer as aggregate_complexity_score,
       fs.score_config #>> '{aggregateQuality,researchDepth}' as aggregate_research_depth,
       nullif(fs.score_config #>> '{aggregateQuality,qualityIssueCount}', '')::integer as aggregate_quality_issue_count,
+      case
+        when nullif(fs.score_config #>> '{aggregateQuality,qualityIssueCount}', '')::integer >= 3 then 'many_issues'
+        when nullif(fs.score_config #>> '{aggregateQuality,qualityIssueCount}', '')::integer >= 1 then 'some_issues'
+        when nullif(fs.score_config #>> '{aggregateQuality,qualityIssueCount}', '')::integer >= 0 then 'none'
+        else 'unknown'
+      end as aggregate_quality_issue_count_band,
       (fs.score_config #> '{aggregateQuality,roleIds}')::text as aggregate_role_ids_json,
       nullif(fs.score_config #>> '{aggregateStats,meanProbability}', '')::double precision as aggregate_mean_probability,
       nullif(fs.score_config #>> '{aggregateStats,medianProbability}', '')::double precision as aggregate_median_probability,
@@ -867,10 +879,12 @@ const forecastScoreColumns = [
   { name: "aggregate_quality_approved", type: "BOOLEAN" },
   { name: "aggregate_max_iterations_reached", type: "BOOLEAN" },
   { name: "aggregate_rounds_used", type: "INTEGER" },
+  { name: "aggregate_rounds_used_band", type: "VARCHAR" },
   { name: "aggregate_forecaster_count", type: "INTEGER" },
   { name: "aggregate_complexity_score", type: "INTEGER" },
   { name: "aggregate_research_depth", type: "VARCHAR" },
   { name: "aggregate_quality_issue_count", type: "INTEGER" },
+  { name: "aggregate_quality_issue_count_band", type: "VARCHAR" },
   { name: "aggregate_role_ids_json", type: "VARCHAR" },
   { name: "aggregate_mean_probability", type: "DOUBLE" },
   { name: "aggregate_median_probability", type: "DOUBLE" },

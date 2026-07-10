@@ -6,7 +6,7 @@ import {
   benchmarkPromotionGateBlockerIds,
   summarizeBenchmarkPromotionGateEvidence,
 } from "../packages/backend/src/benchmark-service";
-import { readAggregateQualitySnapshot } from "../packages/backend/src/aggregate-quality-metadata";
+import { qualityIssueCountBand, readAggregateQualitySnapshot, roundsUsedBand } from "../packages/backend/src/aggregate-quality-metadata";
 import { adjustmentFromMedianBand, aggregateSideAgreementBand, attemptCountBand, finalAdjustmentDirection, finalComponentPositionBand, finalConfidenceShiftBand, finalInsideViewDeltaBand, insideViewDeltaBand, meanConfidenceDistanceBand, readAggregateStatsSnapshot } from "../packages/backend/src/aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "../packages/backend/src/baseline-sanity-metadata";
 import { buildBinaryConfidenceSnapshot, readBinaryConfidenceSnapshot } from "../packages/backend/src/binary-confidence-metadata";
@@ -975,6 +975,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Binary side groups"), "performance Markdown missing binary side group section");
   assert(resolutionSource.includes("## Baseline sanity groups"), "performance Markdown missing baseline sanity group section");
   assert(resolutionSource.includes("## Aggregate quality groups"), "performance Markdown missing aggregate quality group section");
+  assert(resolutionSource.includes("## Aggregate quality review-round groups"), "performance Markdown missing aggregate quality review-round group section");
+  assert(resolutionSource.includes("## Aggregate quality issue-count groups"), "performance Markdown missing aggregate quality issue-count group section");
   assert(resolutionSource.includes("## Component disagreement groups"), "performance Markdown missing component disagreement group section");
   assert(resolutionSource.includes("## Component envelope groups"), "performance Markdown missing component envelope group section");
   assert(resolutionSource.includes("## Aggregate side-agreement groups"), "performance Markdown missing aggregate side-agreement group section");
@@ -1052,6 +1054,10 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Baseline sanity outcomes"), "lab dashboard does not render baseline sanity performance groups");
   assert(dashboardSource.includes("byAggregateQuality"), "lab dashboard does not read aggregate quality performance groups");
   assert(dashboardSource.includes("Aggregate quality outcomes"), "lab dashboard does not render aggregate quality performance groups");
+  assert(dashboardSource.includes("byAggregateQualityRounds"), "lab dashboard does not read aggregate review-round performance groups");
+  assert(dashboardSource.includes("Aggregate review-round outcomes"), "lab dashboard does not render aggregate review-round performance groups");
+  assert(dashboardSource.includes("byAggregateQualityIssues"), "lab dashboard does not read aggregate quality-issue performance groups");
+  assert(dashboardSource.includes("Aggregate quality-issue outcomes"), "lab dashboard does not render aggregate quality-issue performance groups");
   assert(dashboardSource.includes("byAggregateDisagreement"), "lab dashboard does not read component disagreement performance groups");
   assert(dashboardSource.includes("Component disagreement outcomes"), "lab dashboard does not render component disagreement performance groups");
   assert(dashboardSource.includes("byAggregateFinalComponentPosition"), "lab dashboard does not read component envelope performance groups");
@@ -1661,8 +1667,12 @@ await check("binary aggregate quality metadata reaches resolved score analytics"
   assert(snapshot?.qualityApproved === false, "aggregate quality approval mismatch");
   assert(snapshot?.maxIterationsReached === true, "aggregate quality max-iteration mismatch");
   assert(snapshot?.roundsUsed === 3, "aggregate quality rounds mismatch");
+  assert(snapshot?.roundsUsedBand === "few_rounds", "aggregate quality rounds band mismatch");
   assert(snapshot?.qualityIssueCount === 2, "aggregate quality issue count mismatch");
+  assert(snapshot?.qualityIssueCountBand === "some_issues", "aggregate quality issue band mismatch");
   assert(snapshot?.roleIds.length === 2, "aggregate quality role ids mismatch");
+  assert(roundsUsedBand(4) === "many_rounds", "aggregate quality rounds band contract mismatch");
+  assert(qualityIssueCountBand(3) === "many_issues", "aggregate quality issue count band contract mismatch");
   const workflowSource = await readFile(resolve(root, "packages/workflows/src/binary-forecast.workflow.tsx"), "utf8");
   const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
@@ -1671,15 +1681,29 @@ await check("binary aggregate quality metadata reaches resolved score analytics"
   assert(workflowSource.includes("convergenceStatus"), "binary aggregate schema missing convergence status");
   assert(resolutionSource.includes("readAggregateQualitySnapshot(input.prediction)"), "resolution scoring does not persist aggregate quality");
   assert(resolutionSource.includes("byAggregateQuality"), "performance report does not group by aggregate quality");
+  assert(resolutionSource.includes("byAggregateQualityRounds"), "performance report does not group by aggregate quality review rounds");
+  assert(resolutionSource.includes("byAggregateQualityIssues"), "performance report does not group by aggregate quality issues");
   assert(resolutionSource.includes("aggregate_quality_miss"), "performance report does not flag aggregate quality misses");
+  assert(resolutionSource.includes("aggregate_quality_rounds_miss"), "performance report does not flag aggregate quality review-round misses");
+  assert(resolutionSource.includes("aggregateQualityRoundsMissSignal"), "performance report does not centralize aggregate quality review-round signals");
+  assert(resolutionSource.includes("aggregate_quality_issues_miss"), "performance report does not flag aggregate quality issue-count misses");
+  assert(resolutionSource.includes("aggregateQualityIssuesMissSignal"), "performance report does not centralize aggregate quality issue-count signals");
   assert(resolutionSource.includes("## Aggregate quality groups"), "performance Markdown missing aggregate quality group section");
+  assert(resolutionSource.includes("## Aggregate quality review-round groups"), "performance Markdown missing aggregate quality review-round group section");
+  assert(resolutionSource.includes("## Aggregate quality issue-count groups"), "performance Markdown missing aggregate quality issue-count group section");
   assert(metricsSource.includes("open_superforecaster_aggregate_quality_scores_total"), "metrics missing aggregate quality score counts");
   assert(metricsSource.includes("open_superforecaster_aggregate_quality_score_mean"), "metrics missing aggregate quality score means");
+  assert(metricsSource.includes("aggregate_rounds_used_band"), "metrics missing aggregate rounds-used bands");
+  assert(metricsSource.includes("aggregate_quality_issue_count_band"), "metrics missing aggregate quality issue-count bands");
   assert(syncSource.includes("aggregate_convergence_status"), "DuckDB forecast score mart missing aggregate convergence status");
   assert(syncSource.includes("aggregate_max_iterations_reached"), "DuckDB forecast score mart missing max-iteration flag");
+  assert(syncSource.includes("aggregate_rounds_used_band"), "DuckDB forecast score mart missing aggregate rounds-used band");
+  assert(syncSource.includes("aggregate_quality_issue_count_band"), "DuckDB forecast score mart missing aggregate quality issue-count band");
   assert(syncSource.includes("aggregate_role_ids_json"), "DuckDB forecast score mart missing role ids");
   assert(dashboardSource.includes("byAggregateQuality"), "lab dashboard does not read aggregate quality performance groups");
   assert(dashboardSource.includes("Aggregate quality outcomes"), "lab dashboard does not render aggregate quality performance groups");
+  assert(dashboardSource.includes("Aggregate review-round outcomes"), "lab dashboard does not render aggregate review-round outcomes");
+  assert(dashboardSource.includes("Aggregate quality-issue outcomes"), "lab dashboard does not render aggregate quality-issue outcomes");
   return "binary aggregate quality metadata is persisted and visible in resolved score analytics";
 });
 

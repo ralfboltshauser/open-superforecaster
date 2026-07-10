@@ -311,7 +311,7 @@ the same guard, baseline-sanity, market-anchor, resolution-boundary, uncertainty
 selected plan-shape metadata in score config so performance snapshots can
 compare guarded forecasts, large baseline movements, high component
 market divergences, boundary ambiguity, narrow uncertainty ranges, component
-downweighting, final-probability confidence, disagreement, component-envelope position,
+downweighting, aggregate review rounds, aggregate quality issues, final-probability confidence, disagreement, component-envelope position,
 aggregate side agreement, aggregate panel confidence, final confidence shift, median adjustment, base-rate-to-inside-view movement,
 final aggregation adjustment, final aggregation direction, aggregate attempt count, aggregation anchors,
 research depth, panel size, and complexity against outcomes, summarize score groups, and report guarded-vs-unguarded

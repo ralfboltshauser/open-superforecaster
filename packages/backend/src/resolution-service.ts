@@ -129,6 +129,8 @@ type PerformanceAttentionItem = {
     | "uncertainty_range_miss"
     | "component_weighting_miss"
     | "aggregate_quality_miss"
+    | "aggregate_quality_rounds_miss"
+    | "aggregate_quality_issues_miss"
     | "component_disagreement_miss"
     | "component_envelope_miss"
     | "aggregate_side_flip_miss"
@@ -410,6 +412,8 @@ export async function getForecastPerformanceReport(db: Db) {
   const byUncertaintyRange = groupScores(aggregateScores, uncertaintyRangeGroupKey);
   const byComponentWeighting = groupScores(aggregateScores, componentWeightingGroupKey);
   const byAggregateQuality = groupScores(aggregateScores, aggregateQualityGroupKey);
+  const byAggregateQualityRounds = groupScores(aggregateScores, aggregateQualityRoundsGroupKey);
+  const byAggregateQualityIssues = groupScores(aggregateScores, aggregateQualityIssuesGroupKey);
   const byAggregateDisagreement = groupScores(aggregateScores, aggregateDisagreementGroupKey);
   const byAggregateFinalComponentPosition = groupScores(aggregateScores, aggregateFinalComponentPositionGroupKey);
   const byAggregateSideAgreement = groupScores(aggregateScores, aggregateSideAgreementGroupKey);
@@ -529,6 +533,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byUncertaintyRange,
       byComponentWeighting,
       byAggregateQuality,
+      byAggregateQualityRounds,
+      byAggregateQualityIssues,
       byAggregateDisagreement,
       byAggregateFinalComponentPosition,
       byAggregateSideAgreement,
@@ -638,6 +644,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byUncertaintyRange,
       byComponentWeighting,
       byAggregateQuality,
+      byAggregateQualityRounds,
+      byAggregateQualityIssues,
       byAggregateDisagreement,
       byAggregateFinalComponentPosition,
       byAggregateSideAgreement,
@@ -1419,6 +1427,16 @@ function aggregateQualityGroupKey(score: typeof forecastScores.$inferSelect) {
     return "aggregate_quality:unrecorded";
   }
   return `aggregate_quality:${aggregateQuality.convergenceStatus}`;
+}
+
+function aggregateQualityRoundsGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
+  return `aggregate_quality_rounds:${aggregateQuality?.roundsUsedBand ?? "unrecorded"}`;
+}
+
+function aggregateQualityIssuesGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateQuality = readAggregateQualitySnapshot(score.scoreConfig);
+  return `aggregate_quality_issues:${aggregateQuality?.qualityIssueCountBand ?? "unrecorded"}`;
 }
 
 function aggregateDisagreementGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2277,6 +2295,22 @@ function buildNeedsAttentionQueue(
       rank: 60 + index,
     }));
 
+  const aggregateQualityRoundsItems = buildMetadataAttentionItems({
+    worstCases,
+    idPrefix: "aggregate-quality-rounds",
+    kind: "aggregate_quality_rounds_miss",
+    rankStart: 62,
+    signal: aggregateQualityRoundsMissSignal,
+  });
+
+  const aggregateQualityIssuesItems = buildMetadataAttentionItems({
+    worstCases,
+    idPrefix: "aggregate-quality-issues",
+    kind: "aggregate_quality_issues_miss",
+    rankStart: 63,
+    signal: aggregateQualityIssuesMissSignal,
+  });
+
   const binaryConfidenceCandidates = worstCases.flatMap((item) => {
     const threshold = poorScoreThreshold(item.primaryMetric);
     const signal = binaryConfidenceMissSignal(item);
@@ -2654,6 +2688,8 @@ function buildNeedsAttentionQueue(
     ...uncertaintyRangeItems,
     ...componentWeightingItems,
     ...aggregateQualityItems,
+    ...aggregateQualityRoundsItems,
+    ...aggregateQualityIssuesItems,
     ...binaryConfidenceItems,
     ...componentDisagreementItems,
     ...componentEnvelopeItems,
@@ -2864,6 +2900,30 @@ function componentDisagreementMissSignal(item: PerformanceCase): { reason: strin
   }
 
   return null;
+}
+
+function aggregateQualityRoundsMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const quality = item.aggregateQuality;
+  if (item.forecastType !== "binary" || !quality || quality.roundsUsedBand !== "many_rounds") {
+    return null;
+  }
+  return {
+    reason: `aggregate needed ${quality.roundsUsed ?? "unknown"} review round(s), indicating unstable or repeatedly rejected aggregation`,
+    delta: quality.roundsUsed,
+    severity: "medium",
+  };
+}
+
+function aggregateQualityIssuesMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const quality = item.aggregateQuality;
+  if (item.forecastType !== "binary" || !quality || quality.qualityIssueCountBand !== "many_issues") {
+    return null;
+  }
+  return {
+    reason: `aggregate carried ${quality.qualityIssueCount} quality issue(s) during final review`,
+    delta: quality.qualityIssueCount,
+    severity: "medium",
+  };
 }
 
 function buildMetadataAttentionItems(input: {
@@ -3316,6 +3376,12 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "aggregate_quality_miss") {
     actions.add("Review the final quality issues and review rationale before changing prompts or defaults.");
     actions.add("Compare max-iteration cases against approved cases to decide whether the review loop needs another round or sharper rejection criteria.");
+  } else if (input.kind === "aggregate_quality_rounds_miss") {
+    actions.add("Audit why the aggregate needed many review rounds before finalizing.");
+    actions.add("Compare rejected-round feedback against the final rationale before changing prompts or defaults.");
+  } else if (input.kind === "aggregate_quality_issues_miss") {
+    actions.add("Audit the final review issue list before treating the miss as a pure calibration failure.");
+    actions.add("Compare repeated quality issues across resolved misses before changing reviewer thresholds.");
   } else if (input.kind === "binary_confidence_miss") {
     actions.add("Check whether the evidence justified the final probability distance from 50%.");
     actions.add("Compare the final side against base-rate, inside-view, and skeptical component probabilities.");
@@ -3465,6 +3531,8 @@ function renderPerformanceMarkdown(input: {
   byUncertaintyRange: PerformanceGroup[];
   byComponentWeighting: PerformanceGroup[];
   byAggregateQuality: PerformanceGroup[];
+  byAggregateQualityRounds: PerformanceGroup[];
+  byAggregateQualityIssues: PerformanceGroup[];
   byAggregateDisagreement: PerformanceGroup[];
   byAggregateFinalComponentPosition: PerformanceGroup[];
   byAggregateSideAgreement: PerformanceGroup[];
@@ -3589,6 +3657,12 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Aggregate quality groups",
     ...renderGroupTable(input.byAggregateQuality),
+    "",
+    "## Aggregate quality review-round groups",
+    ...renderGroupTable(input.byAggregateQualityRounds),
+    "",
+    "## Aggregate quality issue-count groups",
+    ...renderGroupTable(input.byAggregateQualityIssues),
     "",
     "## Component disagreement groups",
     ...renderGroupTable(input.byAggregateDisagreement),

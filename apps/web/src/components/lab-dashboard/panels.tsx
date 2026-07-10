@@ -624,6 +624,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byUncertaintyRange = readArray(groups, "byUncertaintyRange").filter(isRecord)
   const byComponentWeighting = readArray(groups, "byComponentWeighting").filter(isRecord)
   const byAggregateQuality = readArray(groups, "byAggregateQuality").filter(isRecord)
+  const byAggregateQualityRounds = readArray(groups, "byAggregateQualityRounds").filter(isRecord)
+  const byAggregateQualityIssues = readArray(groups, "byAggregateQualityIssues").filter(isRecord)
   const byAggregateDisagreement = readArray(groups, "byAggregateDisagreement").filter(isRecord)
   const byAggregateFinalComponentPosition = readArray(groups, "byAggregateFinalComponentPosition").filter(isRecord)
   const byAggregateSideAgreement = readArray(groups, "byAggregateSideAgreement").filter(isRecord)
@@ -752,6 +754,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byUncertaintyRange.length ? <PerformancePlanShapeGroupList groups={byUncertaintyRange} title="Uncertainty-range outcomes" skipKey="uncertainty_range:unrecorded" fallback="uncertainty range" /> : null}
         {byComponentWeighting.length ? <PerformancePlanShapeGroupList groups={byComponentWeighting} title="Component-weighting outcomes" skipKey="component_weighting:unrecorded" fallback="component weighting" /> : null}
         {byAggregateQuality.length ? <PerformanceAggregateQualityGroupList groups={byAggregateQuality} /> : null}
+        {byAggregateQualityRounds.length ? <PerformancePlanShapeGroupList groups={byAggregateQualityRounds} title="Aggregate review-round outcomes" skipKey="aggregate_quality_rounds:unrecorded" fallback="review rounds" /> : null}
+        {byAggregateQualityIssues.length ? <PerformancePlanShapeGroupList groups={byAggregateQualityIssues} title="Aggregate quality-issue outcomes" skipKey="aggregate_quality_issues:unrecorded" fallback="quality issues" /> : null}
         {byAggregateDisagreement.length ? <PerformanceComponentDisagreementGroupList groups={byAggregateDisagreement} /> : null}
         {byAggregateFinalComponentPosition.length ? <PerformancePlanShapeGroupList groups={byAggregateFinalComponentPosition} title="Component envelope outcomes" skipKey="component_envelope:unrecorded" fallback="component envelope" /> : null}
         {byAggregateSideAgreement.length ? <PerformancePlanShapeGroupList groups={byAggregateSideAgreement} title="Aggregate side-agreement outcomes" skipKey="aggregate_side:unrecorded" fallback="side agreement" /> : null}

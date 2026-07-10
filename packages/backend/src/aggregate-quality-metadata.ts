@@ -8,6 +8,8 @@ export type AggregateQualitySnapshot = {
   researchDepth: string | null;
   roleIds: string[];
   qualityIssueCount: number;
+  qualityIssueCountBand: "none" | "some_issues" | "many_issues" | "unknown";
+  roundsUsedBand: "single_round" | "few_rounds" | "many_rounds" | "unknown";
   finalReviewRationale: string;
 };
 
@@ -23,20 +25,50 @@ export function readAggregateQualitySnapshot(value: unknown): AggregateQualitySn
   if (!convergenceStatus) {
     return null;
   }
+  const roundsUsed = readNumber(aggregateQuality, "roundsUsed", "rounds_used");
+  const qualityIssueCount =
+    readNumber(aggregateQuality, "qualityIssueCount", "quality_issue_count") ??
+    readStringArray(aggregateQuality, "qualityIssues", "quality_issues").length;
   return {
     convergenceStatus,
     qualityApproved: readBoolean(aggregateQuality, "qualityApproved", "quality_approved"),
     maxIterationsReached: readBoolean(aggregateQuality, "maxIterationsReached", "max_iterations_reached"),
-    roundsUsed: readNumber(aggregateQuality, "roundsUsed", "rounds_used"),
+    roundsUsed,
     forecasterCount: readNumber(aggregateQuality, "forecasterCount", "forecaster_count"),
     complexityScore: readNumber(aggregateQuality, "complexityScore", "complexity_score"),
     researchDepth: readString(aggregateQuality, "researchDepth", "research_depth"),
     roleIds: readStringArray(aggregateQuality, "roleIds", "role_ids"),
-    qualityIssueCount:
-      readNumber(aggregateQuality, "qualityIssueCount", "quality_issue_count") ??
-      readStringArray(aggregateQuality, "qualityIssues", "quality_issues").length,
+    qualityIssueCount,
+    qualityIssueCountBand: qualityIssueCountBand(qualityIssueCount),
+    roundsUsedBand: roundsUsedBand(roundsUsed),
     finalReviewRationale: readString(aggregateQuality, "finalReviewRationale", "final_review_rationale") ?? "",
   };
+}
+
+export function qualityIssueCountBand(qualityIssueCount: number | null): AggregateQualitySnapshot["qualityIssueCountBand"] {
+  if (qualityIssueCount === null || !Number.isFinite(qualityIssueCount)) {
+    return "unknown";
+  }
+  if (qualityIssueCount >= 3) {
+    return "many_issues";
+  }
+  if (qualityIssueCount >= 1) {
+    return "some_issues";
+  }
+  return "none";
+}
+
+export function roundsUsedBand(roundsUsed: number | null): AggregateQualitySnapshot["roundsUsedBand"] {
+  if (roundsUsed === null || !Number.isFinite(roundsUsed)) {
+    return "unknown";
+  }
+  if (roundsUsed >= 4) {
+    return "many_rounds";
+  }
+  if (roundsUsed >= 2) {
+    return "few_rounds";
+  }
+  return "single_round";
 }
 
 function readConvergenceStatus(value: unknown): AggregateQualitySnapshot["convergenceStatus"] | null {
