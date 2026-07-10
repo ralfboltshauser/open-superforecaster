@@ -469,8 +469,8 @@ items for the selected batch, such as calibration validation or default-plan
 skips that are not stored in the batch index, while deduplicating batch-index
 items and candidate guard rules. Health only merges a backlog generated with
 open and deferred statuses and with no conflicting batch filter; incompatible
-filtered backlogs are reported as health issues instead of silently changing
-the counts. Calibration guard
+filtered backlogs, or backlogs older than the selected batch index, are reported
+as health issues instead of silently changing the counts. Calibration guard
 regressions are called out separately when guarded aggregates are scoring worse
 than unguarded aggregates; baseline-sanity misses remain in the same unresolved
 attention lane as other forecast postmortems. Health reports preserve local

@@ -24,6 +24,7 @@ type HealthIssue = {
 type SelectedAttentionBacklog = {
   path: string;
   payload: JsonRecord;
+  generatedAt: string | null;
 };
 
 type AttentionKindBreakdown = {
@@ -219,7 +220,7 @@ async function selectAttentionBacklog(backlogRoot: string): Promise<SelectedAtte
 function buildHealthReport(
   batchIndex: JsonRecord,
   batchIndexPath: string,
-  attentionBacklog: { path: string; payload: JsonRecord } | null,
+  attentionBacklog: SelectedAttentionBacklog | null,
   sourceDir: string,
   backlogDir: string,
   reportJsonPath: string,
@@ -229,7 +230,8 @@ function buildHealthReport(
   const counts = readRecord(batchIndex, "counts") ?? {};
   const batchAttentionItems = readRecordArray(batchIndex, "attentionItems").flatMap((item) => readHealthAttentionItem(item, batchIndexPath));
   const candidateCalibrationGuardRules = readRecordArray(batchIndex, "candidateCalibrationGuardRules").flatMap(readHealthCandidateCalibrationGuardRule);
-  const attentionBacklogIssues = attentionBacklog ? attentionBacklogCompatibilityIssues(attentionBacklog.payload, batchId) : [];
+  const batchIndexGeneratedAt = readString(batchIndex, "generatedAt");
+  const attentionBacklogIssues = attentionBacklog ? attentionBacklogCompatibilityIssues(attentionBacklog, batchId, batchIndexGeneratedAt) : [];
   const compatibleAttentionBacklog = attentionBacklog && attentionBacklogIssues.length === 0 ? attentionBacklog : null;
   const attentionItems = mergeSupplementalAttentionItems(
     batchAttentionItems,
@@ -402,11 +404,25 @@ function buildIssues(
   return issues;
 }
 
-function attentionBacklogCompatibilityIssues(backlog: JsonRecord, batchId: string | null): HealthIssue[] {
+function attentionBacklogCompatibilityIssues(
+  attentionBacklog: SelectedAttentionBacklog,
+  batchId: string | null,
+  batchIndexGeneratedAt: string | null,
+): HealthIssue[] {
   const issues: HealthIssue[] = [];
+  const backlog = attentionBacklog.payload;
   const filters = readRecord(backlog, "filters");
   const statuses = readStringArray(filters, "statuses");
   const batchIds = readStringArray(filters, "batchIds");
+  const batchTimestamp = timestampValue(batchIndexGeneratedAt);
+  const backlogTimestamp = timestampValue(attentionBacklog.generatedAt);
+  if (batchTimestamp > 0 && backlogTimestamp > 0 && backlogTimestamp < batchTimestamp) {
+    issues.push({
+      severity: "medium",
+      kind: "attention_backlog_stale",
+      message: `Attention backlog was generated before selected batch ${batchId ?? "unknown"} and was not merged into health counts.`,
+    });
+  }
   const missingStatuses = ["open", "deferred"].filter((status) => !statuses.includes(status));
   if (statuses.length > 0 && missingStatuses.length > 0) {
     issues.push({
