@@ -491,8 +491,10 @@ The proposal step only drafts reviewed, ready candidate rules. Validation replay
 the proposal against resolved binary aggregates and requires a held-out replay
 before any row can become a default candidate. The default-plan step still does
 not change runtime behavior; it writes the exact rule candidates, target file,
-and manual acceptance criteria under
-`data/reports/forecast-calibration-guard-default-plan`.
+manual acceptance criteria, and skipped validation rows with reasons under
+`data/reports/forecast-calibration-guard-default-plan`. Prometheus and DuckDB
+also expose those skipped default-plan rows so rejected or non-holdout
+calibration evidence is auditable without opening the raw report.
 
 To check the local forecast script contracts:
 

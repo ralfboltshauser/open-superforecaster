@@ -858,8 +858,11 @@ try {
 
   const calibrationGuardValidations = await readCalibrationGuardValidationRows(resolve(root, "data/reports/forecast-calibration-guard-validation"));
   await replaceTable(duck, "osf_calibration_guard_validations", calibrationGuardValidationColumns, calibrationGuardValidations);
-  const calibrationGuardDefaultPlanCandidates = await readCalibrationGuardDefaultPlanRows(resolve(root, "data/reports/forecast-calibration-guard-default-plan"));
+  const calibrationGuardDefaultPlan = await readCalibrationGuardDefaultPlanRows(resolve(root, "data/reports/forecast-calibration-guard-default-plan"));
+  const calibrationGuardDefaultPlanCandidates = calibrationGuardDefaultPlan.candidateRows;
+  const calibrationGuardDefaultPlanSkippedRows = calibrationGuardDefaultPlan.skippedRows;
   await replaceTable(duck, "osf_calibration_guard_default_plan_candidates", calibrationGuardDefaultPlanColumns, calibrationGuardDefaultPlanCandidates);
+  await replaceTable(duck, "osf_calibration_guard_default_plan_skipped_rows", calibrationGuardDefaultPlanSkippedColumns, calibrationGuardDefaultPlanSkippedRows);
   const forecastAttentionItems = await readForecastAttentionItemRows(resolve(root, "data/reports/forecast-batches"));
   await replaceTable(duck, "osf_forecast_attention_items", forecastAttentionItemColumns, forecastAttentionItems);
   const forecastBatchHealthSnapshot = readLatestForecastBatchHealth(root);
@@ -890,6 +893,7 @@ try {
     osf_workflow_change_proposals: workflowChangeProposals.length,
     osf_calibration_guard_validations: calibrationGuardValidations.length,
     osf_calibration_guard_default_plan_candidates: calibrationGuardDefaultPlanCandidates.length,
+    osf_calibration_guard_default_plan_skipped_rows: calibrationGuardDefaultPlanSkippedRows.length,
     osf_forecast_attention_items: forecastAttentionItems.length,
     osf_forecast_batch_health: forecastBatchHealth.length,
     osf_forecast_batch_health_issues: forecastBatchHealthIssues.length,
@@ -919,6 +923,7 @@ try {
       "select rule_id, status, guarded_rows, brier_delta from osf_calibration_guard_rule_impact order by rule_id;",
       "select proposal_id, recommendation, brier_delta, calibration_error_delta from osf_calibration_guard_validations order by generated_at desc limit 5;",
       "select proposal_id, bucket_label, suggested_adjustment, brier_delta, calibration_error_delta, implementation_status from osf_calibration_guard_default_plan_candidates order by generated_at desc limit 5;",
+      "select proposal_id, bucket_label, validation_mode, recommendation, reason from osf_calibration_guard_default_plan_skipped_rows order by generated_at desc limit 10;",
       "select batch_id, review_status, severity, kind, metric, score, task_label from osf_forecast_attention_items order by generated_at desc, severity limit 10;",
       "select batch_id, status, unresolved_attention_items, unresolved_candidate_calibration_guard_rules, issue_count from osf_forecast_batch_health;",
       "select batch_id, severity, kind, message from osf_forecast_batch_health_issues order by severity, kind;",
@@ -1572,6 +1577,17 @@ const calibrationGuardDefaultPlanColumns = [
   { name: "validation_report_path", type: "VARCHAR" },
 ] satisfies DuckColumn[];
 
+const calibrationGuardDefaultPlanSkippedColumns = [
+  { name: "report_path", type: "VARCHAR" },
+  { name: "generated_at", type: "VARCHAR" },
+  { name: "proposal_id", type: "VARCHAR" },
+  { name: "bucket_label", type: "VARCHAR" },
+  { name: "recommendation", type: "VARCHAR" },
+  { name: "validation_mode", type: "VARCHAR" },
+  { name: "reason", type: "VARCHAR" },
+  { name: "validation_report_path", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
 const forecastAttentionItemColumns = [
   { name: "report_path", type: "VARCHAR" },
   { name: "batch_id", type: "VARCHAR" },
@@ -1719,6 +1735,7 @@ type SourceMartRow = RowFor<typeof sourceColumns>;
 type SourceDomainMartRow = RowFor<typeof sourceDomainColumns>;
 type CalibrationGuardValidationMartRow = RowFor<typeof calibrationGuardValidationColumns>;
 type CalibrationGuardDefaultPlanMartRow = RowFor<typeof calibrationGuardDefaultPlanColumns>;
+type CalibrationGuardDefaultPlanSkippedMartRow = RowFor<typeof calibrationGuardDefaultPlanSkippedColumns>;
 type ForecastAttentionItemMartRow = RowFor<typeof forecastAttentionItemColumns>;
 type ForecastBatchHealthMartRow = RowFor<typeof forecastBatchHealthColumns>;
 type ForecastBatchHealthIssueMartRow = RowFor<typeof forecastBatchHealthIssueColumns>;
@@ -2013,9 +2030,13 @@ async function readCalibrationGuardValidationRows(reportRoot: string): Promise<C
   );
 }
 
-async function readCalibrationGuardDefaultPlanRows(reportRoot: string): Promise<CalibrationGuardDefaultPlanMartRow[]> {
+async function readCalibrationGuardDefaultPlanRows(reportRoot: string): Promise<{
+  candidateRows: CalibrationGuardDefaultPlanMartRow[];
+  skippedRows: CalibrationGuardDefaultPlanSkippedMartRow[];
+}> {
   const paths = await listFilesNamed(reportRoot, "calibration-guard-default-plan.json");
-  const rows: CalibrationGuardDefaultPlanMartRow[] = [];
+  const candidateRows: CalibrationGuardDefaultPlanMartRow[] = [];
+  const skippedRows: CalibrationGuardDefaultPlanSkippedMartRow[] = [];
   for (const path of paths) {
     const payload = await readJsonRecord(path);
     if (!payload) {
@@ -2024,7 +2045,7 @@ async function readCalibrationGuardDefaultPlanRows(reportRoot: string): Promise<
     const generatedAt = readString(payload, "generatedAt");
     const pathsRecord = readRecord(payload, "paths");
     for (const candidate of readRecordArray(payload, "defaultCandidates")) {
-      rows.push({
+      candidateRows.push({
         report_path: path,
         generated_at: generatedAt,
         proposal_id: readString(candidate, "proposalId"),
@@ -2042,12 +2063,28 @@ async function readCalibrationGuardDefaultPlanRows(reportRoot: string): Promise<
         validation_report_path: readString(pathsRecord, "validationReport"),
       });
     }
+    for (const skipped of readRecordArray(payload, "skippedRows")) {
+      skippedRows.push({
+        report_path: path,
+        generated_at: generatedAt,
+        proposal_id: readString(skipped, "proposalId"),
+        bucket_label: readString(skipped, "bucketLabel"),
+        recommendation: readString(skipped, "recommendation"),
+        validation_mode: readString(skipped, "validationMode"),
+        reason: readString(skipped, "reason"),
+        validation_report_path: readString(pathsRecord, "validationReport"),
+      });
+    }
   }
-  return rows.sort((left, right) =>
+  const sortRows = <T extends CalibrationGuardDefaultPlanMartRow | CalibrationGuardDefaultPlanSkippedMartRow>(rows: T[]) => rows.sort((left, right) =>
     String(left.generated_at ?? "").localeCompare(String(right.generated_at ?? ""))
     || String(left.proposal_id ?? "").localeCompare(String(right.proposal_id ?? ""))
     || String(left.report_path ?? "").localeCompare(String(right.report_path ?? ""))
   );
+  return {
+    candidateRows: sortRows(candidateRows),
+    skippedRows: sortRows(skippedRows),
+  };
 }
 
 async function readForecastAttentionItemRows(reportRoot: string): Promise<ForecastAttentionItemMartRow[]> {

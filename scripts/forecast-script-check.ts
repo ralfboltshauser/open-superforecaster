@@ -1458,6 +1458,8 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_calibration_guard_validation_calibration_error_delta"), "calibration validation calibration error delta metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_candidates_total"), "calibration default plan candidate metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_candidate_brier_delta"), "calibration default plan Brier delta metric missing");
+  assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_skipped_rows_total"), "calibration default plan skipped-row metric missing");
+  assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_skipped_row_info"), "calibration default plan skipped-row metadata metric missing");
   assert(metricsSource.includes("open_superforecaster_source_bank_domains_total"), "source-bank domain count metric missing");
   assert(metricsSource.includes("open_superforecaster_source_bank_domain_entries"), "source-bank domain entry metric missing");
   assert(metricsSource.includes("open_superforecaster_source_bank_domain_used_in_final_entries"), "source-bank domain final-use metric missing");
@@ -1483,6 +1485,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(smokeSource.includes("open_superforecaster_forecast_batch_health_attention_breakdown_items"), "smoke check does not require forecast batch health attention breakdown metric");
   assert(smokeSource.includes("open_superforecaster_source_bank_domains_total"), "smoke check does not require source-bank domain metric");
   assert(smokeSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "smoke check does not require calibration validation metric");
+  assert(smokeSource.includes("open_superforecaster_calibration_guard_default_plan_skipped_rows_total"), "smoke check does not require calibration default-plan skipped-row metric");
   assert(metricsRouteSource.includes("renderPrometheusMetrics"), "metrics route does not render Prometheus metrics");
   assert(metricsRouteSource.includes("text/plain; version=0.0.4"), "metrics route missing Prometheus content type");
   return "binary calibration health, candidate guard rules, and validation outcomes are visible in Prometheus metrics";
@@ -1497,6 +1500,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("osf_calibration_guard_rule_impact"), "DuckDB sync missing rule-level calibration guard impact mart");
   assert(syncSource.includes("osf_calibration_guard_validations"), "DuckDB sync missing calibration guard validation mart");
   assert(syncSource.includes("osf_calibration_guard_default_plan_candidates"), "DuckDB sync missing calibration guard default plan mart");
+  assert(syncSource.includes("osf_calibration_guard_default_plan_skipped_rows"), "DuckDB sync missing calibration guard default plan skipped-row mart");
   assert(syncSource.includes("osf_forecast_attention_items"), "DuckDB sync missing forecast attention item mart");
   assert(syncSource.includes("osf_source_bank_domains"), "DuckDB sync missing source-bank domain mart");
   assert(syncSource.includes("osf_smithers_token_usage"), "DuckDB sync missing detailed token-usage mart");

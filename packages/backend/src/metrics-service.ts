@@ -72,6 +72,16 @@ type CalibrationGuardDefaultPlanMetricRow = {
   implementationStatus: string | null;
 };
 
+type CalibrationGuardDefaultPlanSkippedMetricRow = {
+  reportPath: string;
+  generatedAt: string | null;
+  proposalId: string | null;
+  bucketLabel: string | null;
+  recommendation: string | null;
+  validationMode: string | null;
+  reason: string | null;
+};
+
 type ForecastAttentionMetricRow = {
   reportPath: string;
   batchId: string | null;
@@ -1593,10 +1603,12 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
   if (options.root) {
     const validationRows = await readCalibrationGuardValidationMetricRows(options.root);
     const defaultPlanRows = await readCalibrationGuardDefaultPlanMetricRows(options.root);
+    const defaultPlanCandidateRows = defaultPlanRows.candidateRows;
+    const defaultPlanSkippedRows = defaultPlanRows.skippedRows;
     const attentionRows = await readForecastAttentionMetricRows(options.root);
     const batchHealth = readLatestForecastBatchHealth(options.root);
     const validationReportPaths = uniqueStrings(validationRows.map((row) => row.reportPath));
-    const defaultPlanReportPaths = uniqueStrings(defaultPlanRows.map((row) => row.reportPath));
+    const defaultPlanReportPaths = defaultPlanRows.reportPaths;
     const attentionReportPaths = uniqueStrings(attentionRows.map((row) => row.reportPath));
     const batchHealthLabels = {
       batch_id: batchHealth.batchId ?? "none",
@@ -1781,9 +1793,28 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge(
       "open_superforecaster_calibration_guard_default_plan_candidates_total",
       "Local calibration guard default implementation candidate count.",
-      defaultPlanRows.length,
+      defaultPlanCandidateRows.length,
     );
-    for (const candidate of defaultPlanRows.slice(-50)) {
+    metrics.gauge(
+      "open_superforecaster_calibration_guard_default_plan_skipped_rows_total",
+      "Local calibration guard default plan skipped validation row count by reason.",
+      defaultPlanSkippedRows.length,
+    );
+    for (const [key, count] of countBy(defaultPlanSkippedRows, (row) =>
+      labelKey({
+        reason: row.reason ?? "unknown",
+        validation_mode: row.validationMode ?? "unknown",
+        recommendation: row.recommendation ?? "unknown",
+      }),
+    )) {
+      metrics.gauge(
+        "open_superforecaster_calibration_guard_default_plan_skipped_rows_total",
+        "Local calibration guard default plan skipped validation row count by reason.",
+        count,
+        parseLabelKey(key),
+      );
+    }
+    for (const candidate of defaultPlanCandidateRows.slice(-50)) {
       const labels = {
         proposal_id: candidate.proposalId ?? "unknown",
         source_candidate_guard_id: candidate.sourceCandidateGuardId ?? "unknown",
@@ -1824,6 +1855,15 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
           labels,
         );
       }
+    }
+    for (const skipped of defaultPlanSkippedRows.slice(-50)) {
+      metrics.gauge("open_superforecaster_calibration_guard_default_plan_skipped_row_info", "Recent skipped calibration guard default plan validation metadata.", 1, {
+        proposal_id: skipped.proposalId ?? "unknown",
+        bucket: skipped.bucketLabel ?? "unknown",
+        validation_mode: skipped.validationMode ?? "unknown",
+        recommendation: skipped.recommendation ?? "unknown",
+        reason: skipped.reason ?? "unknown",
+      });
     }
   }
 
@@ -2191,9 +2231,14 @@ async function readCalibrationGuardValidationMetricRows(root: string): Promise<C
   );
 }
 
-async function readCalibrationGuardDefaultPlanMetricRows(root: string): Promise<CalibrationGuardDefaultPlanMetricRow[]> {
+async function readCalibrationGuardDefaultPlanMetricRows(root: string): Promise<{
+  reportPaths: string[];
+  candidateRows: CalibrationGuardDefaultPlanMetricRow[];
+  skippedRows: CalibrationGuardDefaultPlanSkippedMetricRow[];
+}> {
   const reportPaths = await listFilesNamed(resolve(root, "data/reports/forecast-calibration-guard-default-plan"), "calibration-guard-default-plan.json");
-  const rows: CalibrationGuardDefaultPlanMetricRow[] = [];
+  const candidateRows: CalibrationGuardDefaultPlanMetricRow[] = [];
+  const skippedRows: CalibrationGuardDefaultPlanSkippedMetricRow[] = [];
   for (const reportPath of reportPaths) {
     let payload: Record<string, unknown> | null;
     try {
@@ -2203,7 +2248,7 @@ async function readCalibrationGuardDefaultPlanMetricRows(root: string): Promise<
     }
     const generatedAt = readString(payload, "generatedAt");
     for (const candidate of readRecordArray(payload, "defaultCandidates")) {
-      rows.push({
+      candidateRows.push({
         reportPath,
         generatedAt,
         proposalId: readString(candidate, "proposalId"),
@@ -2218,12 +2263,28 @@ async function readCalibrationGuardDefaultPlanMetricRows(root: string): Promise<
         implementationStatus: readString(candidate, "implementationStatus"),
       });
     }
+    for (const skipped of readRecordArray(payload, "skippedRows")) {
+      skippedRows.push({
+        reportPath,
+        generatedAt,
+        proposalId: readString(skipped, "proposalId"),
+        bucketLabel: readString(skipped, "bucketLabel"),
+        recommendation: readString(skipped, "recommendation"),
+        validationMode: readString(skipped, "validationMode"),
+        reason: readString(skipped, "reason"),
+      });
+    }
   }
-  return rows.sort((left, right) =>
+  const sortRows = <T extends CalibrationGuardDefaultPlanMetricRow | CalibrationGuardDefaultPlanSkippedMetricRow>(rows: T[]) => rows.sort((left, right) =>
     String(left.generatedAt ?? "").localeCompare(String(right.generatedAt ?? ""))
     || String(left.proposalId ?? "").localeCompare(String(right.proposalId ?? ""))
     || left.reportPath.localeCompare(right.reportPath)
   );
+  return {
+    reportPaths,
+    candidateRows: sortRows(candidateRows),
+    skippedRows: sortRows(skippedRows),
+  };
 }
 
 async function readForecastAttentionMetricRows(root: string): Promise<ForecastAttentionMetricRow[]> {

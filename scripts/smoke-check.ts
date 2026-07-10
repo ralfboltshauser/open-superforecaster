@@ -466,6 +466,7 @@ async function runSmokeChecks() {
       "open_superforecaster_forecast_attention_items_total",
       "open_superforecaster_source_bank_domains_total",
       "open_superforecaster_calibration_guard_validation_reports_total",
+      "open_superforecaster_calibration_guard_default_plan_skipped_rows_total",
     ];
     const missing = required.filter((metric) => !metrics.includes(metric));
     if (missing.length) {
