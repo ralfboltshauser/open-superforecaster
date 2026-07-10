@@ -2161,6 +2161,7 @@ async function finalizeReadyBenchmarkRuns(db: Db, input: { root?: string } = {})
       benchmarkRunId: run.id,
       caseAnalyses,
     });
+    const costLatencyFindings = await costLatencyFindingsForRun(db, { root: input.root, results });
     const report = {
       benchmarkRunId: run.id,
       caseCount: run.caseCount,
@@ -2236,7 +2237,7 @@ async function finalizeReadyBenchmarkRuns(db: Db, input: { root?: string } = {})
       componentDisagreementFindings: componentDisagreementFindingsForRun(caseAnalyses),
       forecastErrorFindings: forecastErrorFindingsForRun(caseAnalyses),
       splitFindings,
-      costLatencyFindings: await costLatencyFindingsForRun(db, { root: input.root, results }),
+      costLatencyFindings,
       holdoutRiskNotes: isFixedEvidence
         ? isBtf2Suite
           ? "This is an imported BTF-2 fixed-evidence suite. Use it for local workflow iteration with the dataset contamination caveat; require larger paired subsets before promotion."
@@ -2247,6 +2248,7 @@ async function finalizeReadyBenchmarkRuns(db: Db, input: { root?: string } = {})
         evalMode: run.evalMode,
         caseAnalyses,
         meanBrierDelta,
+        costLatencyFindings,
       }),
     };
 
@@ -2292,6 +2294,7 @@ async function finalizeReadyBenchmarkRuns(db: Db, input: { root?: string } = {})
       results,
       caseAnalyses,
       meanBrierDelta,
+      costLatencyFindings,
     });
     if (proposals.length > 0) {
       await db.insert(workflowChangeProposals).values(proposals);
@@ -3190,6 +3193,7 @@ function buildWorkflowImprovementPlan(input: {
   evalMode: string;
   caseAnalyses: BenchmarkCaseAnalysis[];
   meanBrierDelta: number | null;
+  costLatencyFindings?: Record<string, unknown> | null;
 }) {
   const failureCounts = input.caseAnalyses.reduce<Record<string, number>>((counts, analysis) => {
     counts[analysis.primaryFailureMode] = (counts[analysis.primaryFailureMode] ?? 0) + 1;
@@ -3201,6 +3205,7 @@ function buildWorkflowImprovementPlan(input: {
     results: [],
     caseAnalyses: input.caseAnalyses,
     meanBrierDelta: input.meanBrierDelta,
+    costLatencyFindings: input.costLatencyFindings ?? null,
   }).map((proposal) => ({
     targetWorkflowId: proposal.targetWorkflowId,
     problemStatement: proposal.problemStatement,
@@ -3230,6 +3235,7 @@ function workflowChangeProposalsForAnalysis(input: {
   results: Array<{ benchmarkCaseId: string }>;
   caseAnalyses: BenchmarkCaseAnalysis[];
   meanBrierDelta: number | null;
+  costLatencyFindings?: Record<string, unknown> | null;
 }) {
   const targetWorkflowId = input.evalMode === "fixed_evidence" ? "fixed-evidence-eval" : "agentic-pastcasting-eval";
   const allCaseIds = input.caseAnalyses.length
@@ -3293,6 +3299,21 @@ function workflowChangeProposalsForAnalysis(input: {
     });
   }
 
+  const costOutlierEvidence = benchmarkCostOutlierEvidence(input.costLatencyFindings ?? null);
+  if (costOutlierEvidence.evidenceCaseIds.length > 0) {
+    proposals.push({
+      sourceBenchmarkRunId: input.benchmarkRunId,
+      targetWorkflowId,
+      problemStatement: "A small number of benchmark cases dominate token use or task duration, making quality iteration slower and costlier than the aggregate run summary suggests.",
+      evidenceCaseIds: costOutlierEvidence.evidenceCaseIds,
+      proposedChange: "Profile the heaviest and slowest benchmark traces, then add cheaper early exits, stricter retrieval budgets, or targeted planner gates for repeated low-yield research loops.",
+      expectedMetricEffect: "Should preserve forecast quality while making benchmark iteration cheaper enough to run larger paired and holdout suites more often.",
+      expectedCostLatencyEffect: costOutlierEvidence.summary,
+      overfitRisk: "Low for generic budget gates and trace profiling; medium if the optimization hard-codes only these cases instead of the repeated cost pattern.",
+      validationPlan: "Rerun the same suite and compare paired score deltas, total tokens, agent calls, mean duration, and the heaviest/slowest outlier lists before accepting the workflow patch.",
+    });
+  }
+
   if (proposals.length === 0) {
     proposals.push({
       sourceBenchmarkRunId: input.benchmarkRunId,
@@ -3308,6 +3329,46 @@ function workflowChangeProposalsForAnalysis(input: {
   }
 
   return proposals.slice(0, 4);
+}
+
+function benchmarkCostOutlierEvidence(costLatencyFindings: Record<string, unknown> | null) {
+  if (!costLatencyFindings || readNumber(costLatencyFindings, "measuredCases") === 0) {
+    return {
+      evidenceCaseIds: [],
+      summary: "No measured benchmark cost outliers were available.",
+    };
+  }
+  const heaviestCases = readRecordArray(costLatencyFindings, "heaviestCases");
+  const slowestCases = readRecordArray(costLatencyFindings, "slowestCases");
+  const evidenceCaseIds = uniqueStrings(
+    [...heaviestCases, ...slowestCases]
+      .map((row) => readString(row, "benchmarkCaseId"))
+      .filter((id): id is string => Boolean(id))
+  ).slice(0, 10);
+  if (!evidenceCaseIds.length) {
+    return {
+      evidenceCaseIds: [],
+      summary: "No benchmark case ids were available for measured cost outliers.",
+    };
+  }
+  const heaviest = heaviestCases[0] ?? null;
+  const slowest = slowestCases[0] ?? null;
+  const totalTokens = readNumber(costLatencyFindings, "totalTokens");
+  const totalAgentCalls = readNumber(costLatencyFindings, "totalAgentCalls");
+  const meanDurationSeconds = readNumber(costLatencyFindings, "meanDurationSeconds");
+  const topTokenCount = heaviest ? readNumber(heaviest, "totalTokens") : null;
+  const topDurationSeconds = slowest ? readNumber(slowest, "durationSeconds") : null;
+  return {
+    evidenceCaseIds,
+    summary: [
+      "Targets measured benchmark cost outliers.",
+      totalTokens === null ? null : `${formatMetric(totalTokens)} total tokens`,
+      totalAgentCalls === null ? null : `${formatMetric(totalAgentCalls)} agent calls`,
+      meanDurationSeconds === null ? null : `${formatMetric(meanDurationSeconds)}s mean duration`,
+      topTokenCount === null ? null : `${formatMetric(topTokenCount)} tokens in the heaviest case`,
+      topDurationSeconds === null ? null : `${formatMetric(topDurationSeconds)}s in the slowest case`,
+    ].filter((part): part is string => Boolean(part)).join("; "),
+  };
 }
 
 function readProbability(rowJson: Record<string, unknown>) {
@@ -3625,6 +3686,19 @@ function readRecord(value: Record<string, unknown> | null, ...keys: string[]) {
     }
   }
   return null;
+}
+
+function readRecordArray(value: Record<string, unknown> | null, ...keys: string[]) {
+  if (!value) {
+    return [];
+  }
+  for (const key of keys) {
+    const raw = value[key];
+    if (Array.isArray(raw)) {
+      return raw.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item)));
+    }
+  }
+  return [];
 }
 
 function readString(value: Record<string, unknown>, ...keys: string[]) {

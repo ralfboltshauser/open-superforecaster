@@ -3082,6 +3082,10 @@ await check("benchmark analysis summarizes measured cost findings", async () => 
   assert(backendSource.includes("totalAgentCalls"), "benchmark cost analysis missing total agent calls");
   assert(backendSource.includes("medianTokensPerMeasuredCase"), "benchmark cost analysis missing median token summary");
   assert(backendSource.includes("heaviestCases"), "benchmark cost analysis missing heaviest case list");
+  assert(backendSource.includes("benchmarkCostOutlierEvidence"), "benchmark proposal generator does not derive cost outlier evidence");
+  assert(backendSource.includes("costLatencyFindings: input.costLatencyFindings"), "benchmark improvement preview does not pass cost findings into proposals");
+  assert(backendSource.includes("costLatencyFindings,") && backendSource.includes("workflowChangeProposalsForAnalysis({"), "benchmark proposal generator does not receive cost/latency findings");
+  assert(backendSource.includes("heaviest/slowest outlier lists"), "benchmark cost proposal validation does not mention outlier lists");
   assert(backendSource.includes("costLatencyFindings,"), "benchmark list rows do not expose cost/latency findings");
   assert(metricsSource.includes("costLatencyFindings"), "metrics exporter does not read benchmark cost/latency findings");
   assert(metricsSource.includes("open_superforecaster_benchmark_cost_summary_present"), "benchmark cost summary-present metric missing");
