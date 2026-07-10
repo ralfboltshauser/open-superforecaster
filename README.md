@@ -397,7 +397,7 @@ source-sized case coverage, and primary paired holdout evidence. Manual
 lifecycle updates use the same rule. Proposal patches can only be marked
 implemented after validation satisfies that same readiness contract. Prometheus exposes proposal
 validation completed-case counts, coverage ratios, pass state, aggregate blocked
-readiness counts, blocker counts, and cost deltas so weak or expensive
+readiness counts, aggregate and per-proposal blocker counts, and cost deltas so weak or expensive
 validations can be monitored outside the lab UI. The
 DuckDB proposal mart exports the same validation coverage, paired-evidence, pass-state,
 and readiness-blocker fields for local audit queries. The lab proposal card also shows the concrete

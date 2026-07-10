@@ -519,6 +519,17 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       validationReadiness.passed ? 1 : 0,
       proposalLabels,
     );
+    for (const blocker of validationReadiness.blockers) {
+      metrics.gauge(
+        "open_superforecaster_workflow_change_proposal_validation_blocker",
+        "Validation-readiness blockers for a recent workflow change proposal.",
+        1,
+        {
+          ...proposalLabels,
+          blocker,
+        },
+      );
+    }
     emitOptionalGauge(
       metrics,
       "open_superforecaster_workflow_change_proposal_validation_cost_total_tokens_delta",

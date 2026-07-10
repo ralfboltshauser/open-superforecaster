@@ -3241,6 +3241,8 @@ await check("workflow change proposal lifecycle is exported as metrics", async (
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_completed_cases"), "workflow proposal metric missing validation completed cases");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_coverage_ratio"), "workflow proposal metric missing validation coverage ratio");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_passed"), "workflow proposal metric missing validation pass state");
+  assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_blocker"), "workflow proposal metric missing per-proposal validation blockers");
+  assert(metricsSource.includes("for (const blocker of validationReadiness.blockers)"), "workflow proposal blocker metric does not reuse computed validation readiness blockers");
   assert(metricsSource.includes("workflowProposalReadinessRows"), "workflow proposal metrics do not share computed readiness rows");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_readiness_active"), "workflow proposal metric missing active readiness count");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_readiness_blocked"), "workflow proposal metric missing blocked readiness count");
@@ -3249,6 +3251,7 @@ await check("workflow change proposal lifecycle is exported as metrics", async (
   assert(metricsSource.includes("workflowProposalValidationCoverage"), "workflow proposal metric does not reuse shared validation coverage helper");
   assert(metricsSource.includes("workflowProposalValidationReadiness"), "workflow proposal metric does not reuse shared validation readiness helper");
   assert(smokeSource.includes("open_superforecaster_workflow_change_proposal_readiness_blocked"), "smoke check does not require aggregate proposal readiness metrics");
+  assert(smokeSource.includes("open_superforecaster_workflow_change_proposal_validation_blocker"), "smoke check does not require per-proposal readiness blocker metrics");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_cost_total_tokens_delta"), "workflow proposal metric missing validation token cost delta");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_cost_agent_calls_delta"), "workflow proposal metric missing validation agent-call delta");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_cost_mean_duration_seconds_delta"), "workflow proposal metric missing validation duration delta");
