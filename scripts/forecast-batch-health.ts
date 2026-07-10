@@ -758,7 +758,7 @@ function summarizeAttentionByKind(items: HealthAttentionItem[]): AttentionKindBr
       };
     })
     .sort((left, right) =>
-      (right.open + right.deferred) - (left.open + left.deferred)
+      right.unresolved - left.unresolved
       || forecastAttentionSeveritySortRank(left.high > 0 ? "high" : left.medium > 0 ? "medium" : "low") - forecastAttentionSeveritySortRank(right.high > 0 ? "high" : right.medium > 0 ? "medium" : "low")
       || left.kind.localeCompare(right.kind)
     );
@@ -798,7 +798,7 @@ function summarizeAttentionByForecastType(items: HealthAttentionItem[]): Attenti
       };
     })
     .sort((left, right) =>
-      (right.open + right.deferred) - (left.open + left.deferred)
+      right.unresolved - left.unresolved
       || forecastAttentionSeveritySortRank(left.high > 0 ? "high" : left.medium > 0 ? "medium" : "low") - forecastAttentionSeveritySortRank(right.high > 0 ? "high" : right.medium > 0 ? "medium" : "low")
       || left.forecastType.localeCompare(right.forecastType)
     );
