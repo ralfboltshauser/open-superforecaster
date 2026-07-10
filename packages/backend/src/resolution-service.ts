@@ -441,6 +441,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byEvidenceUncertaintyCount = groupScores(aggregateScores, evidenceUncertaintyCountGroupKey);
   const byEvidenceRationaleLength = groupScores(aggregateScores, evidenceRationaleLengthGroupKey);
   const byInputRequestedForecastType = groupScores(aggregateScores, inputRequestedForecastTypeGroupKey);
+  const byInputRoutingConfidence = groupScores(aggregateScores, inputRoutingConfidenceGroupKey);
   const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
   const byInputResolutionCriteriaDepth = groupScores(aggregateScores, inputResolutionCriteriaDepthGroupKey);
   const byInputResolutionHorizon = groupScores(aggregateScores, inputResolutionHorizonGroupKey);
@@ -546,6 +547,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
       byInputRequestedForecastType,
+      byInputRoutingConfidence,
       byInputContextCompleteness,
       byInputResolutionCriteriaDepth,
       byInputResolutionHorizon,
@@ -641,6 +643,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byEvidenceUncertaintyCount,
       byEvidenceRationaleLength,
       byInputRequestedForecastType,
+      byInputRoutingConfidence,
       byInputContextCompleteness,
       byInputResolutionCriteriaDepth,
       byInputResolutionHorizon,
@@ -1660,6 +1663,11 @@ function inputRequestedForecastTypeGroupKey(score: typeof forecastScores.$inferS
     : `input_requested_type:${inputContext?.requestedForecastTypeBand ?? "unrecorded"}`;
 }
 
+function inputRoutingConfidenceGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_routing_confidence:${inputContext?.routingConfidenceBand ?? "unrecorded"}`;
+}
+
 function inputContextCompletenessGroupKey(score: typeof forecastScores.$inferSelect) {
   const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
   return `input_context:${inputContext?.contextCompletenessBand ?? "unrecorded"}`;
@@ -2644,6 +2652,13 @@ function inputContextMissSignal(item: PerformanceCase): { reason: string; delta:
       severity: "high",
     };
   }
+  if (context.routingConfidenceBand === "low") {
+    return {
+      reason: `low-confidence forecast routing (${formatNullableMetric(context.routingConfidence)})`,
+      delta: context.routingConfidence,
+      severity: "medium",
+    };
+  }
   if (!context.hasResolutionCriteria || !context.hasResolutionDate) {
     const missing = [
       !context.hasResolutionCriteria ? "resolution criteria" : null,
@@ -2966,6 +2981,7 @@ function renderPerformanceMarkdown(input: {
   byEvidenceUncertaintyCount: PerformanceGroup[];
   byEvidenceRationaleLength: PerformanceGroup[];
   byInputRequestedForecastType: PerformanceGroup[];
+  byInputRoutingConfidence: PerformanceGroup[];
   byInputContextCompleteness: PerformanceGroup[];
   byInputResolutionCriteriaDepth: PerformanceGroup[];
   byInputResolutionHorizon: PerformanceGroup[];
@@ -3156,6 +3172,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input requested-forecast-type groups",
     ...renderGroupTable(input.byInputRequestedForecastType),
+    "",
+    "## Input routing-confidence groups",
+    ...renderGroupTable(input.byInputRoutingConfidence),
     "",
     "## Input context-completeness groups",
     ...renderGroupTable(input.byInputContextCompleteness),

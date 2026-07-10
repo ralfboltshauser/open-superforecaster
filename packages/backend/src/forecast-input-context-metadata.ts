@@ -3,6 +3,8 @@ import { normalizeForecastInputRow } from "@open-superforecaster/workflow-contra
 export type ForecastInputContextSnapshot = {
   requestedForecastType: "binary" | "date" | "numeric" | "categorical" | "thresholded" | null;
   requestedForecastTypeBand: "specified" | "unspecified" | "unknown";
+  routingConfidence: number | null;
+  routingConfidenceBand: "low" | "medium" | "high" | "unknown";
   questionLength: number | null;
   questionLengthBand: "short" | "standard" | "long" | "unknown";
   hasResolutionCriteria: boolean;
@@ -67,6 +69,8 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     return null;
   }
   const requestedForecastType = normalized.forecastType ?? null;
+  const classification = asRecord(record?.classification);
+  const routingConfidence = readNumber(classification ?? {}, "confidence");
   const questionLength = wordCount(normalized.question);
   const categoryCount = normalized.categories.length;
   const categoriesExhaustive = categoryCount > 0 ? normalized.categoriesExhaustive : null;
@@ -114,6 +118,8 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   return {
     requestedForecastType,
     requestedForecastTypeBand: requestedForecastTypeBand(requestedForecastType),
+    routingConfidence,
+    routingConfidenceBand: routingConfidenceBand(routingConfidence),
     questionLength,
     questionLengthBand: questionLengthBand(questionLength),
     hasResolutionCriteria,
@@ -172,6 +178,8 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   }
   const requestedForecastType = readRequestedForecastType(value);
   const requestedForecastTypeBandValue = readString(value, "requestedForecastTypeBand");
+  const routingConfidence = readNumber(value, "routingConfidence");
+  const routingConfidenceBandValue = readString(value, "routingConfidenceBand");
   const resolutionCriteriaLength = readNumber(value, "resolutionCriteriaLength");
   const resolutionCriteriaLengthBandValue = readString(value, "resolutionCriteriaLengthBand");
   const categoryCount = readNumber(value, "categoryCount");
@@ -205,6 +213,10 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
     requestedForecastTypeBand: isRequestedForecastTypeBand(requestedForecastTypeBandValue)
       ? requestedForecastTypeBandValue
       : requestedForecastTypeBand(requestedForecastType),
+    routingConfidence,
+    routingConfidenceBand: isRoutingConfidenceBand(routingConfidenceBandValue)
+      ? routingConfidenceBandValue
+      : routingConfidenceBand(routingConfidence),
     questionLength,
     questionLengthBand: readQuestionLengthBand(value) ?? questionLengthBand(questionLength),
     hasResolutionCriteria: readBoolean(value, "hasResolutionCriteria") ?? false,
@@ -322,6 +334,19 @@ export function requestedForecastTypeBand(
   requestedForecastType: ForecastInputContextSnapshot["requestedForecastType"],
 ): ForecastInputContextSnapshot["requestedForecastTypeBand"] {
   return requestedForecastType ? "specified" : "unspecified";
+}
+
+export function routingConfidenceBand(confidence: number | null): ForecastInputContextSnapshot["routingConfidenceBand"] {
+  if (confidence === null || !Number.isFinite(confidence)) {
+    return "unknown";
+  }
+  if (confidence < 0.7) {
+    return "low";
+  }
+  if (confidence < 0.9) {
+    return "medium";
+  }
+  return "high";
 }
 
 export function marketPriceBand(price: number | null): ForecastInputContextSnapshot["marketPriceBand"] {
@@ -631,6 +656,10 @@ function isResolutionCriteriaLengthBand(value: string | null): value is Forecast
 
 function isRequestedForecastTypeBand(value: string | null): value is ForecastInputContextSnapshot["requestedForecastTypeBand"] {
   return value === "specified" || value === "unspecified" || value === "unknown";
+}
+
+function isRoutingConfidenceBand(value: string | null): value is ForecastInputContextSnapshot["routingConfidenceBand"] {
+  return value === "low" || value === "medium" || value === "high" || value === "unknown";
 }
 
 function readCategoryCountBand(value: Record<string, unknown>) {
