@@ -1800,6 +1800,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(attentionPolicySource.includes("poorResolvedForecastAttentionKind"), "shared forecast attention policy does not expose poor resolved forecast attention kind");
   assert(attentionPolicySource.includes("worseningTrendAttentionKind"), "shared forecast attention policy does not expose worsening trend attention kind");
   assert(attentionPolicySource.includes("calibrationGuardRegressionAttentionKind"), "shared forecast attention policy does not expose calibration guard regression attention kind");
+  assert(attentionPolicySource.includes("calibrationGuardRegressionIssueKind"), "shared forecast attention policy does not expose calibration guard regression issue kind");
+  assert(attentionPolicySource.includes("candidateCalibrationGuardReviewIssueKind"), "shared forecast attention policy does not expose candidate guard review issue kind");
   assert(attentionPolicySource.includes("isForecastScoreRegressionAttentionKind"), "shared forecast attention policy does not expose score-regression attention kind policy");
   assert(attentionPolicySource.includes("isCalibrationGuardRegressionAttentionKind"), "shared forecast attention policy does not expose calibration-guard regression attention kind policy");
   assert(attentionPolicySource.includes("candidateCalibrationGuardAttentionKind"), "shared forecast attention policy does not expose candidate guard attention kind policy");
@@ -1828,6 +1830,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(batchHealthSource.includes("forecastAttentionReviewStatusRank"), "batch health does not use shared review status rank");
   assert(batchHealthSource.includes("isForecastScoreRegressionAttentionKind"), "batch health does not use shared score-regression attention kind policy");
   assert(batchHealthSource.includes("isCalibrationGuardRegressionAttentionKind"), "batch health does not use shared calibration-guard regression attention kind policy");
+  assert(batchHealthSource.includes("calibrationGuardRegressionIssueKind"), "batch health does not use shared calibration-guard regression issue kind policy");
+  assert(batchHealthSource.includes("candidateCalibrationGuardReviewIssueKind"), "batch health does not use shared candidate guard review issue kind policy");
   assert(batchHealthSource.includes("isForecastAttentionReviewUnresolved"), "batch health does not use shared unresolved review policy");
   assert(batchHealthSource.includes("summarizeForecastAttentionReviewStatuses"), "batch health does not use shared review status counts");
   assert(batchHealthSource.includes("forecastAttentionSeveritySortRank"), "batch health does not use shared attention severity rank");
@@ -1847,6 +1851,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(!batchHealthSource.includes("item.kind === \"worsening_trend\""), "batch health should not keep local worsening-trend kind checks");
   assert(!batchHealthSource.includes("item.kind === \"calibration_guard_regression\""), "batch health should not keep local calibration-guard regression kind checks");
   assert(!batchHealthSource.includes("item.kind === \"candidate_calibration_guard\""), "batch health should not keep local candidate guard attention kind checks");
+  assert(!batchHealthSource.includes("kind: \"calibration_guard_regression\""), "batch health should not keep local calibration-guard regression issue kind");
+  assert(!batchHealthSource.includes("kind: \"candidate_calibration_guard_review\""), "batch health should not keep local candidate guard review issue kind");
   assert(resolutionSource.includes("performanceAttentionSeverityRank"), "performance report does not use shared performance severity rank");
   assert(calibrationProposalSource.includes("normalizeForecastAttentionReviewStatus"), "calibration proposals do not use shared review status normalization");
   assert(calibrationProposalSource.includes("isCalibrationGuardReadyForReview"), "calibration proposals do not use shared candidate guard readiness policy");

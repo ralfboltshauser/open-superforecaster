@@ -171,6 +171,14 @@ export function calibrationGuardRegressionAttentionKind(): PerformanceAttentionK
   return "calibration_guard_regression";
 }
 
+export function calibrationGuardRegressionIssueKind() {
+  return calibrationGuardRegressionAttentionKind();
+}
+
+export function candidateCalibrationGuardReviewIssueKind() {
+  return "candidate_calibration_guard_review";
+}
+
 export function candidateCalibrationGuardAttentionKind(): SupplementalForecastAttentionKind {
   return "candidate_calibration_guard";
 }

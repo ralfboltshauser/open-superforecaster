@@ -6,7 +6,9 @@ import {
   type CalibrationGuardActivationStatus,
 } from "../packages/backend/src/calibration-guard-activation-policy";
 import {
+  calibrationGuardRegressionIssueKind,
   candidateCalibrationGuardAttentionKind,
+  candidateCalibrationGuardReviewIssueKind,
   forecastAttentionSeveritySortRank,
   forecastAttentionReviewStatusRank,
   isCalibrationGuardRegressionAttentionKind,
@@ -406,14 +408,14 @@ function buildIssues(
   if (summary.calibrationGuardRegressionItems > 0) {
     issues.push({
       severity: "high",
-      kind: "calibration_guard_regression",
+      kind: calibrationGuardRegressionIssueKind(),
       message: `${summary.calibrationGuardRegressionItems} attention item(s) indicate guarded forecasts are scoring worse than unguarded forecasts.`,
     });
   }
   if (summary.unresolvedCandidateCalibrationGuardRules > 0) {
     issues.push({
       severity: summary.openCandidateCalibrationGuardRules > 0 ? "high" : "medium",
-      kind: "candidate_calibration_guard_review",
+      kind: candidateCalibrationGuardReviewIssueKind(),
       message: `${summary.unresolvedCandidateCalibrationGuardRules} candidate calibration guard rule(s) remain open or deferred.`,
     });
   }
