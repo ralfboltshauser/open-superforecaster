@@ -14,7 +14,11 @@ import {
   workflowVariants,
   type createDb,
 } from "@open-superforecaster/db";
-import { summarizeBenchmarkPromotionGateEvidence } from "./benchmark-service";
+import {
+  summarizeBenchmarkPromotionGateEvidence,
+  workflowProposalValidationGateBlockers,
+  workflowProposalValidationGatePassed,
+} from "./benchmark-service";
 import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
 import { aggregateSideAgreementBand, attemptCountBand, readAggregateStatsSnapshot } from "./aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "./baseline-sanity-metadata";
@@ -448,9 +452,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     const sourceCaseCount = proposal.sourceBenchmarkRunId ? benchmarkRunCaseCountById.get(proposal.sourceBenchmarkRunId) ?? null : null;
     const requiredValidationCases = Math.max(sourceCaseCount ?? 1, 1);
     const validationCompletedCases = proposal.validationCompletedCases ?? 0;
-    const validationGateBlockers = Array.isArray(proposal.validationGateBlockers)
-      ? proposal.validationGateBlockers.filter((blocker): blocker is string => typeof blocker === "string" && blocker.trim().length > 0)
-      : [];
+    const validationGateBlockers = workflowProposalValidationGateBlockers(proposal.validationGateBlockers);
     metrics.gauge(
       "open_superforecaster_workflow_change_proposal_validation_completed_cases",
       "Completed validation benchmark cases for a workflow change proposal.",
@@ -466,7 +468,13 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     metrics.gauge(
       "open_superforecaster_workflow_change_proposal_validation_passed",
       "Whether proposal validation completed with a passing gate and no blockers.",
-      proposal.validationResultStatus === "completed" && proposal.validationGateStatus === "review_for_promotion" && validationGateBlockers.length === 0 ? 1 : 0,
+      workflowProposalValidationGatePassed({
+        resultStatus: proposal.validationResultStatus,
+        gateStatus: proposal.validationGateStatus,
+        gateBlockers: validationGateBlockers,
+      })
+        ? 1
+        : 0,
       proposalLabels,
     );
     emitOptionalGauge(

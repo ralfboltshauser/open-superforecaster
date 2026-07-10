@@ -1440,7 +1440,7 @@ function assertWorkflowChangeProposalStatusTransitionAllowed(
   }
 }
 
-function workflowProposalValidationGatePassed(input: {
+export function workflowProposalValidationGatePassed(input: {
   resultStatus: string | null;
   gateStatus: string | null;
   gateBlockers: unknown;
@@ -1452,7 +1452,7 @@ function workflowProposalValidationGatePassed(input: {
   );
 }
 
-function workflowProposalValidationGateBlockers(raw: unknown) {
+export function workflowProposalValidationGateBlockers(raw: unknown) {
   return Array.isArray(raw) ? raw.filter((blocker): blocker is string => typeof blocker === "string" && blocker.trim().length > 0) : [];
 }
 
