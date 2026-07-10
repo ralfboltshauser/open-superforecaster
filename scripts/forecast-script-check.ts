@@ -330,6 +330,7 @@ await check("forecast calibration guard proposals require reviewed ready candida
   const outputDir = resolve(tempRoot, "calibration-guard-proposals", "out");
   const proposalSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-proposals.ts"), "utf8");
   const batchIndexReaderSource = await readFile(resolve(root, "packages/backend/src/forecast-batch-index-artifacts.ts"), "utf8");
+  const activationPolicySource = await readFile(resolve(root, "packages/backend/src/calibration-guard-activation-policy.ts"), "utf8");
   await mkdir(batchIndexRoot, { recursive: true });
   await writeJson(resolve(batchIndexRoot, "batch-index.json"), {
     reportType: "forecast_batch_index",
@@ -399,15 +400,20 @@ await check("forecast calibration guard proposals require reviewed ready candida
   assert(readString(proposals[0], "sourceCandidateGuardId") === "candidate-guard:80-100%", "wrong candidate guard became a proposal");
   assert(readString(proposals[0], "targetWorkflowId") === "binary-calibration-guard", "proposal target workflow mismatch");
   assert(proposalSource.includes("readForecastBatchIndexArtifacts"), "calibration guard proposal generator does not use the shared batch-index artifact reader");
-  assert(proposalSource.includes("summarizeForecastAttentionReviewStatuses"), "calibration guard proposal generator does not use shared review status counts");
   assert(proposalSource.includes("normalizeForecastAttentionReviewStatus"), "calibration guard proposal generator does not use shared review status normalization");
-  assert(proposalSource.includes("isForecastAttentionReviewOpen"), "calibration guard proposal generator does not use shared open review policy");
-  assert(proposalSource.includes("isForecastAttentionReviewResolved"), "calibration guard proposal generator does not use shared resolved review policy");
-  assert(proposalSource.includes("isForecastAttentionReviewDeferred"), "calibration guard proposal generator does not use shared deferred review policy");
+  assert(proposalSource.includes("summarizeCalibrationGuardProposalEligibility"), "calibration guard proposal generator does not use shared eligibility counts");
+  assert(proposalSource.includes("isCalibrationGuardProposalEligible"), "calibration guard proposal generator does not use shared eligibility policy");
+  assert(activationPolicySource.includes("summarizeCalibrationGuardProposalEligibility"), "calibration guard activation policy does not expose proposal eligibility counts");
+  assert(activationPolicySource.includes("isCalibrationGuardProposalEligible"), "calibration guard activation policy does not expose proposal eligibility policy");
+  assert(activationPolicySource.includes("summarizeForecastAttentionReviewStatuses"), "calibration guard activation policy does not use shared review status counts");
+  assert(activationPolicySource.includes("isForecastAttentionReviewOpen"), "calibration guard activation policy does not use shared open review policy");
+  assert(activationPolicySource.includes("isForecastAttentionReviewResolved"), "calibration guard activation policy does not use shared resolved review policy");
+  assert(activationPolicySource.includes("isForecastAttentionReviewDeferred"), "calibration guard activation policy does not use shared deferred review policy");
   assert(proposalSource.includes("reportRoot: batchRoot"), "calibration guard proposal generator does not pass its configured batch-index directory to the shared reader");
   assert(!proposalSource.includes("listFilesNamed(batchRoot"), "calibration guard proposal generator should not keep a local batch-index scanner");
   assert(!proposalSource.includes("readRecordArray(batchIndex"), "calibration guard proposal generator should not parse candidate rules from raw batch-index JSON");
   assert(!proposalSource.includes("function readReviewStatus("), "calibration guard proposal generator should not keep a local review status reader");
+  assert(!proposalSource.includes("function isEligibleCandidateRule("), "calibration guard proposal generator should not keep local eligibility policy");
   assert(!proposalSource.includes("reviewStatus === \"open\""), "calibration guard proposal generator should not keep local open review checks");
   assert(!proposalSource.includes("reviewStatus === \"deferred\""), "calibration guard proposal generator should not keep local deferred review checks");
   assert(!proposalSource.includes("reviewStatus === \"reviewed\""), "calibration guard proposal generator should not keep local resolved review checks");
@@ -1816,6 +1822,7 @@ await check("forecast performance reports surface candidate calibration guards",
   const batchHealthSource = await readFile(resolve(root, "scripts/forecast-batch-health.ts"), "utf8");
   const backendBatchHealthSource = await readFile(resolve(root, "packages/backend/src/forecast-batch-health.ts"), "utf8");
   const performanceReaderSource = await readFile(resolve(root, "packages/backend/src/forecast-performance-artifacts.ts"), "utf8");
+  const activationPolicySource = await readFile(resolve(root, "packages/backend/src/calibration-guard-activation-policy.ts"), "utf8");
   const calibrationProposalSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-proposals.ts"), "utf8");
   const attentionReviewSource = await readFile(resolve(root, "scripts/lib/forecast-attention-reviews.ts"), "utf8");
   const forecastReviewSource = await readFile(resolve(root, "scripts/forecast-review.ts"), "utf8");
@@ -1910,7 +1917,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(!batchHealthSource.includes("kind: \"candidate_calibration_guard_review\""), "batch health should not keep local candidate guard review issue kind");
   assert(resolutionSource.includes("performanceAttentionSeverityRank"), "performance report does not use shared performance severity rank");
   assert(calibrationProposalSource.includes("normalizeForecastAttentionReviewStatus"), "calibration proposals do not use shared review status normalization");
-  assert(calibrationProposalSource.includes("isCalibrationGuardReadyForReview"), "calibration proposals do not use shared candidate guard readiness policy");
+  assert(calibrationProposalSource.includes("isCalibrationGuardProposalEligible"), "calibration proposals do not use shared candidate guard eligibility policy");
+  assert(activationPolicySource.includes("isCalibrationGuardReadyForReview"), "calibration guard activation policy does not use shared readiness policy");
   assert(attentionReviewSource.includes("isForecastAttentionReviewStatus"), "attention review parser does not use shared review status validation");
   assert(!attentionReviewSource.includes("isAttentionReviewStatus"), "attention review helper should not re-export a duplicate review status validator");
   assert(forecastReviewSource.includes("isForecastAttentionReviewStatus"), "forecast review writer does not use shared review status validation");

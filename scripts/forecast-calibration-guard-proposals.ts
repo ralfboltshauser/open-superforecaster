@@ -6,16 +6,13 @@ import {
   type ForecastBatchIndexCandidateCalibrationGuardRule,
 } from "../packages/backend/src/forecast-batch-index-artifacts";
 import {
-  isForecastAttentionReviewDeferred,
-  isForecastAttentionReviewOpen,
-  isForecastAttentionReviewResolved,
   normalizeForecastAttentionReviewStatus,
-  summarizeForecastAttentionReviewStatuses,
   type ForecastAttentionReviewStatus,
 } from "../packages/backend/src/forecast-attention-policy";
 import {
-  isCalibrationGuardReadyForReview,
+  isCalibrationGuardProposalEligible,
   normalizeCalibrationGuardActivationStatus,
+  summarizeCalibrationGuardProposalEligibility,
   type CalibrationGuardActivationStatus,
 } from "../packages/backend/src/calibration-guard-activation-policy";
 import {
@@ -149,20 +146,20 @@ function buildProposalReport(
 ): ProposalReport {
   const batchId = batchIndex.batchId;
   const candidateRules = batchIndex.candidateCalibrationGuardRules.flatMap(readCandidateRule);
-  const reviewCounts = summarizeForecastAttentionReviewStatuses(candidateRules);
-  const eligibleRules = candidateRules.filter((rule) => isEligibleCandidateRule(rule, includeOpenRules));
+  const eligibility = summarizeCalibrationGuardProposalEligibility(candidateRules, { includeOpen: includeOpenRules });
+  const eligibleRules = candidateRules.filter((rule) => isCalibrationGuardProposalEligible(rule, { includeOpen: includeOpenRules }));
   const proposalDrafts = eligibleRules.map((rule) => buildProposal(batchId, rule));
   return {
     reportType: "forecast_calibration_guard_proposals",
     generatedAt: new Date().toISOString(),
     batchId,
     summary: {
-      candidateCalibrationGuardRules: candidateRules.length,
-      eligibleCandidateCalibrationGuardRules: eligibleRules.length,
+      candidateCalibrationGuardRules: eligibility.candidates,
+      eligibleCandidateCalibrationGuardRules: eligibility.eligible,
       proposalDrafts: proposalDrafts.length,
-      skippedOpen: includeOpenRules ? 0 : reviewCounts.open,
-      skippedDeferred: reviewCounts.deferred,
-      skippedNeedsMoreResolvedForecasts: candidateRules.filter((rule) => !isCalibrationGuardReadyForReview(rule.activationStatus)).length,
+      skippedOpen: eligibility.skippedOpen,
+      skippedDeferred: eligibility.skippedDeferred,
+      skippedNeedsMoreResolvedForecasts: eligibility.skippedNeedsMoreResolvedForecasts,
     },
     proposalDrafts,
     paths: {
@@ -283,18 +280,6 @@ function renderProposalTable(proposals: CalibrationGuardProposal[]) {
       } |`,
     ),
   ];
-}
-
-function isEligibleCandidateRule(rule: CandidateCalibrationGuardRule, includeOpenRules: boolean) {
-  if (!isCalibrationGuardReadyForReview(rule.activationStatus)) {
-    return false;
-  }
-  if (isForecastAttentionReviewDeferred(rule.reviewStatus)) {
-    return false;
-  }
-  return includeOpenRules
-    ? isForecastAttentionReviewOpen(rule.reviewStatus) || isForecastAttentionReviewResolved(rule.reviewStatus)
-    : isForecastAttentionReviewResolved(rule.reviewStatus);
 }
 
 function readCandidateRule(rule: ForecastBatchIndexCandidateCalibrationGuardRule): CandidateCalibrationGuardRule[] {
