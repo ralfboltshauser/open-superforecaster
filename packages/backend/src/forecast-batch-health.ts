@@ -203,6 +203,10 @@ export function normalizeForecastBatchHealthStatus(value: string | null | undefi
   return forecastBatchHealthStatuses.includes(value as ForecastBatchHealthStatus) ? value as ForecastBatchHealthStatus : "unknown";
 }
 
+export function isForecastBatchHealthHealthyStatus(value: string | null | undefined) {
+  return normalizeForecastBatchHealthStatus(value) === "healthy";
+}
+
 export function determineForecastBatchHealthStatus(issues: Array<{ severity: string | null | undefined }>): ForecastBatchHealthDerivedStatus {
   if (issues.some((issue) => issue.severity === "high")) {
     return "needs_attention";

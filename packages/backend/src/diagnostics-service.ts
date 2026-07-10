@@ -21,7 +21,7 @@ import { benchmarkPromotionSourceRiskBlockerIds } from "./benchmark-promotion-po
 import { readLatestCalibrationDefaultPlan, type LatestCalibrationDefaultPlanSnapshot } from "./calibration-default-plan-artifacts";
 import { listMaintenanceActions, listMaintenanceJobs } from "./maintenance-service";
 import { createObjectStorageTargets, tryHeadBucket } from "./object-storage";
-import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "./forecast-batch-health";
+import { isForecastBatchHealthHealthyStatus, readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "./forecast-batch-health";
 import { summarizeSourceDomains } from "./source-domain-summary";
 
 type Db = ReturnType<typeof createDb>["db"];
@@ -417,7 +417,7 @@ function forecastBatchHealthDiagnostic(health: ForecastBatchHealthSnapshot): Dia
   return {
     key: "forecast_batch_health",
     label: "Forecast batch health",
-    ok: health.status === "healthy",
+    ok: isForecastBatchHealthHealthyStatus(health.status),
     status: health.status,
     detail: `${health.batchId ?? "latest batch"} has ${unresolved} unresolved attention item(s) and ${candidateRules} unresolved candidate calibration guard rule(s).`,
   };

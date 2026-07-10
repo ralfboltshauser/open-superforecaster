@@ -1686,6 +1686,8 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(smokeSource.includes("readinessBlockers"), "smoke check does not validate workflow proposal blocker breakdowns");
   assert(diagnosticsSource.includes("unresolvedAttentionItems"), "diagnostics does not expose unresolved attention count");
   assert(diagnosticsSource.includes("unresolvedCandidateCalibrationGuardRules"), "diagnostics does not expose unresolved candidate guard count");
+  assert(diagnosticsSource.includes("isForecastBatchHealthHealthyStatus"), "diagnostics does not use shared batch-health healthy status policy");
+  assert(!diagnosticsSource.includes("health.status === \"healthy\""), "diagnostics should not keep local batch-health healthy status checks");
   assert(diagnosticsSource.includes("summarizeSourceDomains(sourceRows)"), "diagnostics does not summarize source-bank domains");
   assert(diagnosticsSource.includes("./source-domain-summary"), "diagnostics does not use the shared source-domain summary helper");
   assert(!diagnosticsSource.includes("function summarizeSourceDomains"), "diagnostics should not keep a local source-domain summarizer");
@@ -1864,6 +1866,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(backendBatchHealthSource.includes("normalizeCalibrationGuardActivationStatus"), "shared batch health reader does not normalize candidate guard activation status");
   assert(backendBatchHealthSource.includes("forecastBatchHealthStatuses"), "shared batch health reader does not expose health status vocabulary");
   assert(backendBatchHealthSource.includes("normalizeForecastBatchHealthStatus"), "shared batch health reader does not normalize health status");
+  assert(backendBatchHealthSource.includes("isForecastBatchHealthHealthyStatus"), "shared batch health reader does not expose healthy status policy");
   assert(backendBatchHealthSource.includes("determineForecastBatchHealthStatus"), "shared batch health reader does not expose health status derivation");
   assert(batchIndexSource.includes("normalizeCalibrationGuardActivationStatus"), "batch index does not normalize candidate guard activation status");
   assert(!batchHealthSource.includes("function statusRank("), "batch health should not keep local review status rank");
