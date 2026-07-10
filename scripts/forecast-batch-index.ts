@@ -95,10 +95,12 @@ type BatchAudit = {
     openAttentionItems: number;
     reviewedAttentionItems: number;
     deferredAttentionItems: number;
+    unresolvedAttentionItems: number;
     candidateCalibrationGuardRules: number;
     openCandidateCalibrationGuardRules: number;
     reviewedCandidateCalibrationGuardRules: number;
     deferredCandidateCalibrationGuardRules: number;
+    unresolvedCandidateCalibrationGuardRules: number;
   };
   attentionItems: ReviewedAttentionItem[];
   candidateCalibrationGuardRules: ReviewedCandidateCalibrationGuardRule[];
@@ -300,10 +302,12 @@ function buildAudit(
       openAttentionItems: attentionReviewCounts.open,
       reviewedAttentionItems: attentionReviewCounts.reviewed,
       deferredAttentionItems: attentionReviewCounts.deferred,
+      unresolvedAttentionItems: attentionReviewCounts.unresolved,
       candidateCalibrationGuardRules: candidateCalibrationGuardRules.length,
       openCandidateCalibrationGuardRules: candidateGuardReviewCounts.open,
       reviewedCandidateCalibrationGuardRules: candidateGuardReviewCounts.reviewed,
       deferredCandidateCalibrationGuardRules: candidateGuardReviewCounts.deferred,
+      unresolvedCandidateCalibrationGuardRules: candidateGuardReviewCounts.unresolved,
     },
     attentionItems,
     candidateCalibrationGuardRules,
@@ -334,8 +338,10 @@ function renderMarkdown(audit: BatchAudit) {
     `- Open attention items: ${audit.counts.openAttentionItems}`,
     `- Reviewed attention items: ${audit.counts.reviewedAttentionItems}`,
     `- Deferred attention items: ${audit.counts.deferredAttentionItems}`,
+    `- Unresolved attention items: ${audit.counts.unresolvedAttentionItems}`,
     `- Candidate calibration guard rules: ${audit.counts.candidateCalibrationGuardRules}`,
     `- Open candidate calibration guard rules: ${audit.counts.openCandidateCalibrationGuardRules}`,
+    `- Unresolved candidate calibration guard rules: ${audit.counts.unresolvedCandidateCalibrationGuardRules}`,
     "",
     "## Entries",
     "",

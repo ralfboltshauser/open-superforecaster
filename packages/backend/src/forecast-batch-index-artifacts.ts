@@ -27,10 +27,12 @@ export type ForecastBatchIndexCounts = {
   openAttentionItems: number | null;
   deferredAttentionItems: number | null;
   reviewedAttentionItems: number | null;
+  unresolvedAttentionItems: number | null;
   candidateCalibrationGuardRules: number | null;
   openCandidateCalibrationGuardRules: number | null;
   deferredCandidateCalibrationGuardRules: number | null;
   reviewedCandidateCalibrationGuardRules: number | null;
+  unresolvedCandidateCalibrationGuardRules: number | null;
 };
 
 export type ForecastBatchIndexAttentionItem = {
@@ -111,10 +113,12 @@ function readForecastBatchIndexArtifact(reportPath: string, payload: JsonRecord)
       openAttentionItems: readNumber(counts, "openAttentionItems"),
       deferredAttentionItems: readNumber(counts, "deferredAttentionItems"),
       reviewedAttentionItems: readNumber(counts, "reviewedAttentionItems"),
+      unresolvedAttentionItems: readNumber(counts, "unresolvedAttentionItems"),
       candidateCalibrationGuardRules: readNumber(counts, "candidateCalibrationGuardRules"),
       openCandidateCalibrationGuardRules: readNumber(counts, "openCandidateCalibrationGuardRules"),
       deferredCandidateCalibrationGuardRules: readNumber(counts, "deferredCandidateCalibrationGuardRules"),
       reviewedCandidateCalibrationGuardRules: readNumber(counts, "reviewedCandidateCalibrationGuardRules"),
+      unresolvedCandidateCalibrationGuardRules: readNumber(counts, "unresolvedCandidateCalibrationGuardRules"),
     },
     attentionItems: readRecordArray(payload, "attentionItems").map((item) => ({
       id: readString(item, "id"),

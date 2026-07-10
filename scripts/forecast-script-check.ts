@@ -237,14 +237,18 @@ await check("forecast batch index joins all batch phases", async () => {
   assert(readNumber(counts, "performanceScoreRows") === 4, "performance score row count mismatch");
   assert(readNumber(counts, "attentionItems") === 1, "attention item count mismatch");
   assert(readNumber(counts, "reviewedAttentionItems") === 1, "reviewed attention count mismatch");
+  assert(readNumber(counts, "unresolvedAttentionItems") === 0, "unresolved attention count mismatch");
   assert(readNumber(counts, "candidateCalibrationGuardRules") === 1, "candidate calibration guard count mismatch");
   assert(readNumber(counts, "deferredCandidateCalibrationGuardRules") === 1, "candidate calibration guard review status mismatch");
+  assert(readNumber(counts, "unresolvedCandidateCalibrationGuardRules") === 1, "unresolved candidate calibration guard count mismatch");
   const attentionItems = readArray(audit, "attentionItems");
   const candidateGuardRules = readArray(audit, "candidateCalibrationGuardRules");
   const markdown = await readFile(resolve(outputDir, "contract-batch", "batch-index.md"), "utf8");
   assert(attentionItems.length === 1, "attention item was not copied into audit");
   assert(readString(attentionItems[0], "reviewStatus") === "reviewed", "review status was not merged");
   assert(markdown.includes("Reason | Recommended action"), "batch index markdown missing attention reason column");
+  assert(markdown.includes("Unresolved attention items: 0"), "batch index markdown missing unresolved attention count");
+  assert(markdown.includes("Unresolved candidate calibration guard rules: 1"), "batch index markdown missing unresolved candidate guard count");
   assert(markdown.includes("Kind | Forecast type | Metric"), "batch index markdown missing attention forecast type column");
   assert(markdown.includes("brier exceeded review threshold"), "batch index markdown does not render attention reason");
   assert(markdown.includes("poor_resolved_forecast | binary | brier"), "batch index markdown does not render attention forecast type");
@@ -252,6 +256,8 @@ await check("forecast batch index joins all batch phases", async () => {
   assert(readString(candidateGuardRules[0], "reviewStatus") === "deferred", "candidate calibration guard review status was not merged");
   const batchIndexSource = await readFile(resolve(root, "scripts/forecast-batch-index.ts"), "utf8");
   assert(batchIndexSource.includes("summarizeForecastAttentionReviewStatuses"), "batch index does not use shared attention review status counts");
+  assert(batchIndexSource.includes("unresolvedAttentionItems: attentionReviewCounts.unresolved"), "batch index does not persist shared unresolved attention count");
+  assert(batchIndexSource.includes("unresolvedCandidateCalibrationGuardRules: candidateGuardReviewCounts.unresolved"), "batch index does not persist shared unresolved candidate guard count");
   assert(!batchIndexSource.includes("isAttentionReviewStatus"), "batch index should not use the review helper as a policy validator");
   assert(!batchIndexSource.includes("function isReviewStatus("), "batch index should not keep local review status validation");
   return "batch index joins ops, resolution, and performance phases";
@@ -1159,7 +1165,10 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   const backendIndexSource = await readFile(resolve(root, "packages/backend/src/index.ts"), "utf8");
   assert(attentionBacklogReaderSource.includes("items: ForecastAttentionBacklogItem[]"), "shared attention backlog reader does not expose normalized items");
   assert(backendIndexSource.includes("forecast-attention-backlog-artifacts"), "backend package barrel does not export forecast attention backlog artifacts");
-  assert((await readFile(resolve(root, "packages/backend/src/forecast-batch-index-artifacts.ts"), "utf8")).includes("counts: ForecastBatchIndexCounts"), "shared batch-index reader does not expose normalized counts");
+  const batchIndexReaderSource = await readFile(resolve(root, "packages/backend/src/forecast-batch-index-artifacts.ts"), "utf8");
+  assert(batchIndexReaderSource.includes("counts: ForecastBatchIndexCounts"), "shared batch-index reader does not expose normalized counts");
+  assert(batchIndexReaderSource.includes("unresolvedAttentionItems: readNumber(counts, \"unresolvedAttentionItems\")"), "shared batch-index reader does not expose unresolved attention counts");
+  assert(batchIndexReaderSource.includes("unresolvedCandidateCalibrationGuardRules: readNumber(counts, \"unresolvedCandidateCalibrationGuardRules\")"), "shared batch-index reader does not expose unresolved candidate guard counts");
   return "batch health summarizes latest indexed batch issues";
 });
 
