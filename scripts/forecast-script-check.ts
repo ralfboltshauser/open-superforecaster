@@ -1542,9 +1542,11 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(diagnosticsSource.includes("blockedActiveProposals"), "diagnostics does not expose blocked active proposal count");
   assert(diagnosticsSource.includes("readinessBlockers"), "diagnostics does not expose workflow proposal blocker breakdowns");
   assert(diagnosticsSource.includes("readLatestCalibrationDefaultPlan"), "diagnostics does not read local calibration default-plan reports");
+  assert(diagnosticsSource.includes("./calibration-default-plan-artifacts"), "diagnostics does not use the shared calibration default-plan artifact reader");
   assert(diagnosticsSource.includes("calibrationDefaultPlanDiagnostic"), "diagnostics does not turn calibration default-plan issues into a check item");
   assert(diagnosticsSource.includes("calibrationDefaultPlan"), "diagnostics snapshot does not expose calibration default-plan summary");
   assert(diagnosticsSource.includes("validation_report_stale") || diagnosticsSource.includes("issues"), "diagnostics does not expose calibration default-plan issue rows");
+  assert(!diagnosticsSource.includes("function readLatestCalibrationDefaultPlan("), "diagnostics should not keep a local calibration default-plan parser");
   assert(smokeSource.includes("workflowProposalReadiness"), "smoke check does not validate workflow proposal readiness diagnostics");
   assert(smokeSource.includes("workflow_proposal_readiness"), "smoke check does not require the workflow proposal readiness diagnostic item");
   assert(smokeSource.includes("readinessBlockers"), "smoke check does not validate workflow proposal blocker breakdowns");
@@ -2030,6 +2032,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_skipped_row_info"), "calibration default plan skipped-row metadata metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_issues_total"), "calibration default plan issue metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_default_plan_issue_info"), "calibration default plan issue metadata metric missing");
+  assert(metricsSource.includes("readCalibrationDefaultPlanArtifacts"), "metrics do not use shared calibration default-plan artifact reader");
   assert(metricsSource.includes("open_superforecaster_source_bank_domains_total"), "source-bank domain count metric missing");
   assert(metricsSource.includes("open_superforecaster_source_bank_domain_entries"), "source-bank domain entry metric missing");
   assert(metricsSource.includes("open_superforecaster_source_bank_domain_used_in_final_entries"), "source-bank domain final-use metric missing");
@@ -2074,6 +2077,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("osf_calibration_guard_default_plan_candidates"), "DuckDB sync missing calibration guard default plan mart");
   assert(syncSource.includes("osf_calibration_guard_default_plan_skipped_rows"), "DuckDB sync missing calibration guard default plan skipped-row mart");
   assert(syncSource.includes("osf_calibration_guard_default_plan_issues"), "DuckDB sync missing calibration guard default plan issue mart");
+  assert(syncSource.includes("readCalibrationDefaultPlanArtifacts"), "DuckDB sync does not use shared calibration default-plan artifact reader");
   assert(syncSource.includes("osf_forecast_attention_items"), "DuckDB sync missing forecast attention item mart");
   assert(syncSource.includes("data/reports/forecast-attention-backlog"), "DuckDB sync does not merge generated forecast attention backlog items");
   assert(syncSource.includes("isExportCompatibleAttentionBacklog"), "DuckDB sync does not guard generated forecast attention backlog compatibility");

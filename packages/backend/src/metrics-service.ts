@@ -19,6 +19,7 @@ import {
   workflowProposalValidationCoverage,
   workflowProposalValidationReadiness,
 } from "./benchmark-service";
+import { readCalibrationDefaultPlanArtifacts } from "./calibration-default-plan-artifacts";
 import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
 import { aggregateSideAgreementBand, attemptCountBand, readAggregateStatsSnapshot } from "./aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "./baseline-sanity-metadata";
@@ -2274,53 +2275,47 @@ async function readCalibrationGuardDefaultPlanMetricRows(root: string): Promise<
   skippedRows: CalibrationGuardDefaultPlanSkippedMetricRow[];
   issueRows: CalibrationGuardDefaultPlanIssueMetricRow[];
 }> {
-  const reportPaths = await listFilesNamed(resolve(root, "data/reports/forecast-calibration-guard-default-plan"), "calibration-guard-default-plan.json");
+  const reports = await readCalibrationDefaultPlanArtifacts(root);
+  const reportPaths = reports.map((report) => report.reportPath);
   const candidateRows: CalibrationGuardDefaultPlanMetricRow[] = [];
   const skippedRows: CalibrationGuardDefaultPlanSkippedMetricRow[] = [];
   const issueRows: CalibrationGuardDefaultPlanIssueMetricRow[] = [];
-  for (const reportPath of reportPaths) {
-    let payload: Record<string, unknown> | null;
-    try {
-      payload = asRecord(JSON.parse(await readFile(reportPath, "utf8")));
-    } catch {
-      continue;
-    }
-    const generatedAt = readString(payload, "generatedAt");
-    for (const candidate of readRecordArray(payload, "defaultCandidates")) {
+  for (const report of reports) {
+    for (const candidate of report.defaultCandidates) {
       candidateRows.push({
-        reportPath,
-        generatedAt,
-        proposalId: readString(candidate, "proposalId"),
-        sourceCandidateGuardId: readString(candidate, "sourceCandidateGuardId"),
-        bucketLabel: readString(candidate, "bucketLabel"),
-        suggestedAdjustment: readNumber(candidate, "suggestedAdjustment"),
-        matchedRows: readNumber(candidate, "matchedRows"),
-        brierDelta: readNumber(candidate, "brierDelta"),
-        calibrationErrorDelta: readNumber(candidate, "calibrationErrorDelta"),
-        targetWorkflowId: readString(candidate, "targetWorkflowId"),
-        targetFile: readString(candidate, "targetFile"),
-        implementationStatus: readString(candidate, "implementationStatus"),
+        reportPath: report.reportPath,
+        generatedAt: report.generatedAt,
+        proposalId: candidate.proposalId,
+        sourceCandidateGuardId: candidate.sourceCandidateGuardId,
+        bucketLabel: candidate.bucketLabel,
+        suggestedAdjustment: candidate.suggestedAdjustment,
+        matchedRows: candidate.matchedRows,
+        brierDelta: candidate.brierDelta,
+        calibrationErrorDelta: candidate.calibrationErrorDelta,
+        targetWorkflowId: candidate.targetWorkflowId,
+        targetFile: candidate.targetFile,
+        implementationStatus: candidate.implementationStatus,
       });
     }
-    for (const skipped of readRecordArray(payload, "skippedRows")) {
+    for (const skipped of report.skippedRows) {
       skippedRows.push({
-        reportPath,
-        generatedAt,
-        proposalId: readString(skipped, "proposalId"),
-        bucketLabel: readString(skipped, "bucketLabel"),
-        recommendation: readString(skipped, "recommendation"),
-        validationMode: readString(skipped, "validationMode"),
-        reason: readString(skipped, "reason"),
+        reportPath: report.reportPath,
+        generatedAt: report.generatedAt,
+        proposalId: skipped.proposalId,
+        bucketLabel: skipped.bucketLabel,
+        recommendation: skipped.recommendation,
+        validationMode: skipped.validationMode,
+        reason: skipped.reason,
       });
     }
-    for (const issue of readRecordArray(payload, "issues")) {
+    for (const issue of report.issues) {
       issueRows.push({
-        reportPath,
-        generatedAt,
-        severity: readString(issue, "severity"),
-        kind: readString(issue, "kind"),
-        validationReport: readString(issue, "validationReport"),
-        latestValidationReport: readString(issue, "latestValidationReport"),
+        reportPath: report.reportPath,
+        generatedAt: report.generatedAt,
+        severity: issue.severity,
+        kind: issue.kind,
+        validationReport: issue.validationReport,
+        latestValidationReport: issue.latestValidationReport,
       });
     }
   }

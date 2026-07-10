@@ -2,6 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { DuckDBInstance, type DuckDBAppender, type DuckDBConnection } from "@duckdb/node-api";
 import postgres from "postgres";
+import { readCalibrationDefaultPlanArtifacts } from "../packages/backend/src/calibration-default-plan-artifacts";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
 import { isExportCompatibleAttentionBacklog } from "../packages/backend/src/forecast-attention-backlog";
 import { readCalibrationGuardSnapshot } from "../packages/backend/src/calibration-guard-metadata";
@@ -859,7 +860,7 @@ try {
 
   const calibrationGuardValidations = await readCalibrationGuardValidationRows(resolve(root, "data/reports/forecast-calibration-guard-validation"));
   await replaceTable(duck, "osf_calibration_guard_validations", calibrationGuardValidationColumns, calibrationGuardValidations);
-  const calibrationGuardDefaultPlan = await readCalibrationGuardDefaultPlanRows(resolve(root, "data/reports/forecast-calibration-guard-default-plan"));
+  const calibrationGuardDefaultPlan = await readCalibrationGuardDefaultPlanRows(root);
   const calibrationGuardDefaultPlanCandidates = calibrationGuardDefaultPlan.candidateRows;
   const calibrationGuardDefaultPlanSkippedRows = calibrationGuardDefaultPlan.skippedRows;
   const calibrationGuardDefaultPlanIssues = calibrationGuardDefaultPlan.issueRows;
@@ -2079,62 +2080,56 @@ async function readCalibrationGuardValidationRows(reportRoot: string): Promise<C
   );
 }
 
-async function readCalibrationGuardDefaultPlanRows(reportRoot: string): Promise<{
+async function readCalibrationGuardDefaultPlanRows(root: string): Promise<{
   candidateRows: CalibrationGuardDefaultPlanMartRow[];
   skippedRows: CalibrationGuardDefaultPlanSkippedMartRow[];
   issueRows: CalibrationGuardDefaultPlanIssueMartRow[];
 }> {
-  const paths = await listFilesNamed(reportRoot, "calibration-guard-default-plan.json");
+  const reports = await readCalibrationDefaultPlanArtifacts(root);
   const candidateRows: CalibrationGuardDefaultPlanMartRow[] = [];
   const skippedRows: CalibrationGuardDefaultPlanSkippedMartRow[] = [];
   const issueRows: CalibrationGuardDefaultPlanIssueMartRow[] = [];
-  for (const path of paths) {
-    const payload = await readJsonRecord(path);
-    if (!payload) {
-      continue;
-    }
-    const generatedAt = readString(payload, "generatedAt");
-    const pathsRecord = readRecord(payload, "paths");
-    for (const candidate of readRecordArray(payload, "defaultCandidates")) {
+  for (const report of reports) {
+    for (const candidate of report.defaultCandidates) {
       candidateRows.push({
-        report_path: path,
-        generated_at: generatedAt,
-        proposal_id: readString(candidate, "proposalId"),
-        source_candidate_guard_id: readString(candidate, "sourceCandidateGuardId"),
-        bucket_label: readString(candidate, "bucketLabel"),
-        suggested_adjustment: readNumber(candidate, "suggestedAdjustment"),
-        matched_rows: readNumber(candidate, "matchedRows"),
-        brier_delta: readNumber(candidate, "brierDelta"),
-        calibration_error_delta: readNumber(candidate, "calibrationErrorDelta"),
-        target_workflow_id: readString(candidate, "targetWorkflowId"),
-        target_file: readString(candidate, "targetFile"),
-        implementation_status: readString(candidate, "implementationStatus"),
-        recommended_action: readString(candidate, "recommendedAction"),
-        acceptance_criteria_json: JSON.stringify(readStringArray(candidate, "acceptanceCriteria")),
-        validation_report_path: readString(pathsRecord, "validationReport"),
+        report_path: report.reportPath,
+        generated_at: report.generatedAt,
+        proposal_id: candidate.proposalId,
+        source_candidate_guard_id: candidate.sourceCandidateGuardId,
+        bucket_label: candidate.bucketLabel,
+        suggested_adjustment: candidate.suggestedAdjustment,
+        matched_rows: candidate.matchedRows,
+        brier_delta: candidate.brierDelta,
+        calibration_error_delta: candidate.calibrationErrorDelta,
+        target_workflow_id: candidate.targetWorkflowId,
+        target_file: candidate.targetFile,
+        implementation_status: candidate.implementationStatus,
+        recommended_action: candidate.recommendedAction,
+        acceptance_criteria_json: JSON.stringify(candidate.acceptanceCriteria),
+        validation_report_path: report.paths.validationReport,
       });
     }
-    for (const skipped of readRecordArray(payload, "skippedRows")) {
+    for (const skipped of report.skippedRows) {
       skippedRows.push({
-        report_path: path,
-        generated_at: generatedAt,
-        proposal_id: readString(skipped, "proposalId"),
-        bucket_label: readString(skipped, "bucketLabel"),
-        recommendation: readString(skipped, "recommendation"),
-        validation_mode: readString(skipped, "validationMode"),
-        reason: readString(skipped, "reason"),
-        validation_report_path: readString(pathsRecord, "validationReport"),
+        report_path: report.reportPath,
+        generated_at: report.generatedAt,
+        proposal_id: skipped.proposalId,
+        bucket_label: skipped.bucketLabel,
+        recommendation: skipped.recommendation,
+        validation_mode: skipped.validationMode,
+        reason: skipped.reason,
+        validation_report_path: report.paths.validationReport,
       });
     }
-    for (const issue of readRecordArray(payload, "issues")) {
+    for (const issue of report.issues) {
       issueRows.push({
-        report_path: path,
-        generated_at: generatedAt,
-        severity: readString(issue, "severity"),
-        kind: readString(issue, "kind"),
-        message: readString(issue, "message"),
-        validation_report_path: readString(issue, "validationReport"),
-        latest_validation_report_path: readString(issue, "latestValidationReport"),
+        report_path: report.reportPath,
+        generated_at: report.generatedAt,
+        severity: issue.severity,
+        kind: issue.kind,
+        message: issue.message,
+        validation_report_path: issue.validationReport,
+        latest_validation_report_path: issue.latestValidationReport,
       });
     }
   }
