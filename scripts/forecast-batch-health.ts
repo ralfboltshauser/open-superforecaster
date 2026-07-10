@@ -1,6 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
+  calibrationGuardActivationSeverity,
+  normalizeCalibrationGuardActivationStatus,
+  type CalibrationGuardActivationStatus,
+} from "../packages/backend/src/calibration-guard-activation-policy";
+import {
   forecastAttentionReviewStatusRank,
   isForecastAttentionReviewStatus,
   type ForecastAttentionReviewStatus,
@@ -148,7 +153,7 @@ type HealthCandidateCalibrationGuardRule = {
   meanForecast: number | null;
   observedRate: number | null;
   calibrationError: number | null;
-  activationStatus: string;
+  activationStatus: CalibrationGuardActivationStatus;
   rationale: string;
   reviewNote: string | null;
   reviewer: string | null;
@@ -535,7 +540,7 @@ function readHealthBatchCandidateCalibrationGuardRule(item: ForecastBatchIndexCa
     meanForecast: item.meanForecast,
     observedRate: item.observedRate,
     calibrationError: item.calibrationError,
-    activationStatus: item.activationStatus ?? "needs_review",
+    activationStatus: normalizeCalibrationGuardActivationStatus(item.activationStatus),
     rationale: item.rationale ?? "",
     reviewNote: item.reviewNote,
     reviewer: item.reviewer,
@@ -692,7 +697,7 @@ function sortAttentionItems(items: HealthAttentionItem[]) {
 function sortCandidateCalibrationGuardRules(items: HealthCandidateCalibrationGuardRule[]) {
   return [...items].sort((left, right) =>
     forecastAttentionReviewStatusRank(left.reviewStatus) - forecastAttentionReviewStatusRank(right.reviewStatus)
-    || severityRank(left.activationStatus === "ready_for_review" ? "high" : "medium") - severityRank(right.activationStatus === "ready_for_review" ? "high" : "medium")
+    || severityRank(calibrationGuardActivationSeverity(left.activationStatus)) - severityRank(calibrationGuardActivationSeverity(right.activationStatus))
     || left.id.localeCompare(right.id)
   );
 }

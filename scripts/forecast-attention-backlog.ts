@@ -22,6 +22,10 @@ import {
   type ForecastAttentionReviewStatus,
 } from "../packages/backend/src/forecast-attention-policy";
 import {
+  calibrationGuardActivationSeverity,
+  normalizeCalibrationGuardActivationStatus,
+} from "../packages/backend/src/calibration-guard-activation-policy";
+import {
   calibrationGuardDefaultPlanSkippedReasonNotHoldoutReplay,
   calibrationGuardRecommendationReject,
   isCalibrationGuardPromotionRecommendation,
@@ -243,13 +247,13 @@ function readCandidateCalibrationGuardBacklogItem(item: ForecastBatchIndexCandid
   }
   const bucketLabel = item.bucketLabel ?? "calibration bucket";
   const direction = item.direction ?? "calibration_drift";
-  const activationStatus = item.activationStatus ?? "needs_review";
+  const activationStatus = normalizeCalibrationGuardActivationStatus(item.activationStatus);
   const suggestedAdjustment = item.suggestedAdjustment;
   return {
     batchId,
     id,
     reviewStatus,
-    severity: activationStatus === "ready_for_review" ? "high" : "medium",
+    severity: calibrationGuardActivationSeverity(activationStatus),
     kind: "candidate_calibration_guard",
     reason: item.rationale ?? `${bucketLabel} has ${direction} and needs calibration guard review.`,
     recommendedActions: recommendCandidateCalibrationGuardActions({ bucketLabel, suggestedAdjustment }),

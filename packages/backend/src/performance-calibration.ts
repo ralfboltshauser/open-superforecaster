@@ -1,3 +1,8 @@
+import {
+  calibrationGuardActivationStatusForCandidateFitting,
+  type CalibrationGuardActivationStatus,
+} from "./calibration-guard-activation-policy";
+
 export type BinaryCalibrationInput = {
   probability: number | null;
   resolved: boolean | null;
@@ -68,7 +73,7 @@ export type CandidateCalibrationGuardRule = {
   meanForecast: number;
   observedRate: number;
   calibrationError: number;
-  activationStatus: "needs_more_resolved_forecasts" | "ready_for_review";
+  activationStatus: CalibrationGuardActivationStatus;
   rationale: string;
 };
 
@@ -242,7 +247,9 @@ function buildCandidateCalibrationGuardRules(
       meanForecast: diagnostic.meanForecast,
       observedRate: diagnostic.observedRate,
       calibrationError: diagnostic.score,
-      activationStatus: summary.status === "ready_for_candidate_fitting" ? "ready_for_review" : "needs_more_resolved_forecasts",
+      activationStatus: calibrationGuardActivationStatusForCandidateFitting({
+        readyForCandidateFitting: summary.status === "ready_for_candidate_fitting",
+      }),
       rationale: `${diagnostic.bucketLabel} binary aggregates resolved at ${roundMetric(diagnostic.observedRate)}% versus ${roundMetric(diagnostic.meanForecast)}% mean forecast; review a ${formatSignedMetric(suggestedAdjustment)} point guard for this probability bucket.`,
     };
   });

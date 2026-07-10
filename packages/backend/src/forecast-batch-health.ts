@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { normalizeCalibrationGuardActivationStatus } from "./calibration-guard-activation-policy";
 
 export const FORECAST_BATCH_HEALTH_REPORT_PATH = "data/reports/forecast-batch-health/batch-health.json";
 
@@ -324,7 +325,7 @@ function readCandidateCalibrationGuardRuleArray(value: Record<string, unknown> |
     meanForecast: readNumber(record, "meanForecast"),
     observedRate: readNumber(record, "observedRate"),
     calibrationError: readNumber(record, "calibrationError"),
-    activationStatus: readString(record, "activationStatus") ?? "needs_review",
+    activationStatus: normalizeCalibrationGuardActivationStatus(readString(record, "activationStatus")),
     rationale: readString(record, "rationale") ?? "",
     reviewNote: readString(record, "reviewNote"),
     reviewer: readString(record, "reviewer"),

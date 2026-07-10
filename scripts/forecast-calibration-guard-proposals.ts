@@ -10,6 +10,11 @@ import {
   type ForecastAttentionReviewStatus,
 } from "../packages/backend/src/forecast-attention-policy";
 import {
+  isCalibrationGuardReadyForReview,
+  normalizeCalibrationGuardActivationStatus,
+  type CalibrationGuardActivationStatus,
+} from "../packages/backend/src/calibration-guard-activation-policy";
+import {
   hasArg,
   readArgValue,
   writeJson,
@@ -30,7 +35,7 @@ type CandidateCalibrationGuardRule = {
   meanForecast: number | null;
   observedRate: number | null;
   calibrationError: number | null;
-  activationStatus: string;
+  activationStatus: CalibrationGuardActivationStatus;
   rationale: string;
 };
 
@@ -59,7 +64,7 @@ type CalibrationGuardProposal = {
     meanForecast: number | null;
     observedRate: number | null;
     calibrationError: number | null;
-    activationStatus: string;
+    activationStatus: CalibrationGuardActivationStatus;
     rationale: string;
   };
 };
@@ -152,7 +157,7 @@ function buildProposalReport(
       proposalDrafts: proposalDrafts.length,
       skippedOpen: includeOpenRules ? 0 : candidateRules.filter((rule) => rule.reviewStatus === "open").length,
       skippedDeferred: candidateRules.filter((rule) => rule.reviewStatus === "deferred").length,
-      skippedNeedsMoreResolvedForecasts: candidateRules.filter((rule) => rule.activationStatus !== "ready_for_review").length,
+      skippedNeedsMoreResolvedForecasts: candidateRules.filter((rule) => !isCalibrationGuardReadyForReview(rule.activationStatus)).length,
     },
     proposalDrafts,
     paths: {
@@ -276,7 +281,7 @@ function renderProposalTable(proposals: CalibrationGuardProposal[]) {
 }
 
 function isEligibleCandidateRule(rule: CandidateCalibrationGuardRule, includeOpenRules: boolean) {
-  if (rule.activationStatus !== "ready_for_review") {
+  if (!isCalibrationGuardReadyForReview(rule.activationStatus)) {
     return false;
   }
   if (rule.reviewStatus === "deferred") {
@@ -304,7 +309,7 @@ function readCandidateRule(rule: ForecastBatchIndexCandidateCalibrationGuardRule
     meanForecast: rule.meanForecast,
     observedRate: rule.observedRate,
     calibrationError: rule.calibrationError,
-    activationStatus: rule.activationStatus ?? "needs_more_resolved_forecasts",
+    activationStatus: normalizeCalibrationGuardActivationStatus(rule.activationStatus),
     rationale: rule.rationale ?? "",
   }];
 }

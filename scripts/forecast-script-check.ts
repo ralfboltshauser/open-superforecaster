@@ -14,6 +14,10 @@ import {
   minimumPromotionResultCases,
 } from "../packages/backend/src/benchmark-promotion-policy";
 import {
+  calibrationGuardActivationStatusNeedsMoreResolvedForecasts,
+  calibrationGuardActivationStatusReadyForReview,
+} from "../packages/backend/src/calibration-guard-activation-policy";
+import {
   calibrationGuardDefaultPlanSkippedReasonNotHoldoutReplay,
   calibrationGuardRecommendationPromoteForDefault,
   calibrationGuardRecommendationPromoteForHoldout,
@@ -184,7 +188,7 @@ await check("forecast batch index joins all batch phases", async () => {
         meanForecast: 90,
         observedRate: 0,
         calibrationError: 90,
-        activationStatus: "ready_for_review",
+        activationStatus: calibrationGuardActivationStatusReadyForReview,
         rationale: "80-100% binary aggregates are overforecasting.",
       },
     ],
@@ -325,7 +329,7 @@ await check("forecast calibration guard proposals require reviewed ready candida
         meanForecast: 90,
         observedRate: 0,
         calibrationError: 90,
-        activationStatus: "ready_for_review",
+        activationStatus: calibrationGuardActivationStatusReadyForReview,
         rationale: "80-100% binary aggregates are overforecasting.",
       },
       {
@@ -338,7 +342,7 @@ await check("forecast calibration guard proposals require reviewed ready candida
         meanForecast: 65,
         observedRate: 80,
         calibrationError: 15,
-        activationStatus: "needs_more_resolved_forecasts",
+        activationStatus: calibrationGuardActivationStatusNeedsMoreResolvedForecasts,
         rationale: "Too few resolved forecasts.",
       },
       {
@@ -351,7 +355,7 @@ await check("forecast calibration guard proposals require reviewed ready candida
         meanForecast: 30,
         observedRate: 45,
         calibrationError: 15,
-        activationStatus: "ready_for_review",
+        activationStatus: calibrationGuardActivationStatusReadyForReview,
         rationale: "Deferred by reviewer.",
       },
     ],
@@ -655,7 +659,7 @@ await check("forecast attention backlog filters batch review status", async () =
         meanForecast: 90,
         observedRate: 0,
         calibrationError: 90,
-        activationStatus: "ready_for_review",
+        activationStatus: calibrationGuardActivationStatusReadyForReview,
         rationale: "80-100% binary aggregates are overforecasting.",
       },
     ],
@@ -942,7 +946,7 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
         meanForecast: 90,
         observedRate: 0,
         calibrationError: 90,
-        activationStatus: "ready_for_review",
+        activationStatus: calibrationGuardActivationStatusReadyForReview,
         rationale: "80-100% binary aggregates are overforecasting.",
         reviewNote: "Validate on a held-out batch first.",
         reviewer: "contract-check",
@@ -1573,7 +1577,7 @@ await check("diagnostics surface latest forecast batch health", async () => {
         meanForecast: 90,
         observedRate: 0,
         calibrationError: 90,
-        activationStatus: "ready_for_review",
+        activationStatus: calibrationGuardActivationStatusReadyForReview,
         rationale: "80-100% binary aggregates are overforecasting.",
         reviewNote: "Validate on a held-out batch first.",
         reviewer: "contract-check",
@@ -1702,6 +1706,8 @@ await check("forecast performance calibration buckets are stable", async () => {
 });
 
 await check("forecast performance calibration diagnostics flag bucket drift", async () => {
+  const calibrationSource = await readFile(resolve(root, "packages/backend/src/performance-calibration.ts"), "utf8");
+  const backendIndexSource = await readFile(resolve(root, "packages/backend/src/index.ts"), "utf8");
   const report = buildBinaryCalibrationReport([
     { probability: 90, resolved: false, score: 0.81 },
     { probability: 90, resolved: false, score: 0.81 },
@@ -1720,15 +1726,19 @@ await check("forecast performance calibration diagnostics flag bucket drift", as
   assert(report.candidateCalibrationGuardRules.length === 1, "candidate calibration guard rule missing");
   assert(report.candidateCalibrationGuardRules[0].id === "candidate-guard:80-100%", "candidate calibration guard id mismatch");
   assert(report.candidateCalibrationGuardRules[0].suggestedAdjustment === -15, "candidate calibration guard adjustment mismatch");
-  assert(report.candidateCalibrationGuardRules[0].activationStatus === "ready_for_review", "candidate calibration guard activation status mismatch");
+  assert(report.candidateCalibrationGuardRules[0].activationStatus === calibrationGuardActivationStatusReadyForReview, "candidate calibration guard activation status mismatch");
+  assert(calibrationSource.includes("calibrationGuardActivationStatusForCandidateFitting"), "calibration report does not use shared candidate guard activation policy");
+  assert(backendIndexSource.includes("calibration-guard-activation-policy"), "backend package barrel does not export calibration guard activation policy");
   return "calibration diagnostics convert bucket drift into review actions";
 });
 
 await check("forecast performance reports surface candidate calibration guards", async () => {
   const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
+  const batchIndexSource = await readFile(resolve(root, "scripts/forecast-batch-index.ts"), "utf8");
   const attentionPolicySource = await readFile(resolve(root, "packages/backend/src/forecast-attention-policy.ts"), "utf8");
   const attentionBacklogSource = await readFile(resolve(root, "scripts/forecast-attention-backlog.ts"), "utf8");
   const batchHealthSource = await readFile(resolve(root, "scripts/forecast-batch-health.ts"), "utf8");
+  const backendBatchHealthSource = await readFile(resolve(root, "packages/backend/src/forecast-batch-health.ts"), "utf8");
   const calibrationProposalSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-proposals.ts"), "utf8");
   const attentionReviewSource = await readFile(resolve(root, "scripts/lib/forecast-attention-reviews.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
@@ -1754,12 +1764,17 @@ await check("forecast performance reports surface candidate calibration guards",
   assert((await readFile(resolve(root, "packages/backend/src/index.ts"), "utf8")).includes("forecast-attention-policy"), "backend package barrel does not export forecast attention policy");
   assert(attentionBacklogSource.includes("recommendCalibrationValidationActions"), "attention backlog does not use shared validation backlog actions");
   assert(attentionBacklogSource.includes("forecastAttentionReviewStatusRank"), "attention backlog does not use shared review status rank");
+  assert(attentionBacklogSource.includes("calibrationGuardActivationSeverity"), "attention backlog does not use shared candidate guard activation severity");
   assert(!attentionBacklogSource.includes("function recommendedActionsForCalibrationValidation("), "attention backlog should not keep local validation actions");
   assert(!attentionBacklogSource.includes("function recommendedActionsForDefaultPlanSkipped("), "attention backlog should not keep local default-plan actions");
   assert(!attentionBacklogSource.includes("function statusRank("), "attention backlog should not keep local review status rank");
   assert(batchHealthSource.includes("forecastAttentionReviewStatusRank"), "batch health does not use shared review status rank");
+  assert(batchHealthSource.includes("calibrationGuardActivationSeverity"), "batch health does not use shared candidate guard activation severity");
+  assert(backendBatchHealthSource.includes("normalizeCalibrationGuardActivationStatus"), "shared batch health reader does not normalize candidate guard activation status");
+  assert(batchIndexSource.includes("normalizeCalibrationGuardActivationStatus"), "batch index does not normalize candidate guard activation status");
   assert(!batchHealthSource.includes("function statusRank("), "batch health should not keep local review status rank");
   assert(calibrationProposalSource.includes("normalizeForecastAttentionReviewStatus"), "calibration proposals do not use shared review status normalization");
+  assert(calibrationProposalSource.includes("isCalibrationGuardReadyForReview"), "calibration proposals do not use shared candidate guard readiness policy");
   assert(attentionReviewSource.includes("isForecastAttentionReviewStatus"), "attention review parser does not use shared review status validation");
   assert(resolutionSource.includes("evidence_coverage_miss"), "performance report does not turn weak evidence coverage into attention");
   assert(resolutionSource.includes("input_context_miss"), "performance report does not turn weak input context into attention");

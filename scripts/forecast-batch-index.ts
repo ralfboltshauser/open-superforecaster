@@ -1,6 +1,10 @@
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { isAttentionReviewStatus, loadAttentionReviews, type AttentionReviewRecord } from "./lib/forecast-attention-reviews";
+import {
+  normalizeCalibrationGuardActivationStatus,
+  type CalibrationGuardActivationStatus,
+} from "../packages/backend/src/calibration-guard-activation-policy";
 import { defaultForecastAttentionReviewStatus } from "../packages/backend/src/forecast-attention-policy";
 import {
   readArgValue,
@@ -57,7 +61,7 @@ type CandidateCalibrationGuardRule = {
   meanForecast: number | null;
   observedRate: number | null;
   calibrationError: number | null;
-  activationStatus: string;
+  activationStatus: CalibrationGuardActivationStatus;
   rationale: string;
 };
 
@@ -385,7 +389,7 @@ function readCandidateCalibrationGuardRules(payload: JsonRecord): CandidateCalib
       meanForecast: readNumber(rule, "meanForecast"),
       observedRate: readNumber(rule, "observedRate"),
       calibrationError: readNumber(rule, "calibrationError"),
-      activationStatus: readString(rule, "activationStatus") ?? "needs_review",
+      activationStatus: normalizeCalibrationGuardActivationStatus(readString(rule, "activationStatus")),
       rationale: readString(rule, "rationale") ?? "",
     }];
   });
