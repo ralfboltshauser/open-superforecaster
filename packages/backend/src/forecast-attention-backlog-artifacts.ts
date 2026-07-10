@@ -13,6 +13,7 @@ export type ForecastAttentionBacklogArtifact = {
     open: number | null;
     deferred: number | null;
     reviewed: number | null;
+    unresolved: number | null;
     high: number | null;
     medium: number | null;
     low: number | null;
@@ -79,6 +80,7 @@ function readForecastAttentionBacklogArtifact(reportPath: string, payload: JsonR
       open: readNumber(counts, "open"),
       deferred: readNumber(counts, "deferred"),
       reviewed: readNumber(counts, "reviewed"),
+      unresolved: readNumber(counts, "unresolved"),
       high: readNumber(counts, "high"),
       medium: readNumber(counts, "medium"),
       low: readNumber(counts, "low"),

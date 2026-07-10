@@ -69,6 +69,7 @@ type BacklogBreakdownCounts = {
   open: number;
   deferred: number;
   reviewed: number;
+  unresolved: number;
   high: number;
   medium: number;
   low: number;
@@ -94,6 +95,7 @@ type BacklogReport = {
     open: number;
     deferred: number;
     reviewed: number;
+    unresolved: number;
     high: number;
     medium: number;
     low: number;
@@ -356,6 +358,7 @@ function buildReport(
       open: reviewCounts.open,
       deferred: reviewCounts.deferred,
       reviewed: reviewCounts.reviewed,
+      unresolved: reviewCounts.unresolved,
       high: severityCounts.high,
       medium: severityCounts.medium,
       low: severityCounts.low,
@@ -388,6 +391,7 @@ function renderMarkdown(report: BacklogReport) {
     `- Open: ${report.counts.open}`,
     `- Deferred: ${report.counts.deferred}`,
     `- Reviewed: ${report.counts.reviewed}`,
+    `- Unresolved: ${report.counts.unresolved}`,
     `- High severity: ${report.counts.high}`,
     `- Medium severity: ${report.counts.medium}`,
     `- Low severity: ${report.counts.low}`,
@@ -413,10 +417,10 @@ function renderForecastTypeTable(rows: ForecastTypeBreakdown[]) {
     return ["No forecast type counts matched the filters."];
   }
   return [
-    "| Forecast type | Items | Open | Deferred | Reviewed | High | Medium | Low |",
-    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    "| Forecast type | Items | Open | Deferred | Reviewed | Unresolved | High | Medium | Low |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...rows.map((row) =>
-      `| ${escapeMarkdownCell(row.forecastType)} | ${row.items} | ${row.open} | ${row.deferred} | ${row.reviewed} | ${row.high} | ${row.medium} | ${row.low} |`,
+      `| ${escapeMarkdownCell(row.forecastType)} | ${row.items} | ${row.open} | ${row.deferred} | ${row.reviewed} | ${row.unresolved} | ${row.high} | ${row.medium} | ${row.low} |`,
     ),
   ];
 }
@@ -426,10 +430,10 @@ function renderKindTable(rows: KindBreakdown[]) {
     return ["No kind counts matched the filters."];
   }
   return [
-    "| Kind | Items | Open | Deferred | Reviewed | High | Medium | Low |",
-    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    "| Kind | Items | Open | Deferred | Reviewed | Unresolved | High | Medium | Low |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...rows.map((row) =>
-      `| ${escapeMarkdownCell(row.kind)} | ${row.items} | ${row.open} | ${row.deferred} | ${row.reviewed} | ${row.high} | ${row.medium} | ${row.low} |`,
+      `| ${escapeMarkdownCell(row.kind)} | ${row.items} | ${row.open} | ${row.deferred} | ${row.reviewed} | ${row.unresolved} | ${row.high} | ${row.medium} | ${row.low} |`,
     ),
   ];
 }
@@ -513,6 +517,7 @@ function countBreakdown(items: BacklogItem[]): BacklogBreakdownCounts {
     open: reviewCounts.open,
     deferred: reviewCounts.deferred,
     reviewed: reviewCounts.reviewed,
+    unresolved: reviewCounts.unresolved,
     high: severityCounts.high,
     medium: severityCounts.medium,
     low: severityCounts.low,
