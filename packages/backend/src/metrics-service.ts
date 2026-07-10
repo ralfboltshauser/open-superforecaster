@@ -16,7 +16,7 @@ import {
 } from "@open-superforecaster/db";
 import { summarizeBenchmarkPromotionGateEvidence } from "./benchmark-service";
 import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
-import { aggregateSideAgreementBand, readAggregateStatsSnapshot } from "./aggregate-stats-metadata";
+import { aggregateSideAgreementBand, attemptCountBand, readAggregateStatsSnapshot } from "./aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { readBinaryConfidenceSnapshot } from "./binary-confidence-metadata";
 import { buildCalibrationGuardImpact } from "./calibration-guard-impact";
@@ -878,6 +878,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       conditional_effect_direction_agreement: "unknown",
       conditional_resolved_branch_placement: "unknown",
       conditional_resolved_branch_probability_band: "unknown",
+      attempt_count_band: "unknown",
     };
     metrics.gauge(
       "open_superforecaster_conditional_scores_total",
@@ -903,6 +904,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       conditional_effect_direction_agreement: conditionalForecast?.effectDirectionAgreement ?? "unknown",
       conditional_resolved_branch_placement: conditionalForecast?.resolvedBranchPlacement ?? "unknown",
       conditional_resolved_branch_probability_band: conditionalForecast?.resolvedBranchProbabilityBand ?? "unknown",
+      attempt_count_band: attemptCountBand(conditionalForecast?.attemptCount ?? null),
     });
   })) {
     const labels = parseLabelKey(key);
@@ -933,6 +935,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       probability_spread_band: "unknown",
       component_disagreement_band: "unknown",
       resolved_threshold_band: "unknown",
+      attempt_count_band: "unknown",
     };
     metrics.gauge(
       "open_superforecaster_thresholded_scores_total",
@@ -957,6 +960,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       probability_spread_band: thresholdedForecast?.probabilitySpreadBand ?? "unknown",
       component_disagreement_band: thresholdedForecast?.componentDisagreementBand ?? "unknown",
       resolved_threshold_band: thresholdedForecast?.resolvedThresholdBand ?? "unknown",
+      attempt_count_band: attemptCountBand(thresholdedForecast?.attemptCount ?? null),
     });
   })) {
     const labels = parseLabelKey(key);
@@ -986,6 +990,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       p50_disagreement_band: "unknown",
       p50_error_band: "unknown",
       resolved_position_band: "unknown",
+      attempt_count_band: "unknown",
     };
     metrics.gauge(
       "open_superforecaster_numeric_distribution_scores_total",
@@ -1009,6 +1014,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       p50_disagreement_band: numericForecast?.p50DisagreementBand ?? "unknown",
       p50_error_band: numericForecast?.p50ErrorBand ?? "unknown",
       resolved_position_band: numericForecast?.resolvedPositionBand ?? "unknown",
+      attempt_count_band: attemptCountBand(numericForecast?.attemptCount ?? null),
     });
   })) {
     const labels = parseLabelKey(key);
@@ -1038,6 +1044,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       p50_disagreement_band: "unknown",
       p50_error_band: "unknown",
       resolved_position_band: "unknown",
+      attempt_count_band: "unknown",
     };
     metrics.gauge(
       "open_superforecaster_date_distribution_scores_total",
@@ -1061,6 +1068,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       p50_disagreement_band: dateForecast?.p50DisagreementBand ?? "unknown",
       p50_error_band: dateForecast?.p50ErrorBand ?? "unknown",
       resolved_position_band: dateForecast?.resolvedPositionBand ?? "unknown",
+      attempt_count_band: attemptCountBand(dateForecast?.attemptCount ?? null),
     });
   })) {
     const labels = parseLabelKey(key);
@@ -1091,6 +1099,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       category_coverage_band: "unknown",
       top_category_agreement_band: "unknown",
       resolved_category_band: "unknown",
+      attempt_count_band: "unknown",
     };
     metrics.gauge(
       "open_superforecaster_categorical_distribution_scores_total",
@@ -1115,6 +1124,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       category_coverage_band: categoricalForecast?.categoryCoverageBand ?? "unknown",
       top_category_agreement_band: categoricalForecast?.topCategoryAgreementBand ?? "unknown",
       resolved_category_band: categoricalForecast?.resolvedCategoryBand ?? "unknown",
+      attempt_count_band: attemptCountBand(categoricalForecast?.attemptCount ?? null),
     });
   })) {
     const labels = parseLabelKey(key);

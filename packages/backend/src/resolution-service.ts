@@ -11,7 +11,7 @@ import {
 } from "@open-superforecaster/db";
 import { scoreBinaryForecast } from "@open-superforecaster/evals";
 import { readAggregateQualitySnapshot, type AggregateQualitySnapshot } from "./aggregate-quality-metadata";
-import { aggregateSideAgreementBand, readAggregateStatsSnapshot, type AggregateStatsSnapshot } from "./aggregate-stats-metadata";
+import { aggregateSideAgreementBand, attemptCountBand, readAggregateStatsSnapshot, type AggregateStatsSnapshot } from "./aggregate-stats-metadata";
 import { readBaselineSanitySnapshot, type BaselineSanitySnapshot } from "./baseline-sanity-metadata";
 import { buildBinaryConfidenceSnapshot, readBinaryConfidenceSnapshot, type BinaryConfidenceSnapshot } from "./binary-confidence-metadata";
 import { buildCalibrationGuardImpact, type CalibrationGuardImpact, type CalibrationGuardRuleImpact } from "./calibration-guard-impact";
@@ -403,6 +403,7 @@ export async function getForecastPerformanceReport(db: Db) {
     const target = readString(score.scoreConfig, "target") ?? "unknown";
     return `${forecastType}:${target}`;
   });
+  const byForecastAttemptCount = groupScores(aggregateScores, forecastAttemptCountGroupKey);
   const byCalibrationGuard = groupScores(aggregateScores, calibrationGuardGroupKey);
   const byBinaryConfidence = groupScores(aggregateScores, binaryConfidenceGroupKey);
   const byBinaryForecastSide = groupScores(aggregateScores, binaryForecastSideGroupKey);
@@ -524,6 +525,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byTarget,
       byForecaster,
       byForecastTypeAndTarget,
+      byForecastAttemptCount,
       byCalibrationGuard,
       byBinaryConfidence,
       byBinaryForecastSide,
@@ -635,6 +637,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byForecastType,
       byTarget,
       byForecaster,
+      byForecastAttemptCount,
       byCalibrationGuard,
       byBinaryConfidence,
       byBinaryForecastSide,
@@ -1378,6 +1381,12 @@ function calibrationGuardGroupKey(score: typeof forecastScores.$inferSelect) {
     return "unguarded";
   }
   return `guard:${guard.appliedRules.map((rule) => rule.id).sort().join("+")}`;
+}
+
+function forecastAttemptCountGroupKey(score: typeof forecastScores.$inferSelect) {
+  const forecastType = readString(score.scoreConfig, "forecastType") ?? "unknown";
+  const attemptCount = forecastAttemptCount(score.scoreConfig, forecastType);
+  return `forecast_attempts:${forecastType}:${attemptCountBand(attemptCount)}`;
 }
 
 function binaryConfidenceGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -3509,6 +3518,28 @@ function selectPrimaryMetric(meanScores: Record<string, number>) {
   return preference.find((metric) => metric in meanScores) ?? Object.keys(meanScores).sort()[0] ?? null;
 }
 
+function forecastAttemptCount(scoreConfig: unknown, forecastType: string) {
+  if (forecastType === "binary") {
+    return readAggregateStatsSnapshot(scoreConfig)?.attemptCount ?? null;
+  }
+  if (forecastType === "conditional") {
+    return readConditionalForecastSnapshot(scoreConfig)?.attemptCount ?? null;
+  }
+  if (forecastType === "thresholded") {
+    return readThresholdedForecastSnapshot(scoreConfig)?.attemptCount ?? null;
+  }
+  if (forecastType === "numeric") {
+    return readNumericForecastSnapshot(scoreConfig)?.attemptCount ?? null;
+  }
+  if (forecastType === "date") {
+    return readDateForecastSnapshot(scoreConfig)?.attemptCount ?? null;
+  }
+  if (forecastType === "categorical") {
+    return readCategoricalForecastSnapshot(scoreConfig)?.attemptCount ?? null;
+  }
+  return null;
+}
+
 function formatPerformanceGroupLabel(key: string) {
   return key
     .split(":")
@@ -3522,6 +3553,7 @@ function renderPerformanceMarkdown(input: {
   byForecastType: PerformanceGroup[];
   byTarget: PerformanceGroup[];
   byForecaster: PerformanceGroup[];
+  byForecastAttemptCount: PerformanceGroup[];
   byCalibrationGuard: PerformanceGroup[];
   byBinaryConfidence: PerformanceGroup[];
   byBinaryForecastSide: PerformanceGroup[];
@@ -3630,6 +3662,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Forecasters",
     ...renderGroupTable(input.byForecaster),
+    "",
+    "## Forecast attempt-count groups",
+    ...renderGroupTable(input.byForecastAttemptCount),
     "",
     "## Calibration guard groups",
     ...renderGroupTable(input.byCalibrationGuard),

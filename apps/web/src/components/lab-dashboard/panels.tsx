@@ -615,6 +615,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const summary = isRecord(performance?.summary) ? performance.summary : {}
   const groups = isRecord(performance?.groups) ? performance.groups : {}
   const byForecastType = readArray(groups, "byForecastType").filter(isRecord)
+  const byForecastAttemptCount = readArray(groups, "byForecastAttemptCount").filter(isRecord)
   const byCalibrationGuard = readArray(groups, "byCalibrationGuard").filter(isRecord)
   const byBinaryConfidence = readArray(groups, "byBinaryConfidence").filter(isRecord)
   const byBinaryForecastSide = readArray(groups, "byBinaryForecastSide").filter(isRecord)
@@ -745,6 +746,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         ) : null}
         {scoreTrends.length ? <PerformanceTrendList trends={scoreTrends} /> : null}
         {calibrationGuardImpact ? <PerformanceGuardImpact impact={calibrationGuardImpact} /> : null}
+        {byForecastAttemptCount.length ? <PerformancePlanShapeGroupList groups={byForecastAttemptCount} title="Forecast attempt-count outcomes" skipKey="forecast_attempts:unknown:unknown" fallback="attempt count" /> : null}
         {byCalibrationGuard.length ? <PerformanceGuardGroupList groups={byCalibrationGuard} /> : null}
         {byBinaryConfidence.length ? <PerformancePlanShapeGroupList groups={byBinaryConfidence} title="Binary confidence outcomes" skipKey="binary_confidence:not_binary" fallback="binary confidence" /> : null}
         {byBinaryForecastSide.length ? <PerformancePlanShapeGroupList groups={byBinaryForecastSide} title="Binary side outcomes" skipKey="binary_side:not_binary" fallback="binary side" /> : null}

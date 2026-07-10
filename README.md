@@ -326,10 +326,10 @@ lower-probability active branches, outcome-under-condition errors, and
 high-disagreement conditional aggregates.
 Thresholded score rows preserve threshold direction, source, count,
 monotonicity repair status, curve spread and spread band, component curve
-disagreement, resolved-value placement, and attempt count so flat, steep,
+disagreement, resolved-value placement, attempt count, and attempt count band so flat, steep,
 repaired, extracted, out-of-range, or internally split threshold curves can be
 reviewed separately from clean caller-provided curves. Numeric and date score
-rows preserve quantile interval width, unit, attempt count, median miss-distance
+rows preserve quantile interval width, unit, attempt count and attempt count band, median miss-distance
 bands, numeric component-value disagreement, date never-probability bands,
 resolved-position bands, and component median-date disagreement so wide,
 out-of-interval, median-miss, split-component, split-timing, or unit-specific

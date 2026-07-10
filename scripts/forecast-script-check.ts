@@ -971,6 +971,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("runMetadata: readForecastRunSnapshot(latest.scoreConfig)"), "performance cases do not retain run metadata snapshots");
   assert(resolutionSource.includes("## Calibration guard impact"), "performance Markdown missing calibration guard impact section");
   assert(resolutionSource.includes("renderCalibrationGuardRuleImpactTable"), "performance Markdown missing rule-level calibration guard impact table");
+  assert(resolutionSource.includes("## Forecast attempt-count groups"), "performance Markdown missing forecast attempt-count group section");
   assert(resolutionSource.includes("## Binary confidence groups"), "performance Markdown missing binary confidence group section");
   assert(resolutionSource.includes("## Binary side groups"), "performance Markdown missing binary side group section");
   assert(resolutionSource.includes("## Baseline sanity groups"), "performance Markdown missing baseline sanity group section");
@@ -1050,6 +1051,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Candidate calibration guards"), "lab dashboard does not render candidate calibration guard rules");
   assert(dashboardSource.includes("PerformanceGuardImpact"), "lab dashboard does not render calibration guard impact summary");
   assert(dashboardSource.includes("readArray(impact, \"byRule\")"), "lab dashboard does not render rule-level guard impact");
+  assert(dashboardSource.includes("byForecastAttemptCount"), "lab dashboard does not read forecast attempt-count performance groups");
+  assert(dashboardSource.includes("Forecast attempt-count outcomes"), "lab dashboard does not render forecast attempt-count performance groups");
   assert(dashboardSource.includes("byBaselineSanity"), "lab dashboard does not read baseline sanity performance groups");
   assert(dashboardSource.includes("Baseline sanity outcomes"), "lab dashboard does not render baseline sanity performance groups");
   assert(dashboardSource.includes("byAggregateQuality"), "lab dashboard does not read aggregate quality performance groups");
@@ -1393,6 +1396,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("monotonicity_repaired"), "forecast score mart missing monotonicity repair flag");
   assert(syncSource.includes("numeric_interval_width_band"), "forecast score mart missing numeric interval band");
   assert(syncSource.includes("numeric_attempt_count"), "forecast score mart missing numeric attempt count");
+  assert(syncSource.includes("numeric_attempt_count_band"), "forecast score mart missing numeric attempt count band");
   assert(syncSource.includes("date_interval_days"), "forecast score mart missing date interval days");
   assert(syncSource.includes("date_never_probability_band"), "forecast score mart missing date never-probability band");
   assert(syncSource.includes("categorical_top_probability_band"), "forecast score mart missing categorical top probability band");
@@ -1933,14 +1937,17 @@ await check("conditional forecast metadata reaches resolved score analytics", as
   assert(resolutionSource.includes("byConditionalEffect"), "performance report does not group by conditional effect size");
   assert(resolutionSource.includes("byConditionalBranchDisagreement"), "performance report does not group by conditional branch disagreement");
   assert(resolutionSource.includes("byConditionalResolvedBranch"), "performance report does not group by conditional resolved branch");
+  assert(resolutionSource.includes("byForecastAttemptCount"), "performance report does not group by forecast attempt count");
   assert(resolutionSource.includes("conditionalForecast.resolvedBranchPlacement"), "attention queue does not use conditional resolved branch placement");
   assert(metricsSource.includes("open_superforecaster_conditional_scores_total"), "metrics missing conditional score counts");
   assert(metricsSource.includes("conditional_branch_disagreement_band"), "metrics missing conditional branch disagreement labels");
   assert(metricsSource.includes("conditional_resolved_branch_placement"), "metrics missing conditional resolved branch labels");
+  assert(metricsSource.includes("attempt_count_band"), "metrics missing attempt count band labels");
   assert(syncSource.includes("probability_given_condition"), "DuckDB forecast score mart missing conditional true branch probability");
   assert(syncSource.includes("conditional_probability_delta"), "DuckDB forecast score mart missing conditional probability delta");
   assert(syncSource.includes("conditional_resolved_branch_probability"), "DuckDB forecast score mart missing conditional resolved branch probability");
   assert(syncSource.includes("conditional_resolved_branch_placement"), "DuckDB forecast score mart missing conditional resolved branch placement");
+  assert(syncSource.includes("conditional_attempt_count_band"), "DuckDB forecast score mart missing conditional attempt count band");
   assert(syncSource.includes("conditional_effect_disagreement"), "DuckDB forecast score mart missing conditional effect disagreement");
   assert(dashboardSource.includes("Conditional branch outcomes"), "lab dashboard does not render conditional branch outcomes");
   assert(dashboardSource.includes("Conditional effect outcomes"), "lab dashboard does not render conditional effect outcomes");
@@ -2018,11 +2025,13 @@ await check("thresholded forecast metadata reaches resolved score analytics", as
   assert(metricsSource.includes("probability_spread_band"), "metrics missing threshold probability spread labels");
   assert(metricsSource.includes("thresholdedForecast?.componentDisagreementBand"), "metrics missing threshold component disagreement labels");
   assert(metricsSource.includes("thresholdedForecast?.resolvedThresholdBand"), "metrics missing threshold resolved-band labels");
+  assert(metricsSource.includes("attemptCountBand(thresholdedForecast?.attemptCount"), "metrics missing threshold attempt count labels");
   assert(syncSource.includes("threshold_probability_spread"), "DuckDB forecast score mart missing threshold probability spread");
   assert(syncSource.includes("threshold_probability_spread_band"), "DuckDB forecast score mart missing threshold probability spread band");
   assert(syncSource.includes("threshold_actual_value"), "DuckDB forecast score mart missing threshold actual value");
   assert(syncSource.includes("threshold_nearest_distance"), "DuckDB forecast score mart missing nearest threshold distance");
   assert(syncSource.includes("threshold_resolved_band"), "DuckDB forecast score mart missing threshold resolved band");
+  assert(syncSource.includes("thresholded_attempt_count_band"), "DuckDB forecast score mart missing threshold attempt count band");
   assert(syncSource.includes("thresholded_component_probability_disagreement"), "DuckDB forecast score mart missing threshold component disagreement");
   assert(dashboardSource.includes("Threshold monotonicity outcomes"), "lab dashboard does not render threshold monotonicity outcomes");
   assert(dashboardSource.includes("Threshold curve-spread outcomes"), "lab dashboard does not render threshold curve spread outcomes");
@@ -2147,6 +2156,7 @@ await check("numeric and date forecast distribution metadata reaches resolved sc
   assert(syncSource.includes("numeric_p50_error"), "DuckDB forecast score mart missing numeric p50 error");
   assert(syncSource.includes("numeric_p50_error_band"), "DuckDB forecast score mart missing numeric p50 error band");
   assert(syncSource.includes("numeric_resolved_position_band"), "DuckDB forecast score mart missing numeric resolved position band");
+  assert(syncSource.includes("numeric_attempt_count_band"), "DuckDB forecast score mart missing numeric attempt count band");
   assert(syncSource.includes("numeric_p50_disagreement"), "DuckDB forecast score mart missing numeric component value disagreement");
   assert(syncSource.includes("date_interval_days"), "DuckDB forecast score mart missing date interval days");
   assert(syncSource.includes("date_actual_date"), "DuckDB forecast score mart missing date actual date");
@@ -2154,6 +2164,7 @@ await check("numeric and date forecast distribution metadata reaches resolved sc
   assert(syncSource.includes("date_p50_error_band"), "DuckDB forecast score mart missing date p50 error band");
   assert(syncSource.includes("date_resolved_position_band"), "DuckDB forecast score mart missing date resolved position band");
   assert(syncSource.includes("date_never_probability_band"), "DuckDB forecast score mart missing date never-probability band");
+  assert(syncSource.includes("date_attempt_count_band"), "DuckDB forecast score mart missing date attempt count band");
   assert(syncSource.includes("date_p50_disagreement_days"), "DuckDB forecast score mart missing date component timing disagreement");
   assert(dashboardSource.includes("Numeric interval outcomes"), "lab dashboard does not render numeric interval outcomes");
   assert(dashboardSource.includes("Numeric component-value outcomes"), "lab dashboard does not render numeric component value outcomes");
@@ -2247,9 +2258,11 @@ await check("categorical forecast distribution metadata reaches resolved score a
   assert(metricsSource.includes("category_coverage_band"), "metrics missing categorical coverage labels");
   assert(metricsSource.includes("top_category_agreement_band"), "metrics missing categorical top agreement labels");
   assert(metricsSource.includes("resolved_category_band"), "metrics missing categorical resolved-category labels");
+  assert(metricsSource.includes("attemptCountBand(categoricalForecast?.attemptCount"), "metrics missing categorical attempt count labels");
   assert(syncSource.includes("categorical_top_probability"), "DuckDB forecast score mart missing categorical top probability");
   assert(syncSource.includes("categorical_category_coverage_band"), "DuckDB forecast score mart missing categorical coverage band");
   assert(syncSource.includes("categorical_entropy_band"), "DuckDB forecast score mart missing categorical entropy band");
+  assert(syncSource.includes("categorical_attempt_count_band"), "DuckDB forecast score mart missing categorical attempt count band");
   assert(syncSource.includes("categorical_top_category_vote_share"), "DuckDB forecast score mart missing categorical top category vote share");
   assert(syncSource.includes("categorical_actual_category"), "DuckDB forecast score mart missing categorical actual category");
   assert(syncSource.includes("categorical_actual_probability"), "DuckDB forecast score mart missing categorical actual probability");

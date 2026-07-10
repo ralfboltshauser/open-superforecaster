@@ -406,6 +406,12 @@ try {
       fs.score_config #>> '{conditionalForecast,resolvedBranchProbabilityBand}' as conditional_resolved_branch_probability_band,
       fs.score_config #>> '{conditionalForecast,resolvedBranchPlacement}' as conditional_resolved_branch_placement,
       nullif(fs.score_config #>> '{conditionalForecast,attemptCount}', '')::integer as conditional_attempt_count,
+      case
+        when nullif(fs.score_config #>> '{conditionalForecast,attemptCount}', '')::integer >= 5 then 'many_attempts'
+        when nullif(fs.score_config #>> '{conditionalForecast,attemptCount}', '')::integer >= 2 then 'few_attempts'
+        when nullif(fs.score_config #>> '{conditionalForecast,attemptCount}', '')::integer >= 0 then 'single_attempt'
+        else 'unknown'
+      end as conditional_attempt_count_band,
       nullif(fs.score_config #>> '{conditionalForecast,componentBranchCount}', '')::integer as conditional_component_branch_count,
       nullif(fs.score_config #>> '{conditionalForecast,givenConditionDisagreement}', '')::double precision as conditional_given_condition_disagreement,
       nullif(fs.score_config #>> '{conditionalForecast,givenNotConditionDisagreement}', '')::double precision as conditional_given_not_condition_disagreement,
@@ -422,6 +428,12 @@ try {
       nullif(fs.score_config #>> '{thresholdedForecast,nearestThresholdDistance}', '')::double precision as threshold_nearest_distance,
       fs.score_config #>> '{thresholdedForecast,resolvedThresholdBand}' as threshold_resolved_band,
       nullif(fs.score_config #>> '{thresholdedForecast,attemptCount}', '')::integer as thresholded_attempt_count,
+      case
+        when nullif(fs.score_config #>> '{thresholdedForecast,attemptCount}', '')::integer >= 5 then 'many_attempts'
+        when nullif(fs.score_config #>> '{thresholdedForecast,attemptCount}', '')::integer >= 2 then 'few_attempts'
+        when nullif(fs.score_config #>> '{thresholdedForecast,attemptCount}', '')::integer >= 0 then 'single_attempt'
+        else 'unknown'
+      end as thresholded_attempt_count_band,
       nullif(fs.score_config #>> '{thresholdedForecast,componentCurveCount}', '')::integer as thresholded_component_curve_count,
       nullif(fs.score_config #>> '{thresholdedForecast,componentProbabilityDisagreement}', '')::double precision as thresholded_component_probability_disagreement,
       fs.score_config #>> '{thresholdedForecast,componentDisagreementBand}' as thresholded_component_disagreement_band,
@@ -437,6 +449,12 @@ try {
       fs.score_config #>> '{numericForecast,p50ErrorBand}' as numeric_p50_error_band,
       fs.score_config #>> '{numericForecast,resolvedPositionBand}' as numeric_resolved_position_band,
       nullif(fs.score_config #>> '{numericForecast,attemptCount}', '')::integer as numeric_attempt_count,
+      case
+        when nullif(fs.score_config #>> '{numericForecast,attemptCount}', '')::integer >= 5 then 'many_attempts'
+        when nullif(fs.score_config #>> '{numericForecast,attemptCount}', '')::integer >= 2 then 'few_attempts'
+        when nullif(fs.score_config #>> '{numericForecast,attemptCount}', '')::integer >= 0 then 'single_attempt'
+        else 'unknown'
+      end as numeric_attempt_count_band,
       nullif(fs.score_config #>> '{numericForecast,componentValueCount}', '')::integer as numeric_component_value_count,
       nullif(fs.score_config #>> '{numericForecast,p50Disagreement}', '')::double precision as numeric_p50_disagreement,
       fs.score_config #>> '{numericForecast,p50DisagreementBand}' as numeric_p50_disagreement_band,
@@ -454,6 +472,12 @@ try {
       nullif(fs.score_config #>> '{dateForecast,neverProbability}', '')::double precision as date_never_probability,
       fs.score_config #>> '{dateForecast,neverProbabilityBand}' as date_never_probability_band,
       nullif(fs.score_config #>> '{dateForecast,attemptCount}', '')::integer as date_attempt_count,
+      case
+        when nullif(fs.score_config #>> '{dateForecast,attemptCount}', '')::integer >= 5 then 'many_attempts'
+        when nullif(fs.score_config #>> '{dateForecast,attemptCount}', '')::integer >= 2 then 'few_attempts'
+        when nullif(fs.score_config #>> '{dateForecast,attemptCount}', '')::integer >= 0 then 'single_attempt'
+        else 'unknown'
+      end as date_attempt_count_band,
       nullif(fs.score_config #>> '{dateForecast,componentDateCount}', '')::integer as date_component_date_count,
       nullif(fs.score_config #>> '{dateForecast,p50DisagreementDays}', '')::integer as date_p50_disagreement_days,
       fs.score_config #>> '{dateForecast,p50DisagreementBand}' as date_p50_disagreement_band,
@@ -468,6 +492,12 @@ try {
       nullif(fs.score_config #>> '{categoricalForecast,entropy}', '')::double precision as categorical_entropy,
       fs.score_config #>> '{categoricalForecast,entropyBand}' as categorical_entropy_band,
       nullif(fs.score_config #>> '{categoricalForecast,attemptCount}', '')::integer as categorical_attempt_count,
+      case
+        when nullif(fs.score_config #>> '{categoricalForecast,attemptCount}', '')::integer >= 5 then 'many_attempts'
+        when nullif(fs.score_config #>> '{categoricalForecast,attemptCount}', '')::integer >= 2 then 'few_attempts'
+        when nullif(fs.score_config #>> '{categoricalForecast,attemptCount}', '')::integer >= 0 then 'single_attempt'
+        else 'unknown'
+      end as categorical_attempt_count_band,
       nullif(fs.score_config #>> '{categoricalForecast,componentCategoryCount}', '')::integer as categorical_component_category_count,
       nullif(fs.score_config #>> '{categoricalForecast,uniqueTopCategoryCount}', '')::integer as categorical_unique_top_category_count,
       nullif(fs.score_config #>> '{categoricalForecast,topCategoryVoteShare}', '')::double precision as categorical_top_category_vote_share,
@@ -922,6 +952,7 @@ const forecastScoreColumns = [
   { name: "conditional_resolved_branch_probability_band", type: "VARCHAR" },
   { name: "conditional_resolved_branch_placement", type: "VARCHAR" },
   { name: "conditional_attempt_count", type: "INTEGER" },
+  { name: "conditional_attempt_count_band", type: "VARCHAR" },
   { name: "conditional_component_branch_count", type: "INTEGER" },
   { name: "conditional_given_condition_disagreement", type: "DOUBLE" },
   { name: "conditional_given_not_condition_disagreement", type: "DOUBLE" },
@@ -938,6 +969,7 @@ const forecastScoreColumns = [
   { name: "threshold_nearest_distance", type: "DOUBLE" },
   { name: "threshold_resolved_band", type: "VARCHAR" },
   { name: "thresholded_attempt_count", type: "INTEGER" },
+  { name: "thresholded_attempt_count_band", type: "VARCHAR" },
   { name: "thresholded_component_curve_count", type: "INTEGER" },
   { name: "thresholded_component_probability_disagreement", type: "DOUBLE" },
   { name: "thresholded_component_disagreement_band", type: "VARCHAR" },
@@ -953,6 +985,7 @@ const forecastScoreColumns = [
   { name: "numeric_p50_error_band", type: "VARCHAR" },
   { name: "numeric_resolved_position_band", type: "VARCHAR" },
   { name: "numeric_attempt_count", type: "INTEGER" },
+  { name: "numeric_attempt_count_band", type: "VARCHAR" },
   { name: "numeric_component_value_count", type: "INTEGER" },
   { name: "numeric_p50_disagreement", type: "DOUBLE" },
   { name: "numeric_p50_disagreement_band", type: "VARCHAR" },
@@ -970,6 +1003,7 @@ const forecastScoreColumns = [
   { name: "date_never_probability", type: "DOUBLE" },
   { name: "date_never_probability_band", type: "VARCHAR" },
   { name: "date_attempt_count", type: "INTEGER" },
+  { name: "date_attempt_count_band", type: "VARCHAR" },
   { name: "date_component_date_count", type: "INTEGER" },
   { name: "date_p50_disagreement_days", type: "INTEGER" },
   { name: "date_p50_disagreement_band", type: "VARCHAR" },
@@ -984,6 +1018,7 @@ const forecastScoreColumns = [
   { name: "categorical_entropy", type: "DOUBLE" },
   { name: "categorical_entropy_band", type: "VARCHAR" },
   { name: "categorical_attempt_count", type: "INTEGER" },
+  { name: "categorical_attempt_count_band", type: "VARCHAR" },
   { name: "categorical_component_category_count", type: "INTEGER" },
   { name: "categorical_unique_top_category_count", type: "INTEGER" },
   { name: "categorical_top_category_vote_share", type: "DOUBLE" },
