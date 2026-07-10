@@ -623,8 +623,13 @@ function WorkflowProposalSummary({
   const canUpdate = Boolean(benchmarkRunId && proposalId)
   const requiredValidationCases = sourceBenchmarkCaseCount === null ? 1 : Math.max(sourceBenchmarkCaseCount, 1)
   const hasValidationCoverage = (validationCompletedCases ?? 0) >= requiredValidationCases
-  const canMarkImplemented =
-    validationResultStatus === "completed" && validationGateStatus === "review_for_promotion" && hasValidationCoverage && !validationGateBlockers.length
+  const validationReadinessBlockers = [
+    validationResultStatus === "completed" ? null : "validation incomplete",
+    validationGateStatus === "review_for_promotion" ? null : "gate not passing",
+    hasValidationCoverage ? null : `coverage ${validationCompletedCases ?? 0}/${requiredValidationCases}`,
+    validationGateBlockers.length ? `blockers ${validationGateBlockers.slice(0, 2).join(", ")}` : null,
+  ].filter((blocker): blocker is string => Boolean(blocker))
+  const canMarkImplemented = validationReadinessBlockers.length === 0
   const updateStatus = (
     nextStatus: WorkflowChangeProposalStatus,
     nextImplementationStatus?: WorkflowChangeProposalImplementationStatus,
@@ -694,6 +699,11 @@ function WorkflowProposalSummary({
           {validationGateStatus ? (
             <p className="mt-1 truncate">
               gate {validationGateStatus}{validationGateBlockers.length ? ` · ${validationGateBlockers.slice(0, 2).join(", ")}` : ""}
+            </p>
+          ) : null}
+          {status !== "implemented" && validationReadinessBlockers.length ? (
+            <p className="mt-1 line-clamp-2">
+              implementation blocked · {validationReadinessBlockers.slice(0, 3).join(" · ")}
             </p>
           ) : null}
         </div>

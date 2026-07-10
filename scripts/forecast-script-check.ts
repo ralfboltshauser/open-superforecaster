@@ -3323,6 +3323,8 @@ await check("workflow change proposals are visible in the lab dashboard", async 
   assert(dashboardSource.includes("validationGateStatus"), "lab dashboard proposal section missing validation gate status");
   assert(dashboardSource.includes("validationGateBlockers"), "lab dashboard proposal section missing validation gate blockers");
   assert(dashboardSource.includes("canMarkImplemented"), "lab dashboard does not gate implemented action on validation result");
+  assert(dashboardSource.includes("validationReadinessBlockers"), "lab dashboard does not explain blocked implementation readiness");
+  assert(dashboardSource.includes("implementation blocked"), "lab dashboard does not render implementation readiness blockers");
   assert(dashboardSource.includes("validationGateStatus === \"review_for_promotion\""), "lab dashboard does not require passing validation gate before implemented action");
   assert(dashboardSource.includes("hasValidationCoverage"), "lab dashboard does not require validation case coverage before implemented action");
   return "benchmark-derived workflow proposals are visible where promotion blockers are reviewed";
