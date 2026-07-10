@@ -416,6 +416,13 @@ function attentionBacklogCompatibilityIssues(
   const batchIds = readStringArray(filters, "batchIds");
   const batchTimestamp = timestampValue(batchIndexGeneratedAt);
   const backlogTimestamp = timestampValue(attentionBacklog.generatedAt);
+  if (backlogTimestamp === 0) {
+    issues.push({
+      severity: "medium",
+      kind: "attention_backlog_timestamp_missing",
+      message: "Attention backlog has no parseable generatedAt timestamp and was not merged into health counts.",
+    });
+  }
   if (batchTimestamp > 0 && backlogTimestamp > 0 && backlogTimestamp < batchTimestamp) {
     issues.push({
       severity: "medium",

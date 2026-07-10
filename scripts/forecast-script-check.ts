@@ -1197,6 +1197,94 @@ await check("forecast batch health rejects stale attention backlog reports", asy
   return "batch health ignores stale supplemental attention backlog reports";
 });
 
+await check("forecast batch health rejects undated attention backlog reports", async () => {
+  const batchIndexRoot = resolve(tempRoot, "batch-health-undated-backlog", "batches");
+  const attentionBacklogRoot = resolve(tempRoot, "batch-health-undated-backlog", "attention-backlog");
+  const outputDir = resolve(tempRoot, "batch-health-undated-backlog", "out");
+  await mkdir(resolve(batchIndexRoot, "dated-batch"), { recursive: true });
+  await mkdir(attentionBacklogRoot, { recursive: true });
+  await writeJson(resolve(batchIndexRoot, "dated-batch", "batch-index.json"), {
+    reportType: "forecast_batch_index",
+    batchId: "dated-batch",
+    generatedAt: "2026-07-09T01:00:00.000Z",
+    counts: {
+      entries: 3,
+      forecastOps: 1,
+      resolutions: 1,
+      performanceReports: 1,
+      completedForecasts: 1,
+      failedForecasts: 0,
+      resolvedCases: 1,
+      failedResolutions: 0,
+      performanceScoreRows: 1,
+      attentionItems: 0,
+      openAttentionItems: 0,
+      reviewedAttentionItems: 0,
+      deferredAttentionItems: 0,
+      candidateCalibrationGuardRules: 0,
+      openCandidateCalibrationGuardRules: 0,
+      reviewedCandidateCalibrationGuardRules: 0,
+      deferredCandidateCalibrationGuardRules: 0,
+    },
+    attentionItems: [],
+    candidateCalibrationGuardRules: [],
+  });
+  await writeJson(resolve(attentionBacklogRoot, "attention-backlog.json"), {
+    reportType: "forecast_attention_backlog",
+    filters: {
+      statuses: ["open", "deferred"],
+      batchIds: [],
+    },
+    counts: {
+      items: 1,
+      open: 1,
+      deferred: 0,
+      reviewed: 0,
+      high: 0,
+      medium: 1,
+      low: 0,
+    },
+    byForecastType: [],
+    byKind: [],
+    items: [
+      {
+        batchId: "dated-batch",
+        id: "calibration-default-plan-skipped:dated-batch:80-100%",
+        reviewStatus: "open",
+        severity: "medium",
+        kind: "calibration_guard_default_plan_not_promoted_for_default",
+        reason: "Undated backlog item should not be merged.",
+        recommendedActions: ["Regenerate attention backlog with generatedAt."],
+        metric: "default_plan_skip",
+        score: null,
+        delta: null,
+        taskId: null,
+        taskLabel: "80-100% default-plan skip",
+        forecastType: "binary",
+        sourcePath: "calibration-guard-default-plan.json",
+      },
+    ],
+  });
+  await runScript("scripts/forecast-batch-health.ts", [
+    "--batch-index-dir",
+    batchIndexRoot,
+    "--attention-backlog-dir",
+    attentionBacklogRoot,
+    "--out-dir",
+    outputDir,
+  ]);
+  const report = readRecord(await readJson(resolve(outputDir, "batch-health.json")));
+  const summary = readRecord(report, "summary");
+  const issues = readArray(report, "issues");
+  const attentionItems = readArray(report, "attentionItems");
+  const markdown = await readFile(resolve(outputDir, "batch-health.md"), "utf8");
+  assert(readNumber(summary, "unresolvedAttentionItems") === 0, "undated attention backlog should not inflate unresolved health count");
+  assert(!attentionItems.some((item) => readString(item, "id") === "calibration-default-plan-skipped:dated-batch:80-100%"), "undated attention backlog item was merged into health");
+  assert(issues.some((issue) => readString(issue, "kind") === "attention_backlog_timestamp_missing"), "health report missing undated attention backlog issue");
+  assert(markdown.includes("attention_backlog_timestamp_missing"), "health markdown missing undated attention backlog issue");
+  return "batch health ignores undated supplemental attention backlog reports";
+});
+
 await check("diagnostics surface latest forecast batch health", async () => {
   const fixtureRoot = resolve(tempRoot, "diagnostics-batch-health");
   await mkdir(resolve(fixtureRoot, "data/reports/forecast-batch-health"), { recursive: true });
