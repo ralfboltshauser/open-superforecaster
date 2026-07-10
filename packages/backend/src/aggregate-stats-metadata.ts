@@ -8,6 +8,8 @@ export type AggregateStatsSnapshot = {
   meanInsideViewProbability: number | null;
   insideViewDelta: number | null;
   insideViewDeltaBand: "near_base_rate" | "moderate_shift" | "large_shift" | "missing_components" | "unknown";
+  finalInsideViewDelta: number | null;
+  finalInsideViewDeltaBand: "near_inside_view" | "moderate_adjustment" | "large_adjustment" | "missing_components" | "unknown";
   disagreement: number | null;
   disagreementBand: "low" | "moderate" | "high" | "extreme" | "unknown";
   aggregationAnchor: string | null;
@@ -33,6 +35,8 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
   const meanInsideViewProbability = readNumber(aggregateStats, "meanInsideViewProbability", "mean_inside_view_probability") ?? roundProbability(mean(componentInsideViews));
   const insideViewDelta = readNumber(aggregateStats, "insideViewDelta", "inside_view_delta") ?? delta(meanInsideViewProbability, meanBaseRateProbability);
   const explicitInsideViewDeltaBand = readInsideViewDeltaBand(aggregateStats);
+  const finalInsideViewDelta = readNumber(aggregateStats, "finalInsideViewDelta", "final_inside_view_delta") ?? delta(finalProbability, meanInsideViewProbability);
+  const explicitFinalInsideViewDeltaBand = readFinalInsideViewDeltaBand(aggregateStats);
   const disagreement = readNumber(aggregateStats, "disagreement");
   const aggregationAnchor = readString(aggregateStats, "aggregationAnchor", "aggregation_anchor");
   const adjustmentFromMedian = readNumber(aggregateStats, "adjustmentFromMedian", "adjustment_from_median");
@@ -45,6 +49,7 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
     meanBaseRateProbability === null &&
     meanInsideViewProbability === null &&
     insideViewDelta === null &&
+    finalInsideViewDelta === null &&
     disagreement === null &&
     aggregationAnchor === null &&
     adjustmentFromMedian === null &&
@@ -68,6 +73,12 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
     insideViewDeltaBand: explicitInsideViewDeltaBand ?? insideViewDeltaBand(
       insideViewDelta,
       componentBaseRates.length || (meanBaseRateProbability === null ? 0 : 1),
+      componentInsideViews.length || (meanInsideViewProbability === null ? 0 : 1),
+    ),
+    finalInsideViewDelta,
+    finalInsideViewDeltaBand: explicitFinalInsideViewDeltaBand ?? finalInsideViewDeltaBand(
+      finalInsideViewDelta,
+      finalProbability === null && finalInsideViewDelta === null ? 0 : 1,
       componentInsideViews.length || (meanInsideViewProbability === null ? 0 : 1),
     ),
     disagreement,
@@ -97,6 +108,27 @@ export function insideViewDeltaBand(
     return "moderate_shift";
   }
   return "near_base_rate";
+}
+
+export function finalInsideViewDeltaBand(
+  finalInsideViewDelta: number | null,
+  finalProbabilityCount: number,
+  insideViewCount: number,
+): AggregateStatsSnapshot["finalInsideViewDeltaBand"] {
+  if (finalProbabilityCount === 0 || insideViewCount === 0) {
+    return "missing_components";
+  }
+  if (finalInsideViewDelta === null || !Number.isFinite(finalInsideViewDelta)) {
+    return "unknown";
+  }
+  const absoluteDelta = Math.abs(finalInsideViewDelta);
+  if (absoluteDelta >= 20) {
+    return "large_adjustment";
+  }
+  if (absoluteDelta >= 8) {
+    return "moderate_adjustment";
+  }
+  return "near_inside_view";
 }
 
 export function finalComponentPositionBand(input: {
@@ -155,6 +187,20 @@ function readInsideViewDeltaBand(value: unknown): AggregateStatsSnapshot["inside
     band === "near_base_rate" ||
     band === "moderate_shift" ||
     band === "large_shift" ||
+    band === "missing_components" ||
+    band === "unknown"
+  ) {
+    return band;
+  }
+  return null;
+}
+
+function readFinalInsideViewDeltaBand(value: unknown): AggregateStatsSnapshot["finalInsideViewDeltaBand"] | null {
+  const band = readString(value, "finalInsideViewDeltaBand", "final_inside_view_delta_band");
+  if (
+    band === "near_inside_view" ||
+    band === "moderate_adjustment" ||
+    band === "large_adjustment" ||
     band === "missing_components" ||
     band === "unknown"
   ) {

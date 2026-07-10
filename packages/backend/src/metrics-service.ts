@@ -756,18 +756,19 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       component_disagreement_band: "none",
       final_component_position_band: "unknown",
       inside_view_delta_band: "unknown",
+      final_inside_view_delta_band: "unknown",
       aggregation_anchor: "unknown",
       score_type: "all",
     };
     metrics.gauge(
       "open_superforecaster_aggregate_stats_scores_total",
-      "Product aggregate forecast score rows by component disagreement band and aggregation anchor.",
+      "Product aggregate forecast score rows by aggregate-stats diagnostic bands.",
       0,
       labels,
     );
     metrics.gauge(
       "open_superforecaster_aggregate_stats_score_mean",
-      "Mean product aggregate forecast score by component disagreement band and aggregation anchor.",
+      "Mean product aggregate forecast score by aggregate-stats diagnostic bands.",
       0,
       labels,
     );
@@ -779,19 +780,20 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       component_disagreement_band: aggregateStats?.disagreementBand ?? "unknown",
       final_component_position_band: aggregateStats?.finalComponentPositionBand ?? "unknown",
       inside_view_delta_band: aggregateStats?.insideViewDeltaBand ?? "unknown",
+      final_inside_view_delta_band: aggregateStats?.finalInsideViewDeltaBand ?? "unknown",
       aggregation_anchor: aggregateStats?.aggregationAnchor ?? "unknown",
     });
   })) {
     const labels = parseLabelKey(key);
     metrics.gauge(
       "open_superforecaster_aggregate_stats_scores_total",
-      "Product aggregate forecast score rows by component disagreement band and aggregation anchor.",
+      "Product aggregate forecast score rows by aggregate-stats diagnostic bands.",
       rows.length,
       labels,
     );
     metrics.gauge(
       "open_superforecaster_aggregate_stats_score_mean",
-      "Mean product aggregate forecast score by component disagreement band and aggregation anchor.",
+      "Mean product aggregate forecast score by aggregate-stats diagnostic bands.",
       mean(rows.map((row) => row.scoreValue)),
       labels,
     );
