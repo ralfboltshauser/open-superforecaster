@@ -291,14 +291,13 @@ export function ForecastBatchHealthCard({ forecastBatchHealth }: { forecastBatch
           <div className="flex flex-col gap-2">
             <p className="text-xs font-medium uppercase text-muted-foreground">Top attention categories</p>
             {attentionByKind.slice(0, 3).map((row) => {
-              const open = readNumber(row, "open") ?? 0
-              const deferred = readNumber(row, "deferred") ?? 0
+              const unresolved = readNumber(row, "unresolved") ?? 0
               const high = readNumber(row, "high") ?? 0
               return (
                 <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-xs" key={String(row.kind ?? "kind")}>
                   <span className="min-w-0 truncate font-medium">{String(row.kind ?? "attention")}</span>
                   <span className="shrink-0 text-muted-foreground">
-                    {formatCount(open + deferred)} unresolved · {formatCount(high)} high
+                    {formatCount(unresolved)} unresolved · {formatCount(high)} high
                   </span>
                 </div>
               )
@@ -309,7 +308,7 @@ export function ForecastBatchHealthCard({ forecastBatchHealth }: { forecastBatch
           <div className="flex flex-wrap gap-1">
             {attentionBySeverity.map((row) => (
               <Badge variant={row.severity === "high" ? "destructive" : "secondary"} key={String(row.severity ?? "severity")}>
-                {String(row.severity ?? "unknown")} {formatCount((readNumber(row, "open") ?? 0) + (readNumber(row, "deferred") ?? 0))}
+                {String(row.severity ?? "unknown")} {formatCount(readNumber(row, "unresolved") ?? 0)}
               </Badge>
             ))}
           </div>
@@ -318,14 +317,13 @@ export function ForecastBatchHealthCard({ forecastBatchHealth }: { forecastBatch
           <div className="flex flex-col gap-2">
             <p className="text-xs font-medium uppercase text-muted-foreground">Attention by forecast type</p>
             {attentionByForecastType.slice(0, 4).map((row) => {
-              const open = readNumber(row, "open") ?? 0
-              const deferred = readNumber(row, "deferred") ?? 0
+              const unresolved = readNumber(row, "unresolved") ?? 0
               const high = readNumber(row, "high") ?? 0
               return (
                 <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-xs" key={String(row.forecastType ?? "forecast-type")}>
                   <span className="min-w-0 truncate font-medium">{String(row.forecastType ?? "unknown")}</span>
                   <span className="shrink-0 text-muted-foreground">
-                    {formatCount(open + deferred)} unresolved · {formatCount(high)} high
+                    {formatCount(unresolved)} unresolved · {formatCount(high)} high
                   </span>
                 </div>
               )

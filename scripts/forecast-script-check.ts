@@ -1703,6 +1703,9 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(dashboardPanelSource.includes("attentionByKind"), "lab dashboard does not render attention kind breakdowns");
   assert(dashboardPanelSource.includes("attentionBySeverity"), "lab dashboard does not render attention severity breakdowns");
   assert(dashboardPanelSource.includes("attentionByForecastType"), "lab dashboard does not render attention forecast-type breakdowns");
+  assert(dashboardPanelSource.includes("readNumber(row, \"unresolved\")"), "lab dashboard does not render shared unresolved breakdown counts");
+  assert(!dashboardPanelSource.includes("open + deferred"), "lab dashboard should not derive unresolved counts locally");
+  assert(!dashboardPanelSource.includes("readNumber(row, \"open\") ?? 0) + (readNumber(row, \"deferred\") ?? 0"), "lab dashboard should not derive unresolved severity counts locally");
   assert(dashboardPanelSource.includes("Attention by forecast type"), "lab dashboard does not label attention forecast-type breakdowns");
   assert(dashboardPanelSource.includes("paths.batchIndex"), "lab dashboard does not render batch health source batch-index path");
   assert(dashboardPanelSource.includes("paths.attentionBacklog"), "lab dashboard does not render batch health source attention-backlog path");
