@@ -788,6 +788,7 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   const issues = readArray(report, "issues");
   const attentionByKind = readArray(report, "attentionByKind");
   const attentionBySeverity = readArray(report, "attentionBySeverity");
+  const attentionByForecastType = readArray(report, "attentionByForecastType");
   const markdown = await readFile(resolve(outputDir, "batch-health.md"), "utf8");
   assert(report, "health report is not an object");
   assert(readString(report, "reportType") === "forecast_batch_health", "health report type mismatch");
@@ -801,12 +802,20 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   assert(readNumber(summary, "unresolvedCandidateCalibrationGuardRules") === 1, "unresolved candidate calibration guard summary mismatch");
   const evidenceKind = attentionByKind.find((row) => readString(row, "kind") === "evidence_coverage_miss");
   const highSeverity = attentionBySeverity.find((row) => readString(row, "severity") === "high");
+  const binaryType = attentionByForecastType.find((row) => readString(row, "forecastType") === "binary");
+  const numericType = attentionByForecastType.find((row) => readString(row, "forecastType") === "numeric");
   assert(evidenceKind, "attention kind breakdown missing evidence coverage misses");
   assert(readNumber(evidenceKind, "open") === 1, "attention kind breakdown open count mismatch");
   assert(highSeverity, "attention severity breakdown missing high severity");
   assert(readNumber(highSeverity, "open") === 3, "attention severity open count mismatch");
+  assert(binaryType, "attention forecast-type breakdown missing binary rows");
+  assert(readNumber(binaryType, "open") === 3, "attention forecast-type binary open count mismatch");
+  assert(numericType, "attention forecast-type breakdown missing numeric rows");
+  assert(readNumber(numericType, "deferred") === 1, "attention forecast-type numeric deferred count mismatch");
   assert(markdown.includes("## Attention Breakdown"), "health markdown missing attention breakdown");
+  assert(markdown.includes("## Attention Forecast Types"), "health markdown missing attention forecast-type breakdown");
   assert(markdown.includes("evidence_coverage_miss"), "health markdown missing attention kind row");
+  assert(markdown.includes("| numeric | 1 | 0 | 1 | 0 | 0 | 1 | 0 |"), "health markdown missing numeric forecast-type row");
   assert(missingPhases.includes("forecast_performance"), "missing performance phase was not reported");
   assert(issues.some((issue) => readString(issue, "kind") === "failed_forecasts"), "failed forecast issue missing");
   assert(issues.some((issue) => readString(issue, "kind") === "calibration_guard_regression"), "calibration guard regression issue missing");
@@ -840,6 +849,9 @@ await check("diagnostics surface latest forecast batch health", async () => {
     attentionBySeverity: [
       { severity: "high", items: 2, open: 1, deferred: 1, reviewed: 0 },
     ],
+    attentionByForecastType: [
+      { forecastType: "binary", items: 1, open: 1, deferred: 0, reviewed: 0, high: 1, medium: 0, low: 0 },
+    ],
     attentionItems: [
       {
         id: "evidence-coverage:task-1:brier",
@@ -851,6 +863,7 @@ await check("diagnostics surface latest forecast batch health", async () => {
         metric: "brier",
         score: 0.5,
         delta: 1,
+        forecastType: "binary",
         taskId: "task-1",
         taskLabel: "Sparse evidence forecast",
       },
@@ -885,7 +898,8 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(health.issues.some((issue) => issue.kind === "unresolved_attention"), "shared batch health reader did not expose issue kinds");
   assert(health.attentionByKind.some((row) => row.kind === "evidence_coverage_miss" && row.open === 2), "shared batch health reader did not expose attention kind breakdowns");
   assert(health.attentionBySeverity.some((row) => row.severity === "high" && row.deferred === 1), "shared batch health reader did not expose attention severity breakdowns");
-  assert(health.attentionItems.some((item) => item.id === "evidence-coverage:task-1:brier" && item.recommendedAction === "Audit cited sources."), "shared batch health reader did not expose actionable attention items");
+  assert(health.attentionByForecastType.some((row) => row.forecastType === "binary" && row.open === 1), "shared batch health reader did not expose attention forecast-type breakdowns");
+  assert(health.attentionItems.some((item) => item.id === "evidence-coverage:task-1:brier" && item.recommendedAction === "Audit cited sources." && item.forecastType === "binary"), "shared batch health reader did not expose actionable attention items");
   assert(health.candidateCalibrationGuardRules.some((rule) => rule.id === "candidate-guard:80-100%" && rule.suggestedAdjustment === -15), "shared batch health reader did not expose candidate guard rules");
   assert(diagnosticsSource.includes("readLatestForecastBatchHealth"), "diagnostics does not read local forecast batch health through the shared reader");
   assert(diagnosticsSource.includes("forecastBatchHealthDiagnostic"), "diagnostics does not turn forecast batch health into a check item");
@@ -904,6 +918,8 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(dashboardPanelSource.includes("calibrationGuardRegressionItems"), "lab dashboard does not render guard regression count");
   assert(dashboardPanelSource.includes("attentionByKind"), "lab dashboard does not render attention kind breakdowns");
   assert(dashboardPanelSource.includes("attentionBySeverity"), "lab dashboard does not render attention severity breakdowns");
+  assert(dashboardPanelSource.includes("attentionByForecastType"), "lab dashboard does not render attention forecast-type breakdowns");
+  assert(dashboardPanelSource.includes("Attention by forecast type"), "lab dashboard does not label attention forecast-type breakdowns");
   assert(dashboardPanelSource.includes("attentionItems"), "lab dashboard does not render actionable attention items");
   assert(dashboardPanelSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not render candidate guard rules from batch health");
   return "latest forecast batch health is shared by diagnostics and metrics";
@@ -1325,6 +1341,7 @@ await check("forecast calibration health is exported as metrics", async () => {
   assert(metricsSource.includes("readForecastAttentionMetricRows"), "metrics exporter does not read forecast attention batch indexes");
   assert(metricsSource.includes("open_superforecaster_forecast_attention_reports_total"), "forecast attention report metric missing");
   assert(metricsSource.includes("open_superforecaster_forecast_attention_items_total"), "forecast attention item count metric missing");
+  assert(metricsSource.includes("forecast_type: row.forecastType"), "forecast attention item count metric missing forecast type labels");
   assert(metricsSource.includes("open_superforecaster_forecast_attention_item_info"), "forecast attention item info metric missing");
   assert(metricsSource.includes("open_superforecaster_forecast_attention_item_score"), "forecast attention item score metric missing");
   assert(metricsSource.includes("open_superforecaster_calibration_guard_validation_reports_total"), "calibration validation report metric missing");

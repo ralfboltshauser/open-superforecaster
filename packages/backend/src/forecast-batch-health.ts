@@ -51,6 +51,17 @@ export type ForecastBatchAttentionSeverityBreakdown = {
   reviewed: number | null;
 };
 
+export type ForecastBatchAttentionForecastTypeBreakdown = {
+  forecastType: string;
+  items: number | null;
+  open: number | null;
+  deferred: number | null;
+  reviewed: number | null;
+  high: number | null;
+  medium: number | null;
+  low: number | null;
+};
+
 export type ForecastBatchAttentionItem = {
   id: string;
   reviewStatus: string;
@@ -61,6 +72,7 @@ export type ForecastBatchAttentionItem = {
   metric: string;
   score: number | null;
   delta: number | null;
+  forecastType: string;
   taskId: string | null;
   taskLabel: string | null;
 };
@@ -90,6 +102,7 @@ export type ForecastBatchHealthSnapshot = {
   issues: ForecastBatchHealthIssue[];
   attentionByKind: ForecastBatchAttentionKindBreakdown[];
   attentionBySeverity: ForecastBatchAttentionSeverityBreakdown[];
+  attentionByForecastType: ForecastBatchAttentionForecastTypeBreakdown[];
   attentionItems: ForecastBatchAttentionItem[];
   candidateCalibrationGuardRules: ForecastBatchCandidateCalibrationGuardRule[];
 };
@@ -134,6 +147,7 @@ export function readLatestForecastBatchHealth(root: string): ForecastBatchHealth
       issues: readIssueArray(payload, "issues"),
       attentionByKind: readAttentionKindArray(payload, "attentionByKind"),
       attentionBySeverity: readAttentionSeverityArray(payload, "attentionBySeverity"),
+      attentionByForecastType: readAttentionForecastTypeArray(payload, "attentionByForecastType"),
       attentionItems: readAttentionItemArray(payload, "attentionItems"),
       candidateCalibrationGuardRules: readCandidateCalibrationGuardRuleArray(payload, "candidateCalibrationGuardRules"),
     };
@@ -149,6 +163,7 @@ export function readLatestForecastBatchHealth(root: string): ForecastBatchHealth
       issues: [],
       attentionByKind: [],
       attentionBySeverity: [],
+      attentionByForecastType: [],
       attentionItems: [],
       candidateCalibrationGuardRules: [],
     };
@@ -222,6 +237,19 @@ function readAttentionSeverityArray(value: Record<string, unknown> | null, key: 
   }));
 }
 
+function readAttentionForecastTypeArray(value: Record<string, unknown> | null, key: string): ForecastBatchAttentionForecastTypeBreakdown[] {
+  return readRecordArray(value, key).map((record) => ({
+    forecastType: readString(record, "forecastType") ?? "unknown",
+    items: readNumber(record, "items"),
+    open: readNumber(record, "open"),
+    deferred: readNumber(record, "deferred"),
+    reviewed: readNumber(record, "reviewed"),
+    high: readNumber(record, "high"),
+    medium: readNumber(record, "medium"),
+    low: readNumber(record, "low"),
+  }));
+}
+
 function readAttentionItemArray(value: Record<string, unknown> | null, key: string): ForecastBatchAttentionItem[] {
   return readRecordArray(value, key).map((record) => ({
     id: readString(record, "id") ?? "unknown",
@@ -233,6 +261,7 @@ function readAttentionItemArray(value: Record<string, unknown> | null, key: stri
     metric: readString(record, "metric") ?? "metric",
     score: readNumber(record, "score"),
     delta: readNumber(record, "delta"),
+    forecastType: readString(record, "forecastType") ?? "unknown",
     taskId: readString(record, "taskId"),
     taskLabel: readString(record, "taskLabel"),
   }));

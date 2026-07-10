@@ -1559,7 +1559,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     );
     metrics.gauge(
       "open_superforecaster_forecast_attention_items_total",
-      "Local forecast attention item count by review status, severity, and kind.",
+      "Local forecast attention item count by review status, severity, kind, and forecast type.",
       attentionRows.length,
     );
     for (const [key, count] of countBy(attentionRows, (row) =>
@@ -1567,11 +1567,12 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
         review_status: row.reviewStatus ?? "unknown",
         severity: row.severity ?? "unknown",
         kind: row.kind ?? "unknown",
+        forecast_type: row.forecastType ?? "unknown",
       }),
     )) {
       metrics.gauge(
         "open_superforecaster_forecast_attention_items_total",
-        "Local forecast attention item count by review status, severity, and kind.",
+        "Local forecast attention item count by review status, severity, kind, and forecast type.",
         count,
         parseLabelKey(key),
       );

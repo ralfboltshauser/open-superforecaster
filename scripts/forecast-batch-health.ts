@@ -40,6 +40,17 @@ type AttentionSeverityBreakdown = {
   reviewed: number;
 };
 
+type AttentionForecastTypeBreakdown = {
+  forecastType: string;
+  items: number;
+  open: number;
+  deferred: number;
+  reviewed: number;
+  high: number;
+  medium: number;
+  low: number;
+};
+
 type HealthReport = {
   reportType: "forecast_batch_health";
   generatedAt: string;
@@ -72,6 +83,7 @@ type HealthReport = {
   issues: HealthIssue[];
   attentionByKind: AttentionKindBreakdown[];
   attentionBySeverity: AttentionSeverityBreakdown[];
+  attentionByForecastType: AttentionForecastTypeBreakdown[];
   attentionItems: HealthAttentionItem[];
   candidateCalibrationGuardRules: HealthCandidateCalibrationGuardRule[];
   paths: {
@@ -92,6 +104,7 @@ type HealthAttentionItem = {
   metric: string;
   score: number | null;
   delta: number | null;
+  forecastType: string;
   taskId: string | null;
   taskLabel: string | null;
 };
@@ -205,6 +218,7 @@ function buildHealthReport(
   const missingPhases = expectedPhases.filter((phase) => countPhase(summary, phase) === 0);
   const attentionByKind = summarizeAttentionByKind(attentionItems);
   const attentionBySeverity = summarizeAttentionBySeverity(attentionItems);
+  const attentionByForecastType = summarizeAttentionByForecastType(attentionItems);
   const issues = buildIssues(summary, missingPhases, attentionByKind);
   return {
     reportType: "forecast_batch_health",
@@ -216,6 +230,7 @@ function buildHealthReport(
     issues,
     attentionByKind,
     attentionBySeverity,
+    attentionByForecastType,
     attentionItems: sortAttentionItems(attentionItems),
     candidateCalibrationGuardRules: sortCandidateCalibrationGuardRules(candidateCalibrationGuardRules),
     paths: {
@@ -268,6 +283,7 @@ function buildEmptyReport(
     issues: [{ severity: "high", kind: "missing_batch_index", message: issueMessage }],
     attentionByKind: [],
     attentionBySeverity: [],
+    attentionByForecastType: [],
     attentionItems: [],
     candidateCalibrationGuardRules: [],
     paths: {
@@ -350,6 +366,7 @@ function readHealthAttentionItem(item: JsonRecord): HealthAttentionItem[] {
     metric: readString(item, "metric") ?? "metric",
     score: readNumber(item, "score"),
     delta: readNumber(item, "delta"),
+    forecastType: readString(item, "forecastType") ?? "unknown",
     taskId: readString(item, "taskId"),
     taskLabel: readString(item, "taskLabel"),
   }];
@@ -409,6 +426,10 @@ function renderMarkdown(report: HealthReport) {
     "",
     ...renderAttentionSeverityBreakdown(report.attentionBySeverity),
     "",
+    "## Attention Forecast Types",
+    "",
+    ...renderAttentionForecastTypeBreakdown(report.attentionByForecastType),
+    "",
     "## Issues",
     "",
     ...renderIssues(report.issues),
@@ -451,6 +472,19 @@ function renderAttentionSeverityBreakdown(rows: AttentionSeverityBreakdown[]) {
   ];
 }
 
+function renderAttentionForecastTypeBreakdown(rows: AttentionForecastTypeBreakdown[]) {
+  if (rows.length === 0) {
+    return ["No attention forecast-type breakdown available."];
+  }
+  return [
+    "| Forecast type | Items | Open | Deferred | Reviewed | High | Medium | Low |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...rows.map((row) =>
+      `| ${escapeMarkdownCell(row.forecastType)} | ${row.items} | ${row.open} | ${row.deferred} | ${row.reviewed} | ${row.high} | ${row.medium} | ${row.low} |`,
+    ),
+  ];
+}
+
 function renderIssues(issues: HealthIssue[]) {
   if (issues.length === 0) {
     return ["No health issues detected."];
@@ -467,10 +501,10 @@ function renderAttentionTable(items: HealthAttentionItem[]) {
     return ["No attention items found."];
   }
   return [
-    "| Status | Severity | Kind | Metric | Score | Delta | Task | Recommended action |",
-    "| --- | --- | --- | --- | ---: | ---: | --- | --- |",
+    "| Status | Severity | Kind | Forecast type | Metric | Score | Delta | Task | Recommended action |",
+    "| --- | --- | --- | --- | --- | ---: | ---: | --- | --- |",
     ...items.map((item) =>
-      `| ${item.reviewStatus} | ${item.severity} | ${item.kind} | ${item.metric} | ${formatNumber(item.score)} | ${
+      `| ${item.reviewStatus} | ${item.severity} | ${item.kind} | ${item.forecastType} | ${item.metric} | ${formatNumber(item.score)} | ${
         formatNumber(item.delta)
       } | ${escapeMarkdownCell(item.taskLabel ?? item.taskId ?? "")} | ${escapeMarkdownCell(item.recommendedAction ?? "")} |`,
     ),
@@ -568,6 +602,25 @@ function summarizeAttentionBySeverity(items: HealthAttentionItem[]): AttentionSe
       reviewed: countStatus(rows, "reviewed"),
     }))
     .sort((left, right) => severityRank(left.severity) - severityRank(right.severity) || left.severity.localeCompare(right.severity));
+}
+
+function summarizeAttentionByForecastType(items: HealthAttentionItem[]): AttentionForecastTypeBreakdown[] {
+  return [...groupBy(items, (item) => item.forecastType).entries()]
+    .map(([forecastType, rows]) => ({
+      forecastType,
+      items: rows.length,
+      open: countStatus(rows, "open"),
+      deferred: countStatus(rows, "deferred"),
+      reviewed: countStatus(rows, "reviewed"),
+      high: countSeverity(rows, "high"),
+      medium: countSeverity(rows, "medium"),
+      low: countSeverity(rows, "low"),
+    }))
+    .sort((left, right) =>
+      (right.open + right.deferred) - (left.open + left.deferred)
+      || severityRank(left.high > 0 ? "high" : left.medium > 0 ? "medium" : "low") - severityRank(right.high > 0 ? "high" : right.medium > 0 ? "medium" : "low")
+      || left.forecastType.localeCompare(right.forecastType)
+    );
 }
 
 function countSeverity(items: HealthAttentionItem[], severity: string) {

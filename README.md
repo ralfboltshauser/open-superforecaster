@@ -402,10 +402,12 @@ bun run forecast:health -- --batch-id july-smoke
 
 The health report flags missing artifact phases, failed forecast or resolution
 steps, unresolved attention items, open candidate calibration guard reviews, and
-score-regression attention signals. Calibration guard regressions are called out
-separately when guarded aggregates are scoring worse than unguarded aggregates;
-baseline-sanity misses remain in the same unresolved attention lane as other
-forecast postmortems. The latest local health report is also exposed through
+score-regression attention signals. Attention is broken down by kind, severity,
+and forecast type, so mixed binary, numeric, date, thresholded, conditional, and
+categorical batches can be triaged without opening every item. Calibration guard
+regressions are called out separately when guarded aggregates are scoring worse
+than unguarded aggregates; baseline-sanity misses remain in the same unresolved
+attention lane as other forecast postmortems. The latest local health report is also exposed through
 `/api/diagnostics` and Prometheus batch-health series, so unresolved attention
 can be monitored without opening the raw JSON artifact. `bun run duckdb:sync`
 also exports the latest batch-health summary and issue rows into
