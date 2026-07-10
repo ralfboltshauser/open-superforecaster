@@ -1246,6 +1246,14 @@ await check("diagnostics surface latest forecast batch health", async () => {
         sourcePath: "data/reports/forecast-batches/diagnostics-batch/batch-index.json",
       },
     ],
+    paths: {
+      json: resolve(fixtureRoot, FORECAST_BATCH_HEALTH_REPORT_PATH),
+      markdown: resolve(fixtureRoot, "data/reports/forecast-batch-health/batch-health.md"),
+      batchIndex: "data/reports/forecast-batches/diagnostics-batch/batch-index.json",
+      batchIndexDir: "data/reports/forecast-batches",
+      attentionBacklog: "data/reports/forecast-attention-backlog/attention-backlog.json",
+      attentionBacklogDir: "data/reports/forecast-attention-backlog",
+    },
     candidateCalibrationGuardRules: [
       {
         id: "candidate-guard:80-100%",
@@ -1283,6 +1291,8 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(health.attentionByKind.some((row) => row.kind === "evidence_coverage_miss" && row.open === 2), "shared batch health reader did not expose attention kind breakdowns");
   assert(health.attentionBySeverity.some((row) => row.severity === "high" && row.deferred === 1), "shared batch health reader did not expose attention severity breakdowns");
   assert(health.attentionByForecastType.some((row) => row.forecastType === "binary" && row.open === 1), "shared batch health reader did not expose attention forecast-type breakdowns");
+  assert(health.paths.batchIndex === "data/reports/forecast-batches/diagnostics-batch/batch-index.json", "shared batch health reader did not expose batch-index path");
+  assert(health.paths.attentionBacklog === "data/reports/forecast-attention-backlog/attention-backlog.json", "shared batch health reader did not expose attention backlog path");
   assert(health.attentionItems.some((item) => item.id === "evidence-coverage:task-1:brier" && item.recommendedAction === "Audit cited sources." && item.forecastType === "binary" && item.reviewNote === "Investigate thin source coverage before rerun."), "shared batch health reader did not expose actionable attention review context");
   assert(health.attentionItems.some((item) => item.id === "evidence-coverage:task-1:brier" && item.sourcePath === "data/reports/forecast-batches/diagnostics-batch/batch-index.json"), "shared batch health reader did not expose attention source path");
   assert(health.candidateCalibrationGuardRules.some((rule) => rule.id === "candidate-guard:80-100%" && rule.suggestedAdjustment === -15 && rule.reviewNote === "Validate on a held-out batch first."), "shared batch health reader did not expose candidate guard review context");
@@ -1339,6 +1349,8 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(dashboardPanelSource.includes("attentionBySeverity"), "lab dashboard does not render attention severity breakdowns");
   assert(dashboardPanelSource.includes("attentionByForecastType"), "lab dashboard does not render attention forecast-type breakdowns");
   assert(dashboardPanelSource.includes("Attention by forecast type"), "lab dashboard does not label attention forecast-type breakdowns");
+  assert(dashboardPanelSource.includes("paths.batchIndex"), "lab dashboard does not render batch health source batch-index path");
+  assert(dashboardPanelSource.includes("paths.attentionBacklog"), "lab dashboard does not render batch health source attention-backlog path");
   assert(dashboardPanelSource.includes("attentionItems"), "lab dashboard does not render actionable attention items");
   assert(dashboardPanelSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not render candidate guard rules from batch health");
   assert(dashboardPanelSource.includes("item.reviewNote"), "lab dashboard does not render attention review notes from batch health");
@@ -1851,6 +1863,8 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("unresolved_attention_items"), "batch health mart missing unresolved attention count");
   assert(syncSource.includes("unresolved_candidate_calibration_guard_rules"), "batch health mart missing unresolved candidate guard count");
   assert(syncSource.includes("missing_phases_json"), "batch health mart missing missing phases");
+  assert(syncSource.includes("batch_index_path"), "batch health mart missing batch-index source path");
+  assert(syncSource.includes("attention_backlog_path"), "batch health mart missing attention-backlog source path");
   assert(syncSource.includes("source_path: item.sourcePath"), "batch health attention-item mart missing source path");
   assert(syncSource.includes("unresolved_items"), "batch health attention-type mart missing unresolved item count");
   assert(syncSource.includes("review_note"), "batch health candidate guard mart missing review note");

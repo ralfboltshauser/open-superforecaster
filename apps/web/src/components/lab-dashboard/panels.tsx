@@ -214,6 +214,7 @@ export function ForecastBatchHealthCard({ forecastBatchHealth }: { forecastBatch
   const attentionByForecastType = readArray(forecastBatchHealth, "attentionByForecastType").filter(isRecord)
   const attentionItems = readArray(forecastBatchHealth, "attentionItems").filter(isRecord)
   const candidateRules = readArray(forecastBatchHealth, "candidateCalibrationGuardRules").filter(isRecord)
+  const paths = isRecord(forecastBatchHealth?.paths) ? forecastBatchHealth.paths : {}
   const missingPhases = readArray(forecastBatchHealth, "missingPhases").filter((phase): phase is string => typeof phase === "string")
   const batchId = readString(forecastBatchHealth, "batchId") ?? "latest batch"
   const status = readString(forecastBatchHealth, "status") ?? "missing"
@@ -252,6 +253,12 @@ export function ForecastBatchHealthCard({ forecastBatchHealth }: { forecastBatch
                 missing {phase}
               </Badge>
             ))}
+          </div>
+        ) : null}
+        {paths.batchIndex || paths.attentionBacklog ? (
+          <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+            {paths.batchIndex ? <p className="truncate">{String(paths.batchIndex)}</p> : null}
+            {paths.attentionBacklog ? <p className="truncate">{String(paths.attentionBacklog)}</p> : null}
           </div>
         ) : null}
         {attentionByKind.length ? (

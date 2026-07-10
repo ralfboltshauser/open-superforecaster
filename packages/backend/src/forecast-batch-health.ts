@@ -104,6 +104,7 @@ export type ForecastBatchHealthSnapshot = {
   batchId: string | null;
   status: string;
   generatedAt: string | null;
+  paths: ForecastBatchHealthPaths;
   summary: ForecastBatchHealthSummary;
   missingPhases: string[];
   issues: ForecastBatchHealthIssue[];
@@ -112,6 +113,15 @@ export type ForecastBatchHealthSnapshot = {
   attentionByForecastType: ForecastBatchAttentionForecastTypeBreakdown[];
   attentionItems: ForecastBatchAttentionItem[];
   candidateCalibrationGuardRules: ForecastBatchCandidateCalibrationGuardRule[];
+};
+
+export type ForecastBatchHealthPaths = {
+  json: string | null;
+  markdown: string | null;
+  batchIndex: string | null;
+  batchIndexDir: string | null;
+  attentionBacklog: string | null;
+  attentionBacklogDir: string | null;
 };
 
 const emptySummary: ForecastBatchHealthSummary = {
@@ -143,12 +153,14 @@ export function readLatestForecastBatchHealth(root: string): ForecastBatchHealth
   try {
     const payload = asRecord(JSON.parse(readFileSync(path, "utf8")));
     const summary = asRecord(payload?.summary);
+    const paths = asRecord(payload?.paths);
     return {
       path,
       exists: true,
       batchId: readString(payload, "batchId"),
       status: readString(payload, "status") ?? "unknown",
       generatedAt: readString(payload, "generatedAt"),
+      paths: readPaths(paths),
       summary: readSummary(summary),
       missingPhases: readStringArray(payload, "missingPhases"),
       issues: readIssueArray(payload, "issues"),
@@ -165,6 +177,7 @@ export function readLatestForecastBatchHealth(root: string): ForecastBatchHealth
       batchId: null,
       status: "missing",
       generatedAt: null,
+      paths: emptyPaths(path),
       summary: { ...emptySummary },
       missingPhases: [],
       issues: [],
@@ -175,6 +188,28 @@ export function readLatestForecastBatchHealth(root: string): ForecastBatchHealth
       candidateCalibrationGuardRules: [],
     };
   }
+}
+
+function readPaths(paths: Record<string, unknown> | null): ForecastBatchHealthPaths {
+  return {
+    json: readString(paths, "json"),
+    markdown: readString(paths, "markdown"),
+    batchIndex: readString(paths, "batchIndex"),
+    batchIndexDir: readString(paths, "batchIndexDir"),
+    attentionBacklog: readString(paths, "attentionBacklog"),
+    attentionBacklogDir: readString(paths, "attentionBacklogDir"),
+  };
+}
+
+function emptyPaths(jsonPath: string): ForecastBatchHealthPaths {
+  return {
+    json: jsonPath,
+    markdown: null,
+    batchIndex: null,
+    batchIndexDir: null,
+    attentionBacklog: null,
+    attentionBacklogDir: null,
+  };
 }
 
 function readSummary(summary: Record<string, unknown> | null): ForecastBatchHealthSummary {

@@ -482,7 +482,9 @@ monitored without opening the raw JSON artifact. `bun run duckdb:sync`
 also exports the latest batch-health summary and issue rows into
 `osf_forecast_batch_health`, `osf_forecast_batch_health_issues`, and
 `osf_forecast_batch_health_attention_items`, with per-item source paths for
-tracing each health attention row back to the originating artifact. Attention
+tracing each health attention row back to the originating artifact. The summary
+row also carries the batch-index and attention-backlog artifact paths that
+produced the health snapshot. Attention
 type, kind, and severity breakdowns are exported in
 `osf_forecast_batch_health_attention_types`,
 `osf_forecast_batch_health_attention_kinds`, and

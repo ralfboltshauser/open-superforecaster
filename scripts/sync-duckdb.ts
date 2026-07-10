@@ -1617,6 +1617,11 @@ const forecastAttentionItemColumns = [
 const forecastBatchHealthColumns = [
   { name: "report_path", type: "VARCHAR" },
   { name: "report_exists", type: "BOOLEAN" },
+  { name: "report_markdown_path", type: "VARCHAR" },
+  { name: "batch_index_path", type: "VARCHAR" },
+  { name: "batch_index_dir", type: "VARCHAR" },
+  { name: "attention_backlog_path", type: "VARCHAR" },
+  { name: "attention_backlog_dir", type: "VARCHAR" },
   { name: "batch_id", type: "VARCHAR" },
   { name: "status", type: "VARCHAR" },
   { name: "generated_at", type: "VARCHAR" },
@@ -2166,6 +2171,11 @@ function buildForecastBatchHealthMartRows(health: ForecastBatchHealthSnapshot): 
   return [{
     report_path: health.path,
     report_exists: health.exists,
+    report_markdown_path: health.paths.markdown,
+    batch_index_path: health.paths.batchIndex,
+    batch_index_dir: health.paths.batchIndexDir,
+    attention_backlog_path: health.paths.attentionBacklog,
+    attention_backlog_dir: health.paths.attentionBacklogDir,
     batch_id: health.batchId,
     status: health.status,
     generated_at: health.generatedAt,
