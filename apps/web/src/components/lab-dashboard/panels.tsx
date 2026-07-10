@@ -119,6 +119,7 @@ export function DiagnosticsCard({ diagnosticCounts, diagnostics }: { diagnosticC
   const latestProposalBlockers = readArray(workflowProposalReadiness, "latestBlockedReadinessBlockers").filter(
     (blocker): blocker is string => typeof blocker === "string",
   )
+  const proposalReadinessBlockers = readArray(workflowProposalReadiness, "readinessBlockers").filter(isRecord)
   return (
     <Card id="diagnostics">
       <CardHeader>
@@ -178,6 +179,15 @@ export function DiagnosticsCard({ diagnosticCounts, diagnostics }: { diagnosticC
             </p>
             {latestProposalBlockers.length ? (
               <p className="mt-1 line-clamp-2 text-muted-foreground">latest blockers {latestProposalBlockers.slice(0, 4).join(" · ")}</p>
+            ) : null}
+            {proposalReadinessBlockers.length ? (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {proposalReadinessBlockers.slice(0, 4).map((row) => (
+                  <Badge variant="secondary" key={String(row.blocker ?? "blocker")}>
+                    {String(row.blocker ?? "blocker").replaceAll("_", " ")} {formatCount(readNumber(row, "count") ?? 0)}
+                  </Badge>
+                ))}
+              </div>
             ) : null}
           </div>
         ) : null}

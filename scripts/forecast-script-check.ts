@@ -984,8 +984,10 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(diagnosticsSource.includes("workflowProposalValidationReadiness"), "diagnostics does not reuse shared workflow proposal readiness logic");
   assert(diagnosticsSource.includes("workflow_proposal_readiness"), "diagnostics does not turn workflow proposal readiness into a check item");
   assert(diagnosticsSource.includes("blockedActiveProposals"), "diagnostics does not expose blocked active proposal count");
+  assert(diagnosticsSource.includes("readinessBlockers"), "diagnostics does not expose workflow proposal blocker breakdowns");
   assert(smokeSource.includes("workflowProposalReadiness"), "smoke check does not validate workflow proposal readiness diagnostics");
   assert(smokeSource.includes("workflow_proposal_readiness"), "smoke check does not require the workflow proposal readiness diagnostic item");
+  assert(smokeSource.includes("readinessBlockers"), "smoke check does not validate workflow proposal blocker breakdowns");
   assert(diagnosticsSource.includes("unresolvedAttentionItems"), "diagnostics does not expose unresolved attention count");
   assert(diagnosticsSource.includes("unresolvedCandidateCalibrationGuardRules"), "diagnostics does not expose unresolved candidate guard count");
   assert(diagnosticsSource.includes("summarizeSourceDomains(sourceRows)"), "diagnostics does not summarize source-bank domains");
@@ -1008,6 +1010,7 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(dashboardPanelSource.includes("sourceRiskBlockedRuns"), "lab dashboard does not render source-risk benchmark diagnostics");
   assert(dashboardPanelSource.includes("workflowProposalReadiness"), "lab dashboard does not render workflow proposal readiness diagnostics");
   assert(dashboardPanelSource.includes("latestBlockedReadinessBlockers"), "lab dashboard does not render proposal readiness blockers");
+  assert(dashboardPanelSource.includes("proposalReadinessBlockers"), "lab dashboard does not render proposal readiness blocker breakdowns");
   assert(dashboardPanelSource.includes("unresolvedCandidateCalibrationGuardRules"), "lab dashboard does not render candidate guard review count");
   assert(dashboardPanelSource.includes("calibrationGuardRegressionItems"), "lab dashboard does not render guard regression count");
   assert(dashboardPanelSource.includes("attentionByKind"), "lab dashboard does not render attention kind breakdowns");

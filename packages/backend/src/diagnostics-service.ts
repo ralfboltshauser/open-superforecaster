@@ -322,6 +322,12 @@ function workflowProposalReadinessDiagnostics(
   const blockedRows = activeRows.filter((row) => !row.passed);
   const validatedRows = rows.filter((row) => row.passed);
   const latestBlocked = blockedRows[0] ?? null;
+  const blockerCounts = Array.from(
+    blockedRows
+      .flatMap((row) => row.blockers)
+      .reduce((counts, blocker) => counts.set(blocker, (counts.get(blocker) ?? 0) + 1), new Map<string, number>()),
+    ([blocker, count]) => ({ blocker, count }),
+  ).sort((left, right) => right.count - left.count || left.blocker.localeCompare(right.blocker));
   return {
     recentProposals: rows.length,
     activeProposals: activeRows.length,
@@ -330,6 +336,7 @@ function workflowProposalReadinessDiagnostics(
     latestBlockedProposalId: latestBlocked?.proposalId ?? null,
     latestBlockedTargetWorkflowId: latestBlocked?.targetWorkflowId ?? null,
     latestBlockedReadinessBlockers: latestBlocked?.blockers ?? [],
+    readinessBlockers: blockerCounts.slice(0, 8),
     proposals: rows.slice(0, 8),
   };
 }

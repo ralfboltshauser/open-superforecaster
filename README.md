@@ -407,7 +407,8 @@ baseline. Metrics and DuckDB also expose those recommendation-level paired
 evidence counts for proposal validation audits. `/api/diagnostics` and the lab
 diagnostics card summarize the same workflow-proposal readiness contract,
 including blocked active proposal counts and the latest validation-readiness
-blockers, so weak patches are visible before anyone promotes them.
+blockers, plus top blocker-count breakdowns, so weak patches are visible before
+anyone promotes them.
 Benchmark proposal API responses also include this shared validation-readiness
 object directly, and the lab UI uses that object for implementation gating
 instead of re-deriving thresholds in the browser.

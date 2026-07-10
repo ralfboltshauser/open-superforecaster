@@ -79,9 +79,15 @@ async function runSmokeChecks() {
     if (
       typeof workflowProposalReadiness.recentProposals !== "number" ||
       typeof workflowProposalReadiness.blockedActiveProposals !== "number" ||
-      !Array.isArray(workflowProposalReadiness.latestBlockedReadinessBlockers)
+      !Array.isArray(workflowProposalReadiness.latestBlockedReadinessBlockers) ||
+      !Array.isArray(workflowProposalReadiness.readinessBlockers)
     ) {
       throw new Error("diagnostics workflow proposal readiness counts are incomplete");
+    }
+    for (const row of workflowProposalReadiness.readinessBlockers) {
+      if (!isRecord(row) || typeof row.blocker !== "string" || typeof row.count !== "number") {
+        throw new Error("diagnostics workflow proposal readiness blocker breakdown is incomplete");
+      }
     }
     if (!commands.some((command) => isRecord(command) && readString(command, "command") === "bun run export-local")) {
       throw new Error("diagnostics command list is missing export-local");
