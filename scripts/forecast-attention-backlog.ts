@@ -6,6 +6,7 @@ import {
   type AttentionReviewRecord,
   type AttentionReviewStatus,
 } from "./lib/forecast-attention-reviews";
+import { readCalibrationDefaultPlanArtifacts, type CalibrationDefaultPlanSkippedRow } from "../packages/backend/src/calibration-default-plan-artifacts";
 import {
   listFilesNamed,
   readArgValue,
@@ -176,14 +177,10 @@ async function readBacklogItems(
       }
     }
   }
-  const defaultPlanPaths = await listFilesNamed(defaultPlanRoot, "calibration-guard-default-plan.json");
-  for (const path of defaultPlanPaths) {
-    const payload = readRecord(await readJson(path));
-    if (!payload) {
-      continue;
-    }
-    for (const skipped of readRecordArray(payload, "skippedRows")) {
-      const rawBacklogItem = readCalibrationGuardDefaultPlanSkippedBacklogItem(skipped, path);
+  const defaultPlanReports = await readCalibrationDefaultPlanArtifacts(root, { reportRoot: defaultPlanRoot });
+  for (const report of defaultPlanReports) {
+    for (const skipped of report.skippedRows) {
+      const rawBacklogItem = readCalibrationGuardDefaultPlanSkippedBacklogItem(skipped, report.reportPath);
       const backlogItem = rawBacklogItem ? withReview(rawBacklogItem, reviewsByItemId.get(rawBacklogItem.id)) : null;
       if (backlogItem && statuses.includes(backlogItem.reviewStatus) && (batchIds.size === 0 || batchIds.has(backlogItem.batchId))) {
         items.push(backlogItem);
@@ -315,16 +312,16 @@ function recommendedActionsForCalibrationValidation(recommendation: string, buck
   return [`Collect more resolved binary forecasts before acting on this ${bucketLabel} calibration guard candidate.`];
 }
 
-function readCalibrationGuardDefaultPlanSkippedBacklogItem(item: JsonRecord, sourcePath: string): BacklogItem | null {
-  const proposalId = readString(item, "proposalId");
-  const reason = readString(item, "reason");
+function readCalibrationGuardDefaultPlanSkippedBacklogItem(item: CalibrationDefaultPlanSkippedRow, sourcePath: string): BacklogItem | null {
+  const proposalId = item.proposalId;
+  const reason = item.reason;
   if (!proposalId || !reason) {
     return null;
   }
   const batchId = batchIdFromProposalId(proposalId) ?? "unknown-batch";
-  const bucketLabel = readString(item, "bucketLabel") ?? "calibration bucket";
-  const recommendation = readString(item, "recommendation") ?? "unknown";
-  const validationMode = readString(item, "validationMode") ?? "unknown";
+  const bucketLabel = item.bucketLabel ?? "calibration bucket";
+  const recommendation = item.recommendation ?? "unknown";
+  const validationMode = item.validationMode ?? "unknown";
   return {
     batchId,
     id: `calibration-default-plan-skipped:${proposalId}`,

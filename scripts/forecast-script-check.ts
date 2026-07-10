@@ -665,6 +665,8 @@ await check("forecast attention backlog filters batch review status", async () =
   ]);
   const report = readRecord(await readJson(resolve(outputDir, "attention-backlog.json")));
   const markdown = await readFile(resolve(outputDir, "attention-backlog.md"), "utf8");
+  const backlogSource = await readFile(resolve(root, "scripts/forecast-attention-backlog.ts"), "utf8");
+  const defaultPlanReaderSource = await readFile(resolve(root, "packages/backend/src/calibration-default-plan-artifacts.ts"), "utf8");
   const counts = readRecord(report, "counts");
   const byForecastType = readArray(report, "byForecastType");
   const byKind = readArray(report, "byKind");
@@ -672,6 +674,10 @@ await check("forecast attention backlog filters batch review status", async () =
   assert(report, "backlog report is not an object");
   assert(readString(report, "reportType") === "forecast_attention_backlog", "report type mismatch");
   assert(readString(readRecord(report, "paths"), "defaultPlanReportDir") === defaultPlanRoot, "backlog report missing default-plan report path");
+  assert(backlogSource.includes("readCalibrationDefaultPlanArtifacts"), "attention backlog does not use the shared default-plan artifact reader");
+  assert(backlogSource.includes("reportRoot: defaultPlanRoot"), "attention backlog does not pass its configured default-plan report directory to the shared reader");
+  assert(!backlogSource.includes("listFilesNamed(defaultPlanRoot"), "attention backlog should not keep a local default-plan artifact scanner");
+  assert(defaultPlanReaderSource.includes("reportRoot?: string"), "shared default-plan reader does not support custom report roots");
   assert(counts, "backlog counts missing");
   assert(readNumber(counts, "items") === 3, "filtered item count mismatch");
   assert(readNumber(counts, "deferred") === 3, "deferred item count mismatch");

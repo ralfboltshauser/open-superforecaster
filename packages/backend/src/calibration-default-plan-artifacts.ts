@@ -64,8 +64,9 @@ export type LatestCalibrationDefaultPlanSnapshot = {
 
 const defaultPlanReportPath = "data/reports/forecast-calibration-guard-default-plan/calibration-guard-default-plan.json";
 
-export async function readCalibrationDefaultPlanArtifacts(root: string): Promise<CalibrationDefaultPlanArtifact[]> {
-  const reportPaths = await listFilesNamed(resolve(root, "data/reports/forecast-calibration-guard-default-plan"), "calibration-guard-default-plan.json");
+export async function readCalibrationDefaultPlanArtifacts(root: string, input: { reportRoot?: string } = {}): Promise<CalibrationDefaultPlanArtifact[]> {
+  const reportRoot = input.reportRoot ?? resolve(root, "data/reports/forecast-calibration-guard-default-plan");
+  const reportPaths = await listFilesNamed(reportRoot, "calibration-guard-default-plan.json");
   const artifacts: CalibrationDefaultPlanArtifact[] = [];
   for (const reportPath of reportPaths) {
     const payload = await readJsonRecord(reportPath);
