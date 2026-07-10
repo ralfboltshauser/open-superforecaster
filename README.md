@@ -411,7 +411,8 @@ attention lane as other forecast postmortems. The latest local health report is 
 `/api/diagnostics` and Prometheus batch-health series, so unresolved attention
 can be monitored without opening the raw JSON artifact. `bun run duckdb:sync`
 also exports the latest batch-health summary and issue rows into
-`osf_forecast_batch_health` and `osf_forecast_batch_health_issues`.
+`osf_forecast_batch_health`, `osf_forecast_batch_health_issues`, and
+`osf_forecast_batch_health_attention_types`.
 
 Reviewed candidate calibration guard rules can be promoted through a local
 evidence ladder:

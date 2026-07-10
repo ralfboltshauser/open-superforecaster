@@ -702,6 +702,8 @@ try {
   await replaceTable(duck, "osf_forecast_batch_health", forecastBatchHealthColumns, forecastBatchHealth);
   const forecastBatchHealthIssues = buildForecastBatchHealthIssueMartRows(forecastBatchHealthSnapshot);
   await replaceTable(duck, "osf_forecast_batch_health_issues", forecastBatchHealthIssueColumns, forecastBatchHealthIssues);
+  const forecastBatchHealthAttentionTypes = buildForecastBatchHealthAttentionTypeMartRows(forecastBatchHealthSnapshot);
+  await replaceTable(duck, "osf_forecast_batch_health_attention_types", forecastBatchHealthAttentionTypeColumns, forecastBatchHealthAttentionTypes);
 
   const counts = {
     osf_tasks: tasks.length,
@@ -718,6 +720,7 @@ try {
     osf_forecast_attention_items: forecastAttentionItems.length,
     osf_forecast_batch_health: forecastBatchHealth.length,
     osf_forecast_batch_health_issues: forecastBatchHealthIssues.length,
+    osf_forecast_batch_health_attention_types: forecastBatchHealthAttentionTypes.length,
     osf_source_bank_entries: sources.length,
   };
   console.log(JSON.stringify({
@@ -737,6 +740,7 @@ try {
       "select batch_id, review_status, severity, kind, metric, score, task_label from osf_forecast_attention_items order by generated_at desc, severity limit 10;",
       "select batch_id, status, unresolved_attention_items, unresolved_candidate_calibration_guard_rules, issue_count from osf_forecast_batch_health;",
       "select batch_id, severity, kind, message from osf_forecast_batch_health_issues order by severity, kind;",
+      "select batch_id, forecast_type, open_items, deferred_items, high_items from osf_forecast_batch_health_attention_types order by unresolved_items desc, high_items desc;",
       "select source_benchmark_run_id, target_workflow_id, status, implementation_status, implementation_experiment_label, validation_benchmark_run_id, validation_result_status, validation_recommendation_status, validation_paired_mean_brier_delta, validation_gate_status from osf_workflow_change_proposals order by created_at desc limit 5;",
       "select operation_mode, operation_submode, status, count(*) from osf_tasks group by 1,2,3 order by 4 desc;",
     ],
@@ -1321,6 +1325,22 @@ const forecastBatchHealthIssueColumns = [
   { name: "message", type: "VARCHAR" },
 ] satisfies DuckColumn[];
 
+const forecastBatchHealthAttentionTypeColumns = [
+  { name: "report_path", type: "VARCHAR" },
+  { name: "batch_id", type: "VARCHAR" },
+  { name: "generated_at", type: "VARCHAR" },
+  { name: "status", type: "VARCHAR" },
+  { name: "forecast_type", type: "VARCHAR" },
+  { name: "items", type: "INTEGER" },
+  { name: "open_items", type: "INTEGER" },
+  { name: "deferred_items", type: "INTEGER" },
+  { name: "reviewed_items", type: "INTEGER" },
+  { name: "unresolved_items", type: "INTEGER" },
+  { name: "high_items", type: "INTEGER" },
+  { name: "medium_items", type: "INTEGER" },
+  { name: "low_items", type: "INTEGER" },
+] satisfies DuckColumn[];
+
 type TaskMartRow = RowFor<typeof taskColumns>;
 type ArtifactRowMartRow = RowFor<typeof artifactRowColumns>;
 type BenchmarkRunMartRow = RowFor<typeof benchmarkRunColumns>;
@@ -1336,6 +1356,7 @@ type CalibrationGuardDefaultPlanMartRow = RowFor<typeof calibrationGuardDefaultP
 type ForecastAttentionItemMartRow = RowFor<typeof forecastAttentionItemColumns>;
 type ForecastBatchHealthMartRow = RowFor<typeof forecastBatchHealthColumns>;
 type ForecastBatchHealthIssueMartRow = RowFor<typeof forecastBatchHealthIssueColumns>;
+type ForecastBatchHealthAttentionTypeMartRow = RowFor<typeof forecastBatchHealthAttentionTypeColumns>;
 type RowFor<T extends readonly DuckColumn[]> = Record<T[number]["name"], unknown>;
 
 async function syncMetadata(duck: DuckDBConnection) {
@@ -1666,6 +1687,24 @@ function buildForecastBatchHealthIssueMartRows(health: ForecastBatchHealthSnapsh
     severity: issue.severity,
     kind: issue.kind,
     message: issue.message,
+  }));
+}
+
+function buildForecastBatchHealthAttentionTypeMartRows(health: ForecastBatchHealthSnapshot): ForecastBatchHealthAttentionTypeMartRow[] {
+  return health.attentionByForecastType.map((row) => ({
+    report_path: health.path,
+    batch_id: health.batchId,
+    generated_at: health.generatedAt,
+    status: health.status,
+    forecast_type: row.forecastType,
+    items: row.items,
+    open_items: row.open,
+    deferred_items: row.deferred,
+    reviewed_items: row.reviewed,
+    unresolved_items: (row.open ?? 0) + (row.deferred ?? 0),
+    high_items: row.high,
+    medium_items: row.medium,
+    low_items: row.low,
   }));
 }
 
