@@ -120,6 +120,14 @@ export function summarizeForecastAttentionReviewStatuses<T extends { reviewStatu
   };
 }
 
+export function isForecastScoreRegressionAttentionKind(kind: string | null | undefined) {
+  return kind === "forecast_score_regression" || kind === "worsening_trend";
+}
+
+export function isCalibrationGuardRegressionAttentionKind(kind: string | null | undefined) {
+  return kind === "calibration_guard_regression";
+}
+
 export function forecastAttentionSeveritySortRank(severity: string | null | undefined) {
   if (severity === "high") {
     return 0;

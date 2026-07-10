@@ -1791,6 +1791,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(attentionPolicySource.includes("isForecastAttentionReviewDeferred"), "shared forecast attention policy does not expose deferred review policy");
   assert(attentionPolicySource.includes("isForecastAttentionReviewUnresolved"), "shared forecast attention policy does not expose unresolved review policy");
   assert(attentionPolicySource.includes("unresolved: open + deferred"), "shared forecast attention policy does not summarize unresolved review counts");
+  assert(attentionPolicySource.includes("isForecastScoreRegressionAttentionKind"), "shared forecast attention policy does not expose score-regression attention kind policy");
+  assert(attentionPolicySource.includes("isCalibrationGuardRegressionAttentionKind"), "shared forecast attention policy does not expose calibration-guard regression attention kind policy");
   assert(attentionPolicySource.includes("forecastAttentionSeveritySortRank"), "shared forecast attention policy does not expose severity sort ranking");
   assert(attentionPolicySource.includes("summarizeForecastAttentionSeverities"), "shared forecast attention policy does not expose severity counts");
   assert(attentionPolicySource.includes("performanceAttentionSeverityRank"), "shared forecast attention policy does not expose performance severity ranking");
@@ -1812,6 +1814,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(!attentionBacklogSource.includes("function countSeverity("), "attention backlog should not keep local severity counter");
   assert(!attentionBacklogSource.includes("function severityRank("), "attention backlog should not keep local severity rank");
   assert(batchHealthSource.includes("forecastAttentionReviewStatusRank"), "batch health does not use shared review status rank");
+  assert(batchHealthSource.includes("isForecastScoreRegressionAttentionKind"), "batch health does not use shared score-regression attention kind policy");
+  assert(batchHealthSource.includes("isCalibrationGuardRegressionAttentionKind"), "batch health does not use shared calibration-guard regression attention kind policy");
   assert(batchHealthSource.includes("isForecastAttentionReviewUnresolved"), "batch health does not use shared unresolved review policy");
   assert(batchHealthSource.includes("summarizeForecastAttentionReviewStatuses"), "batch health does not use shared review status counts");
   assert(batchHealthSource.includes("forecastAttentionSeveritySortRank"), "batch health does not use shared attention severity rank");
@@ -1826,6 +1830,9 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(!batchHealthSource.includes("function countCandidateRuleStatus("), "batch health should not keep local candidate guard review status counter");
   assert(!batchHealthSource.includes("function severityRank("), "batch health should not keep local severity rank");
   assert(!batchHealthSource.includes("reviewStatus !== \"reviewed\""), "batch health should not keep local unresolved review checks");
+  assert(!batchHealthSource.includes("item.kind === \"forecast_score_regression\""), "batch health should not keep local score-regression kind checks");
+  assert(!batchHealthSource.includes("item.kind === \"worsening_trend\""), "batch health should not keep local worsening-trend kind checks");
+  assert(!batchHealthSource.includes("item.kind === \"calibration_guard_regression\""), "batch health should not keep local calibration-guard regression kind checks");
   assert(resolutionSource.includes("performanceAttentionSeverityRank"), "performance report does not use shared performance severity rank");
   assert(calibrationProposalSource.includes("normalizeForecastAttentionReviewStatus"), "calibration proposals do not use shared review status normalization");
   assert(calibrationProposalSource.includes("isCalibrationGuardReadyForReview"), "calibration proposals do not use shared candidate guard readiness policy");
