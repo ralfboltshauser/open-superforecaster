@@ -1,6 +1,9 @@
 export type AggregateStatsSnapshot = {
   meanProbability: number | null;
   medianProbability: number | null;
+  componentMinProbability: number | null;
+  componentMaxProbability: number | null;
+  finalComponentPositionBand: "below_components" | "inside_components" | "above_components" | "missing_components" | "unknown";
   disagreement: number | null;
   disagreementBand: "low" | "moderate" | "high" | "extreme" | "unknown";
   aggregationAnchor: string | null;
@@ -16,6 +19,10 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
   }
   const meanProbability = readNumber(aggregateStats, "meanProbability", "mean_probability");
   const medianProbability = readNumber(aggregateStats, "medianProbability", "median_probability");
+  const finalProbability = readNumber(aggregateStats, "probability", "finalProbability", "final_probability");
+  const componentProbabilities = readComponentProbabilities(aggregateStats);
+  const componentMinProbability = readNumber(aggregateStats, "componentMinProbability", "component_min_probability") ?? min(componentProbabilities);
+  const componentMaxProbability = readNumber(aggregateStats, "componentMaxProbability", "component_max_probability") ?? max(componentProbabilities);
   const disagreement = readNumber(aggregateStats, "disagreement");
   const aggregationAnchor = readString(aggregateStats, "aggregationAnchor", "aggregation_anchor");
   const adjustmentFromMedian = readNumber(aggregateStats, "adjustmentFromMedian", "adjustment_from_median");
@@ -23,6 +30,8 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
   if (
     meanProbability === null &&
     medianProbability === null &&
+    componentMinProbability === null &&
+    componentMaxProbability === null &&
     disagreement === null &&
     aggregationAnchor === null &&
     adjustmentFromMedian === null &&
@@ -33,12 +42,39 @@ export function readAggregateStatsSnapshot(value: unknown): AggregateStatsSnapsh
   return {
     meanProbability,
     medianProbability,
+    componentMinProbability,
+    componentMaxProbability,
+    finalComponentPositionBand: finalComponentPositionBand({
+      finalProbability,
+      componentMinProbability,
+      componentMaxProbability,
+    }),
     disagreement,
     disagreementBand: aggregateDisagreementBand(disagreement),
     aggregationAnchor,
     adjustmentFromMedian,
     attemptCount,
   };
+}
+
+export function finalComponentPositionBand(input: {
+  finalProbability: number | null;
+  componentMinProbability: number | null;
+  componentMaxProbability: number | null;
+}): AggregateStatsSnapshot["finalComponentPositionBand"] {
+  if (input.componentMinProbability === null || input.componentMaxProbability === null) {
+    return "missing_components";
+  }
+  if (input.finalProbability === null || !Number.isFinite(input.finalProbability)) {
+    return "unknown";
+  }
+  if (input.finalProbability < input.componentMinProbability) {
+    return "below_components";
+  }
+  if (input.finalProbability > input.componentMaxProbability) {
+    return "above_components";
+  }
+  return "inside_components";
 }
 
 export function aggregateDisagreementBand(disagreement: number | null): AggregateStatsSnapshot["disagreementBand"] {
@@ -83,6 +119,25 @@ function readNumber(value: unknown, ...keys: string[]) {
     }
   }
   return null;
+}
+
+function readComponentProbabilities(value: unknown) {
+  const record = asRecord(value);
+  const raw = record?.componentProbabilities ?? record?.component_probabilities;
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  return raw
+    .map((item) => readNumber(item, "probability"))
+    .filter((probability): probability is number => probability !== null);
+}
+
+function min(values: number[]) {
+  return values.length ? Math.min(...values) : null;
+}
+
+function max(values: number[]) {
+  return values.length ? Math.max(...values) : null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

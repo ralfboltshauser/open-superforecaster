@@ -7,7 +7,7 @@ import {
   summarizeBenchmarkPromotionGateEvidence,
 } from "../packages/backend/src/benchmark-service";
 import { readAggregateQualitySnapshot } from "../packages/backend/src/aggregate-quality-metadata";
-import { readAggregateStatsSnapshot } from "../packages/backend/src/aggregate-stats-metadata";
+import { finalComponentPositionBand, readAggregateStatsSnapshot } from "../packages/backend/src/aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "../packages/backend/src/baseline-sanity-metadata";
 import { buildBinaryConfidenceSnapshot, readBinaryConfidenceSnapshot } from "../packages/backend/src/binary-confidence-metadata";
 import { buildCalibrationGuardImpact } from "../packages/backend/src/calibration-guard-impact";
@@ -976,6 +976,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Baseline sanity groups"), "performance Markdown missing baseline sanity group section");
   assert(resolutionSource.includes("## Aggregate quality groups"), "performance Markdown missing aggregate quality group section");
   assert(resolutionSource.includes("## Component disagreement groups"), "performance Markdown missing component disagreement group section");
+  assert(resolutionSource.includes("## Component envelope groups"), "performance Markdown missing component envelope group section");
   assert(resolutionSource.includes("## Aggregation anchor groups"), "performance Markdown missing aggregation anchor group section");
   assert(resolutionSource.includes("## Research depth groups"), "performance Markdown missing research depth group section");
   assert(resolutionSource.includes("## Forecaster panel size groups"), "performance Markdown missing forecaster panel size group section");
@@ -1045,6 +1046,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(dashboardSource.includes("Aggregate quality outcomes"), "lab dashboard does not render aggregate quality performance groups");
   assert(dashboardSource.includes("byAggregateDisagreement"), "lab dashboard does not read component disagreement performance groups");
   assert(dashboardSource.includes("Component disagreement outcomes"), "lab dashboard does not render component disagreement performance groups");
+  assert(dashboardSource.includes("byAggregateFinalComponentPosition"), "lab dashboard does not read component envelope performance groups");
+  assert(dashboardSource.includes("Component envelope outcomes"), "lab dashboard does not render component envelope performance groups");
   assert(dashboardSource.includes("byAggregationAnchor"), "lab dashboard does not read aggregation anchor performance groups");
   assert(dashboardSource.includes("Aggregation anchor outcomes"), "lab dashboard does not render aggregation anchor performance groups");
   assert(dashboardSource.includes("byResearchDepth"), "lab dashboard does not read research depth performance groups");
@@ -1661,6 +1664,12 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
     aggregateStats: {
       meanProbability: 67,
       medianProbability: 70,
+      probability: 82,
+      componentProbabilities: [
+        { probability: 55 },
+        { probability: 60 },
+        { probability: 75 },
+      ],
       disagreement: 22,
       aggregationAnchor: "median",
       adjustmentFromMedian: -5,
@@ -1669,18 +1678,29 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   });
   assert(snapshot?.meanProbability === 67, "aggregate stats mean mismatch");
   assert(snapshot?.medianProbability === 70, "aggregate stats median mismatch");
+  assert(snapshot?.componentMinProbability === 55, "aggregate stats component minimum mismatch");
+  assert(snapshot?.componentMaxProbability === 75, "aggregate stats component maximum mismatch");
+  assert(snapshot?.finalComponentPositionBand === "above_components", "aggregate stats final component position mismatch");
   assert(snapshot?.disagreement === 22, "aggregate stats disagreement mismatch");
   assert(snapshot?.disagreementBand === "high", "aggregate stats disagreement band mismatch");
   assert(snapshot?.aggregationAnchor === "median", "aggregate stats anchor mismatch");
   assert(snapshot?.adjustmentFromMedian === -5, "aggregate stats adjustment mismatch");
+  assert(finalComponentPositionBand({
+    finalProbability: 50,
+    componentMinProbability: 55,
+    componentMaxProbability: 75,
+  }) === "below_components", "aggregate stats below-component contract mismatch");
   const resolutionSource = await readFile(resolve(root, "packages/backend/src/resolution-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
   assert(resolutionSource.includes("readAggregateStatsSnapshot(input.prediction)"), "resolution scoring does not persist aggregate stats");
   assert(resolutionSource.includes("byAggregateDisagreement"), "performance report does not group by component disagreement");
+  assert(resolutionSource.includes("byAggregateFinalComponentPosition"), "performance report does not group by component envelope position");
   assert(resolutionSource.includes("byAggregationAnchor"), "performance report does not group by aggregation anchor");
   assert(resolutionSource.includes("component_disagreement_miss"), "performance report does not flag high-disagreement misses");
+  assert(resolutionSource.includes("component_envelope_miss"), "performance report does not flag component envelope misses");
+  assert(resolutionSource.includes("componentEnvelopeMissSignal"), "performance report does not centralize component envelope miss signals");
   assert(resolutionSource.includes("componentDisagreementMissSignal"), "performance report does not centralize component disagreement miss signals");
   assert(resolutionSource.includes("thresholdedForecast.componentDisagreementBand"), "attention queue does not use thresholded component disagreement");
   assert(resolutionSource.includes("numericForecast.p50DisagreementBand"), "attention queue does not use numeric component disagreement");
@@ -1688,8 +1708,13 @@ await check("binary aggregate stats reach resolved score analytics", async () =>
   assert(resolutionSource.includes("categoricalForecast.topCategoryAgreementBand"), "attention queue does not use categorical top-category agreement");
   assert(resolutionSource.includes("conditionalForecast.branchDisagreementBand"), "attention queue does not use conditional branch disagreement");
   assert(metricsSource.includes("open_superforecaster_aggregate_stats_scores_total"), "metrics missing aggregate stats score counts");
+  assert(metricsSource.includes("final_component_position_band"), "metrics missing final component position labels");
+  assert(syncSource.includes("aggregate_component_min_probability"), "DuckDB forecast score mart missing component minimum probability");
+  assert(syncSource.includes("aggregate_component_max_probability"), "DuckDB forecast score mart missing component maximum probability");
+  assert(syncSource.includes("aggregate_final_component_position_band"), "DuckDB forecast score mart missing final component position band");
   assert(syncSource.includes("aggregate_component_disagreement_band"), "DuckDB forecast score mart missing disagreement band");
   assert(dashboardSource.includes("Component disagreement outcomes"), "lab dashboard does not render component disagreement outcomes");
+  assert(dashboardSource.includes("Component envelope outcomes"), "lab dashboard does not render component envelope outcomes");
   assert(dashboardSource.includes("Aggregation anchor outcomes"), "lab dashboard does not render aggregation anchor outcomes");
   return "binary aggregate stats are persisted and visible in resolved score analytics";
 });

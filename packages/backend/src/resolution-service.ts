@@ -130,6 +130,7 @@ type PerformanceAttentionItem = {
     | "component_weighting_miss"
     | "aggregate_quality_miss"
     | "component_disagreement_miss"
+    | "component_envelope_miss"
     | "evidence_coverage_miss"
     | "input_context_miss"
     | "run_metadata_miss";
@@ -402,6 +403,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byComponentWeighting = groupScores(aggregateScores, componentWeightingGroupKey);
   const byAggregateQuality = groupScores(aggregateScores, aggregateQualityGroupKey);
   const byAggregateDisagreement = groupScores(aggregateScores, aggregateDisagreementGroupKey);
+  const byAggregateFinalComponentPosition = groupScores(aggregateScores, aggregateFinalComponentPositionGroupKey);
   const byAggregationAnchor = groupScores(aggregateScores, aggregationAnchorGroupKey);
   const byResearchDepth = groupScores(aggregateScores, researchDepthGroupKey);
   const byForecasterPanelSize = groupScores(aggregateScores, forecasterPanelSizeGroupKey);
@@ -512,6 +514,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byComponentWeighting,
       byAggregateQuality,
       byAggregateDisagreement,
+      byAggregateFinalComponentPosition,
       byAggregationAnchor,
       byResearchDepth,
       byForecasterPanelSize,
@@ -612,6 +615,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byComponentWeighting,
       byAggregateQuality,
       byAggregateDisagreement,
+      byAggregateFinalComponentPosition,
       byAggregationAnchor,
       byResearchDepth,
       byForecasterPanelSize,
@@ -1388,6 +1392,11 @@ function aggregateQualityGroupKey(score: typeof forecastScores.$inferSelect) {
 function aggregateDisagreementGroupKey(score: typeof forecastScores.$inferSelect) {
   const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
   return `component_disagreement:${aggregateStats?.disagreementBand ?? "unrecorded"}`;
+}
+
+function aggregateFinalComponentPositionGroupKey(score: typeof forecastScores.$inferSelect) {
+  const aggregateStats = readAggregateStatsSnapshot(score.scoreConfig);
+  return `component_envelope:${aggregateStats?.finalComponentPositionBand ?? "unrecorded"}`;
 }
 
 function aggregationAnchorGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -2256,6 +2265,36 @@ function buildNeedsAttentionQueue(
       rank: 70 + index,
     }));
 
+  const componentEnvelopeCandidates = worstCases.flatMap((item) => {
+    const threshold = poorScoreThreshold(item.primaryMetric);
+    const signal = componentEnvelopeMissSignal(item);
+    if (signal === null || threshold === null || item.primaryScore < threshold) {
+      return [];
+    }
+    return [{ item, signal }];
+  });
+  const componentEnvelopeItems = componentEnvelopeCandidates
+    .slice(0, 5)
+    .map(({ item, signal }, index) => ({
+      id: `component-envelope:${item.taskId}:${item.primaryMetric}`,
+      kind: "component_envelope_miss" as const,
+      severity: signal.severity,
+      reason: `${item.primaryMetric} ${roundMetric(item.primaryScore)} followed ${signal.reason}.`,
+      recommendedActions: recommendAttentionActions({
+        kind: "component_envelope_miss",
+        metric: item.primaryMetric,
+        severity: signal.severity,
+        forecastType: item.forecastType,
+      }),
+      metric: item.primaryMetric,
+      score: item.primaryScore,
+      delta: signal.delta,
+      taskId: item.taskId,
+      taskLabel: item.taskLabel,
+      forecastType: item.forecastType,
+      rank: 72 + index,
+    }));
+
   const evidenceCoverageItems = buildMetadataAttentionItems({
     worstCases,
     idPrefix: "evidence-coverage",
@@ -2349,6 +2388,7 @@ function buildNeedsAttentionQueue(
     ...aggregateQualityItems,
     ...binaryConfidenceItems,
     ...componentDisagreementItems,
+    ...componentEnvelopeItems,
     ...evidenceCoverageItems,
     ...inputContextItems,
     ...runMetadataItems,
@@ -2586,6 +2626,25 @@ function buildMetadataAttentionItems(input: {
       forecastType: item.forecastType,
       rank: input.rankStart + index,
     }));
+}
+
+function componentEnvelopeMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
+  const stats = item.aggregateStats;
+  if (item.forecastType !== "binary" || !stats) {
+    return null;
+  }
+  if (stats.finalComponentPositionBand !== "below_components" && stats.finalComponentPositionBand !== "above_components") {
+    return null;
+  }
+  const finalProbability = item.probability;
+  const distance = stats.finalComponentPositionBand === "below_components"
+    ? finalProbability === null || stats.componentMinProbability === null ? null : stats.componentMinProbability - finalProbability
+    : finalProbability === null || stats.componentMaxProbability === null ? null : finalProbability - stats.componentMaxProbability;
+  return {
+    reason: `final probability was ${stats.finalComponentPositionBand.replace(/_/g, " ")} (${formatNullableMetric(stats.componentMinProbability)}-${formatNullableMetric(stats.componentMaxProbability)} component envelope)`,
+    delta: distance,
+    severity: distance !== null && distance >= 5 ? "high" : "medium",
+  };
 }
 
 function evidenceCoverageMissSignal(item: PerformanceCase): { reason: string; delta: number | null; severity: "high" | "medium" } | null {
@@ -2880,6 +2939,9 @@ function recommendAttentionActions(input: {
   } else if (input.kind === "component_disagreement_miss") {
     actions.add("Inspect component forecasts before changing aggregation defaults; identify whether one role captured the resolved signal or all roles missed different parts.");
     actions.add("Compare mean, median, aggregation anchor, and final rationale to see whether disagreement was explained or over-smoothed.");
+  } else if (input.kind === "component_envelope_miss") {
+    actions.add("Audit why the final probability moved outside every component forecast before changing calibration or role-weight defaults.");
+    actions.add("Compare the final rationale, calibration guard, and component probabilities to decide whether the out-of-envelope move was justified.");
   } else if (input.kind === "evidence_coverage_miss") {
     actions.add("Audit cited sources, dated-source coverage, uncertainty notes, and rationale depth before changing model or aggregation defaults.");
     actions.add("Add a benchmark case if sparse evidence repeatedly accompanies poor resolved forecasts in this forecast type.");
@@ -2997,6 +3059,7 @@ function renderPerformanceMarkdown(input: {
   byComponentWeighting: PerformanceGroup[];
   byAggregateQuality: PerformanceGroup[];
   byAggregateDisagreement: PerformanceGroup[];
+  byAggregateFinalComponentPosition: PerformanceGroup[];
   byAggregationAnchor: PerformanceGroup[];
   byResearchDepth: PerformanceGroup[];
   byForecasterPanelSize: PerformanceGroup[];
@@ -3114,6 +3177,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Component disagreement groups",
     ...renderGroupTable(input.byAggregateDisagreement),
+    "",
+    "## Component envelope groups",
+    ...renderGroupTable(input.byAggregateFinalComponentPosition),
     "",
     "## Aggregation anchor groups",
     ...renderGroupTable(input.byAggregationAnchor),

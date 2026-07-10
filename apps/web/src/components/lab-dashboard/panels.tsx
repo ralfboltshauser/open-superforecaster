@@ -625,6 +625,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byComponentWeighting = readArray(groups, "byComponentWeighting").filter(isRecord)
   const byAggregateQuality = readArray(groups, "byAggregateQuality").filter(isRecord)
   const byAggregateDisagreement = readArray(groups, "byAggregateDisagreement").filter(isRecord)
+  const byAggregateFinalComponentPosition = readArray(groups, "byAggregateFinalComponentPosition").filter(isRecord)
   const byAggregationAnchor = readArray(groups, "byAggregationAnchor").filter(isRecord)
   const byResearchDepth = readArray(groups, "byResearchDepth").filter(isRecord)
   const byForecasterPanelSize = readArray(groups, "byForecasterPanelSize").filter(isRecord)
@@ -744,6 +745,7 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byComponentWeighting.length ? <PerformancePlanShapeGroupList groups={byComponentWeighting} title="Component-weighting outcomes" skipKey="component_weighting:unrecorded" fallback="component weighting" /> : null}
         {byAggregateQuality.length ? <PerformanceAggregateQualityGroupList groups={byAggregateQuality} /> : null}
         {byAggregateDisagreement.length ? <PerformanceComponentDisagreementGroupList groups={byAggregateDisagreement} /> : null}
+        {byAggregateFinalComponentPosition.length ? <PerformancePlanShapeGroupList groups={byAggregateFinalComponentPosition} title="Component envelope outcomes" skipKey="component_envelope:unrecorded" fallback="component envelope" /> : null}
         {byAggregationAnchor.length ? <PerformanceAggregationAnchorGroupList groups={byAggregationAnchor} /> : null}
         {byResearchDepth.length ? <PerformancePlanShapeGroupList groups={byResearchDepth} title="Research depth outcomes" skipKey="research_depth:unrecorded" fallback="research depth" /> : null}
         {byForecasterPanelSize.length ? <PerformancePlanShapeGroupList groups={byForecasterPanelSize} title="Panel size outcomes" skipKey="forecaster_panel:unrecorded" fallback="panel size" /> : null}
