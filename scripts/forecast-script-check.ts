@@ -503,12 +503,22 @@ await check("forecast calibration guard validation replays proposal impact", asy
   assert(validationSource.includes("readForecastPerformanceArtifacts"), "calibration validation does not use the shared performance artifact reader");
   assert(validationSource.includes("calibrationGuardValidationModeHoldoutReplay"), "calibration validation does not use shared validation mode policy");
   assert(validationSource.includes("calibrationGuardRecommendationPromoteForDefault"), "calibration validation does not use shared recommendation policy");
+  assert(validationSource.includes("validateCalibrationGuardProposal"), "calibration validation does not use shared validation scoring policy");
+  assert(validationPolicySource.includes("validateCalibrationGuardProposal"), "calibration validation policy does not expose proposal validation");
+  assert(validationPolicySource.includes("calibrationGuardValidationRecommendationFor"), "calibration validation policy does not expose recommendation selection");
+  assert(validationPolicySource.includes("parseCalibrationGuardBucketLabel"), "calibration validation policy does not expose bucket parsing");
+  assert(validationPolicySource.includes("BINARY_CALIBRATION_POLICY.minimumBucketSampleSize"), "calibration validation policy does not use shared calibration sample threshold");
   assert(validationPolicySource.includes("isCalibrationGuardDefaultPromotionCandidate"), "calibration validation policy does not expose the default promotion predicate");
   assert(validationPolicySource.includes("calibrationGuardDefaultPlanSkippedReasonForValidation"), "calibration validation policy does not expose skipped-row reason mapping");
   assert(validationSource.includes("reportRoot: performanceRoot"), "calibration validation does not pass the configured performance directory to the shared reader");
   assert(!validationSource.includes("listFilesNamed(performanceRoot"), "calibration validation should not keep a local performance artifact scanner");
   assert(!validationSource.includes("readRecordArray(input.proposals"), "calibration validation should not parse proposal drafts from raw JSON");
   assert(!validationSource.includes("readRecordArray(input.performance"), "calibration validation should not parse replay rows from raw JSON");
+  assert(!validationSource.includes("function validateProposal("), "calibration validation should not keep local proposal validation scoring");
+  assert(!validationSource.includes("function recommendationFor("), "calibration validation should not keep local recommendation selection");
+  assert(!validationSource.includes("function parseBucketLabel("), "calibration validation should not keep local bucket parsing");
+  assert(!validationSource.includes("function calibrationError("), "calibration validation should not keep local replay calibration error math");
+  assert(!validationSource.includes("function clampProbability("), "calibration validation should not keep local probability clamping");
   assert(proposalReaderSource.includes("proposalDrafts"), "shared proposal reader does not expose proposal drafts");
   assert(performanceReaderSource.includes("calibrationReplayRows"), "shared performance reader does not expose calibration replay rows");
   assert(backendIndexSource.includes("calibration-guard-proposal-artifacts"), "backend package barrel does not export calibration proposal artifacts");
@@ -2335,6 +2345,7 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   const syncSource = await readFile(resolve(root, "scripts/sync-duckdb.ts"), "utf8");
   const attentionBacklogSource = await readFile(resolve(root, "packages/backend/src/forecast-attention-backlog.ts"), "utf8");
   const validationSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-validation.ts"), "utf8");
+  const validationPolicySource = await readFile(resolve(root, "packages/backend/src/calibration-guard-validation-policy.ts"), "utf8");
   assert(syncSource.includes("osf_forecast_scores"), "DuckDB sync missing forecast score mart");
   assert(syncSource.includes("osf_binary_calibration_buckets"), "DuckDB sync missing binary calibration bucket mart");
   assert(syncSource.includes("osf_calibration_guard_impact"), "DuckDB sync missing calibration guard impact mart");
@@ -2469,7 +2480,8 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("recommendation"), "calibration guard validation mart missing recommendation");
   assert(syncSource.includes("acceptance_criteria_json"), "calibration guard default plan mart missing acceptance criteria");
   assert(syncSource.includes("resolved_forecast_count"), "binary calibration bucket mart missing resolved forecast count");
-  assert(validationSource.includes("BINARY_CALIBRATION_POLICY.minimumBucketSampleSize"), "calibration validation does not use shared minimum bucket sample policy");
+  assert(validationSource.includes("validateCalibrationGuardProposal"), "calibration validation does not use shared validation scoring policy");
+  assert(validationPolicySource.includes("BINARY_CALIBRATION_POLICY.minimumBucketSampleSize"), "calibration validation policy does not use shared minimum bucket sample policy");
   return "binary calibration scores, candidate guard rules, and validation outcomes are visible in local DuckDB analytics";
 });
 

@@ -12,53 +12,26 @@ import {
   calibrationGuardRecommendationReject,
   calibrationGuardValidationModeHoldoutReplay,
   calibrationGuardValidationModeSourceReplay,
+  validateCalibrationGuardProposal,
   type CalibrationGuardValidationMode,
   type CalibrationGuardValidationRecommendation,
+  type CalibrationGuardValidationProposal,
+  type CalibrationGuardValidationReplayRow,
+  type CalibrationGuardValidationResult,
 } from "../packages/backend/src/calibration-guard-validation-policy";
 import {
   readForecastPerformanceArtifacts,
   type ForecastPerformanceArtifact,
   type ForecastPerformanceCalibrationReplayRow,
 } from "../packages/backend/src/forecast-performance-artifacts";
-import { BINARY_CALIBRATION_POLICY } from "../packages/backend/src/performance-calibration";
 import {
   readArgValue,
   writeJson,
 } from "./lib/forecast-script-utils";
 
-type ReplayRow = {
-  id: string | null;
-  taskId: string | null;
-  probability: number;
-  resolved: boolean;
-  score: number | null;
-};
-
-type ProposalDraft = {
-  id: string;
-  sourceCandidateGuardId: string;
-  targetWorkflowId: string;
-  calibrationEvidence: {
-    bucketLabel: string;
-    suggestedAdjustment: number | null;
-  };
-};
-
-type ValidationRow = {
-  validationMode: CalibrationGuardValidationMode;
-  proposalId: string;
-  sourceCandidateGuardId: string;
-  bucketLabel: string;
-  suggestedAdjustment: number;
-  matchedRows: number;
-  baselineMeanBrier: number | null;
-  candidateMeanBrier: number | null;
-  brierDelta: number | null;
-  baselineCalibrationError: number | null;
-  candidateCalibrationError: number | null;
-  calibrationErrorDelta: number | null;
-  recommendation: CalibrationGuardValidationRecommendation;
-};
+type ReplayRow = CalibrationGuardValidationReplayRow;
+type ProposalDraft = CalibrationGuardValidationProposal;
+type ValidationRow = CalibrationGuardValidationResult;
 
 type ValidationReport = {
   reportType: "forecast_calibration_guard_validation";
@@ -155,7 +128,7 @@ function buildValidationReport(input: {
     ? calibrationGuardValidationModeHoldoutReplay
     : calibrationGuardValidationModeSourceReplay;
   const replayRows = validationMode === calibrationGuardValidationModeHoldoutReplay ? holdoutReplayRows : sourceReplayRows;
-  const validations = proposals.flatMap((proposal) => validateProposal(proposal, replayRows, validationMode));
+  const validations = proposals.flatMap((proposal) => validateCalibrationGuardProposal(proposal, replayRows, validationMode));
   return {
     reportType: "forecast_calibration_guard_validation",
     generatedAt: new Date().toISOString(),
@@ -178,69 +151,6 @@ function buildValidationReport(input: {
       holdoutPerformanceReport: input.holdoutPerformanceArtifact ? input.holdoutPerformanceReportPath : null,
     },
   };
-}
-
-function validateProposal(proposal: ProposalDraft, replayRows: ReplayRow[], validationMode: CalibrationGuardValidationMode): ValidationRow[] {
-  const bucket = parseBucketLabel(proposal.calibrationEvidence.bucketLabel);
-  const adjustment = proposal.calibrationEvidence.suggestedAdjustment;
-  if (!bucket || adjustment === null) {
-    return [];
-  }
-  const matchedRows = replayRows.filter((row) =>
-    bucket.max === 100
-      ? row.probability >= bucket.min && row.probability <= bucket.max
-      : row.probability >= bucket.min && row.probability < bucket.max
-  );
-  const baselineMeanBrier = mean(matchedRows.map((row) => brier(row.probability, row.resolved)));
-  const candidateMeanBrier = mean(matchedRows.map((row) => brier(clampProbability(row.probability + adjustment), row.resolved)));
-  const baselineCalibrationError = calibrationError(matchedRows.map((row) => row.probability), matchedRows.map((row) => row.resolved));
-  const candidateCalibrationError = calibrationError(
-    matchedRows.map((row) => clampProbability(row.probability + adjustment)),
-    matchedRows.map((row) => row.resolved),
-  );
-  return [{
-    validationMode,
-    proposalId: proposal.id,
-    sourceCandidateGuardId: proposal.sourceCandidateGuardId,
-    bucketLabel: proposal.calibrationEvidence.bucketLabel,
-    suggestedAdjustment: adjustment,
-    matchedRows: matchedRows.length,
-    baselineMeanBrier,
-    candidateMeanBrier,
-    brierDelta: delta(candidateMeanBrier, baselineMeanBrier),
-    baselineCalibrationError,
-    candidateCalibrationError,
-    calibrationErrorDelta: delta(candidateCalibrationError, baselineCalibrationError),
-    recommendation: recommendationFor({ validationMode, matchedRows: matchedRows.length, baselineMeanBrier, candidateMeanBrier, baselineCalibrationError, candidateCalibrationError }),
-  }];
-}
-
-function recommendationFor(input: {
-  validationMode: CalibrationGuardValidationMode;
-  matchedRows: number;
-  baselineMeanBrier: number | null;
-  candidateMeanBrier: number | null;
-  baselineCalibrationError: number | null;
-  candidateCalibrationError: number | null;
-}): CalibrationGuardValidationRecommendation {
-  if (
-    input.matchedRows < BINARY_CALIBRATION_POLICY.minimumBucketSampleSize ||
-    input.baselineMeanBrier === null ||
-    input.candidateMeanBrier === null
-  ) {
-    return calibrationGuardRecommendationNeedsMoreEvidence;
-  }
-  if (
-    input.candidateMeanBrier < input.baselineMeanBrier &&
-    input.candidateCalibrationError !== null &&
-    input.baselineCalibrationError !== null &&
-    input.candidateCalibrationError <= input.baselineCalibrationError
-  ) {
-    return input.validationMode === calibrationGuardValidationModeHoldoutReplay
-      ? calibrationGuardRecommendationPromoteForDefault
-      : calibrationGuardRecommendationPromoteForHoldout;
-  }
-  return calibrationGuardRecommendationReject;
 }
 
 function renderMarkdown(report: ValidationReport) {
@@ -309,44 +219,6 @@ function readReplayRow(value: ForecastPerformanceCalibrationReplayRow): ReplayRo
     resolved: value.resolved,
     score: value.score,
   }];
-}
-
-function parseBucketLabel(label: string) {
-  const match = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)%$/.exec(label);
-  if (!match) {
-    return null;
-  }
-  const min = Number(match[1]);
-  const max = Number(match[2]);
-  return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : null;
-}
-
-function calibrationError(probabilities: number[], resolved: boolean[]) {
-  if (probabilities.length === 0 || probabilities.length !== resolved.length) {
-    return null;
-  }
-  const meanForecast = mean(probabilities);
-  const observedRate = mean(resolved.map((value) => (value ? 100 : 0)));
-  return meanForecast === null || observedRate === null ? null : roundMetric(Math.abs(meanForecast - observedRate));
-}
-
-function brier(probability: number, resolved: boolean) {
-  const forecast = probability / 100;
-  const actual = resolved ? 1 : 0;
-  return roundMetric((forecast - actual) ** 2);
-}
-
-function mean(values: number[]) {
-  const finite = values.filter((value) => Number.isFinite(value));
-  return finite.length ? roundMetric(finite.reduce((sum, value) => sum + value, 0) / finite.length) : null;
-}
-
-function delta(candidate: number | null, baseline: number | null) {
-  return candidate === null || baseline === null ? null : roundMetric(candidate - baseline);
-}
-
-function clampProbability(value: number) {
-  return Math.min(100, Math.max(0, Math.round(value * 10) / 10));
 }
 
 function roundMetric(value: number) {
