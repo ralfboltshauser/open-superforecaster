@@ -6,6 +6,7 @@ import {
   type CalibrationGuardActivationStatus,
 } from "../packages/backend/src/calibration-guard-activation-policy";
 import {
+  candidateCalibrationGuardAttentionKind,
   forecastAttentionSeveritySortRank,
   forecastAttentionReviewStatusRank,
   isCalibrationGuardRegressionAttentionKind,
@@ -523,8 +524,9 @@ function mergeSupplementalAttentionItems(
     ...candidateRules.map((rule) => rule.id),
   ]);
   const merged = [...baseItems];
+  const candidateGuardKind = candidateCalibrationGuardAttentionKind();
   for (const item of supplementalItems) {
-    if (item.kind === "candidate_calibration_guard" || seen.has(item.id)) {
+    if (item.kind === candidateGuardKind || seen.has(item.id)) {
       continue;
     }
     seen.add(item.id);

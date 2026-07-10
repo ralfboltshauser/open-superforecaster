@@ -159,6 +159,10 @@ export function attentionKindIdPrefix(kind: PerformanceAttentionKind) {
   return kind.replace(/_/g, "-");
 }
 
+export function candidateCalibrationGuardAttentionKind(): SupplementalForecastAttentionKind {
+  return "candidate_calibration_guard";
+}
+
 export function calibrationValidationAttentionKind(recommendation: string): SupplementalForecastAttentionKind {
   if (recommendation === calibrationGuardRecommendationPromoteForDefault) {
     return "calibration_guard_default_candidate";

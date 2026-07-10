@@ -12,6 +12,7 @@ import {
   type ForecastBatchIndexCandidateCalibrationGuardRule,
 } from "../packages/backend/src/forecast-batch-index-artifacts";
 import {
+  candidateCalibrationGuardAttentionKind,
   calibrationDefaultPlanSkippedAttentionKind,
   calibrationValidationAttentionKind,
   forecastAttentionSeveritySortRank,
@@ -257,7 +258,7 @@ function readCandidateCalibrationGuardBacklogItem(item: ForecastBatchIndexCandid
     id,
     reviewStatus,
     severity: calibrationGuardActivationSeverity(activationStatus),
-    kind: "candidate_calibration_guard",
+    kind: candidateCalibrationGuardAttentionKind(),
     reason: item.rationale ?? `${bucketLabel} has ${direction} and needs calibration guard review.`,
     recommendedActions: recommendCandidateCalibrationGuardActions({ bucketLabel, suggestedAdjustment }),
     metric: "calibration_error",
