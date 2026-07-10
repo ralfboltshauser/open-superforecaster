@@ -6,11 +6,13 @@ import {
   type CalibrationGuardValidationRow,
 } from "../packages/backend/src/calibration-guard-validation-artifacts";
 import {
+  buildCalibrationGuardDefaultPlanCandidate,
   calibrationGuardDefaultPlanSkippedReasonForValidation,
   calibrationGuardDefaultPlanSkippedReasonNotHoldoutReplay,
   calibrationGuardDefaultPlanSkippedReasonNotPromotedForDefault,
   isCalibrationGuardDefaultPromotionCandidate,
   isCalibrationGuardValidationRecommendation,
+  type CalibrationGuardDefaultPlanCandidatePlan,
   type CalibrationGuardDefaultPlanSkippedReason,
   type CalibrationGuardValidationRecommendation,
 } from "../packages/backend/src/calibration-guard-validation-policy";
@@ -28,20 +30,7 @@ type ValidationRow = {
   recommendation: CalibrationGuardValidationRecommendation;
 };
 
-type DefaultPlanCandidate = {
-  proposalId: string;
-  sourceCandidateGuardId: string;
-  bucketLabel: string;
-  suggestedAdjustment: number;
-  matchedRows: number | null;
-  brierDelta: number | null;
-  calibrationErrorDelta: number | null;
-  targetWorkflowId: "binary-calibration-guard";
-  targetFile: "packages/workflows/src/binary-calibration-guard.ts";
-  implementationStatus: "manual_review_required";
-  recommendedAction: string;
-  acceptanceCriteria: string[];
-};
+type DefaultPlanCandidate = CalibrationGuardDefaultPlanCandidatePlan;
 
 type DefaultPlanReport = {
   reportType: "forecast_calibration_guard_default_plan";
@@ -126,7 +115,7 @@ function buildDefaultPlanReport(input: {
   const issues = defaultPlanIssues(input);
   const defaultCandidates = validationRows
     .filter(isCalibrationGuardDefaultPromotionCandidate)
-    .map(buildDefaultCandidate);
+    .map(buildCalibrationGuardDefaultPlanCandidate);
   const skippedRows = validationRows
     .filter((row) => !isCalibrationGuardDefaultPromotionCandidate(row))
     .map((row) => ({
@@ -189,31 +178,6 @@ function defaultPlanIssues(input: {
     });
   }
   return issues;
-}
-
-function buildDefaultCandidate(row: ValidationRow): DefaultPlanCandidate {
-  const adjustment = formatSignedNumber(row.suggestedAdjustment);
-  return {
-    proposalId: row.proposalId,
-    sourceCandidateGuardId: row.sourceCandidateGuardId,
-    bucketLabel: row.bucketLabel,
-    suggestedAdjustment: row.suggestedAdjustment,
-    matchedRows: row.matchedRows,
-    brierDelta: row.brierDelta,
-    calibrationErrorDelta: row.calibrationErrorDelta,
-    targetWorkflowId: "binary-calibration-guard",
-    targetFile: "packages/workflows/src/binary-calibration-guard.ts",
-    implementationStatus: "manual_review_required",
-    recommendedAction:
-      `Review and, if still appropriate, add a deterministic ${row.bucketLabel} calibration guard with a ${adjustment} percentage-point adjustment.`,
-    acceptanceCriteria: [
-      "Validation row came from a held-out replay.",
-      "Held-out Brier score improved versus the baseline aggregate.",
-      "Held-out bucket calibration error did not regress.",
-      "Runtime guard tests cover the exact bucket boundary and adjustment.",
-      "The rule can be disabled or revised if later resolved batches regress.",
-    ],
-  };
 }
 
 function renderMarkdown(report: DefaultPlanReport) {
