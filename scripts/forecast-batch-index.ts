@@ -2,13 +2,15 @@ import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { loadAttentionReviews, type AttentionReviewRecord } from "./lib/forecast-attention-reviews";
 import {
-  normalizeCalibrationGuardActivationStatus,
-  type CalibrationGuardActivationStatus,
-} from "../packages/backend/src/calibration-guard-activation-policy";
-import {
   defaultForecastAttentionReviewStatus,
   summarizeForecastAttentionReviewStatuses,
 } from "../packages/backend/src/forecast-attention-policy";
+import {
+  readForecastPerformanceArtifact,
+  type ForecastPerformanceAttentionItem,
+  type ForecastPerformanceCandidateCalibrationGuardRule,
+  type ForecastPerformanceSummary,
+} from "../packages/backend/src/forecast-performance-artifacts";
 import {
   readArgValue,
   readJson,
@@ -32,19 +34,7 @@ type BatchEntry = {
   candidateCalibrationGuardRules: CandidateCalibrationGuardRule[];
 };
 
-type AttentionItem = {
-  id: string;
-  kind: string;
-  severity: string;
-  reason: string;
-  recommendedActions: string[];
-  metric: string;
-  score: number | null;
-  delta: number | null;
-  taskId: string | null;
-  taskLabel: string | null;
-  forecastType: string | null;
-};
+type AttentionItem = ForecastPerformanceAttentionItem & { id: string };
 
 type AttentionReview = AttentionReviewRecord;
 
@@ -55,18 +45,7 @@ type ReviewedAttentionItem = AttentionItem & {
   reviewedAt?: string;
 };
 
-type CandidateCalibrationGuardRule = {
-  id: string;
-  bucketLabel: string;
-  direction: string;
-  suggestedAdjustment: number | null;
-  sampleSize: number | null;
-  meanForecast: number | null;
-  observedRate: number | null;
-  calibrationError: number | null;
-  activationStatus: CalibrationGuardActivationStatus;
-  rationale: string;
-};
+type CandidateCalibrationGuardRule = ForecastPerformanceCandidateCalibrationGuardRule & { id: string };
 
 type ReviewedCandidateCalibrationGuardRule = CandidateCalibrationGuardRule & {
   reviewStatus: AttentionReview["status"];
@@ -202,15 +181,16 @@ async function readBatchEntry(path: string): Promise<BatchEntry | null> {
   }
   const reportType = readString(payload, "reportType") ?? undefined;
   const phase = normalizePhase(readString(payload, "phase"), reportType, path);
+  const performance = phase === "forecast_performance" ? readForecastPerformanceArtifact(path, payload) : null;
   return {
     batchId,
     phase,
     path,
     reportType,
     createdAt: readString(payload, "createdAt") ?? readString(payload, "generatedAt") ?? undefined,
-    summary: summarizePayload(phase, payload),
-    attentionItems: phase === "forecast_performance" ? readAttentionItems(payload) : [],
-    candidateCalibrationGuardRules: phase === "forecast_performance" ? readCandidateCalibrationGuardRules(payload) : [],
+    summary: performance ? summarizePerformanceArtifact(performance.summary) : summarizePayload(phase, payload),
+    attentionItems: performance ? performance.attentionItems.flatMap(withRequiredId) : [],
+    candidateCalibrationGuardRules: performance ? performance.candidateCalibrationGuardRules.flatMap(withRequiredId) : [],
   };
 }
 
@@ -249,16 +229,20 @@ function summarizePayload(phase: BatchPhase, payload: JsonRecord): JsonRecord {
       failed: countStatus(results, "failed"),
     };
   }
-  if (phase === "forecast_performance") {
-    const summary = readRecord(payload, "summary") ?? {};
-    return {
-      resolvedTasks: readNumber(summary, "resolvedTasks"),
-      productScoreRows: readNumber(summary, "productScoreRows"),
-      aggregateScoreRows: readNumber(summary, "aggregateScoreRows"),
-      attemptScoreRows: readNumber(summary, "attemptScoreRows"),
-    };
-  }
   return {};
+}
+
+function summarizePerformanceArtifact(summary: ForecastPerformanceSummary): JsonRecord {
+  return {
+    resolvedTasks: summary.resolvedTasks,
+    productScoreRows: summary.productScoreRows,
+    aggregateScoreRows: summary.aggregateScoreRows,
+    attemptScoreRows: summary.attemptScoreRows,
+  };
+}
+
+function withRequiredId<T extends { id: string | null }>(item: T): Array<T & { id: string }> {
+  return item.id ? [{ ...item, id: item.id }] : [];
 }
 
 function buildAudit(
@@ -363,49 +347,6 @@ function renderMarkdown(audit: BatchAudit) {
   return `${lines.join("\n")}\n`;
 }
 
-function readAttentionItems(payload: JsonRecord): AttentionItem[] {
-  return readRecordArray(payload, "needsAttention").flatMap((item) => {
-    const id = readString(item, "id");
-    if (!id) {
-      return [];
-    }
-    return [{
-      id,
-      kind: readString(item, "kind") ?? "attention_item",
-      severity: readString(item, "severity") ?? "medium",
-      reason: readString(item, "reason") ?? "",
-      recommendedActions: readStringArray(item, "recommendedActions"),
-      metric: readString(item, "metric") ?? "metric",
-      score: readNumber(item, "score"),
-      delta: readNumber(item, "delta"),
-      taskId: readString(item, "taskId"),
-      taskLabel: readString(item, "taskLabel"),
-      forecastType: readString(item, "forecastType"),
-    }];
-  });
-}
-
-function readCandidateCalibrationGuardRules(payload: JsonRecord): CandidateCalibrationGuardRule[] {
-  return readRecordArray(payload, "candidateCalibrationGuardRules").flatMap((rule) => {
-    const id = readString(rule, "id");
-    if (!id) {
-      return [];
-    }
-    return [{
-      id,
-      bucketLabel: readString(rule, "bucketLabel") ?? "bucket",
-      direction: readString(rule, "direction") ?? "calibration_drift",
-      suggestedAdjustment: readNumber(rule, "suggestedAdjustment"),
-      sampleSize: readNumber(rule, "sampleSize"),
-      meanForecast: readNumber(rule, "meanForecast"),
-      observedRate: readNumber(rule, "observedRate"),
-      calibrationError: readNumber(rule, "calibrationError"),
-      activationStatus: normalizeCalibrationGuardActivationStatus(readString(rule, "activationStatus")),
-      rationale: readString(rule, "rationale") ?? "",
-    }];
-  });
-}
-
 function withReview(item: AttentionItem, review: AttentionReview | undefined): ReviewedAttentionItem {
   return {
     ...item,
@@ -489,12 +430,6 @@ function readRecordArray(value: unknown, key: string) {
   const record = readRecord(value);
   const raw = record?.[key];
   return Array.isArray(raw) ? raw.filter((item): item is JsonRecord => Boolean(readRecord(item))) : [];
-}
-
-function readStringArray(value: unknown, key: string) {
-  const record = readRecord(value);
-  const raw = record?.[key];
-  return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === "string") : [];
 }
 
 function countStatus(rows: JsonRecord[], status: string) {

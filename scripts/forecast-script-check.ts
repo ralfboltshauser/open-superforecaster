@@ -255,11 +255,21 @@ await check("forecast batch index joins all batch phases", async () => {
   assert(candidateGuardRules.length === 1, "candidate calibration guard was not copied into audit");
   assert(readString(candidateGuardRules[0], "reviewStatus") === "deferred", "candidate calibration guard review status was not merged");
   const batchIndexSource = await readFile(resolve(root, "scripts/forecast-batch-index.ts"), "utf8");
+  const performanceReaderSource = await readFile(resolve(root, "packages/backend/src/forecast-performance-artifacts.ts"), "utf8");
   assert(batchIndexSource.includes("summarizeForecastAttentionReviewStatuses"), "batch index does not use shared attention review status counts");
+  assert(batchIndexSource.includes("readForecastPerformanceArtifact"), "batch index does not use shared performance artifact reader");
+  assert(batchIndexSource.includes("performance.attentionItems.flatMap(withRequiredId)"), "batch index does not read attention rows from shared performance artifact reader");
+  assert(batchIndexSource.includes("performance.candidateCalibrationGuardRules.flatMap(withRequiredId)"), "batch index does not read candidate guard rows from shared performance artifact reader");
+  assert(performanceReaderSource.includes("attentionItems: readAttentionItems(payload)"), "shared performance artifact reader does not expose attention items");
+  assert(performanceReaderSource.includes("candidateCalibrationGuardRules: readCandidateCalibrationGuardRules(payload)"), "shared performance artifact reader does not expose candidate guard rules");
+  assert(performanceReaderSource.includes("summary: ForecastPerformanceSummary"), "shared performance artifact reader does not expose normalized summary counts");
   assert(batchIndexSource.includes("unresolvedAttentionItems: attentionReviewCounts.unresolved"), "batch index does not persist shared unresolved attention count");
   assert(batchIndexSource.includes("unresolvedCandidateCalibrationGuardRules: candidateGuardReviewCounts.unresolved"), "batch index does not persist shared unresolved candidate guard count");
   assert(!batchIndexSource.includes("isAttentionReviewStatus"), "batch index should not use the review helper as a policy validator");
   assert(!batchIndexSource.includes("function isReviewStatus("), "batch index should not keep local review status validation");
+  assert(!batchIndexSource.includes("readRecordArray(payload, \"needsAttention\")"), "batch index should not parse performance attention rows from raw JSON");
+  assert(!batchIndexSource.includes("readRecordArray(payload, \"candidateCalibrationGuardRules\")"), "batch index should not parse candidate guard rows from raw JSON");
+  assert(!batchIndexSource.includes("normalizeCalibrationGuardActivationStatus"), "batch index should not keep local candidate guard activation normalization");
   return "batch index joins ops, resolution, and performance phases";
 });
 
@@ -1795,6 +1805,7 @@ await check("forecast performance reports surface candidate calibration guards",
   const attentionBacklogSource = await readFile(resolve(root, "scripts/forecast-attention-backlog.ts"), "utf8");
   const batchHealthSource = await readFile(resolve(root, "scripts/forecast-batch-health.ts"), "utf8");
   const backendBatchHealthSource = await readFile(resolve(root, "packages/backend/src/forecast-batch-health.ts"), "utf8");
+  const performanceReaderSource = await readFile(resolve(root, "packages/backend/src/forecast-performance-artifacts.ts"), "utf8");
   const calibrationProposalSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-proposals.ts"), "utf8");
   const attentionReviewSource = await readFile(resolve(root, "scripts/lib/forecast-attention-reviews.ts"), "utf8");
   const forecastReviewSource = await readFile(resolve(root, "scripts/forecast-review.ts"), "utf8");
@@ -1871,7 +1882,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(backendBatchHealthSource.includes("normalizeForecastBatchHealthStatus"), "shared batch health reader does not normalize health status");
   assert(backendBatchHealthSource.includes("isForecastBatchHealthHealthyStatus"), "shared batch health reader does not expose healthy status policy");
   assert(backendBatchHealthSource.includes("determineForecastBatchHealthStatus"), "shared batch health reader does not expose health status derivation");
-  assert(batchIndexSource.includes("normalizeCalibrationGuardActivationStatus"), "batch index does not normalize candidate guard activation status");
+  assert(performanceReaderSource.includes("normalizeCalibrationGuardActivationStatus"), "shared performance artifact reader does not normalize candidate guard activation status");
+  assert(!batchIndexSource.includes("normalizeCalibrationGuardActivationStatus"), "batch index should not keep local candidate guard activation normalization");
   assert(!batchHealthSource.includes("function statusRank("), "batch health should not keep local review status rank");
   assert(!batchHealthSource.includes("function isReviewStatus("), "batch health should not keep local review status validation");
   assert(!batchHealthSource.includes("function countStatus("), "batch health should not keep local review status counter");
