@@ -3281,6 +3281,10 @@ await check("workflow change proposals are exported to DuckDB", async () => {
   assert(syncSource.includes("validation_cost_mean_duration_seconds_delta"), "workflow proposal mart missing validation duration delta");
   assert(syncSource.includes("validation_cost_summary"), "workflow proposal mart missing validation cost summary");
   assert(syncSource.includes("validation_completed_cases"), "workflow proposal mart missing validation completed case count");
+  assert(syncSource.includes("source_benchmark_case_count"), "workflow proposal mart missing source benchmark case count");
+  assert(syncSource.includes("validation_required_cases"), "workflow proposal mart missing required validation case count");
+  assert(syncSource.includes("validation_coverage_ratio"), "workflow proposal mart missing validation coverage ratio");
+  assert(syncSource.includes("validation_passed"), "workflow proposal mart missing validation pass state");
   assert(syncSource.includes("validation_gate_status"), "workflow proposal mart missing validation gate status");
   assert(syncSource.includes("validation_gate_blockers_json"), "workflow proposal mart missing validation gate blockers");
   assert(syncSource.includes("validation_comparison_report_artifact_id"), "workflow proposal mart missing validation comparison artifact id");

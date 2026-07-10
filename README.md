@@ -397,7 +397,9 @@ and no blockers. Proposal patches can only be marked implemented after
 validation completes with at least the source benchmark's case coverage, a
 passing promotion gate, and no remaining blockers. Prometheus exposes proposal
 validation completed-case counts, coverage ratios, pass state, and cost deltas
-so weak or expensive validations can be monitored outside the lab UI.
+so weak or expensive validations can be monitored outside the lab UI. The
+DuckDB proposal mart exports the same validation coverage and pass-state fields
+for local audit queries.
 The local DuckDB sync also derives `osf_source_bank_domains` from persisted
 source-bank entries so source concentration, final-use count, source-type mix,
 and mean source quality can be audited by domain. Prometheus metrics expose the

@@ -726,12 +726,25 @@ try {
       wcp.validation_result_summary,
       wcp.validation_mean_brier_delta,
       wcp.validation_completed_cases,
+      sbr.case_count as source_benchmark_case_count,
+      greatest(coalesce(sbr.case_count, 1), 1) as validation_required_cases,
+      case
+        when wcp.validation_completed_cases is null then null
+        else wcp.validation_completed_cases::double precision / greatest(coalesce(sbr.case_count, 1), 1)
+      end as validation_coverage_ratio,
       wcp.validation_cost_total_tokens_delta,
       wcp.validation_cost_agent_calls_delta,
       wcp.validation_cost_mean_duration_seconds_delta,
       wcp.validation_cost_summary,
       wcp.validation_gate_status,
       wcp.validation_gate_blockers::text as validation_gate_blockers_json,
+      case
+        when wcp.validation_result_status = 'completed'
+          and wcp.validation_gate_status = 'review_for_promotion'
+          and coalesce(jsonb_array_length(wcp.validation_gate_blockers), 0) = 0
+        then 1
+        else 0
+      end as validation_passed,
       wcp.validation_completed_at::text as validation_completed_at,
       vbr.comparison_report_artifact_id::text as validation_comparison_report_artifact_id,
       vcr.row_json #>> '{recommendation,status}' as validation_recommendation_status,
@@ -745,6 +758,7 @@ try {
       wcp.created_at::text as created_at,
       wcp.updated_at::text as updated_at
     from workflow_change_proposals wcp
+    left join benchmark_runs sbr on sbr.id = wcp.source_benchmark_run_id
     left join benchmark_runs vbr on vbr.id = wcp.validation_benchmark_run_id
     left join artifact_rows vcr on vcr.artifact_id = vbr.comparison_report_artifact_id and vcr.row_index = 0
     left join lateral (
@@ -1391,12 +1405,16 @@ const workflowChangeProposalColumns = [
   { name: "validation_result_summary", type: "VARCHAR" },
   { name: "validation_mean_brier_delta", type: "DOUBLE" },
   { name: "validation_completed_cases", type: "INTEGER" },
+  { name: "source_benchmark_case_count", type: "INTEGER" },
+  { name: "validation_required_cases", type: "INTEGER" },
+  { name: "validation_coverage_ratio", type: "DOUBLE" },
   { name: "validation_cost_total_tokens_delta", type: "DOUBLE" },
   { name: "validation_cost_agent_calls_delta", type: "DOUBLE" },
   { name: "validation_cost_mean_duration_seconds_delta", type: "DOUBLE" },
   { name: "validation_cost_summary", type: "VARCHAR" },
   { name: "validation_gate_status", type: "VARCHAR" },
   { name: "validation_gate_blockers_json", type: "VARCHAR" },
+  { name: "validation_passed", type: "INTEGER" },
   { name: "validation_completed_at", type: "VARCHAR" },
   { name: "validation_comparison_report_artifact_id", type: "VARCHAR" },
   { name: "validation_recommendation_status", type: "VARCHAR" },
