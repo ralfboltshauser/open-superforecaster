@@ -1,14 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
-  listFilesNamed,
-  readArgValue,
-  readJson,
-  readRecord,
-  readString,
-  type JsonRecord,
-  writeJson,
-} from "./lib/forecast-script-utils";
+  readCalibrationGuardValidationArtifacts,
+  type CalibrationGuardValidationArtifact,
+  type CalibrationGuardValidationRow,
+} from "../packages/backend/src/calibration-guard-validation-artifacts";
+import { readArgValue, writeJson } from "./lib/forecast-script-utils";
 
 type ValidationRecommendation = "promote_for_holdout" | "promote_for_default" | "needs_more_evidence" | "reject";
 
@@ -79,21 +76,20 @@ const args = Bun.argv.slice(2);
 const validationReportArg = readArgValue(args, "--validation-report");
 const validationReportDirArg = readArgValue(args, "--validation-report-dir") ?? "data/reports/forecast-calibration-guard-validation";
 const validationReportDir = resolve(root, validationReportDirArg);
-const latestValidationReport = await latestValidationReportCandidate(validationReportDir);
-const validationReportPath = validationReportArg
-  ? resolve(root, validationReportArg)
-  : latestValidationReport?.path ?? null;
+const validationReports = await readCalibrationGuardValidationArtifacts(root, { reportRoot: validationReportDir });
+const latestValidationReport = validationReports[validationReports.length - 1] ?? null;
+const selectedValidationReport = validationReportArg
+  ? await readValidationReport(resolve(root, validationReportArg))
+  : latestValidationReport;
 const outputDir = resolve(root, readArgValue(args, "--out-dir") ?? "data/reports/forecast-calibration-guard-default-plan");
 const jsonPath = resolve(outputDir, "calibration-guard-default-plan.json");
 const markdownPath = resolve(outputDir, "calibration-guard-default-plan.md");
 
-const validationPayload = validationReportPath ? await readOptionalRecord(validationReportPath) : null;
 const report = buildDefaultPlanReport({
-  validationReportPath,
+  validationReport: selectedValidationReport,
   validationReportDir: validationReportArg ? null : validationReportDir,
-  latestValidationReportPath: latestValidationReport?.path ?? null,
+  latestValidationReportPath: latestValidationReport?.reportPath ?? null,
   latestValidationReportGeneratedAt: latestValidationReport?.generatedAt ?? null,
-  validationPayload,
   jsonPath,
   markdownPath,
 });
@@ -106,38 +102,20 @@ console.log(`Calibration guard default candidates: ${report.summary.defaultCandi
 console.log(`Validation report: ${report.paths.validationReport ?? "none"}`);
 console.log(`Output: ${jsonPath}`);
 
-async function latestValidationReportCandidate(validationRoot: string) {
-  const paths = await listFilesNamed(validationRoot, "calibration-guard-validation.json");
-  const candidates: { path: string; generatedAt: string | null }[] = [];
-  for (const path of paths) {
-    const payload = await readOptionalRecord(path);
-    if (!payload) {
-      continue;
-    }
-    candidates.push({ path, generatedAt: readString(payload, "generatedAt") });
-  }
-  candidates.sort((left, right) => timestampValue(right.generatedAt) - timestampValue(left.generatedAt) || right.path.localeCompare(left.path));
-  return candidates[0] ?? null;
-}
-
-async function readOptionalRecord(path: string) {
-  try {
-    return readRecord(await readJson(path));
-  } catch {
-    return null;
-  }
+async function readValidationReport(path: string) {
+  const reports = await readCalibrationGuardValidationArtifacts(root, { reportRoot: path });
+  return reports[reports.length - 1] ?? null;
 }
 
 function buildDefaultPlanReport(input: {
-  validationReportPath: string | null;
+  validationReport: CalibrationGuardValidationArtifact | null;
   validationReportDir: string | null;
   latestValidationReportPath: string | null;
   latestValidationReportGeneratedAt: string | null;
-  validationPayload: JsonRecord | null;
   jsonPath: string;
   markdownPath: string;
 }): DefaultPlanReport {
-  const validationRows = readRecordArray(input.validationPayload, "validations").flatMap(readValidationRow);
+  const validationRows = (input.validationReport?.validations ?? []).flatMap(readValidationRow);
   const issues = defaultPlanIssues(input);
   const defaultCandidates = validationRows
     .filter((row) => row.validationMode === "holdout_replay" && row.recommendation === "promote_for_default")
@@ -167,23 +145,22 @@ function buildDefaultPlanReport(input: {
     paths: {
       json: input.jsonPath,
       markdown: input.markdownPath,
-      validationReport: input.validationPayload ? input.validationReportPath : null,
+      validationReport: input.validationReport?.reportPath ?? null,
       validationReportDir: input.validationReportDir,
     },
   };
 }
 
 function defaultPlanIssues(input: {
-  validationReportPath: string | null;
+  validationReport: CalibrationGuardValidationArtifact | null;
   latestValidationReportPath: string | null;
   latestValidationReportGeneratedAt: string | null;
-  validationPayload: JsonRecord | null;
 }): DefaultPlanIssue[] {
-  if (!input.validationPayload) {
+  if (!input.validationReport) {
     return [];
   }
   const issues: DefaultPlanIssue[] = [];
-  const validationGeneratedAt = readString(input.validationPayload, "generatedAt");
+  const validationGeneratedAt = input.validationReport.generatedAt;
   const validationTimestamp = timestampValue(validationGeneratedAt);
   const latestTimestamp = timestampValue(input.latestValidationReportGeneratedAt);
   if (validationTimestamp === 0) {
@@ -191,7 +168,7 @@ function defaultPlanIssues(input: {
       severity: "medium",
       kind: "validation_report_timestamp_missing",
       message: "Selected calibration validation report has no parseable generatedAt timestamp; review before using default-plan output.",
-      validationReport: input.validationReportPath,
+      validationReport: input.validationReport.reportPath,
       latestValidationReport: input.latestValidationReportPath,
     });
   }
@@ -200,7 +177,7 @@ function defaultPlanIssues(input: {
       severity: "medium",
       kind: "validation_report_stale",
       message: "Selected calibration validation report is older than the latest validation report in the configured directory.",
-      validationReport: input.validationReportPath,
+      validationReport: input.validationReport.reportPath,
       latestValidationReport: input.latestValidationReportPath,
     });
   }
@@ -307,12 +284,12 @@ function renderSkippedTable(rows: DefaultPlanReport["skippedRows"]) {
   ];
 }
 
-function readValidationRow(value: JsonRecord): ValidationRow[] {
-  const proposalId = readString(value, "proposalId");
-  const sourceCandidateGuardId = readString(value, "sourceCandidateGuardId");
-  const bucketLabel = readString(value, "bucketLabel");
-  const suggestedAdjustment = readNumber(value, "suggestedAdjustment");
-  const recommendation = readString(value, "recommendation");
+function readValidationRow(value: CalibrationGuardValidationRow): ValidationRow[] {
+  const proposalId = value.proposalId;
+  const sourceCandidateGuardId = value.sourceCandidateGuardId;
+  const bucketLabel = value.bucketLabel;
+  const suggestedAdjustment = value.suggestedAdjustment;
+  const recommendation = value.recommendation;
   if (
     !proposalId ||
     !sourceCandidateGuardId ||
@@ -323,31 +300,20 @@ function readValidationRow(value: JsonRecord): ValidationRow[] {
     return [];
   }
   return [{
-    validationMode: readString(value, "validationMode"),
+    validationMode: value.validationMode,
     proposalId,
     sourceCandidateGuardId,
     bucketLabel,
     suggestedAdjustment,
-    matchedRows: readNumber(value, "matchedRows"),
-    brierDelta: readNumber(value, "brierDelta"),
-    calibrationErrorDelta: readNumber(value, "calibrationErrorDelta"),
+    matchedRows: value.matchedRows,
+    brierDelta: value.brierDelta,
+    calibrationErrorDelta: value.calibrationErrorDelta,
     recommendation,
   }];
 }
 
 function isValidationRecommendation(value: string | null): value is ValidationRecommendation {
   return value === "promote_for_holdout" || value === "promote_for_default" || value === "needs_more_evidence" || value === "reject";
-}
-
-function readRecordArray(value: unknown, key: string) {
-  const record = readRecord(value);
-  const raw = record?.[key];
-  return Array.isArray(raw) ? raw.filter((item): item is JsonRecord => Boolean(readRecord(item))) : [];
-}
-
-function readNumber(value: unknown, key: string) {
-  const raw = readRecord(value)?.[key];
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
 
 function timestampValue(value: string | null) {

@@ -434,6 +434,7 @@ await check("forecast calibration default plan requires held-out promotion", asy
   const fixtureRoot = resolve(tempRoot, "calibration-guard-default-plan");
   const validationDir = resolve(fixtureRoot, "validation");
   const outputDir = resolve(fixtureRoot, "out");
+  const defaultPlanSource = await readFile(resolve(root, "scripts/forecast-calibration-guard-default-plan.ts"), "utf8");
   await mkdir(validationDir, { recursive: true });
   await writeJson(resolve(validationDir, "calibration-guard-validation.json"), {
     reportType: "forecast_calibration_guard_validation",
@@ -524,6 +525,10 @@ await check("forecast calibration default plan requires held-out promotion", asy
   assert(readNumber(staleSummary, "issues") === 1, "stale default plan should report one artifact issue");
   assert(staleIssues.some((issue) => readString(issue, "kind") === "validation_report_stale"), "default plan missing stale validation report issue");
   assert(staleMarkdown.includes("validation_report_stale"), "default plan markdown missing stale validation report issue");
+  assert(defaultPlanSource.includes("readCalibrationGuardValidationArtifacts"), "default-plan generator does not use the shared calibration validation artifact reader");
+  assert(defaultPlanSource.includes("reportRoot: validationReportDir"), "default-plan generator does not pass its configured validation directory to the shared reader");
+  assert(!defaultPlanSource.includes("listFilesNamed(validationRoot"), "default-plan generator should not keep a local validation artifact scanner");
+  assert(!defaultPlanSource.includes("readRecordArray(input.validationPayload"), "default-plan generator should not parse validation rows from raw JSON");
   return "held-out default promotions become explicit manual implementation plans with validation freshness issues";
 });
 
