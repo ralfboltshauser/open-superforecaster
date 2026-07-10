@@ -185,10 +185,12 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
         validationBenchmarkRunId: workflowChangeProposals.validationBenchmarkRunId,
         validationComparisonReportArtifactId: benchmarkRuns.comparisonReportArtifactId,
         validationResultStatus: workflowChangeProposals.validationResultStatus,
+        validationCompletedCases: workflowChangeProposals.validationCompletedCases,
         validationCostTotalTokensDelta: workflowChangeProposals.validationCostTotalTokensDelta,
         validationCostAgentCallsDelta: workflowChangeProposals.validationCostAgentCallsDelta,
         validationCostMeanDurationSecondsDelta: workflowChangeProposals.validationCostMeanDurationSecondsDelta,
         validationGateStatus: workflowChangeProposals.validationGateStatus,
+        validationGateBlockers: workflowChangeProposals.validationGateBlockers,
         createdAt: workflowChangeProposals.createdAt,
       })
       .from(workflowChangeProposals)
@@ -241,6 +243,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     : [];
   const reportRowsByArtifactId = new Map(reportRows.map((row) => [row.artifactId, row.rowJson]));
   const recentCasesByRunId = groupBy(recentRunCaseRows, (row) => row.benchmarkRunId);
+  const benchmarkRunCaseCountById = new Map(benchmarkRunRows.map((run) => [run.id, run.caseCount]));
 
   const metrics = new MetricsBuilder();
   metrics.gauge("open_superforecaster_up", "Open Superforecaster metrics endpoint health.", 1);
@@ -442,6 +445,30 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       target_workflow_id: proposal.targetWorkflowId,
       validation_benchmark_run_id: proposal.validationBenchmarkRunId ?? "none",
     };
+    const sourceCaseCount = proposal.sourceBenchmarkRunId ? benchmarkRunCaseCountById.get(proposal.sourceBenchmarkRunId) ?? null : null;
+    const requiredValidationCases = Math.max(sourceCaseCount ?? 1, 1);
+    const validationCompletedCases = proposal.validationCompletedCases ?? 0;
+    const validationGateBlockers = Array.isArray(proposal.validationGateBlockers)
+      ? proposal.validationGateBlockers.filter((blocker): blocker is string => typeof blocker === "string" && blocker.trim().length > 0)
+      : [];
+    metrics.gauge(
+      "open_superforecaster_workflow_change_proposal_validation_completed_cases",
+      "Completed validation benchmark cases for a workflow change proposal.",
+      validationCompletedCases,
+      proposalLabels,
+    );
+    metrics.gauge(
+      "open_superforecaster_workflow_change_proposal_validation_coverage_ratio",
+      "Completed validation cases divided by required source benchmark case coverage for a workflow change proposal.",
+      requiredValidationCases === 0 ? 0 : validationCompletedCases / requiredValidationCases,
+      proposalLabels,
+    );
+    metrics.gauge(
+      "open_superforecaster_workflow_change_proposal_validation_passed",
+      "Whether proposal validation completed with a passing gate and no blockers.",
+      proposal.validationResultStatus === "completed" && proposal.validationGateStatus === "review_for_promotion" && validationGateBlockers.length === 0 ? 1 : 0,
+      proposalLabels,
+    );
     emitOptionalGauge(
       metrics,
       "open_superforecaster_workflow_change_proposal_validation_cost_total_tokens_delta",

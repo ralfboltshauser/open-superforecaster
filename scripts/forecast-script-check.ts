@@ -3196,6 +3196,9 @@ await check("workflow change proposal lifecycle is exported as metrics", async (
   assert(metricsSource.includes("validation_recommendation_status"), "workflow proposal metric missing validation recommendation status label");
   assert(metricsSource.includes("validation_result_status"), "workflow proposal metric missing validation result status");
   assert(metricsSource.includes("validation_gate_status"), "workflow proposal metric missing validation gate status");
+  assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_completed_cases"), "workflow proposal metric missing validation completed cases");
+  assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_coverage_ratio"), "workflow proposal metric missing validation coverage ratio");
+  assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_passed"), "workflow proposal metric missing validation pass state");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_cost_total_tokens_delta"), "workflow proposal metric missing validation token cost delta");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_cost_agent_calls_delta"), "workflow proposal metric missing validation agent-call delta");
   assert(metricsSource.includes("open_superforecaster_workflow_change_proposal_validation_cost_mean_duration_seconds_delta"), "workflow proposal metric missing validation duration delta");
