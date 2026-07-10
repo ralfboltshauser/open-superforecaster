@@ -229,6 +229,32 @@ try {
   `;
   await replaceTable(duck, "osf_benchmark_runs", benchmarkRunColumns, benchmarkRuns);
 
+  const benchmarkCostStatus = await pg<BenchmarkCostStatusMartRow[]>`
+    select
+      br.id::text as benchmark_run_id,
+      br.suite_id::text as suite_id,
+      bs.name as suite_name,
+      br.eval_mode,
+      br.workflow_variant_id::text as workflow_variant_id,
+      wv.workflow_id,
+      br.status::text as run_status,
+      cost_status.value #>> '{status}' as case_status,
+      nullif(cost_status.value #>> '{cases}', '')::integer as cases,
+      nullif(cost_status.value #>> '{measuredCases}', '')::integer as measured_cases,
+      nullif(cost_status.value #>> '{agentCalls}', '')::integer as agent_calls,
+      nullif(cost_status.value #>> '{totalTokens}', '')::integer as total_tokens,
+      nullif(cost_status.value #>> '{meanTokensPerMeasuredCase}', '')::double precision as mean_tokens_per_measured_case,
+      nullif(cost_status.value #>> '{meanDurationSeconds}', '')::double precision as mean_duration_seconds,
+      br.created_at::text as created_at
+    from benchmark_runs br
+    left join benchmark_suites bs on bs.id = br.suite_id
+    left join workflow_variants wv on wv.id = br.workflow_variant_id
+    join artifact_rows ar on ar.artifact_id = br.analysis_report_artifact_id and ar.row_index = 0
+    cross join lateral jsonb_array_elements(coalesce(ar.row_json #> '{costLatencyFindings,byStatus}', '[]'::jsonb)) as cost_status(value)
+    order by br.created_at, case_status
+  `;
+  await replaceTable(duck, "osf_benchmark_cost_status", benchmarkCostStatusColumns, benchmarkCostStatus);
+
   const benchmarkCases = await pg<BenchmarkCaseMartRow[]>`
     select
       bcr.id::text as benchmark_case_result_id,
@@ -732,6 +758,7 @@ try {
     osf_tasks: tasks.length,
     osf_artifact_rows: artifactRows.length,
     osf_benchmark_runs: benchmarkRuns.length,
+    osf_benchmark_cost_status: benchmarkCostStatus.length,
     osf_benchmark_case_results: benchmarkCases.length,
     osf_forecast_scores: forecastScores.length,
     osf_binary_calibration_buckets: binaryCalibrationBuckets.length,
@@ -760,6 +787,7 @@ try {
       "select benchmark_run_id, paired_mean_brier_delta, paired_brier_ci_lower, paired_brier_ci_upper, recommendation_status from osf_benchmark_runs where comparison_report_artifact_id is not null;",
       "select benchmark_run_id, promotion_gate_status, promotion_gate_blockers from osf_benchmark_runs order by created_at desc limit 5;",
       "select benchmark_run_id, paired_mean_brier_delta, cost_total_tokens, cost_agent_calls, cost_mean_duration_seconds from osf_benchmark_runs where cost_measured_cases > 0 order by created_at desc limit 10;",
+      "select benchmark_run_id, case_status, cases, measured_cases, total_tokens, mean_duration_seconds from osf_benchmark_cost_status order by created_at desc, total_tokens desc limit 20;",
       "select bucket_label, sample_size, calibration_error, candidate_guard_suggested_adjustment from osf_binary_calibration_buckets;",
       "select status, guarded_rows, unguarded_rows, brier_delta from osf_calibration_guard_impact;",
       "select rule_id, status, guarded_rows, brier_delta from osf_calibration_guard_rule_impact order by rule_id;",
@@ -924,6 +952,24 @@ const benchmarkRunColumns = [
   { name: "created_at", type: "VARCHAR" },
   { name: "started_at", type: "VARCHAR" },
   { name: "completed_at", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
+const benchmarkCostStatusColumns = [
+  { name: "benchmark_run_id", type: "VARCHAR" },
+  { name: "suite_id", type: "VARCHAR" },
+  { name: "suite_name", type: "VARCHAR" },
+  { name: "eval_mode", type: "VARCHAR" },
+  { name: "workflow_variant_id", type: "VARCHAR" },
+  { name: "workflow_id", type: "VARCHAR" },
+  { name: "run_status", type: "VARCHAR" },
+  { name: "case_status", type: "VARCHAR" },
+  { name: "cases", type: "INTEGER" },
+  { name: "measured_cases", type: "INTEGER" },
+  { name: "agent_calls", type: "INTEGER" },
+  { name: "total_tokens", type: "INTEGER" },
+  { name: "mean_tokens_per_measured_case", type: "DOUBLE" },
+  { name: "mean_duration_seconds", type: "DOUBLE" },
+  { name: "created_at", type: "VARCHAR" },
 ] satisfies DuckColumn[];
 
 const benchmarkCaseColumns = [
@@ -1461,6 +1507,7 @@ type SmithersTokenUsageMartRow = RowFor<typeof smithersTokenUsageColumns>;
 type SmithersTokenUsageByTaskMartRow = RowFor<typeof smithersTokenUsageByTaskColumns>;
 type ArtifactRowMartRow = RowFor<typeof artifactRowColumns>;
 type BenchmarkRunMartRow = RowFor<typeof benchmarkRunColumns>;
+type BenchmarkCostStatusMartRow = RowFor<typeof benchmarkCostStatusColumns>;
 type BenchmarkCaseMartRow = RowFor<typeof benchmarkCaseColumns>;
 type ForecastScoreMartRow = RowFor<typeof forecastScoreColumns>;
 type BinaryCalibrationBucketMartRow = RowFor<typeof binaryCalibrationBucketColumns>;

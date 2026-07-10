@@ -3210,7 +3210,13 @@ await check("benchmark promotion gate blockers are exported to DuckDB", async ()
   assert(syncSource.includes("cost_total_tokens"), "DuckDB benchmark run mart missing total token cost");
   assert(syncSource.includes("cost_mean_duration_seconds"), "DuckDB benchmark run mart missing mean duration cost");
   assert(syncSource.includes("costLatencyFindings,totalTokens"), "DuckDB benchmark run mart does not read cost findings from analysis artifact");
+  assert(syncSource.includes("osf_benchmark_cost_status"), "DuckDB sync missing benchmark cost status mart");
+  assert(syncSource.includes("costLatencyFindings,byStatus"), "DuckDB benchmark cost status mart does not read by-status cost findings");
+  assert(syncSource.includes("case_status"), "DuckDB benchmark cost status mart missing case status");
+  assert(syncSource.includes("mean_tokens_per_measured_case"), "DuckDB benchmark cost status mart missing status-level token mean");
+  assert(syncSource.includes("mean_duration_seconds"), "DuckDB benchmark cost status mart missing status-level duration mean");
   assert(syncSource.includes("paired_mean_brier_delta, cost_total_tokens"), "DuckDB benchmark examples do not join benchmark quality and cost columns");
+  assert(syncSource.includes("from osf_benchmark_cost_status"), "DuckDB examples do not show status-level benchmark cost queries");
   for (const blockerId of benchmarkPromotionGateBlockerIds) {
     assert(syncSource.includes(blockerId), `DuckDB promotion gate export missing blocker ${blockerId}`);
   }
