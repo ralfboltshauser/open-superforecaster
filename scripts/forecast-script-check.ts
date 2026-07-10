@@ -226,6 +226,18 @@ await check("forecast batch index joins all batch phases", async () => {
 
 await check("forecast review helper upserts local attention reviews", async () => {
   const reviewsFile = resolve(tempRoot, "review-helper", "reviews.json");
+  await mkdir(resolve(tempRoot, "review-helper"), { recursive: true });
+  await writeJson(reviewsFile, {
+    reviews: [
+      {
+        id: "poor:task-2:brier",
+        status: "deferred",
+        note: "Legacy review shape.",
+        reviewedBy: "legacy-check",
+        reviewedAt: "2026-07-09T00:03:00.000Z",
+      },
+    ],
+  });
   await runScript("scripts/forecast-review.ts", [
     "--id",
     "poor:task-2:brier",
@@ -260,6 +272,7 @@ await check("forecast review helper upserts local attention reviews", async () =
   assert(readString(reviews[0], "attentionItemId") === "poor:task-2:brier", "attention item id mismatch");
   assert(readString(reviews[0], "status") === "reviewed", "review status was not updated");
   assert(readString(reviews[0], "note") === "Reviewed after more samples resolved.", "review note was not updated");
+  assert(readString(reviews[0], "reviewer") === "contract-check", "review alias shape was not normalized before upsert");
   return "forecast review helper safely upserts local review records";
 });
 

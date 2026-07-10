@@ -1,6 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
+  isAttentionReviewStatus,
+  loadAttentionReviews,
+  type AttentionReviewRecord,
+  type AttentionReviewStatus,
+} from "./lib/forecast-attention-reviews";
+import {
   listFilesNamed,
   readArgValue,
   readArgValues,
@@ -11,15 +17,9 @@ import {
   writeJson,
 } from "./lib/forecast-script-utils";
 
-type ReviewStatus = "open" | "reviewed" | "deferred";
+type ReviewStatus = AttentionReviewStatus;
 
-type AttentionReview = {
-  attentionItemId: string;
-  status: ReviewStatus;
-  note?: string;
-  reviewer?: string;
-  updatedAt?: string;
-};
+type AttentionReview = AttentionReviewRecord;
 
 type BacklogItem = {
   batchId: string;
@@ -105,7 +105,7 @@ const statuses = statusFilters.map((status) => {
 
 const jsonPath = resolve(outputDir, "attention-backlog.json");
 const markdownPath = resolve(outputDir, "attention-backlog.md");
-const reviewsByItemId = await loadReviews(reviewsFile);
+const reviewsByItemId = await loadAttentionReviews(reviewsFile);
 const items = await readBacklogItems(batchIndexDir, validationReportDir, statuses, new Set(batchFilters), reviewsByItemId);
 const report = buildReport(items, statuses, batchFilters, jsonPath, markdownPath, batchIndexDir, validationReportDir, reviewsFile);
 
@@ -201,32 +201,6 @@ function readBacklogItem(item: JsonRecord, batchId: string, sourcePath: string):
     reviewedAt: readString(item, "reviewedAt") ?? undefined,
     sourcePath,
   };
-}
-
-async function loadReviews(path: string) {
-  const reviewsByItemId = new Map<string, AttentionReview>();
-  let payload: unknown;
-  try {
-    payload = await readJson(path);
-  } catch {
-    return reviewsByItemId;
-  }
-  const reviewRows = Array.isArray(payload) ? payload : readRecordArray(payload, "reviews");
-  for (const row of reviewRows) {
-    const attentionItemId = readString(row, "attentionItemId") ?? readString(row, "id");
-    const status = readString(row, "status");
-    if (!attentionItemId || !isReviewStatus(status)) {
-      continue;
-    }
-    reviewsByItemId.set(attentionItemId, {
-      attentionItemId,
-      status,
-      note: readString(row, "note") ?? undefined,
-      reviewer: readString(row, "reviewer") ?? readString(row, "reviewedBy") ?? undefined,
-      updatedAt: readString(row, "updatedAt") ?? readString(row, "reviewedAt") ?? undefined,
-    });
-  }
-  return reviewsByItemId;
 }
 
 function withReview(item: BacklogItem, review: AttentionReview | undefined): BacklogItem {
@@ -564,7 +538,7 @@ function formatSignedNumber(value: number) {
 }
 
 function isReviewStatus(value: string | undefined | null): value is ReviewStatus {
-  return value === "open" || value === "reviewed" || value === "deferred";
+  return isAttentionReviewStatus(value);
 }
 
 function escapeMarkdownCell(value: string) {

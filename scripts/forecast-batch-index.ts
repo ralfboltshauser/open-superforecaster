@@ -1,12 +1,12 @@
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
+import { isAttentionReviewStatus, loadAttentionReviews, type AttentionReviewRecord } from "./lib/forecast-attention-reviews";
 import {
   readArgValue,
   readJson,
   readRecord,
   readString,
   safeSegment,
-  timestampLabel,
   type JsonRecord,
   writeJson,
 } from "./lib/forecast-script-utils";
@@ -38,13 +38,7 @@ type AttentionItem = {
   forecastType: string | null;
 };
 
-type AttentionReview = {
-  attentionItemId: string;
-  status: "open" | "reviewed" | "deferred";
-  note?: string;
-  reviewer?: string;
-  updatedAt?: string;
-};
+type AttentionReview = AttentionReviewRecord;
 
 type ReviewedAttentionItem = AttentionItem & {
   reviewStatus: AttentionReview["status"];
@@ -119,7 +113,7 @@ const scanRoots = [
 ];
 
 const discoveredEntries = await discoverEntries(scanRoots);
-const reviewsByItemId = await loadReviews(reviewsPath);
+const reviewsByItemId = await loadAttentionReviews(reviewsPath);
 const entriesByBatch = groupEntries(discoveredEntries);
 const selectedBatchIds = requestedBatchId ? [requestedBatchId] : [...entriesByBatch.keys()].sort();
 
@@ -353,34 +347,6 @@ function renderMarkdown(audit: BatchAudit) {
   return `${lines.join("\n")}\n`;
 }
 
-async function loadReviews(path: string) {
-  const reviewsByItemId = new Map<string, AttentionReview>();
-  let payload: unknown;
-  try {
-    payload = await readJson(path);
-  } catch {
-    return reviewsByItemId;
-  }
-  const reviewRows = Array.isArray(payload)
-    ? payload
-    : readRecordArray(payload, "reviews");
-  for (const row of reviewRows) {
-    const attentionItemId = readString(row, "attentionItemId") ?? readString(row, "id");
-    const status = readString(row, "status");
-    if (!attentionItemId || !isReviewStatus(status)) {
-      continue;
-    }
-    reviewsByItemId.set(attentionItemId, {
-      attentionItemId,
-      status,
-      note: readString(row, "note") ?? undefined,
-      reviewer: readString(row, "reviewer") ?? readString(row, "reviewedBy") ?? undefined,
-      updatedAt: readString(row, "updatedAt") ?? readString(row, "reviewedAt") ?? undefined,
-    });
-  }
-  return reviewsByItemId;
-}
-
 function readAttentionItems(payload: JsonRecord): AttentionItem[] {
   return readRecordArray(payload, "needsAttention").flatMap((item) => {
     const id = readString(item, "id");
@@ -536,7 +502,7 @@ function formatNumber(value: number | null) {
 }
 
 function isReviewStatus(value: string | null): value is AttentionReview["status"] {
-  return value === "open" || value === "reviewed" || value === "deferred";
+  return isAttentionReviewStatus(value);
 }
 
 function escapeMarkdownCell(value: string) {
