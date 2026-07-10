@@ -9,10 +9,12 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@duckdb/node-api": "1.5.4-r.1",
     "@open-superforecaster/artifact-store": "workspace:*",
     "@open-superforecaster/config": "workspace:*",
     "@open-superforecaster/db": "workspace:*",
     "@open-superforecaster/evals": "workspace:*",
-    "@open-superforecaster/workflow-contracts": "workspace:*"
+    "@open-superforecaster/workflow-contracts": "workspace:*",
+    "drizzle-orm": "0.45.2"
   }
 }

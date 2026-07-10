@@ -22,7 +22,6 @@
       "@open-superforecaster/workflow-contracts": ["packages/workflow-contracts/src/index.ts"],
       "@open-superforecaster/artifact-store": ["packages/artifact-store/src/index.ts"],
       "@open-superforecaster/evals": ["packages/evals/src/index.ts"],
-      "@open-superforecaster/ui": ["packages/ui/src/index.ts"],
       "@open-superforecaster/workflows": ["packages/workflows/src/index.ts"],
       "@/*": ["apps/web/src/*"]
     }

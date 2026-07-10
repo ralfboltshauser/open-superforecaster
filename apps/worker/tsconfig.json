@@ -1,14 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "composite": true,
-    "rootDir": "src",
     "types": ["bun"]
   },
-  "references": [
-    { "path": "../../packages/config" },
-    { "path": "../../packages/workflow-contracts" },
-    { "path": "../../packages/backend" }
-  ],
   "include": ["src"]
 }

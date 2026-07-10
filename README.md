@@ -536,13 +536,14 @@ app with Bun:
 ```bash
 cp .env.host.example .env
 docker compose up -d postgres redis minio minio-init otel-collector prometheus tempo grafana
-bun install
+bun install --frozen-lockfile
 bun run db:migrate
 bun run dev
 ```
 
 ## More Detail
 
+- Development and validation: [`docs/development.md`](docs/development.md)
 - Development history: [`DEVELOPMENT_LOG.md`](DEVELOPMENT_LOG.md)
 - Example inputs: [`examples/`](examples/)
 - Postgres container notes: [`docker/postgres/README.md`](docker/postgres/README.md)

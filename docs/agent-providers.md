@@ -81,7 +81,7 @@ For direct host development, copy the host env file and run the app:
 
 ```bash
 cp .env.host.example .env
-bun install
+bun install --frozen-lockfile
 bun run dev
 ```
 

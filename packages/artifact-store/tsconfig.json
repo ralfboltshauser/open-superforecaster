@@ -1,11 +1,4 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "composite": true,
-    "rootDir": "src"
-  },
-  "references": [
-    { "path": "../workflow-contracts" }
-  ],
   "include": ["src"]
 }

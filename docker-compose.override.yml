@@ -1,7 +1,7 @@
 services:
   app:
     ports: !override
-      - "127.0.0.1:3000:3000"
+      - "${OSF_WEB_BIND_ADDRESS:-127.0.0.1}:3000:3000"
 
   grafana:
     ports: !override

@@ -1,3 +1,5 @@
+import Image from "next/image"
+
 import { cn } from "@/lib/utils"
 
 type LogoMarkProps = {
@@ -7,7 +9,7 @@ type LogoMarkProps = {
 
 export function LogoMark({ className, title = "Open Superforecaster" }: LogoMarkProps) {
   return (
-    <img
+    <Image
       src="/logo.png"
       alt={title}
       className={cn("shrink-0 object-contain", className)}

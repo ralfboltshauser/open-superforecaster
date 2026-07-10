@@ -5,7 +5,7 @@ import {
 } from "@open-superforecaster/backend";
 import { getServerContext } from "@/lib/server-db";
 
-const terminalStatuses = new Set(["completed", "failed", "cancelled", "revoked"]);
+const terminalStatuses = new Set(["completed", "failed", "cancelled", "revoked", "partial_failure"]);
 
 export async function GET(
   request: Request,

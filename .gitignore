@@ -1,8 +1,9 @@
 node_modules/
 .claude/
 .DS_Store
-.env
-.env.local
+.env*
+!.env.example
+!.env.host.example
 .output/
 .tanstack/
 dist/

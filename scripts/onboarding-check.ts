@@ -11,11 +11,18 @@ type ComposeDependency = {
   condition?: string;
 };
 
+type ComposePort = {
+  host_ip?: string;
+  published?: number | string;
+  target?: number;
+};
+
 type ComposeService = {
   command?: string | string[];
   depends_on?: Record<string, ComposeDependency>;
   environment?: Record<string, string>;
   image?: string;
+  ports?: ComposePort[];
 };
 
 type ComposeConfig = {
@@ -34,6 +41,17 @@ const [envExample, envHostExample, compose, readme] = await Promise.all([
 const composeConfig = await run(["docker", "compose", "config", "--format", "json"]);
 const normalized = composeConfig.exitCode === 0 ? parseComposeConfig(composeConfig.stdout) : { value: null, error: composeConfig.stderr || composeConfig.stdout };
 const normalizedCompose = normalized.value;
+const lanComposeConfig = await run(
+  ["docker", "compose", "config", "--format", "json"],
+  { OSF_WEB_BIND_ADDRESS: "0.0.0.0" },
+);
+const normalizedLan = lanComposeConfig.exitCode === 0
+  ? parseComposeConfig(lanComposeConfig.stdout)
+  : { value: null, error: lanComposeConfig.stderr || lanComposeConfig.stdout };
+const defaultWebPort = findPublishedPort(normalizedCompose?.services?.app, 3000, 3000);
+const lanWebPort = findPublishedPort(normalizedLan.value?.services?.app, 3000, 3000);
+const defaultWebHost = defaultWebPort?.host_ip ?? "missing";
+const lanWebHost = lanWebPort?.host_ip || normalizedLan.error || "missing";
 const minioInit = normalizedCompose?.services?.["minio-init"];
 const minioInitCommand = normalizeCommand(minioInit?.command);
 const minioInitEnv = minioInit?.environment ?? {};
@@ -66,6 +84,17 @@ record(
     envExample.includes("OSF_WEB_BIND_ADDRESS=127.0.0.1") &&
     readme.includes("OSF_WEB_BIND_ADDRESS=0.0.0.0"),
   "web port should default to localhost while allowing explicit LAN binding.",
+);
+
+record(
+  "normalized compose honors web bind address",
+  defaultWebPort?.host_ip === "127.0.0.1" &&
+    lanComposeConfig.exitCode === 0 &&
+    normalizedLan.value !== null &&
+    lanWebPort?.host_ip === "0.0.0.0",
+  defaultWebPort?.host_ip === "127.0.0.1" && lanWebPort?.host_ip === "0.0.0.0"
+    ? "Effective web binding is localhost by default and 0.0.0.0 when explicitly requested."
+    : `Expected effective host bindings 127.0.0.1 -> 0.0.0.0; received ${defaultWebHost} -> ${lanWebHost}.`,
 );
 
 record(
@@ -147,8 +176,9 @@ function record(name: string, ok: boolean, detail: string) {
   checks.push({ name, ok, detail });
 }
 
-async function run(args: string[]) {
+async function run(args: string[], env: Readonly<Record<string, string>> = {}) {
   const proc = spawn(args[0]!, args.slice(1), {
+    env: { ...process.env, ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
   const [stdout, stderr, exitCode] = await Promise.all([
@@ -180,6 +210,10 @@ function normalizeCommand(command: string | string[] | undefined) {
     return command.join("\n");
   }
   return command ?? "";
+}
+
+function findPublishedPort(service: ComposeService | undefined, target: number, published: number) {
+  return service?.ports?.find((port) => port.target === target && Number(port.published) === published);
 }
 
 function parseComposeConfig(output: string): { value: ComposeConfig | null; error: string } {

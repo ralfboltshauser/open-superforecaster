@@ -1,14 +1,38 @@
-node_modules
+**/node_modules
 .git
-.env
-.output
-.tanstack
+.gitignore
+
+# Keep local configuration and credentials out of the build context while
+# retaining the checked-in setup templates.
+**/.env*
+!.env.example
+!.env.host.example
+.claude
+.codex
+
+# Framework, compiler, test, and deployment output.
+**/.next
+**/.astro
+**/.vercel
+**/.output
+**/.tanstack
+**/dist
+**/build
+**/coverage
+**/.cache
+**/.turbo
+**/.eslintcache
+**/*.tsbuildinfo
+.DS_Store
+
+# Runtime state is mounted separately and must never be baked into the image.
 data
 .smithers/runs
 .smithers/executions
 .smithers/state
 .smithers/tmp
 *.log
+**/*.log
 smithers.db
 smithers.db-shm
 smithers.db-wal

@@ -30,6 +30,16 @@ import { readUncertaintyRangeSnapshot } from "./uncertainty-range-metadata";
 
 type Db = ReturnType<typeof createDb>["db"];
 
+export class TaskNotFoundError extends Error {
+  readonly taskId: string;
+
+  constructor(taskId: string) {
+    super(`Task not found: ${taskId}`);
+    this.name = "TaskNotFoundError";
+    this.taskId = taskId;
+  }
+}
+
 export type RunLaunchRecord = {
   taskId: string;
   smithersRunId: string;
@@ -225,7 +235,7 @@ export async function retryTableTaskRow(
 ) {
   const [task] = await db.select().from(tasks).where(eq(tasks.id, input.taskId)).limit(1);
   if (!task) {
-    throw new Error(`Task not found: ${input.taskId}`);
+    throw new TaskNotFoundError(input.taskId);
   }
   if (!isAgentMapSubmode(task.operationSubmode)) {
     throw new Error(`Row retry is only available for agent_map, classify, and rank tasks.`);
@@ -389,7 +399,7 @@ export async function listRecentTasks(db: Db, limit = 20) {
 export async function getTaskDetail(db: Db, taskId: string) {
   const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
   if (!task) {
-    throw new Error(`Task not found: ${taskId}`);
+    throw new TaskNotFoundError(taskId);
   }
 
   const artifactRecords = await db.select().from(artifacts).where(eq(artifacts.taskId, task.id)).orderBy(desc(artifacts.createdAt));
@@ -482,7 +492,7 @@ export async function getRunStatus(db: Db, taskId: string) {
     .where(eq(tasks.id, taskId))
     .limit(1);
   if (!task) {
-    throw new Error(`Task not found: ${taskId}`);
+    throw new TaskNotFoundError(taskId);
   }
 
   return {
@@ -616,7 +626,7 @@ export async function getRunEventSnapshot(db: Db, taskId: string, afterSequenceN
     .where(eq(tasks.id, taskId))
     .limit(1);
   if (!task) {
-    throw new Error(`Task not found: ${taskId}`);
+    throw new TaskNotFoundError(taskId);
   }
 
   const events = await db

@@ -1,4 +1,4 @@
-import { BINARY_CALIBRATION_POLICY } from "./performance-calibration";
+import { BINARY_CALIBRATION_POLICY } from "./binary-calibration-policy";
 
 export const calibrationGuardValidationModeSourceReplay = "source_replay" as const;
 export const calibrationGuardValidationModeHoldoutReplay = "holdout_replay" as const;
