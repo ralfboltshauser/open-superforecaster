@@ -83,6 +83,7 @@ type BacklogReport = {
     markdown: string;
     batchIndexDir: string;
     validationReportDir: string;
+    defaultPlanReportDir: string;
     reviews: string;
   };
 };
@@ -91,6 +92,7 @@ const root = resolve(import.meta.dir, "..");
 const args = Bun.argv.slice(2);
 const batchIndexDir = resolve(root, readArgValue(args, "--batch-index-dir") ?? "data/reports/forecast-batches");
 const validationReportDir = resolve(root, readArgValue(args, "--validation-report-dir") ?? "data/reports/forecast-calibration-guard-validation");
+const defaultPlanReportDir = resolve(root, readArgValue(args, "--default-plan-report-dir") ?? "data/reports/forecast-calibration-guard-default-plan");
 const reviewsFile = resolve(root, readArgValue(args, "--reviews-file") ?? "data/reports/forecast-attention-reviews.json");
 const outputDir = resolve(root, readArgValue(args, "--out-dir") ?? "data/reports/forecast-attention-backlog");
 const requestedStatuses = readArgValues(args, "--status");
@@ -106,8 +108,8 @@ const statuses = statusFilters.map((status) => {
 const jsonPath = resolve(outputDir, "attention-backlog.json");
 const markdownPath = resolve(outputDir, "attention-backlog.md");
 const reviewsByItemId = await loadAttentionReviews(reviewsFile);
-const items = await readBacklogItems(batchIndexDir, validationReportDir, statuses, new Set(batchFilters), reviewsByItemId);
-const report = buildReport(items, statuses, batchFilters, jsonPath, markdownPath, batchIndexDir, validationReportDir, reviewsFile);
+const items = await readBacklogItems(batchIndexDir, validationReportDir, defaultPlanReportDir, statuses, new Set(batchFilters), reviewsByItemId);
+const report = buildReport(items, statuses, batchFilters, jsonPath, markdownPath, batchIndexDir, validationReportDir, defaultPlanReportDir, reviewsFile);
 
 await mkdir(outputDir, { recursive: true });
 await writeJson(jsonPath, report);
@@ -129,6 +131,7 @@ if (report.items.length > 20) {
 async function readBacklogItems(
   batchRoot: string,
   validationRoot: string,
+  defaultPlanRoot: string,
   statuses: ReviewStatus[],
   batchIds: Set<string>,
   reviewsByItemId: Map<string, AttentionReview>,
@@ -167,6 +170,20 @@ async function readBacklogItems(
     }
     for (const validation of readRecordArray(payload, "validations")) {
       const rawBacklogItem = readCalibrationGuardValidationBacklogItem(validation, path);
+      const backlogItem = rawBacklogItem ? withReview(rawBacklogItem, reviewsByItemId.get(rawBacklogItem.id)) : null;
+      if (backlogItem && statuses.includes(backlogItem.reviewStatus) && (batchIds.size === 0 || batchIds.has(backlogItem.batchId))) {
+        items.push(backlogItem);
+      }
+    }
+  }
+  const defaultPlanPaths = await listFilesNamed(defaultPlanRoot, "calibration-guard-default-plan.json");
+  for (const path of defaultPlanPaths) {
+    const payload = readRecord(await readJson(path));
+    if (!payload) {
+      continue;
+    }
+    for (const skipped of readRecordArray(payload, "skippedRows")) {
+      const rawBacklogItem = readCalibrationGuardDefaultPlanSkippedBacklogItem(skipped, path);
       const backlogItem = rawBacklogItem ? withReview(rawBacklogItem, reviewsByItemId.get(rawBacklogItem.id)) : null;
       if (backlogItem && statuses.includes(backlogItem.reviewStatus) && (batchIds.size === 0 || batchIds.has(backlogItem.batchId))) {
         items.push(backlogItem);
@@ -298,6 +315,44 @@ function recommendedActionsForCalibrationValidation(recommendation: string, buck
   return [`Collect more resolved binary forecasts before acting on this ${bucketLabel} calibration guard candidate.`];
 }
 
+function readCalibrationGuardDefaultPlanSkippedBacklogItem(item: JsonRecord, sourcePath: string): BacklogItem | null {
+  const proposalId = readString(item, "proposalId");
+  const reason = readString(item, "reason");
+  if (!proposalId || !reason) {
+    return null;
+  }
+  const batchId = batchIdFromProposalId(proposalId) ?? "unknown-batch";
+  const bucketLabel = readString(item, "bucketLabel") ?? "calibration bucket";
+  const recommendation = readString(item, "recommendation") ?? "unknown";
+  const validationMode = readString(item, "validationMode") ?? "unknown";
+  return {
+    batchId,
+    id: `calibration-default-plan-skipped:${proposalId}`,
+    reviewStatus: "open",
+    severity: reason === "not_holdout_replay" ? "low" : "medium",
+    kind: `calibration_guard_default_plan_${reason}`,
+    reason: `${bucketLabel} default-plan row skipped: ${reason} (${validationMode}, ${recommendation}).`,
+    recommendedActions: recommendedActionsForDefaultPlanSkipped(reason, bucketLabel),
+    metric: "default_plan_skip",
+    score: null,
+    delta: null,
+    taskId: null,
+    taskLabel: `${bucketLabel} default-plan skip`,
+    forecastType: "binary",
+    sourcePath,
+  };
+}
+
+function recommendedActionsForDefaultPlanSkipped(reason: string, bucketLabel: string) {
+  if (reason === "not_holdout_replay") {
+    return [`Run a held-out calibration validation before considering ${bucketLabel} as a default calibration guard.`];
+  }
+  if (reason === "not_promoted_for_default") {
+    return [`Keep ${bucketLabel} out of default calibration guards unless held-out validation improves both Brier score and calibration error.`];
+  }
+  return [`Review why ${bucketLabel} was skipped before changing calibration guard defaults.`];
+}
+
 function buildReport(
   items: BacklogItem[],
   statuses: ReviewStatus[],
@@ -306,6 +361,7 @@ function buildReport(
   markdownPath: string,
   sourceDir: string,
   validationDir: string,
+  defaultPlanDir: string,
   reviewPath: string,
 ): BacklogReport {
   return {
@@ -332,6 +388,7 @@ function buildReport(
       markdown: markdownPath,
       batchIndexDir: sourceDir,
       validationReportDir: validationDir,
+      defaultPlanReportDir: defaultPlanDir,
       reviews: reviewPath,
     },
   };

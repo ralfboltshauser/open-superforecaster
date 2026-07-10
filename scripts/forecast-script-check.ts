@@ -504,10 +504,12 @@ await check("forecast calibration default plan requires held-out promotion", asy
 await check("forecast attention backlog filters batch review status", async () => {
   const batchIndexRoot = resolve(tempRoot, "attention-backlog", "batches");
   const validationRoot = resolve(tempRoot, "attention-backlog", "validations");
+  const defaultPlanRoot = resolve(tempRoot, "attention-backlog", "default-plan");
   const outputDir = resolve(tempRoot, "attention-backlog", "out");
   const reviewsFile = resolve(tempRoot, "attention-backlog", "reviews.json");
   await mkdir(resolve(batchIndexRoot, "contract-batch"), { recursive: true });
   await mkdir(validationRoot, { recursive: true });
+  await mkdir(defaultPlanRoot, { recursive: true });
   await writeJson(resolve(batchIndexRoot, "contract-batch", "batch-index.json"), {
     reportType: "forecast_batch_index",
     batchId: "contract-batch",
@@ -598,6 +600,18 @@ await check("forecast attention backlog filters batch review status", async () =
       },
     ],
   });
+  await writeJson(resolve(defaultPlanRoot, "calibration-guard-default-plan.json"), {
+    reportType: "forecast_calibration_guard_default_plan",
+    skippedRows: [
+      {
+        proposalId: "calibration-guard-proposal:contract-batch:candidate-guard:80-100%",
+        bucketLabel: "80-100%",
+        recommendation: "promote_for_holdout",
+        validationMode: "source_replay",
+        reason: "not_holdout_replay",
+      },
+    ],
+  });
   await writeJson(reviewsFile, {
     reviews: [
       {
@@ -614,6 +628,8 @@ await check("forecast attention backlog filters batch review status", async () =
     batchIndexRoot,
     "--validation-report-dir",
     validationRoot,
+    "--default-plan-report-dir",
+    defaultPlanRoot,
     "--reviews-file",
     reviewsFile,
     "--out-dir",
@@ -629,6 +645,7 @@ await check("forecast attention backlog filters batch review status", async () =
   const items = readArray(report, "items");
   assert(report, "backlog report is not an object");
   assert(readString(report, "reportType") === "forecast_attention_backlog", "report type mismatch");
+  assert(readString(readRecord(report, "paths"), "defaultPlanReportDir") === defaultPlanRoot, "backlog report missing default-plan report path");
   assert(counts, "backlog counts missing");
   assert(readNumber(counts, "items") === 3, "filtered item count mismatch");
   assert(readNumber(counts, "deferred") === 3, "deferred item count mismatch");
@@ -675,6 +692,8 @@ await check("forecast attention backlog filters batch review status", async () =
     batchIndexRoot,
     "--validation-report-dir",
     validationRoot,
+    "--default-plan-report-dir",
+    defaultPlanRoot,
     "--reviews-file",
     resolve(tempRoot, "attention-backlog", "empty-reviews.json"),
     "--out-dir",
@@ -685,9 +704,13 @@ await check("forecast attention backlog filters batch review status", async () =
   const openReport = readRecord(await readJson(resolve(outputDir, "attention-backlog.json")));
   const openItems = readArray(openReport, "items");
   const validationItem = openItems.find((item) => readString(item, "kind") === "calibration_guard_holdout_candidate");
+  const skippedDefaultPlanItem = openItems.find((item) => readString(item, "kind") === "calibration_guard_default_plan_not_holdout_replay");
   assert(validationItem, "calibration guard validation backlog item missing");
+  assert(skippedDefaultPlanItem, "calibration guard default-plan skipped backlog item missing");
   assert(readString(validationItem, "batchId") === "contract-batch", "validation backlog batch id mismatch");
+  assert(readString(skippedDefaultPlanItem, "batchId") === "contract-batch", "default-plan skipped backlog batch id mismatch");
   assert(readString(validationItem, "reviewStatus") === "open", "validation backlog item should start open");
+  assert(readString(skippedDefaultPlanItem, "reviewStatus") === "open", "default-plan skipped backlog item should start open");
   assert(!openItems.some((item) => readString(item, "id")?.includes("candidate-guard:20-40%")), "rejected validation should not enter backlog");
   return "attention backlog reads batch indexes and filters review status";
 });
