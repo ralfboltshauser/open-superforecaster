@@ -25,3 +25,4 @@ export * from "./run-service";
 export * from "./smithers-launcher";
 export * from "./smithers-usage";
 export * from "./trace-bundle";
+export * from "./workflow-proposal-policy";

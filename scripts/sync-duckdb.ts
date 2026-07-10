@@ -26,8 +26,17 @@ import {
   blockerWeakTraceCompleteness,
   blockerWorseThanBaselineCases,
   minimumPromotionHoldoutCases,
+  minimumPromotionPairedCases,
   minimumPromotionResultCases,
 } from "../packages/backend/src/benchmark-promotion-policy";
+import {
+  blockerInsufficientPrimaryPairedCases,
+  blockerInsufficientPrimaryPairedHoldoutCases,
+  blockerInsufficientValidationCaseCoverage,
+  blockerValidationGateNotPassing,
+  blockerValidationRecommendationNotCandidateBetter,
+  blockerValidationResultIncomplete,
+} from "../packages/backend/src/workflow-proposal-policy";
 import { isExportCompatibleAttentionBacklogArtifact } from "../packages/backend/src/forecast-attention-backlog";
 import { readForecastAttentionBacklogArtifacts } from "../packages/backend/src/forecast-attention-backlog-artifacts";
 import { readForecastBatchIndexArtifacts } from "../packages/backend/src/forecast-batch-index-artifacts";
@@ -824,26 +833,26 @@ try {
     left join lateral (
       select (
         to_jsonb(array_remove(array[
-          case when wcp.validation_result_status = 'completed' then null::text else 'validation_result_incomplete' end,
-          case when wcp.validation_gate_status = 'review_for_promotion' then null::text else 'validation_gate_not_passing' end
+          case when wcp.validation_result_status = 'completed' then null::text else ${blockerValidationResultIncomplete} end,
+          case when wcp.validation_gate_status = ${benchmarkPromotionGateStatusReview} then null::text else ${blockerValidationGateNotPassing} end
         ], null))
         || coalesce(wcp.validation_gate_blockers, '[]'::jsonb)
         || to_jsonb(array_remove(array[
           case
             when coalesce(wcp.validation_completed_cases, 0) >= greatest(coalesce(sbr.case_count, 1), 1) then null::text
-            else 'insufficient_validation_case_coverage'
+            else ${blockerInsufficientValidationCaseCoverage}
           end,
           case
             when vcr.row_json #>> '{recommendation,status}' = 'candidate_better' then null::text
-            else 'validation_recommendation_not_candidate_better'
+            else ${blockerValidationRecommendationNotCandidateBetter}
           end,
           case
-            when coalesce(nullif(vcr.row_json #>> '{recommendation,primaryBaselinePairedCaseCount}', '')::integer, 0) >= 10 then null::text
-            else 'insufficient_primary_paired_cases'
+            when coalesce(nullif(vcr.row_json #>> '{recommendation,primaryBaselinePairedCaseCount}', '')::integer, 0) >= ${minimumPromotionPairedCases} then null::text
+            else ${blockerInsufficientPrimaryPairedCases}
           end,
           case
-            when coalesce(nullif(vcr.row_json #>> '{recommendation,primaryBaselinePairedHoldoutCaseCount}', '')::integer, 0) >= 10 then null::text
-            else 'insufficient_primary_paired_holdout_cases'
+            when coalesce(nullif(vcr.row_json #>> '{recommendation,primaryBaselinePairedHoldoutCaseCount}', '')::integer, 0) >= ${minimumPromotionHoldoutCases} then null::text
+            else ${blockerInsufficientPrimaryPairedHoldoutCases}
           end
         ], null))
       ) as blockers_json

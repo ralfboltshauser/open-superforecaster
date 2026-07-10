@@ -54,6 +54,18 @@ import { launchSmithersDetached } from "./smithers-launcher";
 import { summarizeSourceDomainCounts } from "./source-domain-summary";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
 import { exportTraceBundle } from "./trace-bundle";
+import {
+  blockerInsufficientPrimaryPairedCases,
+  blockerInsufficientPrimaryPairedHoldoutCases,
+  blockerInsufficientValidationCaseCoverage,
+  blockerValidationGateNotPassing,
+  blockerValidationRecommendationNotCandidateBetter,
+  blockerValidationResultIncomplete,
+  workflowChangeProposalImplementationStatuses,
+  workflowChangeProposalStatuses,
+  type WorkflowChangeProposalImplementationStatus,
+  type WorkflowChangeProposalStatus,
+} from "./workflow-proposal-policy";
 
 type Db = ReturnType<typeof createDb>["db"];
 type BenchmarkRunRow = typeof benchmarkRuns.$inferSelect;
@@ -92,10 +104,6 @@ const promotionStates = [
   "needs_more_cases",
 ] as const;
 export type WorkflowPromotionState = (typeof promotionStates)[number];
-const workflowChangeProposalStatuses = ["candidate", "accepted", "rejected", "implemented"] as const;
-export type WorkflowChangeProposalStatus = (typeof workflowChangeProposalStatuses)[number];
-const workflowChangeProposalImplementationStatuses = ["not_started", "planned", "in_progress", "validated"] as const;
-export type WorkflowChangeProposalImplementationStatus = (typeof workflowChangeProposalImplementationStatuses)[number];
 type BenchmarkPromotionComparisonStatus =
   | "candidate_better"
   | "candidate_worse"
@@ -1572,13 +1580,13 @@ export function workflowProposalValidationPrimaryEvidence(comparisonReport: Reco
   const pairedHoldoutCaseCount = recommendation ? readNumber(recommendation, "primaryBaselinePairedHoldoutCaseCount") : null;
   const blockers = [];
   if (status !== "candidate_better") {
-    blockers.push("validation_recommendation_not_candidate_better");
+    blockers.push(blockerValidationRecommendationNotCandidateBetter);
   }
   if ((pairedCaseCount ?? 0) < minimumPromotionPairedCases) {
-    blockers.push("insufficient_primary_paired_cases");
+    blockers.push(blockerInsufficientPrimaryPairedCases);
   }
   if ((pairedHoldoutCaseCount ?? 0) < minimumPromotionHoldoutCases) {
-    blockers.push("insufficient_primary_paired_holdout_cases");
+    blockers.push(blockerInsufficientPrimaryPairedHoldoutCases);
   }
   return {
     status,
@@ -1606,10 +1614,10 @@ export function workflowProposalValidationReadiness(input: {
   });
   const primaryEvidence = workflowProposalValidationPrimaryEvidence(input.comparisonReport);
   const blockers = [
-    input.resultStatus === "completed" ? null : "validation_result_incomplete",
-    input.gateStatus === benchmarkPromotionGateStatusReview ? null : "validation_gate_not_passing",
+    input.resultStatus === "completed" ? null : blockerValidationResultIncomplete,
+    input.gateStatus === benchmarkPromotionGateStatusReview ? null : blockerValidationGateNotPassing,
     ...gateBlockers,
-    coverage.hasCoverage ? null : "insufficient_validation_case_coverage",
+    coverage.hasCoverage ? null : blockerInsufficientValidationCaseCoverage,
     ...primaryEvidence.blockers,
   ].filter((blocker): blocker is string => Boolean(blocker));
   return {

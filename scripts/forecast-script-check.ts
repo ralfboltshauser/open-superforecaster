@@ -9,8 +9,21 @@ import {
   benchmarkPromotionGateBlockerIds,
   benchmarkPromotionGateStatusNeedsMoreEvidence,
   benchmarkPromotionGateStatusReview,
+  minimumPromotionHoldoutCases,
+  minimumPromotionPairedCases,
   minimumPromotionResultCases,
 } from "../packages/backend/src/benchmark-promotion-policy";
+import {
+  blockerInsufficientPrimaryPairedCases,
+  blockerInsufficientPrimaryPairedHoldoutCases,
+  blockerInsufficientValidationCaseCoverage,
+  blockerValidationGateNotPassing,
+  blockerValidationRecommendationNotCandidateBetter,
+  blockerValidationResultIncomplete,
+  workflowChangeProposalImplementationStatuses,
+  workflowChangeProposalStatuses,
+  workflowProposalValidationReadinessBlockerIds,
+} from "../packages/backend/src/workflow-proposal-policy";
 import { qualityIssueCountBand, readAggregateQualitySnapshot, roundsUsedBand } from "../packages/backend/src/aggregate-quality-metadata";
 import { adjustmentFromMedianBand, aggregateSideAgreementBand, attemptCountBand, finalAdjustmentDirection, finalComponentPositionBand, finalConfidenceShiftBand, finalInsideViewDeltaBand, insideViewDeltaBand, meanConfidenceDistanceBand, readAggregateStatsSnapshot } from "../packages/backend/src/aggregate-stats-metadata";
 import { readBaselineSanitySnapshot } from "../packages/backend/src/baseline-sanity-metadata";
@@ -4061,8 +4074,12 @@ await check("workflow change proposals are exported to DuckDB", async () => {
   assert(syncSource.includes("wcp.validation_completed_cases is null") && syncSource.includes("wcp.validation_completed_cases::double precision"), "workflow proposal mart missing validation coverage ratio");
   assert(syncSource.includes("coalesce(wcp.validation_completed_cases, 0) >= greatest(coalesce(sbr.case_count, 1), 1)"), "workflow proposal mart pass state does not require source-sized coverage");
   assert(syncSource.includes("vcr.row_json #>> '{recommendation,status}' = 'candidate_better'"), "workflow proposal mart pass state does not require better validation comparison");
-  assert(syncSource.includes("primaryBaselinePairedCaseCount}', '')::integer, 0) >= 10"), "workflow proposal mart pass state does not require primary paired cases");
-  assert(syncSource.includes("primaryBaselinePairedHoldoutCaseCount}', '')::integer, 0) >= 10"), "workflow proposal mart pass state does not require primary paired holdout cases");
+  assert(syncSource.includes("primaryBaselinePairedCaseCount}', '')::integer, 0) >= ${minimumPromotionPairedCases}"), "workflow proposal mart pass state does not require primary paired cases");
+  assert(syncSource.includes("primaryBaselinePairedHoldoutCaseCount}', '')::integer, 0) >= ${minimumPromotionHoldoutCases}"), "workflow proposal mart pass state does not require primary paired holdout cases");
+  for (const blockerId of workflowProposalValidationReadinessBlockerIds) {
+    const constName = blockerId.replace(/(^|_)([a-z])/g, (_match, _separator, letter: string) => letter.toUpperCase());
+    assert(syncSource.includes(`blocker${constName}`), `workflow proposal mart does not use shared readiness blocker ${blockerId}`);
+  }
   assert(syncSource.includes("validation_gate_status"), "workflow proposal mart missing validation gate status");
   assert(syncSource.includes("validation_gate_blockers_json"), "workflow proposal mart missing validation gate blockers");
   assert(syncSource.includes("validation_comparison_report_artifact_id"), "workflow proposal mart missing validation comparison artifact id");
@@ -4119,6 +4136,7 @@ await check("workflow change proposals are visible in the lab dashboard", async 
 await check("workflow change proposal lifecycle is auditable", async () => {
   const schemaSource = await readFile(resolve(root, "packages/db/src/schema.ts"), "utf8");
   const backendSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
+  const workflowProposalPolicySource = await readFile(resolve(root, "packages/backend/src/workflow-proposal-policy.ts"), "utf8");
   const routeSource = await readFile(
     resolve(root, "apps/web/src/app/api/benchmarks/[benchmarkRunId]/proposals/[proposalId]/route.ts"),
     "utf8",
@@ -4142,13 +4160,14 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(schemaSource.includes("validationCostSummary: text(\"validation_cost_summary\")"), "workflow proposal schema missing validation cost summary");
   assert(schemaSource.includes("validationGateStatus: text(\"validation_gate_status\")"), "workflow proposal schema missing validation gate status");
   assert(schemaSource.includes("validationGateBlockers: jsonb(\"validation_gate_blockers\")"), "workflow proposal schema missing validation gate blockers");
-  assert(backendSource.includes("workflowChangeProposalStatuses"), "backend missing shared workflow proposal status set");
-  assert(backendSource.includes("workflowChangeProposalImplementationStatuses"), "backend missing shared implementation status set");
-  for (const status of ["candidate", "accepted", "rejected", "implemented"]) {
-    assert(backendSource.includes(`"${status}"`), `backend missing workflow proposal status ${status}`);
+  assert(workflowProposalPolicySource.includes("workflowChangeProposalStatuses"), "backend missing shared workflow proposal status set");
+  assert(workflowProposalPolicySource.includes("workflowChangeProposalImplementationStatuses"), "backend missing shared implementation status set");
+  assert(backendSource.includes("from \"./workflow-proposal-policy\""), "backend does not import shared workflow proposal policy");
+  for (const status of workflowChangeProposalStatuses) {
+    assert(workflowProposalPolicySource.includes(`"${status}"`), `backend missing workflow proposal status ${status}`);
   }
-  for (const status of ["not_started", "planned", "in_progress", "validated"]) {
-    assert(backendSource.includes(`"${status}"`), `backend missing workflow proposal implementation status ${status}`);
+  for (const status of workflowChangeProposalImplementationStatuses) {
+    assert(workflowProposalPolicySource.includes(`"${status}"`), `backend missing workflow proposal implementation status ${status}`);
   }
   assert(backendSource.includes("updateWorkflowChangeProposalStatus"), "backend missing workflow proposal lifecycle function");
   assert(backendSource.includes("eq(workflowChangeProposals.sourceBenchmarkRunId, input.benchmarkRunId)"), "proposal update does not verify benchmark ownership");
@@ -4159,9 +4178,12 @@ await check("workflow change proposal lifecycle is auditable", async () => {
   assert(backendSource.includes("workflowProposalValidationGatePassed"), "backend missing shared validation gate pass helper");
   assert(backendSource.includes("workflowProposalValidationReadiness"), "backend missing shared validation readiness helper");
   assert(backendSource.includes("workflowProposalValidationPrimaryEvidence"), "backend missing primary paired validation evidence helper");
-  assert(backendSource.includes("validation_recommendation_not_candidate_better"), "backend readiness does not require a better validation comparison");
-  assert(backendSource.includes("insufficient_primary_paired_cases"), "backend readiness does not require primary paired validation cases");
-  assert(backendSource.includes("insufficient_primary_paired_holdout_cases"), "backend readiness does not require primary paired holdout validation cases");
+  for (const blockerId of workflowProposalValidationReadinessBlockerIds) {
+    assert(workflowProposalPolicySource.includes(`"${blockerId}"`), `workflow proposal policy missing readiness blocker ${blockerId}`);
+  }
+  assert(backendSource.includes("blockerValidationRecommendationNotCandidateBetter"), "backend readiness does not require a better validation comparison");
+  assert(backendSource.includes("blockerInsufficientPrimaryPairedCases"), "backend readiness does not require primary paired validation cases");
+  assert(backendSource.includes("blockerInsufficientPrimaryPairedHoldoutCases"), "backend readiness does not require primary paired holdout validation cases");
   assert(backendSource.includes("implementationStatus: validationReadiness.passed ? \"validated\" : \"in_progress\""), "backend marks proposal validated without full validation readiness");
   assert(backendSource.includes("Validation passed: ${input.resultSummary}"), "backend validation sync does not distinguish passed validation from completed validation");
   assert(backendSource.includes("requestedImplementationStatus === \"validated\""), "backend explicit validated transition does not require validation evidence");
