@@ -255,6 +255,47 @@ try {
   `;
   await replaceTable(duck, "osf_benchmark_cost_status", benchmarkCostStatusColumns, benchmarkCostStatus);
 
+  const benchmarkCostOutliers = await pg<BenchmarkCostOutlierMartRow[]>`
+    select
+      br.id::text as benchmark_run_id,
+      br.suite_id::text as suite_id,
+      bs.name as suite_name,
+      br.eval_mode,
+      br.workflow_variant_id::text as workflow_variant_id,
+      wv.workflow_id,
+      br.status::text as run_status,
+      outlier.outlier_kind,
+      outlier.outlier_rank,
+      outlier.row_json #>> '{benchmarkCaseResultId}' as benchmark_case_result_id,
+      outlier.row_json #>> '{benchmarkCaseId}' as benchmark_case_id,
+      outlier.row_json #>> '{taskId}' as task_id,
+      outlier.row_json #>> '{smithersRunId}' as smithers_run_id,
+      outlier.row_json #>> '{status}' as case_status,
+      nullif(outlier.row_json #>> '{agentCalls}', '')::integer as agent_calls,
+      nullif(outlier.row_json #>> '{totalTokens}', '')::integer as total_tokens,
+      nullif(outlier.row_json #>> '{durationSeconds}', '')::double precision as duration_seconds,
+      br.created_at::text as created_at
+    from benchmark_runs br
+    left join benchmark_suites bs on bs.id = br.suite_id
+    left join workflow_variants wv on wv.id = br.workflow_variant_id
+    join artifact_rows ar on ar.artifact_id = br.analysis_report_artifact_id and ar.row_index = 0
+    cross join lateral (
+      select
+        'heaviest'::text as outlier_kind,
+        heavy.ordinality::integer as outlier_rank,
+        heavy.row_json
+      from jsonb_array_elements(coalesce(ar.row_json #> '{costLatencyFindings,heaviestCases}', '[]'::jsonb)) with ordinality as heavy(row_json, ordinality)
+      union all
+      select
+        'slowest'::text as outlier_kind,
+        slow.ordinality::integer as outlier_rank,
+        slow.row_json
+      from jsonb_array_elements(coalesce(ar.row_json #> '{costLatencyFindings,slowestCases}', '[]'::jsonb)) with ordinality as slow(row_json, ordinality)
+    ) outlier
+    order by br.created_at, outlier.outlier_kind, outlier.outlier_rank
+  `;
+  await replaceTable(duck, "osf_benchmark_cost_outliers", benchmarkCostOutlierColumns, benchmarkCostOutliers);
+
   const benchmarkCases = await pg<BenchmarkCaseMartRow[]>`
     select
       bcr.id::text as benchmark_case_result_id,
@@ -759,6 +800,7 @@ try {
     osf_artifact_rows: artifactRows.length,
     osf_benchmark_runs: benchmarkRuns.length,
     osf_benchmark_cost_status: benchmarkCostStatus.length,
+    osf_benchmark_cost_outliers: benchmarkCostOutliers.length,
     osf_benchmark_case_results: benchmarkCases.length,
     osf_forecast_scores: forecastScores.length,
     osf_binary_calibration_buckets: binaryCalibrationBuckets.length,
@@ -788,6 +830,7 @@ try {
       "select benchmark_run_id, promotion_gate_status, promotion_gate_blockers from osf_benchmark_runs order by created_at desc limit 5;",
       "select benchmark_run_id, paired_mean_brier_delta, cost_total_tokens, cost_agent_calls, cost_mean_duration_seconds from osf_benchmark_runs where cost_measured_cases > 0 order by created_at desc limit 10;",
       "select benchmark_run_id, case_status, cases, measured_cases, total_tokens, mean_duration_seconds from osf_benchmark_cost_status order by created_at desc, total_tokens desc limit 20;",
+      "select benchmark_run_id, outlier_kind, outlier_rank, benchmark_case_result_id, task_id, total_tokens, duration_seconds from osf_benchmark_cost_outliers order by created_at desc, outlier_kind, outlier_rank limit 20;",
       "select bucket_label, sample_size, calibration_error, candidate_guard_suggested_adjustment from osf_binary_calibration_buckets;",
       "select status, guarded_rows, unguarded_rows, brier_delta from osf_calibration_guard_impact;",
       "select rule_id, status, guarded_rows, brier_delta from osf_calibration_guard_rule_impact order by rule_id;",
@@ -969,6 +1012,27 @@ const benchmarkCostStatusColumns = [
   { name: "total_tokens", type: "INTEGER" },
   { name: "mean_tokens_per_measured_case", type: "DOUBLE" },
   { name: "mean_duration_seconds", type: "DOUBLE" },
+  { name: "created_at", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
+const benchmarkCostOutlierColumns = [
+  { name: "benchmark_run_id", type: "VARCHAR" },
+  { name: "suite_id", type: "VARCHAR" },
+  { name: "suite_name", type: "VARCHAR" },
+  { name: "eval_mode", type: "VARCHAR" },
+  { name: "workflow_variant_id", type: "VARCHAR" },
+  { name: "workflow_id", type: "VARCHAR" },
+  { name: "run_status", type: "VARCHAR" },
+  { name: "outlier_kind", type: "VARCHAR" },
+  { name: "outlier_rank", type: "INTEGER" },
+  { name: "benchmark_case_result_id", type: "VARCHAR" },
+  { name: "benchmark_case_id", type: "VARCHAR" },
+  { name: "task_id", type: "VARCHAR" },
+  { name: "smithers_run_id", type: "VARCHAR" },
+  { name: "case_status", type: "VARCHAR" },
+  { name: "agent_calls", type: "INTEGER" },
+  { name: "total_tokens", type: "INTEGER" },
+  { name: "duration_seconds", type: "DOUBLE" },
   { name: "created_at", type: "VARCHAR" },
 ] satisfies DuckColumn[];
 
@@ -1508,6 +1572,7 @@ type SmithersTokenUsageByTaskMartRow = RowFor<typeof smithersTokenUsageByTaskCol
 type ArtifactRowMartRow = RowFor<typeof artifactRowColumns>;
 type BenchmarkRunMartRow = RowFor<typeof benchmarkRunColumns>;
 type BenchmarkCostStatusMartRow = RowFor<typeof benchmarkCostStatusColumns>;
+type BenchmarkCostOutlierMartRow = RowFor<typeof benchmarkCostOutlierColumns>;
 type BenchmarkCaseMartRow = RowFor<typeof benchmarkCaseColumns>;
 type ForecastScoreMartRow = RowFor<typeof forecastScoreColumns>;
 type BinaryCalibrationBucketMartRow = RowFor<typeof binaryCalibrationBucketColumns>;

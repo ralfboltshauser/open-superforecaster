@@ -381,9 +381,10 @@ Benchmark analysis reports use the same durable-log parser to summarize
 measured agent calls, token totals, slow cases, and missing usage logs before a
 workflow proposal is promoted, so quality gains can be weighed against runtime
 cost at review time. The same benchmark cost summary is exported through
-Prometheus, `osf_benchmark_runs`, and the status-level
-`osf_benchmark_cost_status` mart so token and call regressions can be monitored
-outside the lab UI by run and case status.
+Prometheus, `osf_benchmark_runs`, the status-level
+`osf_benchmark_cost_status` mart, and `osf_benchmark_cost_outliers` so token
+and call regressions can be monitored outside the lab UI by run, case status,
+and highest-cost case.
 The local DuckDB sync also derives `osf_source_bank_domains` from persisted
 source-bank entries so source concentration, final-use count, source-type mix,
 and mean source quality can be audited by domain. Prometheus metrics expose the
