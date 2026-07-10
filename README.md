@@ -376,7 +376,9 @@ The local DuckDB sync also derives `osf_source_bank_domains` from persisted
 source-bank entries so source concentration, final-use count, source-type mix,
 and mean source quality can be audited by domain. Prometheus metrics expose the
 distinct source-domain count and the top source domains by source volume, final
-use, task count, and mean quality score.
+use, task count, and mean quality score. `/api/diagnostics` and the lab
+dashboard also show a capped top-domain summary for quick source-concentration
+checks.
 
 To consolidate those local artifacts into one audit file:
 

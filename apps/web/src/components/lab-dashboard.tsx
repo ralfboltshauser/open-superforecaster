@@ -19,6 +19,7 @@ export function LabDashboard() {
     benchmarks,
     busy,
     diagnosticCounts,
+    diagnostics,
     forecastBatchHealth,
     health,
     importBtf2,
@@ -59,7 +60,7 @@ export function LabDashboard() {
         </div>
 
         <div className="grid gap-6">
-          <DiagnosticsCard diagnosticCounts={diagnosticCounts} />
+          <DiagnosticsCard diagnosticCounts={diagnosticCounts} diagnostics={diagnostics} />
           <ForecastBatchHealthCard forecastBatchHealth={forecastBatchHealth} />
           <BenchmarksCard
             benchmarks={benchmarks}

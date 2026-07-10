@@ -972,6 +972,9 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(diagnosticsSource.includes("ForecastBatchHealthSnapshot"), "diagnostics does not type batch health from the shared reader");
   assert(diagnosticsSource.includes("unresolvedAttentionItems"), "diagnostics does not expose unresolved attention count");
   assert(diagnosticsSource.includes("unresolvedCandidateCalibrationGuardRules"), "diagnostics does not expose unresolved candidate guard count");
+  assert(diagnosticsSource.includes("summarizeSourceDomains(sourceRows)"), "diagnostics does not summarize source-bank domains");
+  assert(diagnosticsSource.includes("sourceDomainCount"), "diagnostics does not expose source-domain count");
+  assert(diagnosticsSource.includes("sourceDomains.slice(0, 8)"), "diagnostics does not cap source-domain summary");
   assert(metricsSource.includes("readLatestForecastBatchHealth"), "metrics do not read latest forecast batch health through the shared reader");
   assert(metricsSource.includes("open_superforecaster_forecast_batch_health_status"), "metrics do not expose batch health status");
   assert(metricsSource.includes("open_superforecaster_forecast_batch_health_unresolved_attention_items"), "metrics do not expose unresolved attention count");
@@ -990,6 +993,8 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(dashboardPanelSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not render candidate guard rules from batch health");
   assert(dashboardPanelSource.includes("item.reviewNote"), "lab dashboard does not render attention review notes from batch health");
   assert(dashboardPanelSource.includes("rule.reviewNote"), "lab dashboard does not render candidate guard review notes from batch health");
+  assert(dashboardPanelSource.includes("Source domains"), "lab dashboard does not label source-domain diagnostics");
+  assert(dashboardPanelSource.includes("sourceDomains"), "lab dashboard does not render source-domain diagnostics");
   return "latest forecast batch health is shared by diagnostics and metrics";
 });
 

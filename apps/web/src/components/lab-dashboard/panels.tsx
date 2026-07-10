@@ -107,7 +107,10 @@ export function RecentRunsCard({ runs }: { runs: JsonRecord[] }) {
   )
 }
 
-export function DiagnosticsCard({ diagnosticCounts }: { diagnosticCounts: DiagnosticCounts }) {
+export function DiagnosticsCard({ diagnosticCounts, diagnostics }: { diagnosticCounts: DiagnosticCounts; diagnostics: JsonRecord | null }) {
+  const localState = isRecord(diagnostics?.localState) ? diagnostics.localState : {}
+  const sourceDomains = readArray(localState, "sourceDomains").filter(isRecord)
+  const sourceDomainCount = readNumber(localState, "sourceDomainCount") ?? sourceDomains.length
   return (
     <Card id="diagnostics">
       <CardHeader>
@@ -124,6 +127,19 @@ export function DiagnosticsCard({ diagnosticCounts }: { diagnosticCounts: Diagno
             </div>
           ))}
         </div>
+        {sourceDomains.length ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-medium uppercase text-muted-foreground">Source domains ({formatCount(sourceDomainCount)})</p>
+            {sourceDomains.slice(0, 4).map((row) => (
+              <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-xs" key={String(row.domain ?? "domain")}>
+                <span className="min-w-0 truncate font-medium">{String(row.domain ?? "unknown")}</span>
+                <span className="shrink-0 text-muted-foreground">
+                  {formatCount(readNumber(row, "entries") ?? 0)} sources · {formatCount(readNumber(row, "usedInFinalEntries") ?? 0)} final
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   )

@@ -127,6 +127,7 @@ export function useLabDashboard() {
     benchmarks,
     busy,
     diagnosticCounts,
+    diagnostics,
     forecastBatchHealth,
     health,
     importBtf2,
