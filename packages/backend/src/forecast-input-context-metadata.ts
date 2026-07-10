@@ -39,7 +39,11 @@ export type ForecastInputContextSnapshot = {
   thresholdDirection: "at_least" | "at_most" | "mixed" | null;
   thresholdDirectionBand: "none" | "missing" | "at_least" | "at_most" | "mixed" | "unknown";
   hasCondition: boolean;
+  conditionLength: number | null;
+  conditionLengthBand: "absent" | "thin" | "adequate" | "detailed" | "unknown";
   hasConditionResolutionCriteria: boolean;
+  conditionResolutionCriteriaLength: number | null;
+  conditionResolutionCriteriaLengthBand: "absent" | "thin" | "adequate" | "detailed" | "unknown";
   conditionCriteriaBand: "none" | "condition_only" | "condition_with_criteria" | "unknown";
   hasUnit: boolean;
   unit: string | null;
@@ -89,7 +93,11 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   const marketUrl = normalized.market.marketUrl?.trim() || null;
   const hasMarketUrl = marketUrl !== null;
   const hasCondition = Boolean(normalized.condition?.trim());
+  const conditionLength = normalized.condition?.trim() ? wordCount(normalized.condition) : null;
   const hasConditionResolutionCriteria = Boolean(normalized.conditionResolutionCriteria?.trim());
+  const conditionResolutionCriteriaLength = normalized.conditionResolutionCriteria?.trim()
+    ? wordCount(normalized.conditionResolutionCriteria)
+    : null;
   const unit = normalized.unit?.trim() || null;
   const hasUnit = unit !== null;
   const contextCompleteness = [
@@ -142,7 +150,11 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     thresholdDirection,
     thresholdDirectionBand: inputThresholdDirectionBand({ thresholdCount, thresholdDirection }),
     hasCondition,
+    conditionLength,
+    conditionLengthBand: conditionTextLengthBand(conditionLength),
     hasConditionResolutionCriteria,
+    conditionResolutionCriteriaLength,
+    conditionResolutionCriteriaLengthBand: conditionTextLengthBand(conditionResolutionCriteriaLength),
     conditionCriteriaBand: conditionCriteriaBand({ hasCondition, hasConditionResolutionCriteria }),
     hasUnit,
     unit,
@@ -184,6 +196,10 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   const categoryCoverageBandValue = readString(value, "categoryCoverageBand");
   const thresholdValueCoverageBandValue = readString(value, "thresholdValueCoverageBand");
   const thresholdDirectionBandValue = readString(value, "thresholdDirectionBand");
+  const conditionLength = readNumber(value, "conditionLength");
+  const conditionLengthBandValue = readString(value, "conditionLengthBand");
+  const conditionResolutionCriteriaLength = readNumber(value, "conditionResolutionCriteriaLength");
+  const conditionResolutionCriteriaLengthBandValue = readString(value, "conditionResolutionCriteriaLengthBand");
   return {
     requestedForecastType,
     requestedForecastTypeBand: isRequestedForecastTypeBand(requestedForecastTypeBandValue)
@@ -248,7 +264,15 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
       ? thresholdDirectionBandValue
       : inputThresholdDirectionBand({ thresholdCount, thresholdDirection }),
     hasCondition: readBoolean(value, "hasCondition") ?? false,
+    conditionLength,
+    conditionLengthBand: isConditionTextLengthBand(conditionLengthBandValue)
+      ? conditionLengthBandValue
+      : conditionTextLengthBand(conditionLength),
     hasConditionResolutionCriteria: readBoolean(value, "hasConditionResolutionCriteria") ?? false,
+    conditionResolutionCriteriaLength,
+    conditionResolutionCriteriaLengthBand: isConditionTextLengthBand(conditionResolutionCriteriaLengthBandValue)
+      ? conditionResolutionCriteriaLengthBandValue
+      : conditionTextLengthBand(conditionResolutionCriteriaLength),
     conditionCriteriaBand: readConditionCriteriaBand(value) ?? conditionCriteriaBand({
       hasCondition: readBoolean(value, "hasCondition") ?? false,
       hasConditionResolutionCriteria: readBoolean(value, "hasConditionResolutionCriteria") ?? false,
@@ -453,6 +477,22 @@ export function conditionCriteriaBand(input: {
   return input.hasConditionResolutionCriteria ? "condition_with_criteria" : "condition_only";
 }
 
+export function conditionTextLengthBand(count: number | null): ForecastInputContextSnapshot["conditionLengthBand"] {
+  if (count === null) {
+    return "absent";
+  }
+  if (!Number.isFinite(count)) {
+    return "unknown";
+  }
+  if (count < 5) {
+    return "thin";
+  }
+  if (count <= 30) {
+    return "adequate";
+  }
+  return "detailed";
+}
+
 export function contextCompletenessBand(count: number): ForecastInputContextSnapshot["contextCompletenessBand"] {
   if (count >= 4) {
     return "rich";
@@ -623,6 +663,10 @@ function isInputThresholdValueCoverageBand(value: string | null): value is Forec
 function readConditionCriteriaBand(value: Record<string, unknown>) {
   const raw = readString(value, "conditionCriteriaBand");
   return raw === "none" || raw === "condition_only" || raw === "condition_with_criteria" || raw === "unknown" ? raw : null;
+}
+
+function isConditionTextLengthBand(value: string | null): value is ForecastInputContextSnapshot["conditionLengthBand"] {
+  return value === "absent" || value === "thin" || value === "adequate" || value === "detailed" || value === "unknown";
 }
 
 function isMarketPriceBand(value: string | null): value is ForecastInputContextSnapshot["marketPriceBand"] {

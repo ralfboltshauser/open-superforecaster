@@ -1190,6 +1190,8 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       threshold_value_coverage_band: "unknown",
       threshold_direction_band: "unknown",
       condition_criteria_band: "unknown",
+      condition_length_band: "unknown",
+      condition_resolution_criteria_length_band: "unknown",
       unit_specificity_band: "unknown",
     };
     metrics.gauge(
@@ -1226,6 +1228,8 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       threshold_value_coverage_band: inputContext?.thresholdValueCoverageBand ?? "unknown",
       threshold_direction_band: inputContext?.thresholdDirectionBand ?? "unknown",
       condition_criteria_band: inputContext?.conditionCriteriaBand ?? "unknown",
+      condition_length_band: inputContext?.conditionLengthBand ?? "unknown",
+      condition_resolution_criteria_length_band: inputContext?.conditionResolutionCriteriaLengthBand ?? "unknown",
       unit_specificity_band: inputContext?.unitSpecificityBand ?? "unknown",
     });
   })) {

@@ -455,6 +455,8 @@ export async function getForecastPerformanceReport(db: Db) {
   const byInputThresholdCount = groupScores(aggregateScores, inputThresholdCountGroupKey);
   const byInputThresholdValueCoverage = groupScores(aggregateScores, inputThresholdValueCoverageGroupKey);
   const byInputThresholdDirection = groupScores(aggregateScores, inputThresholdDirectionGroupKey);
+  const byInputConditionDepth = groupScores(aggregateScores, inputConditionDepthGroupKey);
+  const byInputConditionCriteriaDepth = groupScores(aggregateScores, inputConditionCriteriaDepthGroupKey);
   const byInputConditionCriteria = groupScores(aggregateScores, inputConditionCriteriaGroupKey);
   const byInputUnitSpecificity = groupScores(aggregateScores, inputUnitSpecificityGroupKey);
   const byRunDuration = groupScores(aggregateScores, runDurationGroupKey);
@@ -558,6 +560,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputThresholdCount,
       byInputThresholdValueCoverage,
       byInputThresholdDirection,
+      byInputConditionDepth,
+      byInputConditionCriteriaDepth,
       byInputConditionCriteria,
       byInputUnitSpecificity,
       byRunDuration,
@@ -651,6 +655,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputThresholdCount,
       byInputThresholdValueCoverage,
       byInputThresholdDirection,
+      byInputConditionDepth,
+      byInputConditionCriteriaDepth,
       byInputConditionCriteria,
       byInputUnitSpecificity,
       byRunDuration,
@@ -1741,6 +1747,16 @@ function inputConditionCriteriaGroupKey(score: typeof forecastScores.$inferSelec
   return `input_condition_criteria:${inputContext?.conditionCriteriaBand ?? "unrecorded"}`;
 }
 
+function inputConditionDepthGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_condition_depth:${inputContext?.conditionLengthBand ?? "unrecorded"}`;
+}
+
+function inputConditionCriteriaDepthGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_condition_criteria_depth:${inputContext?.conditionResolutionCriteriaLengthBand ?? "unrecorded"}`;
+}
+
 function inputUnitSpecificityGroupKey(score: typeof forecastScores.$inferSelect) {
   const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
   return `input_unit:${inputContext?.unitSpecificityBand ?? "unrecorded"}`;
@@ -2682,6 +2698,20 @@ function inputContextMissSignal(item: PerformanceCase): { reason: string; delta:
       severity: "medium",
     };
   }
+  if (context.hasCondition && context.conditionLengthBand === "thin") {
+    return {
+      reason: `thin condition text (${context.conditionLength ?? 0} words)`,
+      delta: context.conditionLength,
+      severity: "medium",
+    };
+  }
+  if (context.hasConditionResolutionCriteria && context.conditionResolutionCriteriaLengthBand === "thin") {
+    return {
+      reason: `thin condition resolution criteria (${context.conditionResolutionCriteriaLength ?? 0} words)`,
+      delta: context.conditionResolutionCriteriaLength,
+      severity: "medium",
+    };
+  }
   if (context.backgroundLengthBand === "absent" || context.backgroundLengthBand === "thin") {
     return {
       reason: `${context.backgroundLengthBand} input background (${context.backgroundLength ?? 0} words)`,
@@ -2950,6 +2980,8 @@ function renderPerformanceMarkdown(input: {
   byInputThresholdCount: PerformanceGroup[];
   byInputThresholdValueCoverage: PerformanceGroup[];
   byInputThresholdDirection: PerformanceGroup[];
+  byInputConditionDepth: PerformanceGroup[];
+  byInputConditionCriteriaDepth: PerformanceGroup[];
   byInputConditionCriteria: PerformanceGroup[];
   byInputUnitSpecificity: PerformanceGroup[];
   byRunDuration: PerformanceGroup[];
@@ -3169,6 +3201,12 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input condition-criteria groups",
     ...renderGroupTable(input.byInputConditionCriteria),
+    "",
+    "## Input condition-depth groups",
+    ...renderGroupTable(input.byInputConditionDepth),
+    "",
+    "## Input condition-criteria-depth groups",
+    ...renderGroupTable(input.byInputConditionCriteriaDepth),
     "",
     "## Input unit-specificity groups",
     ...renderGroupTable(input.byInputUnitSpecificity),

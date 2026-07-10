@@ -678,6 +678,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byInputThresholdCount = readArray(groups, "byInputThresholdCount").filter(isRecord)
   const byInputThresholdValueCoverage = readArray(groups, "byInputThresholdValueCoverage").filter(isRecord)
   const byInputThresholdDirection = readArray(groups, "byInputThresholdDirection").filter(isRecord)
+  const byInputConditionDepth = readArray(groups, "byInputConditionDepth").filter(isRecord)
+  const byInputConditionCriteriaDepth = readArray(groups, "byInputConditionCriteriaDepth").filter(isRecord)
   const byInputConditionCriteria = readArray(groups, "byInputConditionCriteria").filter(isRecord)
   const byInputUnitSpecificity = readArray(groups, "byInputUnitSpecificity").filter(isRecord)
   const byRunDuration = readArray(groups, "byRunDuration").filter(isRecord)
@@ -791,6 +793,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byInputThresholdValueCoverage.length ? <PerformancePlanShapeGroupList groups={byInputThresholdValueCoverage} title="Input threshold-value outcomes" skipKey="input_threshold_values:unrecorded" fallback="input threshold values" /> : null}
         {byInputThresholdDirection.length ? <PerformancePlanShapeGroupList groups={byInputThresholdDirection} title="Input threshold-direction outcomes" skipKey="input_threshold_direction:unrecorded" fallback="input threshold direction" /> : null}
         {byInputConditionCriteria.length ? <PerformancePlanShapeGroupList groups={byInputConditionCriteria} title="Input condition-criteria outcomes" skipKey="input_condition_criteria:unrecorded" fallback="input condition criteria" /> : null}
+        {byInputConditionDepth.length ? <PerformancePlanShapeGroupList groups={byInputConditionDepth} title="Input condition-depth outcomes" skipKey="input_condition_depth:unrecorded" fallback="input condition depth" /> : null}
+        {byInputConditionCriteriaDepth.length ? <PerformancePlanShapeGroupList groups={byInputConditionCriteriaDepth} title="Input condition-criteria-depth outcomes" skipKey="input_condition_criteria_depth:unrecorded" fallback="input condition criteria depth" /> : null}
         {byInputUnitSpecificity.length ? <PerformancePlanShapeGroupList groups={byInputUnitSpecificity} title="Input unit outcomes" skipKey="input_unit:unrecorded" fallback="input unit" /> : null}
         {byRunDuration.length ? <PerformancePlanShapeGroupList groups={byRunDuration} title="Run duration outcomes" skipKey="run_duration:unrecorded" fallback="run duration" /> : null}
         {byRunExperiment.length ? <PerformancePlanShapeGroupList groups={byRunExperiment} title="Run experiment outcomes" skipKey="run_experiment:unrecorded" fallback="run experiment" /> : null}

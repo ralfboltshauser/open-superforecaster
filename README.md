@@ -355,12 +355,12 @@ resolution-criteria depth, resolution horizon, requested forecast type, market
 price and market-price recency, background, background depth, market metadata
 and market creation age, option counts and coverage, threshold counts, values,
 direction and bands, condition/unit flags, unit specificity,
-condition-criteria coverage, and question length, so short-horizon,
-thin-resolution-criteria, requested-type mismatches, thin-background,
-stale-market, market-anchored, market-traceability, option-heavy,
-open-category, missing-threshold-value, missing-threshold-direction,
-threshold-curve, generic-unit, condition-underspecified, or richly specified
-questions can be measured
+condition-criteria coverage, condition depth, condition-criteria depth, and
+question length, so short-horizon, thin-resolution-criteria, requested-type
+mismatches, thin-background, stale-market, market-anchored,
+market-traceability, option-heavy, open-category, missing-threshold-value,
+missing-threshold-direction, threshold-curve, generic-unit,
+condition-underspecified, thin-condition, or richly specified questions can be measured
 separately from sparse prompts.
 Score rows also keep workflow version,
 workflow variant, experiment label, and run duration bands so quality changes
