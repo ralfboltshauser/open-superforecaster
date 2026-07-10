@@ -1096,15 +1096,19 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   const numericType = attentionByForecastType.find((row) => readString(row, "forecastType") === "numeric");
   assert(evidenceKind, "attention kind breakdown missing evidence coverage misses");
   assert(readNumber(evidenceKind, "open") === 1, "attention kind breakdown open count mismatch");
+  assert(readNumber(evidenceKind, "unresolved") === 1, "attention kind breakdown unresolved count mismatch");
   const defaultPlanKind = attentionByKind.find((row) => readString(row, "kind") === "calibration_guard_default_plan_not_holdout_replay");
   assert(defaultPlanKind, "attention kind breakdown missing supplemental default-plan skipped row");
   assert(readNumber(defaultPlanKind, "open") === 1, "supplemental default-plan skipped row open count mismatch");
   assert(highSeverity, "attention severity breakdown missing high severity");
   assert(readNumber(highSeverity, "open") === 3, "attention severity open count mismatch");
+  assert(readNumber(highSeverity, "unresolved") === 3, "attention severity unresolved count mismatch");
   assert(binaryType, "attention forecast-type breakdown missing binary rows");
   assert(readNumber(binaryType, "open") === 4, "attention forecast-type binary open count mismatch");
+  assert(readNumber(binaryType, "unresolved") === 4, "attention forecast-type binary unresolved count mismatch");
   assert(numericType, "attention forecast-type breakdown missing numeric rows");
   assert(readNumber(numericType, "deferred") === 1, "attention forecast-type numeric deferred count mismatch");
+  assert(readNumber(numericType, "unresolved") === 1, "attention forecast-type numeric unresolved count mismatch");
   assert(markdown.includes("## Attention Breakdown"), "health markdown missing attention breakdown");
   assert(markdown.includes("## Attention Forecast Types"), "health markdown missing attention forecast-type breakdown");
   assert(markdown.includes("Review note"), "health markdown missing review note column");
@@ -1137,6 +1141,9 @@ await check("forecast batch health summarizes latest indexed batch", async () =>
   assert(healthSource.includes("../packages/backend/src/forecast-attention-backlog"), "batch health does not import the shared attention backlog helper");
   assert(healthSource.includes("readForecastAttentionBacklogArtifacts"), "batch health does not use the shared attention backlog artifact reader");
   assert(healthSource.includes("readForecastBatchIndexArtifacts"), "batch health does not use the shared batch-index artifact reader");
+  assert(healthSource.includes("unresolved: reviewCounts.unresolved"), "batch health does not persist shared unresolved review counts in breakdowns");
+  assert(!healthSource.includes("openAttentionItems + summary.deferredAttentionItems"), "batch health should not derive unresolved attention counts locally");
+  assert(!healthSource.includes("openCandidateCalibrationGuardRules + summary.deferredCandidateCalibrationGuardRules"), "batch health should not derive unresolved candidate guard counts locally");
   assert(!healthSource.includes("listFilesNamed(batchRoot"), "batch health should not keep a local batch-index scanner");
   assert(!healthSource.includes("listFilesNamed(backlogRoot"), "batch health should not keep a local attention backlog scanner");
   assert(!healthSource.includes("readRecordArray(attentionBacklog"), "batch health should not parse supplemental attention backlog rows from raw JSON");
@@ -1545,13 +1552,13 @@ await check("diagnostics surface latest forecast batch health", async () => {
       { severity: "high", kind: "unresolved_attention", message: "3 attention item(s) remain open or deferred." },
     ],
     attentionByKind: [
-      { kind: "evidence_coverage_miss", items: 2, open: 2, deferred: 0, reviewed: 0, high: 1, medium: 1, low: 0 },
+      { kind: "evidence_coverage_miss", items: 2, open: 2, deferred: 0, reviewed: 0, unresolved: 2, high: 1, medium: 1, low: 0 },
     ],
     attentionBySeverity: [
-      { severity: "high", items: 2, open: 1, deferred: 1, reviewed: 0 },
+      { severity: "high", items: 2, open: 1, deferred: 1, reviewed: 0, unresolved: 2 },
     ],
     attentionByForecastType: [
-      { forecastType: "binary", items: 1, open: 1, deferred: 0, reviewed: 0, high: 1, medium: 0, low: 0 },
+      { forecastType: "binary", items: 1, open: 1, deferred: 0, reviewed: 0, unresolved: 1, high: 1, medium: 0, low: 0 },
     ],
     attentionItems: [
       {
@@ -1617,8 +1624,11 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(health.missingPhases.includes("forecast_performance"), "shared batch health reader did not expose missing phases");
   assert(health.issues.some((issue) => issue.kind === "unresolved_attention"), "shared batch health reader did not expose issue kinds");
   assert(health.attentionByKind.some((row) => row.kind === "evidence_coverage_miss" && row.open === 2), "shared batch health reader did not expose attention kind breakdowns");
+  assert(health.attentionByKind.some((row) => row.kind === "evidence_coverage_miss" && row.unresolved === 2), "shared batch health reader did not expose attention kind unresolved counts");
   assert(health.attentionBySeverity.some((row) => row.severity === "high" && row.deferred === 1), "shared batch health reader did not expose attention severity breakdowns");
+  assert(health.attentionBySeverity.some((row) => row.severity === "high" && row.unresolved === 2), "shared batch health reader did not expose attention severity unresolved counts");
   assert(health.attentionByForecastType.some((row) => row.forecastType === "binary" && row.open === 1), "shared batch health reader did not expose attention forecast-type breakdowns");
+  assert(health.attentionByForecastType.some((row) => row.forecastType === "binary" && row.unresolved === 1), "shared batch health reader did not expose attention forecast-type unresolved counts");
   assert(health.paths.batchIndex === "data/reports/forecast-batches/diagnostics-batch/batch-index.json", "shared batch health reader did not expose batch-index path");
   assert(health.paths.attentionBacklog === "data/reports/forecast-attention-backlog/attention-backlog.json", "shared batch health reader did not expose attention backlog path");
   assert(health.attentionItems.some((item) => item.id === "evidence-coverage:task-1:brier" && item.recommendedAction === "Audit cited sources." && item.forecastType === "binary" && item.reviewNote === "Investigate thin source coverage before rerun."), "shared batch health reader did not expose actionable attention review context");
@@ -1667,6 +1677,8 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(metricsSource.includes("open_superforecaster_forecast_batch_health_status"), "metrics do not expose batch health status");
   assert(metricsSource.includes("open_superforecaster_forecast_batch_health_unresolved_attention_items"), "metrics do not expose unresolved attention count");
   assert(metricsSource.includes("open_superforecaster_forecast_batch_health_unresolved_candidate_guard_rules"), "metrics do not expose unresolved candidate guard count");
+  assert(metricsSource.includes("unresolved: row.unresolved"), "metrics should export batch-health unresolved breakdown counts from the shared reader");
+  assert(!metricsSource.includes("unresolved: (row.open ?? 0) + (row.deferred ?? 0)"), "metrics should not derive unresolved breakdown counts locally");
   assert(diagnosticsSource.includes("items,"), "diagnostics snapshot does not expose structured diagnostic items");
   assert(dashboardHookSource.includes("...readArray(diagnostics, \"items\")"), "lab dashboard does not read diagnostics items");
   assert(dashboardHookSource.includes("forecastBatchHealth"), "lab dashboard does not expose forecast batch health from diagnostics");
@@ -1778,6 +1790,7 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(attentionPolicySource.includes("isForecastAttentionReviewResolved"), "shared forecast attention policy does not expose resolved review policy");
   assert(attentionPolicySource.includes("isForecastAttentionReviewDeferred"), "shared forecast attention policy does not expose deferred review policy");
   assert(attentionPolicySource.includes("isForecastAttentionReviewUnresolved"), "shared forecast attention policy does not expose unresolved review policy");
+  assert(attentionPolicySource.includes("unresolved: open + deferred"), "shared forecast attention policy does not summarize unresolved review counts");
   assert(attentionPolicySource.includes("forecastAttentionSeveritySortRank"), "shared forecast attention policy does not expose severity sort ranking");
   assert(attentionPolicySource.includes("summarizeForecastAttentionSeverities"), "shared forecast attention policy does not expose severity counts");
   assert(attentionPolicySource.includes("performanceAttentionSeverityRank"), "shared forecast attention policy does not expose performance severity ranking");
@@ -2299,6 +2312,8 @@ await check("forecast calibration health is exported to DuckDB", async () => {
   assert(syncSource.includes("attention_backlog_path"), "batch health mart missing attention-backlog source path");
   assert(syncSource.includes("source_path: item.sourcePath"), "batch health attention-item mart missing source path");
   assert(syncSource.includes("unresolved_items"), "batch health attention-type mart missing unresolved item count");
+  assert(syncSource.includes("unresolved_items: row.unresolved"), "DuckDB sync should export batch-health unresolved breakdown counts from the shared reader");
+  assert(!syncSource.includes("unresolved_items: (row.open ?? 0) + (row.deferred ?? 0)"), "DuckDB sync should not derive unresolved breakdown counts locally");
   assert(syncSource.includes("review_note"), "batch health candidate guard mart missing review note");
   assert(syncSource.includes("reviewer"), "batch health candidate guard mart missing reviewer");
   assert(syncSource.includes("reviewed_at"), "batch health candidate guard mart missing review timestamp");

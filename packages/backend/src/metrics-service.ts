@@ -2159,6 +2159,7 @@ type ForecastBatchHealthAttentionBreakdownRow = {
   open: number | null;
   deferred: number | null;
   reviewed: number | null;
+  unresolved: number | null;
   high?: number | null;
   medium?: number | null;
   low?: number | null;
@@ -2206,7 +2207,7 @@ function emitForecastBatchHealthAttentionBreakdownRow(
     open: row.open,
     deferred: row.deferred,
     reviewed: row.reviewed,
-    unresolved: (row.open ?? 0) + (row.deferred ?? 0),
+    unresolved: row.unresolved,
     high: row.high ?? null,
     medium: row.medium ?? null,
     low: row.low ?? null,

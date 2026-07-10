@@ -39,6 +39,7 @@ export type ForecastBatchAttentionKindBreakdown = {
   open: number | null;
   deferred: number | null;
   reviewed: number | null;
+  unresolved: number | null;
   high: number | null;
   medium: number | null;
   low: number | null;
@@ -50,6 +51,7 @@ export type ForecastBatchAttentionSeverityBreakdown = {
   open: number | null;
   deferred: number | null;
   reviewed: number | null;
+  unresolved: number | null;
 };
 
 export type ForecastBatchAttentionForecastTypeBreakdown = {
@@ -58,6 +60,7 @@ export type ForecastBatchAttentionForecastTypeBreakdown = {
   open: number | null;
   deferred: number | null;
   reviewed: number | null;
+  unresolved: number | null;
   high: number | null;
   medium: number | null;
   low: number | null;
@@ -264,6 +267,7 @@ function readAttentionKindArray(value: Record<string, unknown> | null, key: stri
     open: readNumber(record, "open"),
     deferred: readNumber(record, "deferred"),
     reviewed: readNumber(record, "reviewed"),
+    unresolved: readNumber(record, "unresolved"),
     high: readNumber(record, "high"),
     medium: readNumber(record, "medium"),
     low: readNumber(record, "low"),
@@ -277,6 +281,7 @@ function readAttentionSeverityArray(value: Record<string, unknown> | null, key: 
     open: readNumber(record, "open"),
     deferred: readNumber(record, "deferred"),
     reviewed: readNumber(record, "reviewed"),
+    unresolved: readNumber(record, "unresolved"),
   }));
 }
 
@@ -287,6 +292,7 @@ function readAttentionForecastTypeArray(value: Record<string, unknown> | null, k
     open: readNumber(record, "open"),
     deferred: readNumber(record, "deferred"),
     reviewed: readNumber(record, "reviewed"),
+    unresolved: readNumber(record, "unresolved"),
     high: readNumber(record, "high"),
     medium: readNumber(record, "medium"),
     low: readNumber(record, "low"),

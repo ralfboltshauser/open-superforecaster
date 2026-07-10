@@ -59,6 +59,7 @@ type AttentionKindBreakdown = {
   open: number;
   deferred: number;
   reviewed: number;
+  unresolved: number;
   high: number;
   medium: number;
   low: number;
@@ -70,6 +71,7 @@ type AttentionSeverityBreakdown = {
   open: number;
   deferred: number;
   reviewed: number;
+  unresolved: number;
 };
 
 type AttentionForecastTypeBreakdown = {
@@ -78,6 +80,7 @@ type AttentionForecastTypeBreakdown = {
   open: number;
   deferred: number;
   reviewed: number;
+  unresolved: number;
   high: number;
   medium: number;
   low: number;
@@ -267,17 +270,15 @@ async function buildHealthReport(
     openAttentionItems: attentionReviewCounts.open,
     deferredAttentionItems: attentionReviewCounts.deferred,
     reviewedAttentionItems: attentionReviewCounts.reviewed,
-    unresolvedAttentionItems: 0,
+    unresolvedAttentionItems: attentionReviewCounts.unresolved,
     scoreRegressionItems: countScoreRegressions(attentionItems),
     calibrationGuardRegressionItems: countCalibrationGuardRegressions(attentionItems),
     candidateCalibrationGuardRules: readNumber(counts, "candidateCalibrationGuardRules") ?? candidateCalibrationGuardRules.length,
     openCandidateCalibrationGuardRules: readNumber(counts, "openCandidateCalibrationGuardRules") ?? candidateGuardReviewCounts.open,
     deferredCandidateCalibrationGuardRules: readNumber(counts, "deferredCandidateCalibrationGuardRules") ?? candidateGuardReviewCounts.deferred,
     reviewedCandidateCalibrationGuardRules: readNumber(counts, "reviewedCandidateCalibrationGuardRules") ?? candidateGuardReviewCounts.reviewed,
-    unresolvedCandidateCalibrationGuardRules: 0,
+    unresolvedCandidateCalibrationGuardRules: candidateGuardReviewCounts.unresolved,
   };
-  summary.unresolvedAttentionItems = summary.openAttentionItems + summary.deferredAttentionItems;
-  summary.unresolvedCandidateCalibrationGuardRules = summary.openCandidateCalibrationGuardRules + summary.deferredCandidateCalibrationGuardRules;
   const missingPhases = expectedPhases.filter((phase) => countPhase(summary, phase) === 0);
   const attentionByKind = summarizeAttentionByKind(attentionItems);
   const attentionBySeverity = summarizeAttentionBySeverity(attentionItems);
@@ -740,6 +741,7 @@ function summarizeAttentionByKind(items: HealthAttentionItem[]): AttentionKindBr
         open: reviewCounts.open,
         deferred: reviewCounts.deferred,
         reviewed: reviewCounts.reviewed,
+        unresolved: reviewCounts.unresolved,
         high: severityCounts.high,
         medium: severityCounts.medium,
         low: severityCounts.low,
@@ -762,6 +764,7 @@ function summarizeAttentionBySeverity(items: HealthAttentionItem[]): AttentionSe
         open: reviewCounts.open,
         deferred: reviewCounts.deferred,
         reviewed: reviewCounts.reviewed,
+        unresolved: reviewCounts.unresolved,
       };
     })
     .sort((left, right) => forecastAttentionSeveritySortRank(left.severity) - forecastAttentionSeveritySortRank(right.severity) || left.severity.localeCompare(right.severity));
@@ -778,6 +781,7 @@ function summarizeAttentionByForecastType(items: HealthAttentionItem[]): Attenti
         open: reviewCounts.open,
         deferred: reviewCounts.deferred,
         reviewed: reviewCounts.reviewed,
+        unresolved: reviewCounts.unresolved,
         high: severityCounts.high,
         medium: severityCounts.medium,
         low: severityCounts.low,

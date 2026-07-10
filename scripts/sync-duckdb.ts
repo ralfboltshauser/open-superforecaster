@@ -2339,7 +2339,7 @@ function buildForecastBatchHealthAttentionKindMartRows(health: ForecastBatchHeal
     open_items: row.open,
     deferred_items: row.deferred,
     reviewed_items: row.reviewed,
-    unresolved_items: (row.open ?? 0) + (row.deferred ?? 0),
+    unresolved_items: row.unresolved,
     high_items: row.high,
     medium_items: row.medium,
     low_items: row.low,
@@ -2357,7 +2357,7 @@ function buildForecastBatchHealthAttentionSeverityMartRows(health: ForecastBatch
     open_items: row.open,
     deferred_items: row.deferred,
     reviewed_items: row.reviewed,
-    unresolved_items: (row.open ?? 0) + (row.deferred ?? 0),
+    unresolved_items: row.unresolved,
   }));
 }
 
@@ -2372,7 +2372,7 @@ function buildForecastBatchHealthAttentionTypeMartRows(health: ForecastBatchHeal
     open_items: row.open,
     deferred_items: row.deferred,
     reviewed_items: row.reviewed,
-    unresolved_items: (row.open ?? 0) + (row.deferred ?? 0),
+    unresolved_items: row.unresolved,
     high_items: row.high,
     medium_items: row.medium,
     low_items: row.low,

@@ -62,6 +62,7 @@ export type ForecastAttentionReviewStatusCounts = {
   open: number;
   deferred: number;
   reviewed: number;
+  unresolved: number;
 };
 
 export type SupplementalForecastAttentionKind =
@@ -108,11 +109,14 @@ export function isForecastAttentionReviewUnresolved(status: string | null | unde
 export function summarizeForecastAttentionReviewStatuses<T extends { reviewStatus: string | null | undefined }>(
   items: T[],
 ): ForecastAttentionReviewStatusCounts {
+  const open = items.filter((item) => item.reviewStatus === "open").length;
+  const deferred = items.filter((item) => item.reviewStatus === "deferred").length;
   return {
     items: items.length,
-    open: items.filter((item) => item.reviewStatus === "open").length,
-    deferred: items.filter((item) => item.reviewStatus === "deferred").length,
+    open,
+    deferred,
     reviewed: items.filter((item) => item.reviewStatus === "reviewed").length,
+    unresolved: open + deferred,
   };
 }
 
