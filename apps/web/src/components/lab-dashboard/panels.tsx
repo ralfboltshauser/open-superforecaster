@@ -700,6 +700,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
   const byInputConditionCriteria = readArray(groups, "byInputConditionCriteria").filter(isRecord)
   const byInputUnitSpecificity = readArray(groups, "byInputUnitSpecificity").filter(isRecord)
   const byRunDuration = readArray(groups, "byRunDuration").filter(isRecord)
+  const byRunWorkflowVersion = readArray(groups, "byRunWorkflowVersion").filter(isRecord)
+  const byRunWorkflowVariant = readArray(groups, "byRunWorkflowVariant").filter(isRecord)
   const byRunExperiment = readArray(groups, "byRunExperiment").filter(isRecord)
   const bestForecasts = readArray(performance, "bestResolvedForecasts").filter(isRecord)
   const worstForecasts = readArray(performance, "worstResolvedForecasts").filter(isRecord)
@@ -831,6 +833,8 @@ export function PerformanceCard({ performance }: { performance: JsonRecord | nul
         {byInputConditionCriteriaDepth.length ? <PerformancePlanShapeGroupList groups={byInputConditionCriteriaDepth} title="Input condition-criteria-depth outcomes" skipKey="input_condition_criteria_depth:unrecorded" fallback="input condition criteria depth" /> : null}
         {byInputUnitSpecificity.length ? <PerformancePlanShapeGroupList groups={byInputUnitSpecificity} title="Input unit outcomes" skipKey="input_unit:unrecorded" fallback="input unit" /> : null}
         {byRunDuration.length ? <PerformancePlanShapeGroupList groups={byRunDuration} title="Run duration outcomes" skipKey="run_duration:unrecorded" fallback="run duration" /> : null}
+        {byRunWorkflowVersion.length ? <PerformancePlanShapeGroupList groups={byRunWorkflowVersion} title="Run workflow-version outcomes" skipKey="run_workflow_version:unrecorded" fallback="workflow version" /> : null}
+        {byRunWorkflowVariant.length ? <PerformancePlanShapeGroupList groups={byRunWorkflowVariant} title="Run workflow-variant outcomes" skipKey="run_workflow_variant:unrecorded" fallback="workflow variant" /> : null}
         {byRunExperiment.length ? <PerformancePlanShapeGroupList groups={byRunExperiment} title="Run experiment outcomes" skipKey="run_experiment:unrecorded" fallback="run experiment" /> : null}
         {calibrationBuckets.length ? <PerformanceCalibrationList buckets={calibrationBuckets} summary={calibrationSummary} /> : null}
         {candidateCalibrationGuardRules.length ? <PerformanceCandidateGuardList rules={candidateCalibrationGuardRules} /> : null}

@@ -1045,6 +1045,8 @@ await check("forecast performance reports surface candidate calibration guards",
   assert(resolutionSource.includes("## Input condition-criteria-depth groups"), "performance Markdown missing input condition-criteria-depth group section");
   assert(resolutionSource.includes("## Input unit-specificity groups"), "performance Markdown missing input unit-specificity group section");
   assert(resolutionSource.includes("## Run duration groups"), "performance Markdown missing run duration group section");
+  assert(resolutionSource.includes("## Run workflow-version groups"), "performance Markdown missing run workflow-version group section");
+  assert(resolutionSource.includes("## Run workflow-variant groups"), "performance Markdown missing run workflow-variant group section");
   assert(resolutionSource.includes("## Run experiment groups"), "performance Markdown missing run experiment group section");
   assert(resolutionSource.includes("## Candidate calibration guards"), "performance Markdown missing candidate calibration guard section");
   assert(dashboardSource.includes("candidateCalibrationGuardRules"), "lab dashboard does not read candidate calibration guard rules");
@@ -2737,11 +2739,18 @@ await check("forecast run metadata reaches resolved score analytics", async () =
   const dashboardSource = await readFile(resolve(root, "apps/web/src/components/lab-dashboard/panels.tsx"), "utf8");
   assert(resolutionSource.includes("readForecastRunSnapshot(task)"), "resolution scoring does not persist run metadata from task rows");
   assert(resolutionSource.includes("byRunDuration"), "performance report does not group by run duration");
+  assert(resolutionSource.includes("byRunWorkflowVersion"), "performance report does not group by workflow version");
+  assert(resolutionSource.includes("byRunWorkflowVariant"), "performance report does not group by workflow variant");
   assert(resolutionSource.includes("byRunExperiment"), "performance report does not group by run experiment");
   assert(metricsSource.includes("open_superforecaster_run_metadata_scores_total"), "metrics missing run metadata score counts");
+  assert(metricsSource.includes("workflow_version_status"), "metrics missing workflow version status labels");
+  assert(metricsSource.includes("workflow_variant_status"), "metrics missing workflow variant status labels");
   assert(syncSource.includes("run_workflow_version"), "DuckDB forecast score mart missing workflow version");
+  assert(syncSource.includes("run_workflow_variant_id"), "DuckDB forecast score mart missing workflow variant");
   assert(syncSource.includes("run_duration_band"), "DuckDB forecast score mart missing duration band");
   assert(dashboardSource.includes("Run duration outcomes"), "lab dashboard does not render run duration outcomes");
+  assert(dashboardSource.includes("Run workflow-version outcomes"), "lab dashboard does not render run workflow-version outcomes");
+  assert(dashboardSource.includes("Run workflow-variant outcomes"), "lab dashboard does not render run workflow-variant outcomes");
   assert(dashboardSource.includes("Run experiment outcomes"), "lab dashboard does not render run experiment outcomes");
   return "forecast run metadata is persisted and visible in resolved score analytics";
 });

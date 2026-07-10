@@ -488,6 +488,8 @@ export async function getForecastPerformanceReport(db: Db) {
   const byInputConditionCriteria = groupScores(aggregateScores, inputConditionCriteriaGroupKey);
   const byInputUnitSpecificity = groupScores(aggregateScores, inputUnitSpecificityGroupKey);
   const byRunDuration = groupScores(aggregateScores, runDurationGroupKey);
+  const byRunWorkflowVersion = groupScores(aggregateScores, runWorkflowVersionGroupKey);
+  const byRunWorkflowVariant = groupScores(aggregateScores, runWorkflowVariantGroupKey);
   const byRunExperiment = groupScores(aggregateScores, runExperimentGroupKey);
   const calibrationGuardImpact = buildCalibrationGuardImpact(scoreRowsForCalibrationGuardImpact(aggregateBrierScores));
   const rankedAggregateCases = rankAggregateCases(aggregateScores, taskMeta, resolutionById);
@@ -610,6 +612,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputConditionCriteria,
       byInputUnitSpecificity,
       byRunDuration,
+      byRunWorkflowVersion,
+      byRunWorkflowVariant,
       byRunExperiment,
     },
     bestResolvedForecasts,
@@ -722,6 +726,8 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputConditionCriteria,
       byInputUnitSpecificity,
       byRunDuration,
+      byRunWorkflowVersion,
+      byRunWorkflowVariant,
       byRunExperiment,
       bestResolvedForecasts,
       worstResolvedForecasts,
@@ -1915,6 +1921,16 @@ function inputUnitSpecificityGroupKey(score: typeof forecastScores.$inferSelect)
 function runDurationGroupKey(score: typeof forecastScores.$inferSelect) {
   const runMetadata = readForecastRunSnapshot(score.scoreConfig);
   return `run_duration:${runMetadata?.durationBand ?? "unrecorded"}`;
+}
+
+function runWorkflowVersionGroupKey(score: typeof forecastScores.$inferSelect) {
+  const runMetadata = readForecastRunSnapshot(score.scoreConfig);
+  return runMetadata?.workflowVersion ? `run_workflow_version:${runMetadata.workflowVersion}` : "run_workflow_version:unrecorded";
+}
+
+function runWorkflowVariantGroupKey(score: typeof forecastScores.$inferSelect) {
+  const runMetadata = readForecastRunSnapshot(score.scoreConfig);
+  return runMetadata?.workflowVariantId ? `run_workflow_variant:${runMetadata.workflowVariantId}` : "run_workflow_variant:unrecorded";
 }
 
 function runExperimentGroupKey(score: typeof forecastScores.$inferSelect) {
@@ -3638,6 +3654,8 @@ function renderPerformanceMarkdown(input: {
   byInputConditionCriteria: PerformanceGroup[];
   byInputUnitSpecificity: PerformanceGroup[];
   byRunDuration: PerformanceGroup[];
+  byRunWorkflowVersion: PerformanceGroup[];
+  byRunWorkflowVariant: PerformanceGroup[];
   byRunExperiment: PerformanceGroup[];
   bestResolvedForecasts: PerformanceCase[];
   worstResolvedForecasts: PerformanceCase[];
@@ -3917,6 +3935,12 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Run duration groups",
     ...renderGroupTable(input.byRunDuration),
+    "",
+    "## Run workflow-version groups",
+    ...renderGroupTable(input.byRunWorkflowVersion),
+    "",
+    "## Run workflow-variant groups",
+    ...renderGroupTable(input.byRunWorkflowVariant),
     "",
     "## Run experiment groups",
     ...renderGroupTable(input.byRunExperiment),

@@ -1302,6 +1302,9 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     const labels = {
       score_type: "all",
       duration_band: "none",
+      workflow_version_status: "none",
+      workflow_variant_status: "none",
+      experiment_label_status: "none",
     };
     metrics.gauge(
       "open_superforecaster_run_metadata_scores_total",
@@ -1321,6 +1324,9 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     return labelKey({
       score_type: row.scoreType,
       duration_band: runMetadata?.durationBand ?? "unknown",
+      workflow_version_status: runMetadata?.workflowVersion ? "recorded" : "missing",
+      workflow_variant_status: runMetadata?.workflowVariantId ? "recorded" : "missing",
+      experiment_label_status: runMetadata?.experimentLabel ? "recorded" : "missing",
     });
   })) {
     const labels = parseLabelKey(key);

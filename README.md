@@ -368,8 +368,9 @@ missing-threshold-direction, threshold-curve, generic-unit,
 condition-underspecified, thin-condition, or richly specified questions can be measured
 separately from sparse prompts.
 Score rows also keep workflow version,
-workflow variant, experiment label, and run duration bands so quality changes
-can be compared against runtime and variant changes.
+workflow variant, experiment label, and run duration bands, and resolved
+performance reports group by each run-lineage signal so quality changes can be
+compared against runtime and variant changes.
 
 To consolidate those local artifacts into one audit file:
 
