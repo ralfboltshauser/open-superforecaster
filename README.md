@@ -351,13 +351,13 @@ aggregates. They also share canonical evidence aggregation with source-bank
 persistence, so repeated citations are deduped before source-count analytics and
 attempt-level key uncertainties are preserved on aggregate forecasts. New forecast runs also preserve
 structured input context in score rows, including resolution criteria/date,
-resolution-criteria depth, resolution horizon, requested and routed forecast
+resolution-criteria depth, evidence as-of date, resolution horizon, requested and routed forecast
 type, routing confidence, input source, market price and market-price recency, background, background depth,
 market metadata and market creation age, option counts and coverage, threshold counts, values,
 direction and bands, condition/unit flags, unit specificity,
 condition-criteria coverage, condition depth, condition-criteria depth, and
-question length, so short-horizon, thin-resolution-criteria, requested/routed-type
-mismatches, low-confidence routing, source-specific templates, thin-background, stale-market, market-anchored,
+question length, so missing-as-of, short-horizon, thin-resolution-criteria,
+requested/routed-type mismatches, low-confidence routing, source-specific templates, thin-background, stale-market, market-anchored,
 market-traceability, option-heavy, open-category, missing-threshold-value,
 missing-threshold-direction, threshold-curve, generic-unit,
 condition-underspecified, thin-condition, or richly specified questions can be measured

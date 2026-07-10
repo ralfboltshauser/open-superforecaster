@@ -445,6 +445,7 @@ export async function getForecastPerformanceReport(db: Db) {
   const byInputRoutingConfidence = groupScores(aggregateScores, inputRoutingConfidenceGroupKey);
   const byInputSource = groupScores(aggregateScores, inputSourceGroupKey);
   const byInputContextCompleteness = groupScores(aggregateScores, inputContextCompletenessGroupKey);
+  const byInputEvidenceAsOfDate = groupScores(aggregateScores, inputEvidenceAsOfDateGroupKey);
   const byInputResolutionCriteriaDepth = groupScores(aggregateScores, inputResolutionCriteriaDepthGroupKey);
   const byInputResolutionHorizon = groupScores(aggregateScores, inputResolutionHorizonGroupKey);
   const byInputBackgroundDepth = groupScores(aggregateScores, inputBackgroundDepthGroupKey);
@@ -553,6 +554,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputRoutingConfidence,
       byInputSource,
       byInputContextCompleteness,
+      byInputEvidenceAsOfDate,
       byInputResolutionCriteriaDepth,
       byInputResolutionHorizon,
       byInputBackgroundDepth,
@@ -651,6 +653,7 @@ export async function getForecastPerformanceReport(db: Db) {
       byInputRoutingConfidence,
       byInputSource,
       byInputContextCompleteness,
+      byInputEvidenceAsOfDate,
       byInputResolutionCriteriaDepth,
       byInputResolutionHorizon,
       byInputBackgroundDepth,
@@ -1691,6 +1694,11 @@ function inputContextCompletenessGroupKey(score: typeof forecastScores.$inferSel
   return `input_context:${inputContext?.contextCompletenessBand ?? "unrecorded"}`;
 }
 
+function inputEvidenceAsOfDateGroupKey(score: typeof forecastScores.$inferSelect) {
+  const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
+  return `input_evidence_as_of:${inputContext?.evidenceAsOfDateBand ?? "unrecorded"}`;
+}
+
 function inputResolutionCriteriaDepthGroupKey(score: typeof forecastScores.$inferSelect) {
   const inputContext = readForecastInputContextSnapshot(score.scoreConfig);
   return `input_resolution_criteria:${inputContext?.resolutionCriteriaLengthBand ?? "unrecorded"}`;
@@ -2695,6 +2703,13 @@ function inputContextMissSignal(item: PerformanceCase): { reason: string; delta:
       severity: !context.hasResolutionCriteria ? "high" : "medium",
     };
   }
+  if (!context.hasEvidenceAsOfDate) {
+    return {
+      reason: "missing evidence as-of date in the forecast input",
+      delta: context.contextCompleteness,
+      severity: "medium",
+    };
+  }
   if (context.resolutionCriteriaLengthBand === "thin") {
     return {
       reason: `thin resolution criteria (${context.resolutionCriteriaLength ?? 0} words)`,
@@ -3010,6 +3025,7 @@ function renderPerformanceMarkdown(input: {
   byInputRoutingConfidence: PerformanceGroup[];
   byInputSource: PerformanceGroup[];
   byInputContextCompleteness: PerformanceGroup[];
+  byInputEvidenceAsOfDate: PerformanceGroup[];
   byInputResolutionCriteriaDepth: PerformanceGroup[];
   byInputResolutionHorizon: PerformanceGroup[];
   byInputBackgroundDepth: PerformanceGroup[];
@@ -3211,6 +3227,9 @@ function renderPerformanceMarkdown(input: {
     "",
     "## Input context-completeness groups",
     ...renderGroupTable(input.byInputContextCompleteness),
+    "",
+    "## Input evidence-as-of-date groups",
+    ...renderGroupTable(input.byInputEvidenceAsOfDate),
     "",
     "## Input resolution-criteria-depth groups",
     ...renderGroupTable(input.byInputResolutionCriteriaDepth),

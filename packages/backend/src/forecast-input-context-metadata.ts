@@ -16,7 +16,9 @@ export type ForecastInputContextSnapshot = {
   resolutionCriteriaLengthBand: "absent" | "thin" | "adequate" | "detailed" | "unknown";
   hasResolutionDate: boolean;
   resolutionDate: string | null;
+  hasEvidenceAsOfDate: boolean;
   evidenceAsOfDate: string | null;
+  evidenceAsOfDateBand: "specified" | "missing" | "unknown";
   resolutionHorizonDays: number | null;
   resolutionHorizonBand: "elapsed" | "near" | "short" | "medium" | "long" | "unknown";
   hasBackground: boolean;
@@ -89,6 +91,7 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   const hasResolutionDate = Boolean(normalized.resolutionDate?.trim());
   const resolutionDate = readIsoDate(raw, "resolutionDate", "resolution_date");
   const evidenceAsOfDate = readIsoDate(raw, "presentDate", "present_date", "evidenceAsOfDate", "evidence_as_of_date", "asOfDate", "as_of_date", "cutoffDate", "cutoff_date", "cutoff");
+  const hasEvidenceAsOfDate = evidenceAsOfDate !== null;
   const resolutionHorizonDays = horizonDays(evidenceAsOfDate, resolutionDate);
   const hasBackground = Boolean(normalized.background?.trim());
   const backgroundLength = normalized.background?.trim() ? wordCount(normalized.background) : null;
@@ -137,7 +140,9 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     resolutionCriteriaLengthBand: resolutionCriteriaLengthBand(resolutionCriteriaLength),
     hasResolutionDate,
     resolutionDate,
+    hasEvidenceAsOfDate,
     evidenceAsOfDate,
+    evidenceAsOfDateBand: evidenceAsOfDateBand(hasEvidenceAsOfDate),
     resolutionHorizonDays,
     resolutionHorizonBand: resolutionHorizonBand(resolutionHorizonDays),
     hasBackground,
@@ -202,6 +207,9 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   const thresholdValueCount = readNumber(value, "thresholdValueCount");
   const thresholdDirection = readInputThresholdDirectionValue(value);
   const resolutionHorizonDays = readNumber(value, "resolutionHorizonDays");
+  const hasEvidenceAsOfDate = readBoolean(value, "hasEvidenceAsOfDate");
+  const evidenceAsOfDate = readString(value, "evidenceAsOfDate");
+  const evidenceAsOfDateBandValue = readString(value, "evidenceAsOfDateBand");
   const marketPriceAgeDays = readNumber(value, "marketPriceAgeDays");
   const marketCreationAgeDays = readNumber(value, "marketCreationAgeDays");
   const backgroundLength = readNumber(value, "backgroundLength");
@@ -248,7 +256,11 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
       : resolutionCriteriaLengthBand(resolutionCriteriaLength),
     hasResolutionDate: readBoolean(value, "hasResolutionDate") ?? false,
     resolutionDate: readString(value, "resolutionDate"),
-    evidenceAsOfDate: readString(value, "evidenceAsOfDate"),
+    hasEvidenceAsOfDate: hasEvidenceAsOfDate ?? Boolean(evidenceAsOfDate),
+    evidenceAsOfDate,
+    evidenceAsOfDateBand: isEvidenceAsOfDateBand(evidenceAsOfDateBandValue)
+      ? evidenceAsOfDateBandValue
+      : evidenceAsOfDateBand(hasEvidenceAsOfDate ?? Boolean(evidenceAsOfDate)),
     resolutionHorizonDays,
     resolutionHorizonBand: isResolutionHorizonBand(resolutionHorizonBandValue)
       ? resolutionHorizonBandValue
@@ -375,6 +387,10 @@ export function routingConfidenceBand(confidence: number | null): ForecastInputC
     return "medium";
   }
   return "high";
+}
+
+export function evidenceAsOfDateBand(hasEvidenceAsOfDate: boolean): ForecastInputContextSnapshot["evidenceAsOfDateBand"] {
+  return hasEvidenceAsOfDate ? "specified" : "missing";
 }
 
 export function inputSourceBand(source: string | null): ForecastInputContextSnapshot["inputSourceBand"] {
@@ -717,6 +733,10 @@ function isForecastTypePresenceBand(value: string | null): value is ForecastInpu
 
 function isRoutingConfidenceBand(value: string | null): value is ForecastInputContextSnapshot["routingConfidenceBand"] {
   return value === "low" || value === "medium" || value === "high" || value === "unknown";
+}
+
+function isEvidenceAsOfDateBand(value: string | null): value is ForecastInputContextSnapshot["evidenceAsOfDateBand"] {
+  return value === "specified" || value === "missing" || value === "unknown";
 }
 
 function isInputSourceBand(value: string | null): value is ForecastInputContextSnapshot["inputSourceBand"] {
