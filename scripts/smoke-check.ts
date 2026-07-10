@@ -70,8 +70,13 @@ async function runSmokeChecks() {
     if (typeof benchmarkPromotion.recentRuns !== "number" || typeof benchmarkPromotion.sourceRiskBlockedRuns !== "number") {
       throw new Error("diagnostics benchmark promotion counts are incomplete");
     }
-    if (!Array.isArray(benchmarkPromotion.latestGateBlockers)) {
+    if (!Array.isArray(benchmarkPromotion.latestGateBlockers) || !Array.isArray(benchmarkPromotion.gateBlockers)) {
       throw new Error("diagnostics benchmark promotion blockers are incomplete");
+    }
+    for (const row of benchmarkPromotion.gateBlockers) {
+      if (!isRecord(row) || typeof row.blocker !== "string" || typeof row.count !== "number" || typeof row.sourceRisk !== "boolean") {
+        throw new Error("diagnostics benchmark promotion blocker breakdown is incomplete");
+      }
     }
     if (!workflowProposalReadiness || !workflowProposalReadinessItem || !readString(workflowProposalReadinessItem, "status")) {
       throw new Error("diagnostics workflow proposal readiness summary is incomplete");

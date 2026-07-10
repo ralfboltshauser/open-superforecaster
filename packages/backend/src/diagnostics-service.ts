@@ -16,7 +16,7 @@ import {
 import type { AppConfig } from "@open-superforecaster/config";
 import { formatAgentRef, loadAgentPolicy } from "@open-superforecaster/config";
 import { buildHealthSnapshot } from "./health";
-import { listBenchmarkRuns, workflowProposalValidationReadiness } from "./benchmark-service";
+import { benchmarkPromotionSourceRiskBlockerIds, listBenchmarkRuns, workflowProposalValidationReadiness } from "./benchmark-service";
 import { listMaintenanceActions, listMaintenanceJobs } from "./maintenance-service";
 import { createObjectStorageTargets, tryHeadBucket } from "./object-storage";
 import { readLatestForecastBatchHealth, type ForecastBatchHealthSnapshot } from "./forecast-batch-health";
@@ -46,6 +46,8 @@ type WorkflowProposalDiagnosticRow = {
   validationGateBlockers: unknown;
   createdAt: Date | null;
 };
+
+const benchmarkSourceRiskBlockerIds = new Set<string>(benchmarkPromotionSourceRiskBlockerIds);
 
 export async function buildDiagnosticsSnapshot(db: Db, config: AppConfig, input: { root: string }) {
   const agentPolicy = loadAgentPolicy(process.env, input.root);
@@ -251,15 +253,22 @@ function benchmarkPromotionDiagnostics(runs: unknown[]) {
   });
   const sourceRiskBlockedRuns = blockedRuns.filter((run) => {
     const blockers = readStringArray(readRecord(run, "promotionGate"), "blockers");
-    return blockers.includes("source_concentration") || blockers.includes("low_quality_sources");
+    return blockers.some((blocker) => benchmarkSourceRiskBlockerIds.has(blocker));
   });
   const latestGate = readRecord(latestRun, "promotionGate");
+  const blockerCounts = Array.from(
+    blockedRuns
+      .flatMap((run) => readStringArray(readRecord(run, "promotionGate"), "blockers"))
+      .reduce((counts, blocker) => counts.set(blocker, (counts.get(blocker) ?? 0) + 1), new Map<string, number>()),
+    ([blocker, count]) => ({ blocker, count, sourceRisk: benchmarkSourceRiskBlockerIds.has(blocker) }),
+  ).sort((left, right) => right.count - left.count || left.blocker.localeCompare(right.blocker));
   return {
     latestBenchmarkRunId: readString(latestRun, "id"),
     latestExperimentLabel: readString(latestRun, "experimentLabel"),
     latestEvalMode: readString(latestRun, "evalMode"),
     latestGateStatus: readString(latestGate, "status") ?? "unknown",
     latestGateBlockers: readStringArray(latestGate, "blockers"),
+    gateBlockers: blockerCounts.slice(0, 8),
     recentRuns: runs.length,
     blockedRuns: blockedRuns.length,
     sourceRiskBlockedRuns: sourceRiskBlockedRuns.length,
@@ -270,7 +279,7 @@ function benchmarkPromotionDiagnostics(runs: unknown[]) {
 function benchmarkPromotionDiagnostic(promotion: ReturnType<typeof benchmarkPromotionDiagnostics>): DiagnosticItem {
   const hasLatestRun = Boolean(promotion.latestBenchmarkRunId);
   const sourceRiskDetail = promotion.sourceRiskBlockedRuns
-    ? `; ${promotion.sourceRiskBlockedRuns} recent run(s) blocked by source concentration or low-quality sources`
+    ? `; ${promotion.sourceRiskBlockedRuns} recent run(s) blocked by source-risk evidence`
     : "";
   return {
     key: "benchmark_promotion_gate",

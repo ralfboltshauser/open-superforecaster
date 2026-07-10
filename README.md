@@ -424,7 +424,8 @@ exports those source-risk signals through Prometheus, DuckDB, and the lab run
 cards. Promotion review blocks on dominant source-domain cases or low-quality
 final-use sources, so workflow changes are not promoted from brittle source
 evidence. Diagnostics also reuse the benchmark read model to show the latest
-promotion-gate status, current blockers, and recent source-risk-blocked runs.
+promotion-gate status, current blockers, top blocker-count breakdowns, and
+recent source-risk-blocked runs.
 
 To consolidate those local artifacts into one audit file:
 

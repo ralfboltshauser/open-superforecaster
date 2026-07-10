@@ -121,6 +121,13 @@ const [
   blockerMissingAggregateRationale,
 ] = benchmarkPromotionGateBlockerIds;
 
+export const benchmarkPromotionSourceRiskBlockerIds = [
+  blockerSourceCutoffLeakage,
+  blockerHumanForecastLeakage,
+  blockerSourceConcentration,
+  blockerLowQualitySources,
+] as const;
+
 export const benchmarkHoldoutSplitIds = ["holdout", "test", "validation", "eval", "evaluation"] as const;
 const minimumPromotionPairedCases = 10;
 const minimumPromotionHoldoutCases = 10;

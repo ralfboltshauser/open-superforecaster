@@ -952,6 +952,7 @@ await check("diagnostics surface latest forecast batch health", async () => {
   });
   const health = readLatestForecastBatchHealth(fixtureRoot);
   const diagnosticsSource = await readFile(resolve(root, "packages/backend/src/diagnostics-service.ts"), "utf8");
+  const benchmarkServiceSource = await readFile(resolve(root, "packages/backend/src/benchmark-service.ts"), "utf8");
   const metricsSource = await readFile(resolve(root, "packages/backend/src/metrics-service.ts"), "utf8");
   const smokeSource = await readFile(resolve(root, "scripts/smoke-check.ts"), "utf8");
   const sourceDomainSummarySource = await readFile(resolve(root, "packages/backend/src/source-domain-summary.ts"), "utf8");
@@ -976,10 +977,14 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(diagnosticsSource.includes("benchmarkPromotionDiagnostics"), "diagnostics does not summarize benchmark promotion gates");
   assert(diagnosticsSource.includes("benchmarkPromotionDiagnostic"), "diagnostics does not turn benchmark promotion status into a check item");
   assert(diagnosticsSource.includes("sourceRiskBlockedRuns"), "diagnostics does not expose source-risk-blocked benchmark runs");
-  assert(diagnosticsSource.includes("source_concentration") && diagnosticsSource.includes("low_quality_sources"), "diagnostics does not preserve source-risk blocker context");
+  assert(benchmarkServiceSource.includes("benchmarkPromotionSourceRiskBlockerIds"), "backend does not keep source-risk promotion blockers with the promotion blocker contract");
+  assert(diagnosticsSource.includes("benchmarkPromotionSourceRiskBlockerIds"), "diagnostics does not derive source-risk blockers from the promotion blocker contract");
+  assert(benchmarkServiceSource.includes("blockerSourceCutoffLeakage") && benchmarkServiceSource.includes("blockerHumanForecastLeakage"), "promotion source-risk contract does not include leakage blockers");
+  assert(diagnosticsSource.includes("gateBlockers"), "diagnostics does not expose benchmark promotion blocker breakdowns");
   assert(smokeSource.includes("benchmarkPromotion"), "smoke check does not validate benchmark promotion diagnostics");
   assert(smokeSource.includes("benchmark_promotion_gate"), "smoke check does not require the benchmark promotion diagnostic item");
   assert(smokeSource.includes("sourceRiskBlockedRuns"), "smoke check does not require source-risk benchmark promotion counts");
+  assert(smokeSource.includes("gateBlockers"), "smoke check does not validate benchmark promotion blocker breakdowns");
   assert(diagnosticsSource.includes("workflowProposalReadinessDiagnostics"), "diagnostics does not summarize workflow proposal readiness");
   assert(diagnosticsSource.includes("workflowProposalValidationReadiness"), "diagnostics does not reuse shared workflow proposal readiness logic");
   assert(diagnosticsSource.includes("workflow_proposal_readiness"), "diagnostics does not turn workflow proposal readiness into a check item");
@@ -1008,6 +1013,7 @@ await check("diagnostics surface latest forecast batch health", async () => {
   assert(dashboardShellSource.includes("ForecastBatchHealthCard"), "lab dashboard does not mount forecast batch health");
   assert(dashboardPanelSource.includes("benchmarkPromotion"), "lab dashboard does not render benchmark promotion diagnostics");
   assert(dashboardPanelSource.includes("sourceRiskBlockedRuns"), "lab dashboard does not render source-risk benchmark diagnostics");
+  assert(dashboardPanelSource.includes("benchmarkPromotionGateBlockers"), "lab dashboard does not render benchmark promotion blocker breakdowns");
   assert(dashboardPanelSource.includes("workflowProposalReadiness"), "lab dashboard does not render workflow proposal readiness diagnostics");
   assert(dashboardPanelSource.includes("latestBlockedReadinessBlockers"), "lab dashboard does not render proposal readiness blockers");
   assert(dashboardPanelSource.includes("proposalReadinessBlockers"), "lab dashboard does not render proposal readiness blocker breakdowns");

@@ -114,6 +114,7 @@ export function DiagnosticsCard({ diagnosticCounts, diagnostics }: { diagnosticC
   const benchmarkPromotion = isRecord(diagnostics?.benchmarkPromotion) ? diagnostics.benchmarkPromotion : null
   const latestGateStatus = typeof benchmarkPromotion?.latestGateStatus === "string" ? benchmarkPromotion.latestGateStatus : null
   const latestGateBlockers = readArray(benchmarkPromotion, "latestGateBlockers").filter((blocker): blocker is string => typeof blocker === "string")
+  const benchmarkPromotionGateBlockers = readArray(benchmarkPromotion, "gateBlockers").filter(isRecord)
   const sourceRiskBlockedRuns = readNumber(benchmarkPromotion, "sourceRiskBlockedRuns")
   const workflowProposalReadiness = isRecord(diagnostics?.workflowProposalReadiness) ? diagnostics.workflowProposalReadiness : null
   const latestProposalBlockers = readArray(workflowProposalReadiness, "latestBlockedReadinessBlockers").filter(
@@ -161,6 +162,15 @@ export function DiagnosticsCard({ diagnosticCounts, diagnostics }: { diagnosticC
             </p>
             {latestGateBlockers.length ? (
               <p className="mt-1 line-clamp-2 text-muted-foreground">latest blockers {latestGateBlockers.slice(0, 4).join(" · ")}</p>
+            ) : null}
+            {benchmarkPromotionGateBlockers.length ? (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {benchmarkPromotionGateBlockers.slice(0, 4).map((row) => (
+                  <Badge variant={row.sourceRisk === true ? "destructive" : "secondary"} key={String(row.blocker ?? "blocker")}>
+                    {String(row.blocker ?? "blocker").replaceAll("_", " ")} {formatCount(readNumber(row, "count") ?? 0)}
+                  </Badge>
+                ))}
+              </div>
             ) : null}
           </div>
         ) : null}
