@@ -10,12 +10,14 @@ import {
   benchmarkCaseResultStatusNeedsReview,
 } from "../packages/backend/src/benchmark-case-result-policy";
 import {
+  benchmarkStatisticalPromotionEvidenceTier,
   benchmarkPromotionGateStatusNeedsMoreEvidence,
   benchmarkPromotionGateStatusReview,
   blockerBenchmarkStillRunning,
   blockerFailedOrReviewCasesPresent,
   blockerHumanForecastLeakage,
   blockerInsufficientHoldoutEvidence,
+  blockerInsufficientStatisticalPromotionEvidence,
   blockerLargeProbabilityMisses,
   blockerLowQualitySources,
   blockerMissingAggregateRationale,
@@ -79,6 +81,9 @@ try {
       benchmark_run_id::text as benchmark_run_id,
       workflow_variant_id::text as workflow_variant_id,
       experiment_label,
+      forecast_ledger_version,
+      forecast_ledger_committed_at::text as forecast_ledger_committed_at,
+      forecast_ledger_manifest::text as forecast_ledger_manifest_json,
       created_at::text as created_at,
       started_at::text as started_at,
       completed_at::text as completed_at,
@@ -266,7 +271,15 @@ try {
             case when findings.low_quality_final_source_entries > 0 or findings.low_quality_source_cases > 0 then ${blockerLowQualitySources} end,
             case when findings.weak_trace_completeness_cases > 0 then ${blockerWeakTraceCompleteness} end,
             case when findings.missing_probability_cases > 0 or findings.missing_score_rows_cases > 0 then ${blockerSchemaOrScoringFailures} end,
-            case when findings.missing_aggregate_rationale_cases > 0 then ${blockerMissingAggregateRationale} end
+            case when findings.missing_aggregate_rationale_cases > 0 then ${blockerMissingAggregateRationale} end,
+            case when
+              counts.result_count < ${benchmarkStatisticalPromotionEvidenceTier.minimumResultCases}
+              or coalesce(nullif(cr.row_json #>> '{recommendation,primaryBaselinePairedCaseCount}', '')::integer, 0) < ${benchmarkStatisticalPromotionEvidenceTier.minimumPairedCases}
+              or coalesce(nullif(cr.row_json #>> '{recommendation,primaryBaselinePairedHoldoutCaseCount}', '')::integer, 0) < ${benchmarkStatisticalPromotionEvidenceTier.minimumHoldoutCases}
+              or coalesce(nullif(cr.row_json #>> '{recommendation,primaryBaselineEventFamilyCount}', '')::integer, 0) < ${benchmarkStatisticalPromotionEvidenceTier.minimumIndependentEventFamilies ?? 0}
+              or coalesce(nullif(cr.row_json #>> '{recommendation,primaryBaselineEventFamilyMetadataCoverage}', '')::double precision, 0) < ${benchmarkStatisticalPromotionEvidenceTier.minimumEventFamilyMetadataCoverage}
+              then ${blockerInsufficientStatisticalPromotionEvidence}
+            end
           ]::text[], null) as blocker_values
         from counts, findings
       )
@@ -888,6 +901,12 @@ try {
       title,
       content_summary,
       source_type,
+      archive_uri,
+      provenance_mode,
+      cutoff_status,
+      dependence_group,
+      query,
+      rank,
       used_in_final,
       quality_score,
       retrieved_at::text as retrieved_at,
@@ -899,6 +918,119 @@ try {
   await replaceTable(duck, "osf_source_bank_entries", sourceColumns, sources);
   const sourceDomains = buildSourceDomainMartRows(sources);
   await replaceTable(duck, "osf_source_bank_domains", sourceDomainColumns, sourceDomains);
+
+  const forecastSnapshots = await pg<ForecastSnapshotMartRow[]>`
+    select
+      fs.id::text as snapshot_id,
+      fs.state_id,
+      fs.question_id::text as question_id,
+      fq.canonical_key,
+      fq.status::text as question_status,
+      fq.forecast_type::text as forecast_type,
+      fq.question,
+      fq.resolution_criteria,
+      fq.resolution_date,
+      fs.task_id::text as task_id,
+      fs.previous_snapshot_id::text as previous_snapshot_id,
+      fs.forecast_as_of,
+      fs.evidence_as_of,
+      fs.cutoff_date,
+      fs.temporal_trust_state,
+      fs.raw_autonomous_probability,
+      fs.selected_autonomous_probability,
+      fs.crowd_assisted_probability,
+      fs.market_probability,
+      fs.update_kind::text as update_kind,
+      fs.update_reason,
+      fs.probability_delta,
+      fs.next_scheduled_update::text as next_scheduled_update,
+      fs.workflow_version,
+      fs.aggregator_version,
+      fs.calibrator_version,
+      fs.dossier_version,
+      fs.scheduler_version,
+      fs.state_json::text as state_json,
+      fs.created_at::text as created_at
+    from forecast_snapshots fs
+    join forecast_questions fq on fq.id = fs.question_id
+    order by fs.created_at
+  `;
+  await replaceTable(duck, "osf_forecast_snapshots", forecastSnapshotColumns, forecastSnapshots);
+
+  const forecastTrajectoryScores = await pg<ForecastTrajectoryScoreMartRow[]>`
+    select
+      fts.id::text as trajectory_score_id,
+      fts.snapshot_id::text as snapshot_id,
+      fts.question_id::text as question_id,
+      fq.canonical_key,
+      fts.resolution_id::text as resolution_id,
+      fts.forecast_track,
+      fts.probability_source,
+      fts.score_type,
+      fts.score_value,
+      fts.probability,
+      fts.raw_probability,
+      fts.resolved,
+      fts.state_id,
+      fts.state_version,
+      fts.previous_snapshot_id::text as previous_snapshot_id,
+      fts.forecast_as_of,
+      fts.update_kind::text as update_kind,
+      fts.probability_delta,
+      fts.lead_time_seconds,
+      fts.lead_time_status,
+      fts.eligible_for_update_policy_evaluation,
+      fts.temporal_trust_state,
+      fts.metadata_json::text as metadata_json,
+      fr.resolved_at::text as resolved_at,
+      fts.created_at::text as created_at
+    from forecast_trajectory_scores fts
+    join forecast_questions fq on fq.id = fts.question_id
+    join forecast_resolutions fr on fr.id = fts.resolution_id
+    order by fts.forecast_as_of nulls last, fts.created_at
+  `;
+  await replaceTable(duck, "osf_forecast_trajectory_scores", forecastTrajectoryScoreColumns, forecastTrajectoryScores);
+
+  const forecastUpdateTriggers = await pg<ForecastUpdateTriggerMartRow[]>`
+    select
+      id::text as trigger_id,
+      question_id::text as question_id,
+      source_snapshot_id::text as source_snapshot_id,
+      trigger_type,
+      description,
+      status::text as status,
+      next_check_at::text as next_check_at,
+      last_checked_at::text as last_checked_at,
+      fired_at::text as fired_at,
+      config_json::text as config_json,
+      created_at::text as created_at
+    from forecast_update_triggers
+    order by created_at
+  `;
+  await replaceTable(duck, "osf_forecast_update_triggers", forecastUpdateTriggerColumns, forecastUpdateTriggers);
+
+  const forecastMemory = await pg<ForecastMemoryMartRow[]>`
+    select
+      id::text as memory_id,
+      scope::text as scope,
+      question_id::text as question_id,
+      source_snapshot_id::text as source_snapshot_id,
+      revision_of_id::text as revision_of_id,
+      entry_type,
+      content,
+      status::text as status,
+      source_question_ids::text as source_question_ids_json,
+      source_resolution_ids::text as source_resolution_ids_json,
+      applicable_taxonomy::text as applicable_taxonomy_json,
+      counterexamples::text as counterexamples_json,
+      validation_json::text as validation_json,
+      activated_at::text as activated_at,
+      deprecated_at::text as deprecated_at,
+      created_at::text as created_at
+    from forecast_memory_entries
+    order by created_at
+  `;
+  await replaceTable(duck, "osf_forecast_memory_entries", forecastMemoryColumns, forecastMemory);
 
   const calibrationGuardValidations = await readCalibrationGuardValidationRows(resolve(root, "data/reports/forecast-calibration-guard-validation"));
   await replaceTable(duck, "osf_calibration_guard_validations", calibrationGuardValidationColumns, calibrationGuardValidations);
@@ -958,6 +1090,10 @@ try {
     osf_forecast_batch_health_candidate_guards: forecastBatchHealthCandidateGuards.length,
     osf_source_bank_domains: sourceDomains.length,
     osf_source_bank_entries: sources.length,
+    osf_forecast_snapshots: forecastSnapshots.length,
+    osf_forecast_trajectory_scores: forecastTrajectoryScores.length,
+    osf_forecast_update_triggers: forecastUpdateTriggers.length,
+    osf_forecast_memory_entries: forecastMemory.length,
     osf_smithers_token_usage: smithersUsageMarts.usageRows.length,
     osf_smithers_token_usage_by_task: smithersUsageMarts.summaryRows.length,
   };
@@ -974,6 +1110,8 @@ try {
       "select benchmark_run_id, case_status, cases, measured_cases, total_tokens, mean_duration_seconds from osf_benchmark_cost_status order by created_at desc, total_tokens desc limit 20;",
       "select benchmark_run_id, outlier_kind, outlier_rank, benchmark_case_result_id, task_id, total_tokens, duration_seconds from osf_benchmark_cost_outliers order by created_at desc, outlier_kind, outlier_rank limit 20;",
       "select bucket_label, sample_size, calibration_error, candidate_guard_suggested_adjustment from osf_binary_calibration_buckets;",
+      "select question, forecast_as_of, selected_autonomous_probability, probability_delta, update_reason from osf_forecast_snapshots order by created_at desc limit 20;",
+      "select canonical_key, state_id, update_kind, forecast_as_of, lead_time_seconds, score_type, score_value from osf_forecast_trajectory_scores where eligible_for_update_policy_evaluation order by canonical_key, forecast_as_of;",
       "select status, guarded_rows, unguarded_rows, brier_delta from osf_calibration_guard_impact;",
       "select rule_id, status, guarded_rows, brier_delta from osf_calibration_guard_rule_impact order by rule_id;",
       "select proposal_id, recommendation, brier_delta, calibration_error_delta from osf_calibration_guard_validations order by generated_at desc limit 5;",
@@ -1018,6 +1156,9 @@ const taskColumns = [
   { name: "benchmark_run_id", type: "VARCHAR" },
   { name: "workflow_variant_id", type: "VARCHAR" },
   { name: "experiment_label", type: "VARCHAR" },
+  { name: "forecast_ledger_version", type: "VARCHAR" },
+  { name: "forecast_ledger_committed_at", type: "VARCHAR" },
+  { name: "forecast_ledger_manifest_json", type: "VARCHAR" },
   { name: "created_at", type: "VARCHAR" },
   { name: "started_at", type: "VARCHAR" },
   { name: "completed_at", type: "VARCHAR" },
@@ -1582,6 +1723,12 @@ const sourceColumns = [
   { name: "title", type: "VARCHAR" },
   { name: "content_summary", type: "VARCHAR" },
   { name: "source_type", type: "VARCHAR" },
+  { name: "archive_uri", type: "VARCHAR" },
+  { name: "provenance_mode", type: "VARCHAR" },
+  { name: "cutoff_status", type: "VARCHAR" },
+  { name: "dependence_group", type: "VARCHAR" },
+  { name: "query", type: "VARCHAR" },
+  { name: "rank", type: "INTEGER" },
   { name: "used_in_final", type: "BOOLEAN" },
   { name: "quality_score", type: "DOUBLE" },
   { name: "retrieved_at", type: "VARCHAR" },
@@ -1596,6 +1743,100 @@ const sourceDomainColumns = [
   { name: "task_count", type: "INTEGER" },
   { name: "source_types_json", type: "VARCHAR" },
   { name: "mean_quality_score", type: "DOUBLE" },
+] satisfies DuckColumn[];
+
+const forecastSnapshotColumns = [
+  { name: "snapshot_id", type: "VARCHAR" },
+  { name: "state_id", type: "VARCHAR" },
+  { name: "question_id", type: "VARCHAR" },
+  { name: "canonical_key", type: "VARCHAR" },
+  { name: "question_status", type: "VARCHAR" },
+  { name: "forecast_type", type: "VARCHAR" },
+  { name: "question", type: "VARCHAR" },
+  { name: "resolution_criteria", type: "VARCHAR" },
+  { name: "resolution_date", type: "VARCHAR" },
+  { name: "task_id", type: "VARCHAR" },
+  { name: "previous_snapshot_id", type: "VARCHAR" },
+  { name: "forecast_as_of", type: "VARCHAR" },
+  { name: "evidence_as_of", type: "VARCHAR" },
+  { name: "cutoff_date", type: "VARCHAR" },
+  { name: "temporal_trust_state", type: "VARCHAR" },
+  { name: "raw_autonomous_probability", type: "DOUBLE" },
+  { name: "selected_autonomous_probability", type: "DOUBLE" },
+  { name: "crowd_assisted_probability", type: "DOUBLE" },
+  { name: "market_probability", type: "DOUBLE" },
+  { name: "update_kind", type: "VARCHAR" },
+  { name: "update_reason", type: "VARCHAR" },
+  { name: "probability_delta", type: "DOUBLE" },
+  { name: "next_scheduled_update", type: "VARCHAR" },
+  { name: "workflow_version", type: "VARCHAR" },
+  { name: "aggregator_version", type: "VARCHAR" },
+  { name: "calibrator_version", type: "VARCHAR" },
+  { name: "dossier_version", type: "VARCHAR" },
+  { name: "scheduler_version", type: "VARCHAR" },
+  { name: "state_json", type: "VARCHAR" },
+  { name: "created_at", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
+const forecastTrajectoryScoreColumns = [
+  { name: "trajectory_score_id", type: "VARCHAR" },
+  { name: "snapshot_id", type: "VARCHAR" },
+  { name: "question_id", type: "VARCHAR" },
+  { name: "canonical_key", type: "VARCHAR" },
+  { name: "resolution_id", type: "VARCHAR" },
+  { name: "forecast_track", type: "VARCHAR" },
+  { name: "probability_source", type: "VARCHAR" },
+  { name: "score_type", type: "VARCHAR" },
+  { name: "score_value", type: "DOUBLE" },
+  { name: "probability", type: "DOUBLE" },
+  { name: "raw_probability", type: "DOUBLE" },
+  { name: "resolved", type: "BOOLEAN" },
+  { name: "state_id", type: "VARCHAR" },
+  { name: "state_version", type: "VARCHAR" },
+  { name: "previous_snapshot_id", type: "VARCHAR" },
+  { name: "forecast_as_of", type: "VARCHAR" },
+  { name: "update_kind", type: "VARCHAR" },
+  { name: "probability_delta", type: "DOUBLE" },
+  { name: "lead_time_seconds", type: "DOUBLE" },
+  { name: "lead_time_status", type: "VARCHAR" },
+  { name: "eligible_for_update_policy_evaluation", type: "BOOLEAN" },
+  { name: "temporal_trust_state", type: "VARCHAR" },
+  { name: "metadata_json", type: "VARCHAR" },
+  { name: "resolved_at", type: "VARCHAR" },
+  { name: "created_at", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
+const forecastUpdateTriggerColumns = [
+  { name: "trigger_id", type: "VARCHAR" },
+  { name: "question_id", type: "VARCHAR" },
+  { name: "source_snapshot_id", type: "VARCHAR" },
+  { name: "trigger_type", type: "VARCHAR" },
+  { name: "description", type: "VARCHAR" },
+  { name: "status", type: "VARCHAR" },
+  { name: "next_check_at", type: "VARCHAR" },
+  { name: "last_checked_at", type: "VARCHAR" },
+  { name: "fired_at", type: "VARCHAR" },
+  { name: "config_json", type: "VARCHAR" },
+  { name: "created_at", type: "VARCHAR" },
+] satisfies DuckColumn[];
+
+const forecastMemoryColumns = [
+  { name: "memory_id", type: "VARCHAR" },
+  { name: "scope", type: "VARCHAR" },
+  { name: "question_id", type: "VARCHAR" },
+  { name: "source_snapshot_id", type: "VARCHAR" },
+  { name: "revision_of_id", type: "VARCHAR" },
+  { name: "entry_type", type: "VARCHAR" },
+  { name: "content", type: "VARCHAR" },
+  { name: "status", type: "VARCHAR" },
+  { name: "source_question_ids_json", type: "VARCHAR" },
+  { name: "source_resolution_ids_json", type: "VARCHAR" },
+  { name: "applicable_taxonomy_json", type: "VARCHAR" },
+  { name: "counterexamples_json", type: "VARCHAR" },
+  { name: "validation_json", type: "VARCHAR" },
+  { name: "activated_at", type: "VARCHAR" },
+  { name: "deprecated_at", type: "VARCHAR" },
+  { name: "created_at", type: "VARCHAR" },
 ] satisfies DuckColumn[];
 
 const calibrationGuardValidationColumns = [
@@ -1858,6 +2099,10 @@ type CalibrationGuardRuleImpactMartRow = RowFor<typeof calibrationGuardRuleImpac
 type WorkflowChangeProposalMartRow = RowFor<typeof workflowChangeProposalColumns>;
 type SourceMartRow = RowFor<typeof sourceColumns>;
 type SourceDomainMartRow = RowFor<typeof sourceDomainColumns>;
+type ForecastSnapshotMartRow = RowFor<typeof forecastSnapshotColumns>;
+type ForecastTrajectoryScoreMartRow = RowFor<typeof forecastTrajectoryScoreColumns>;
+type ForecastUpdateTriggerMartRow = RowFor<typeof forecastUpdateTriggerColumns>;
+type ForecastMemoryMartRow = RowFor<typeof forecastMemoryColumns>;
 type CalibrationGuardValidationMartRow = RowFor<typeof calibrationGuardValidationColumns>;
 type CalibrationGuardDefaultPlanMartRow = RowFor<typeof calibrationGuardDefaultPlanColumns>;
 type CalibrationGuardDefaultPlanSkippedMartRow = RowFor<typeof calibrationGuardDefaultPlanSkippedColumns>;

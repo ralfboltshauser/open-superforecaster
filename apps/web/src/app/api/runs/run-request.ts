@@ -1,8 +1,15 @@
 import { classifyRunRequest } from "@open-superforecaster/backend";
+import {
+  normalizeForecastTemporalContext,
+  type ForecastTemporalContext,
+} from "@open-superforecaster/workflow-contracts";
 
 type RunRequestBody = Record<string, unknown>;
+type RunPlanOptions = {
+  now?: Date | string;
+};
 
-export function createRunPlan(body: RunRequestBody) {
+export function createRunPlan(body: RunRequestBody, options: RunPlanOptions = {}) {
   const classification = classifyRunRequest({
     prompt: body.prompt,
     requestedMode: body.mode,
@@ -17,6 +24,7 @@ export function createRunPlan(body: RunRequestBody) {
   const isRank = workflow === "rank";
   const isMerge = workflow === "merge";
   const isDedupe = workflow === "dedupe";
+  const temporalContext = isForecast ? temporalContextForRunRequest(body, options.now) : undefined;
   const workflowPath = workflowPathFor({
     isAgentMap,
     isDeepResearch,
@@ -49,6 +57,7 @@ export function createRunPlan(body: RunRequestBody) {
     rankRows,
     rightRows,
     rows,
+    temporalContext,
     thresholds,
   });
 
@@ -272,6 +281,7 @@ function smithersInputFor(input: {
   rankRows: Array<Record<string, unknown>>;
   rightRows: Array<Record<string, unknown>>;
   rows: Array<Record<string, unknown>>;
+  temporalContext: ForecastTemporalContext | undefined;
   thresholds: string[];
 }) {
   if (input.isForecast) {
@@ -280,6 +290,13 @@ function smithersInputFor(input: {
       question: input.prompt,
       resolutionCriteria: input.body.resolutionCriteria,
       resolutionDate: input.body.resolutionDate,
+      forecastAsOf: input.temporalContext?.forecastAsOf,
+      evidenceAsOf: input.temporalContext?.evidenceAsOf ?? null,
+      cutoffDate: input.temporalContext?.cutoffDate ?? null,
+      calibrationGuardVariant: input.body.calibrationGuardVariant,
+      ...(input.classification.forecastType === "binary"
+        ? { researchTreatment: normalizeResearchTreatment(input.body.researchTreatment) }
+        : {}),
       background: input.body.background,
       marketPrice: input.body.marketPrice,
       marketPriceAsOf: input.body.marketPriceAsOf,
@@ -448,10 +465,16 @@ function forecastLabel(forecastType: string | undefined) {
 }
 
 function forecastSchema(forecastType: string | undefined) {
+  const temporalProperties = {
+    forecastAsOf: { type: "string" },
+    evidenceAsOf: { type: "string" },
+    cutoffDate: { type: "string" },
+  };
   if (forecastType === "date") {
     return {
       type: "object",
       properties: {
+        ...temporalProperties,
         forecastType: { const: "date" },
         targetDate: { type: "string" },
         dateDistribution: {
@@ -471,6 +494,7 @@ function forecastSchema(forecastType: string | undefined) {
     return {
       type: "object",
       properties: {
+        ...temporalProperties,
         forecastType: { const: "numeric" },
         value: { type: "number" },
         distribution: {
@@ -490,6 +514,7 @@ function forecastSchema(forecastType: string | undefined) {
     return {
       type: "object",
       properties: {
+        ...temporalProperties,
         forecastType: { const: "categorical" },
         topCategory: { type: "string" },
         categories: { type: "array" },
@@ -501,6 +526,7 @@ function forecastSchema(forecastType: string | undefined) {
     return {
       type: "object",
       properties: {
+        ...temporalProperties,
         forecastType: { const: "thresholded" },
         thresholdDirection: { enum: ["at_least", "at_most"] },
         thresholdSource: { enum: ["caller", "question_extracted", "invalid"] },
@@ -512,6 +538,7 @@ function forecastSchema(forecastType: string | undefined) {
     return {
       type: "object",
       properties: {
+        ...temporalProperties,
         forecastType: { const: "conditional" },
         baseForecastType: { const: "binary" },
         probabilityGivenCondition: { type: "number" },
@@ -522,10 +549,30 @@ function forecastSchema(forecastType: string | undefined) {
   return {
     type: "object",
     properties: {
+      ...temporalProperties,
       forecastType: { const: "binary" },
       probability: { type: "number" },
       rationale: { type: "string" },
+      researchTreatment: {
+        enum: ["no_external_research", "shared_frozen_dossier", "independent_research", "shared_plus_followup"],
+      },
+      forecastState: { type: "object" },
     },
+  };
+}
+
+function temporalContextForRunRequest(body: RunRequestBody, now: Date | string | undefined): ForecastTemporalContext {
+  const supplied = normalizeForecastTemporalContext(body);
+  if (supplied.forecastAsOf) {
+    return supplied;
+  }
+  const instant = now instanceof Date ? now : new Date(now ?? Date.now());
+  if (!Number.isFinite(instant.getTime())) {
+    throw new Error("Run-plan clock must be a valid date or ISO datetime.");
+  }
+  return {
+    ...supplied,
+    forecastAsOf: instant.toISOString(),
   };
 }
 
@@ -548,6 +595,21 @@ function normalizeThresholdDirection(raw: unknown, prompt: string) {
     return "at_most";
   }
   return "at_least";
+}
+
+function normalizeResearchTreatment(raw: unknown) {
+  if (raw === undefined || raw === null || raw === "") {
+    return undefined;
+  }
+  if (
+    raw === "no_external_research"
+    || raw === "shared_frozen_dossier"
+    || raw === "independent_research"
+    || raw === "shared_plus_followup"
+  ) {
+    return raw;
+  }
+  throw new Error(`Unknown researchTreatment: ${String(raw)}`);
 }
 
 function extractCondition(prompt: string) {

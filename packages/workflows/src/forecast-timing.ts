@@ -1,39 +1,46 @@
+import {
+  formatForecastTemporalContextForPrompt,
+  normalizeForecastTemporalContext,
+  type ForecastTemporalContext,
+} from "@open-superforecaster/workflow-contracts";
+
 export type ForecastTiming = {
+  forecastAsOf: string | undefined;
+  evidenceAsOf: string | undefined;
   evidenceAsOfDate: string | undefined;
   cutoffDate: string | undefined;
   promptBlock: string;
 };
 
 export function readForecastTiming(input: unknown): ForecastTiming {
-  const record = asRecord(input);
-  const evidenceAsOfDate = readIsoDate(record, "presentDate", "present_date", "evidenceAsOfDate", "evidence_as_of_date", "asOfDate", "as_of_date");
-  const cutoffDate = readIsoDate(record, "cutoffDate", "cutoff_date", "cutoff");
-  const lines = [
-    evidenceAsOfDate ? `Present date: ${evidenceAsOfDate}` : null,
-    cutoffDate ? `Cutoff date: ${cutoffDate}` : null,
-  ].filter((line): line is string => Boolean(line));
+  const temporalContext = normalizeForecastTemporalContext(asRecord(input) ?? {});
   return {
-    evidenceAsOfDate: evidenceAsOfDate ?? cutoffDate ?? undefined,
-    cutoffDate: cutoffDate ?? undefined,
-    promptBlock: lines.length ? `Timing context:\n${lines.join("\n")}` : "",
+    forecastAsOf: temporalContext.forecastAsOf,
+    evidenceAsOf: temporalContext.evidenceAsOf,
+    cutoffDate: temporalContext.cutoffDate,
+    // Compatibility field for existing day-granularity evidence analytics.
+    // It derives only from evidenceAsOf; a cutoff is not evidence recency.
+    evidenceAsOfDate: isoCalendarDate(temporalContext.evidenceAsOf),
+    promptBlock: formatForecastTemporalContextForPrompt(temporalContext),
   };
 }
 
-function readIsoDate(value: Record<string, unknown> | null, ...keys: string[]) {
+export function forecastTimingArtifactFields(timing: ForecastTiming): ForecastTemporalContext & {
+  evidenceAsOfDate?: string;
+} {
+  return {
+    ...(timing.forecastAsOf ? { forecastAsOf: timing.forecastAsOf } : {}),
+    ...(timing.evidenceAsOf ? { evidenceAsOf: timing.evidenceAsOf } : {}),
+    ...(timing.cutoffDate ? { cutoffDate: timing.cutoffDate } : {}),
+    ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
+  };
+}
+
+function isoCalendarDate(value: string | undefined) {
   if (!value) {
-    return null;
+    return undefined;
   }
-  for (const key of keys) {
-    const raw = value[key];
-    if (typeof raw !== "string" || !raw.trim()) {
-      continue;
-    }
-    const timestamp = Date.parse(raw);
-    if (Number.isFinite(timestamp)) {
-      return new Date(timestamp).toISOString().slice(0, 10);
-    }
-  }
-  return null;
+  return value.includes("T") ? value.slice(0, 10) : value;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

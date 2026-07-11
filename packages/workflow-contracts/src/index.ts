@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export * from "./forecast-update-policy";
+
 export const operationModeSchema = z.enum([
   "forecast",
   "multi_agent",
@@ -58,6 +60,9 @@ export const traceEventTypeSchema = z.enum([
   "row_completed",
   "row_failed",
   "synthesis",
+  "provider_activity_observation_completed",
+  "provider_activity_observation_failed",
+  "provider_observed_activity",
   "done",
 ]);
 
@@ -76,6 +81,22 @@ export const forecastMarketMetadataSchema = z.object({
   marketUrl: z.string().optional(),
 });
 
+/**
+ * A temporal boundary may be a calendar date when the source only has day
+ * precision, or an offset-qualified instant when the exact time is known.
+ * Offset-less datetimes are deliberately rejected because they cannot define
+ * an auditable information boundary.
+ */
+export const forecastTemporalValueSchema = z
+  .union([z.iso.date(), z.iso.datetime({ offset: true })])
+  .transform((value) => (value.includes("T") ? new Date(value).toISOString() : value));
+
+export const forecastTemporalContextSchema = z.object({
+  forecastAsOf: forecastTemporalValueSchema.optional(),
+  evidenceAsOf: forecastTemporalValueSchema.optional(),
+  cutoffDate: forecastTemporalValueSchema.optional(),
+});
+
 export const thresholdDirectionSchema = z.enum(["at_least", "at_most"]);
 
 export const thresholdDefinitionSchema = z.object({
@@ -89,6 +110,9 @@ export const forecastInputRowSchema = z.object({
   question: z.string(),
   resolutionCriteria: z.string().optional(),
   resolutionDate: z.string().optional(),
+  forecastAsOf: forecastTemporalValueSchema.optional(),
+  evidenceAsOf: forecastTemporalValueSchema.optional(),
+  cutoffDate: forecastTemporalValueSchema.optional(),
   background: z.string().optional(),
   forecastType: forecastTypeSchema.exclude(["conditional"]).optional(),
   condition: z.string().optional(),
@@ -164,6 +188,7 @@ export type TaskStatus = z.infer<typeof taskStatusSchema>;
 export type ArtifactType = z.infer<typeof artifactTypeSchema>;
 export type TraceEventType = z.infer<typeof traceEventTypeSchema>;
 export type ForecastMarketMetadata = z.infer<typeof forecastMarketMetadataSchema>;
+export type ForecastTemporalContext = z.infer<typeof forecastTemporalContextSchema>;
 export type ThresholdDirection = z.infer<typeof thresholdDirectionSchema>;
 export type ThresholdDefinition = z.infer<typeof thresholdDefinitionSchema>;
 export type ForecastInputRow = z.infer<typeof forecastInputRowSchema>;
@@ -196,11 +221,13 @@ export function canonicalCitedSourceKey(source: CanonicalCitedSource) {
 export function normalizeForecastInputRow(raw: Record<string, unknown>): ForecastInputRow {
   const question = readString(raw.question) ?? readString(raw.prompt) ?? "";
   const market = normalizeMarketMetadata(raw);
+  const temporalContext = normalizeForecastTemporalContext(raw);
   return forecastInputRowSchema.parse({
     rowId: readString(raw.rowId) ?? readString(raw.row_id) ?? readString(raw.id),
     question,
     resolutionCriteria: readString(raw.resolutionCriteria) ?? readString(raw.resolution_criteria),
     resolutionDate: readString(raw.resolutionDate) ?? readString(raw.resolution_date),
+    ...temporalContext,
     background: readString(raw.background),
     forecastType: normalizeForecastType(raw.forecastType ?? raw.forecast_type),
     condition: readString(raw.condition),
@@ -212,6 +239,41 @@ export function normalizeForecastInputRow(raw: Record<string, unknown>): Forecas
     unit: readString(raw.unit) ?? readString(raw.units),
     market,
   });
+}
+
+/**
+ * Normalize legacy timing aliases once at the contract boundary. The three
+ * canonical fields intentionally remain independent: a hard cutoff is not
+ * silently promoted to evidenceAsOf or forecastAsOf.
+ */
+export function normalizeForecastTemporalContext(raw: Record<string, unknown>): ForecastTemporalContext {
+  return forecastTemporalContextSchema.parse({
+    forecastAsOf: readString(raw.forecastAsOf) ?? readString(raw.forecast_as_of),
+    evidenceAsOf:
+      readString(raw.evidenceAsOf) ??
+      readString(raw.evidence_as_of) ??
+      readString(raw.evidenceAsOfDate) ??
+      readString(raw.evidence_as_of_date) ??
+      readString(raw.presentDate) ??
+      readString(raw.present_date) ??
+      readString(raw.asOfDate) ??
+      readString(raw.as_of_date),
+    cutoffDate: readString(raw.cutoffDate) ?? readString(raw.cutoff_date) ?? readString(raw.cutoff),
+  });
+}
+
+export function formatForecastTemporalContextForPrompt(input: ForecastTemporalContext) {
+  return [
+    "Timing context:",
+    `Forecast as of: ${input.forecastAsOf ?? "not provided"}`,
+    `Evidence as of: ${input.evidenceAsOf ?? "not provided"}`,
+    input.cutoffDate
+      ? `Hard evidence cutoff: ${input.cutoffDate}`
+      : "Hard evidence cutoff: not provided; this run is not proven to be time-bounded.",
+    input.cutoffDate
+      ? "Do not use information that first became available after the hard evidence cutoff."
+      : "Treat research as live and disclose that no historical cutoff was enforced.",
+  ].join("\n");
 }
 
 export function formatForecastContextForPrompt(input: ForecastInputRow) {

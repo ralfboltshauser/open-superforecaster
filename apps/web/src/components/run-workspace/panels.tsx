@@ -213,8 +213,27 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
   const medianProbability = readNumberAny(output, "medianProbability", "median_probability")
   const disagreement = readNumber(output, "disagreement")
   const calibrationNotes = readStringAny(output, "calibrationNotes", "calibration_notes")
+  const forecastState = readRecordAny(output, "forecastState", "forecast_state")
+  const stateOutputs = readRecordAny(forecastState, "outputs")
+  const autonomousOutput = readRecordAny(stateOutputs, "autonomous")
+  const assistedOutput = readRecordAny(stateOutputs, "crowdAssisted", "crowd_assisted")
+  const informationIsolation = readRecordAny(autonomousOutput, "informationIsolation", "information_isolation")
+  const judgment = readRecordAny(forecastState, "judgment")
+  const ensemble = readRecordAny(judgment, "ensemble")
+  const ensembleControls = readRecordAny(ensemble, "controls")
+  const modelAggregateCandidate = readRecordAny(judgment, "modelAggregateCandidate", "model_aggregate_candidate")
+  const stateResearch = readRecordAny(forecastState, "research")
+  const evidenceDiagnostics = readRecordAny(stateResearch, "diagnostics")
+  const stateTemporal = readRecordAny(forecastState, "temporal")
+  const stateUpdate = readRecordAny(forecastState, "update")
+  const stateId = readStringAny(forecastState, "stateId", "state_id")
+  const researchTreatment = readStringAny(output, "researchTreatment", "research_treatment")
   const calibrationWarnings = readStringArray(output, "calibrationWarnings", "calibration_warnings")
   const calibrationGuard = readRecordAny(output, "calibrationGuard", "calibration_guard")
+  const calibrationGuardVariant = readString(calibrationGuard, "variant")
+  const calibrationGuardExperimental = readBooleanAny(calibrationGuard, "experimental")
+  const calibrationGuardRawProbability = readNumberAny(calibrationGuard, "rawProbability", "raw_probability")
+  const calibrationGuardGuardedProbability = readNumberAny(calibrationGuard, "guardedProbability", "guarded_probability")
   const calibrationGuardAdjustment = readNumber(calibrationGuard, "adjustment")
   const calibrationGuardRules = recordArray(calibrationGuard, "appliedRules", "applied_rules")
   const baselineSanity = readRecordAny(output, "baselineSanity", "baseline_sanity")
@@ -274,6 +293,56 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
           <MiniMetric label="spread" value={disagreement === null ? "n/a" : `${formatNumber(disagreement)} pts`} />
         </div>
       </div>
+      {Object.keys(forecastState).length ? (
+        <ReportSection label="forecast state">
+          <div className="grid gap-2 md:grid-cols-4">
+            <MiniMetric
+              label="autonomous"
+              value={readNumberAny(autonomousOutput, "selectedProbability", "selected_probability") === null
+                ? "n/a"
+                : formatProbabilityPercent(readNumberAny(autonomousOutput, "selectedProbability", "selected_probability") as number)}
+            />
+            <MiniMetric
+              label="assisted candidate"
+              value={readNumber(assistedOutput, "probability") === null
+                ? "not supplied"
+                : formatProbabilityPercent(readNumber(assistedOutput, "probability") as number)}
+            />
+            <MiniMetric
+              label="agentic candidate"
+              value={readNumber(modelAggregateCandidate, "probability") === null
+                ? "n/a"
+                : formatProbabilityPercent(readNumber(modelAggregateCandidate, "probability") as number)}
+            />
+            <MiniMetric
+              label="isolation"
+              value={(readString(informationIsolation, "status") ?? "unknown").replace(/_/g, " ")}
+            />
+            <MiniMetric label="temporal trust" value={(readStringAny(stateTemporal, "trustState", "trust_state") ?? "unknown").replace(/_/g, " ")} />
+            <MiniMetric label="evidence" value={(readStringAny(stateResearch, "provenanceMode", "provenance_mode") ?? "unknown").replace(/_/g, " ")} />
+            <MiniMetric label="research" value={(researchTreatment ?? "unknown").replace(/_/g, " ")} />
+            <MiniMetric
+              label="next review"
+              value={readStringAny(stateUpdate, "nextScheduledUpdate", "next_scheduled_update") ?? "not scheduled"}
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+            <span className="rounded-md border bg-muted px-2 py-1">
+              mean {readNumberAny(ensembleControls, "arithmeticMean", "arithmetic_mean") ?? "n/a"}%
+            </span>
+            <span className="rounded-md border bg-muted px-2 py-1">
+              median {readNumber(ensembleControls, "median") ?? "n/a"}%
+            </span>
+            <span className="rounded-md border bg-muted px-2 py-1">
+              logit candidate {readNumberAny(ensembleControls, "logitMean", "logit_mean") ?? "n/a"}%
+            </span>
+            <span className="rounded-md border bg-muted px-2 py-1">
+              {readNumberAny(evidenceDiagnostics, "sourceCount", "source_count") ?? 0} sources · {readNumberAny(evidenceDiagnostics, "harnessObservedSourceCount", "harness_observed_source_count") ?? 0} harness-observed
+            </span>
+            {stateId ? <span className="rounded-md border bg-muted px-2 py-1">{stateId}</span> : null}
+          </div>
+        </ReportSection>
+      ) : null}
       <div className="grid gap-3">
         {components.map((component) => (
           <ProbabilityRow
@@ -381,10 +450,20 @@ function BinaryForecastReport({ output, expanded }: { output: JsonRecord; expand
           </div>
         </ReportSection>
       ) : null}
-      {calibrationGuardRules.length || calibrationGuardAdjustment !== null ? (
-        <ReportSection label="calibration guard">
+      {calibrationGuardRules.length || calibrationGuardAdjustment !== null || calibrationGuardExperimental ? (
+        <ReportSection label={calibrationGuardExperimental ? "experimental topical guard" : "calibration guard"}>
           <div className="flex flex-col gap-2">
             <div className="flex flex-wrap gap-2">
+              {calibrationGuardVariant ? (
+                <span className="rounded-md border bg-muted px-2 py-1 text-xs text-muted-foreground">
+                  variant {calibrationGuardVariant}
+                </span>
+              ) : null}
+              {calibrationGuardRawProbability !== null && calibrationGuardGuardedProbability !== null ? (
+                <span className="rounded-md border bg-muted px-2 py-1 text-xs text-muted-foreground">
+                  raw {formatNumber(calibrationGuardRawProbability)}% → experimental {formatNumber(calibrationGuardGuardedProbability)}%
+                </span>
+              ) : null}
               <span className="rounded-md border bg-muted px-2 py-1 text-xs text-muted-foreground">
                 adjustment {calibrationGuardAdjustment === null ? "0" : `${calibrationGuardAdjustment >= 0 ? "+" : ""}${formatNumber(calibrationGuardAdjustment)} pts`}
               </span>

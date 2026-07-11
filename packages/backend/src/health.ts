@@ -30,7 +30,7 @@ export async function buildHealthSnapshot(
     selectedAgentRefs.flatMap((ref) => {
       const binary = providerBinary(ref.provider);
       const binaryPath = findExecutable(binary);
-      const authPath = providerAuthPath(config, agentPolicy, ref);
+      const authPath = resolveProviderAuthPath(config, agentPolicy, ref);
       return [
         [
           `agent_${ref.provider}_${ref.profile}_binary`,
@@ -166,14 +166,14 @@ function providerBinary(provider: AgentProviderId) {
   return binaries[provider];
 }
 
-function providerAuthPath(config: AppConfig, policy: ReturnType<typeof loadAgentPolicy>, ref: AgentRef) {
-  if (ref.provider === "codex" && process.env.CODEX_HOME) {
+export function resolveProviderAuthPath(config: AppConfig, policy: ReturnType<typeof loadAgentPolicy>, ref: AgentRef) {
+  if (ref.provider === "codex") {
     return config.CODEX_HOME;
   }
-  if (ref.provider === "claude" && process.env.CLAUDE_CONFIG_DIR && config.CLAUDE_CONFIG_DIR) {
+  if (ref.provider === "claude" && config.CLAUDE_CONFIG_DIR) {
     return config.CLAUDE_CONFIG_DIR;
   }
-  if (ref.provider === "kimi" && process.env.KIMI_SHARE_DIR && config.KIMI_SHARE_DIR) {
+  if (ref.provider === "kimi" && config.KIMI_SHARE_DIR) {
     return config.KIMI_SHARE_DIR;
   }
   return agentAuthPath(policy, ref);

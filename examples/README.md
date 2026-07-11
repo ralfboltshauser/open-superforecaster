@@ -209,11 +209,11 @@ same outcome groups for quick scan review.
 
 Use the same `--batch-id` across forecast ops, resolution, and performance
 commands to keep their manifests tied to the same operational batch.
-Binary forecasts also run through a deterministic final calibration guard for
-known threshold, timing, and production-ramp failure modes. Contract checks pin
-those adjustments. The live guard is an explicit rule registry in
-`packages/workflows/src/binary-calibration-guard.ts`, so future reviewed
-defaults have one place to land. Final aggregates include structured
+Binary forecasts do not run through a topical calibration guard by default.
+The old threshold, timing, and production-ramp rules remain in
+`packages/workflows/src/binary-calibration-guard.ts` only as the explicitly
+named `topical_regex_experimental_v1` candidate. Contract checks pin that
+experimental behavior without selecting it. Final aggregates include structured
 `calibrationGuard` metadata, deterministic `baselineSanity` deltas, and
 structured `marketAnchor` deltas visible in run reports, along with aggregate
 review status, resolution-boundary ambiguity audits, uncertainty-range audits,

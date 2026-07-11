@@ -71,6 +71,39 @@ export const promotionState = pgEnum("promotion_state", [
   "needs_more_cases",
 ]);
 
+export const forecastQuestionStatus = pgEnum("forecast_question_status", [
+  "open",
+  "resolved",
+  "annulled",
+  "archived",
+]);
+
+export const forecastUpdateKind = pgEnum("forecast_update_kind", [
+  "initial",
+  "scheduled",
+  "event_triggered",
+  "manual",
+]);
+
+export const forecastTriggerStatus = pgEnum("forecast_trigger_status", [
+  "active",
+  "fired",
+  "snoozed",
+  "retired",
+]);
+
+export const forecastMemoryScope = pgEnum("forecast_memory_scope", [
+  "question_local",
+  "cross_question",
+]);
+
+export const forecastMemoryStatus = pgEnum("forecast_memory_status", [
+  "experimental",
+  "active",
+  "deprecated",
+  "rejected",
+]);
+
 export const sessions = pgTable("sessions", {
   id: uuid("id").primaryKey().defaultRandom(),
   label: text("label").notNull().default("Local workspace"),
@@ -102,6 +135,9 @@ export const tasks = pgTable(
     benchmarkRunId: uuid("benchmark_run_id"),
     workflowVariantId: uuid("workflow_variant_id"),
     experimentLabel: text("experiment_label"),
+    forecastLedgerVersion: text("forecast_ledger_version"),
+    forecastLedgerCommittedAt: timestamp("forecast_ledger_committed_at", { withTimezone: true }),
+    forecastLedgerManifest: jsonb("forecast_ledger_manifest").$type<Record<string, unknown>>(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     ...timestamps,
@@ -225,6 +261,10 @@ export const sourceBankEntries = pgTable(
     sourceType: text("source_type").notNull(),
     retrievedAt: timestamp("retrieved_at", { withTimezone: true }).notNull().defaultNow(),
     publishedAt: timestamp("published_at", { withTimezone: true }),
+    archiveUri: text("archive_uri"),
+    provenanceMode: text("provenance_mode").notNull().default("agent_reported"),
+    cutoffStatus: text("cutoff_status").notNull().default("unknown"),
+    dependenceGroup: text("dependence_group"),
     query: text("query"),
     rank: integer("rank"),
     usedInFinal: boolean("used_in_final").notNull().default(false),
@@ -292,6 +332,140 @@ export const calibrationModels = pgTable("calibration_models", {
   ...timestamps,
 });
 
+/**
+ * A canonical forecasting question survives across task runs and snapshots.
+ * Task rows remain execution records; this entity is the unresolved object being
+ * tracked through time.
+ */
+export const forecastQuestions = pgTable(
+  "forecast_questions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id").references(() => sessions.id),
+    canonicalKey: text("canonical_key").notNull(),
+    forecastType: forecastType("forecast_type").notNull(),
+    question: text("question").notNull(),
+    resolutionCriteria: text("resolution_criteria").notNull(),
+    resolutionDate: text("resolution_date"),
+    condition: text("condition"),
+    background: text("background"),
+    status: forecastQuestionStatus("status").notNull().default("open"),
+    latestSnapshotId: uuid("latest_snapshot_id"),
+    updateLeaseOwner: text("update_lease_owner"),
+    updateLeaseExpiresAt: timestamp("update_lease_expires_at", { withTimezone: true }),
+    updateLeaseTriggerId: uuid("update_lease_trigger_id"),
+    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    canonicalKeyIdx: uniqueIndex("forecast_questions_canonical_key_idx").on(table.canonicalKey),
+    statusIdx: index("forecast_questions_status_idx").on(table.status),
+    updateLeaseIdx: index("forecast_questions_update_lease_idx").on(
+      table.status,
+      table.updateLeaseExpiresAt,
+    ),
+  }),
+);
+
+/**
+ * An immutable stateful forecast at one information boundary. The full typed
+ * ForecastState is retained alongside queryable headline fields.
+ */
+export const forecastSnapshots = pgTable(
+  "forecast_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    questionId: uuid("question_id").notNull().references(() => forecastQuestions.id),
+    stateId: text("state_id").notNull(),
+    stateVersion: text("state_version").notNull(),
+    stateJson: jsonb("state_json").$type<Record<string, unknown>>().notNull(),
+    taskId: uuid("task_id").references(() => tasks.id),
+    taskRowId: uuid("task_row_id").references(() => taskRows.id),
+    forecastAggregateId: uuid("forecast_aggregate_id").references(() => forecastAggregates.id),
+    previousSnapshotId: uuid("previous_snapshot_id"),
+    forecastAsOf: text("forecast_as_of"),
+    evidenceAsOf: text("evidence_as_of"),
+    cutoffDate: text("cutoff_date"),
+    temporalTrustState: text("temporal_trust_state").notNull(),
+    rawAutonomousProbability: doublePrecision("raw_autonomous_probability").notNull(),
+    selectedAutonomousProbability: doublePrecision("selected_autonomous_probability").notNull(),
+    crowdAssistedProbability: doublePrecision("crowd_assisted_probability"),
+    marketProbability: doublePrecision("market_probability"),
+    calibrationModelId: uuid("calibration_model_id").references(() => calibrationModels.id),
+    updateKind: forecastUpdateKind("update_kind").notNull().default("initial"),
+    updateReason: text("update_reason").notNull(),
+    probabilityDelta: doublePrecision("probability_delta"),
+    newEvidenceClaimIds: jsonb("new_evidence_claim_ids").$type<string[]>().notNull().default([]),
+    invalidatedEvidenceClaimIds: jsonb("invalidated_evidence_claim_ids").$type<string[]>().notNull().default([]),
+    nextScheduledUpdate: timestamp("next_scheduled_update", { withTimezone: true }),
+    triggerConditions: jsonb("trigger_conditions").$type<string[]>().notNull().default([]),
+    componentAttemptIds: jsonb("component_attempt_ids").$type<string[]>().notNull().default([]),
+    workflowVersion: text("workflow_version").notNull(),
+    aggregatorVersion: text("aggregator_version").notNull(),
+    calibratorVersion: text("calibrator_version"),
+    dossierVersion: text("dossier_version").notNull(),
+    schedulerVersion: text("scheduler_version"),
+    ...timestamps,
+  },
+  (table) => ({
+    stateIdIdx: uniqueIndex("forecast_snapshots_state_id_idx").on(table.stateId),
+    questionAsOfIdx: index("forecast_snapshots_question_as_of_idx").on(table.questionId, table.forecastAsOf),
+    nextUpdateIdx: index("forecast_snapshots_next_update_idx").on(table.nextScheduledUpdate),
+  }),
+);
+
+/** Scheduled or signpost-based reasons to reopen an unresolved question. */
+export const forecastUpdateTriggers = pgTable(
+  "forecast_update_triggers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    questionId: uuid("question_id").notNull().references(() => forecastQuestions.id),
+    sourceSnapshotId: uuid("source_snapshot_id").references(() => forecastSnapshots.id),
+    triggerType: text("trigger_type").notNull(),
+    description: text("description").notNull(),
+    status: forecastTriggerStatus("status").notNull().default("active"),
+    nextCheckAt: timestamp("next_check_at", { withTimezone: true }),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    firedAt: timestamp("fired_at", { withTimezone: true }),
+    configJson: jsonb("config_json").$type<Record<string, unknown>>().notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    activeCheckIdx: index("forecast_update_triggers_active_check_idx").on(table.status, table.nextCheckAt),
+    questionIdx: index("forecast_update_triggers_question_idx").on(table.questionId),
+  }),
+);
+
+/**
+ * Typed, bounded memory. Cross-question entries start experimental and require
+ * validation metadata before a service may activate them.
+ */
+export const forecastMemoryEntries = pgTable(
+  "forecast_memory_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    scope: forecastMemoryScope("scope").notNull(),
+    questionId: uuid("question_id").references(() => forecastQuestions.id),
+    sourceSnapshotId: uuid("source_snapshot_id").references(() => forecastSnapshots.id),
+    revisionOfId: uuid("revision_of_id"),
+    entryType: text("entry_type").notNull(),
+    content: text("content").notNull(),
+    status: forecastMemoryStatus("status").notNull().default("experimental"),
+    sourceQuestionIds: jsonb("source_question_ids").$type<string[]>().notNull().default([]),
+    sourceResolutionIds: jsonb("source_resolution_ids").$type<string[]>().notNull().default([]),
+    applicableTaxonomy: jsonb("applicable_taxonomy").$type<Record<string, unknown>>().notNull().default({}),
+    counterexamples: jsonb("counterexamples").$type<string[]>().notNull().default([]),
+    validationJson: jsonb("validation_json").$type<Record<string, unknown>>().notNull().default({}),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    deprecatedAt: timestamp("deprecated_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => ({
+    scopeStatusIdx: index("forecast_memory_entries_scope_status_idx").on(table.scope, table.status),
+    questionIdx: index("forecast_memory_entries_question_idx").on(table.questionId),
+  }),
+);
+
 export const forecastResolutions = pgTable("forecast_resolutions", {
   id: uuid("id").primaryKey().defaultRandom(),
   taskRowId: uuid("task_row_id").references(() => taskRows.id),
@@ -302,6 +476,51 @@ export const forecastResolutions = pgTable("forecast_resolutions", {
   resolvedAt: timestamp("resolved_at", { withTimezone: true }).notNull(),
   ...timestamps,
 });
+
+/**
+ * Proper scores for the complete immutable ForecastState trajectory. These are
+ * deliberately separate from attempt/aggregate scores so snapshot histories
+ * can be evaluated without changing legacy score semantics.
+ */
+export const forecastTrajectoryScores = pgTable(
+  "forecast_trajectory_scores",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    snapshotId: uuid("snapshot_id").notNull().references(() => forecastSnapshots.id),
+    questionId: uuid("question_id").notNull().references(() => forecastQuestions.id),
+    resolutionId: uuid("resolution_id").notNull().references(() => forecastResolutions.id),
+    forecastTrack: text("forecast_track").notNull().default("autonomous"),
+    probabilitySource: text("probability_source").notNull(),
+    scoreType: text("score_type").notNull(),
+    scoreValue: doublePrecision("score_value").notNull(),
+    probability: doublePrecision("probability").notNull(),
+    rawProbability: doublePrecision("raw_probability").notNull(),
+    resolved: boolean("resolved").notNull(),
+    stateId: text("state_id").notNull(),
+    stateVersion: text("state_version").notNull(),
+    previousSnapshotId: uuid("previous_snapshot_id"),
+    forecastAsOf: text("forecast_as_of"),
+    updateKind: forecastUpdateKind("update_kind").notNull(),
+    probabilityDelta: doublePrecision("probability_delta"),
+    leadTimeSeconds: doublePrecision("lead_time_seconds"),
+    leadTimeStatus: text("lead_time_status").notNull(),
+    eligibleForUpdatePolicyEvaluation: boolean("eligible_for_update_policy_evaluation").notNull().default(false),
+    temporalTrustState: text("temporal_trust_state").notNull(),
+    metadataJson: jsonb("metadata_json").$type<Record<string, unknown>>().notNull().default({}),
+    ...timestamps,
+  },
+  (table) => ({
+    snapshotResolutionTrackTypeIdx: uniqueIndex("forecast_trajectory_scores_snapshot_resolution_track_type_idx").on(
+      table.snapshotId,
+      table.resolutionId,
+      table.forecastTrack,
+      table.scoreType,
+    ),
+    questionAsOfIdx: index("forecast_trajectory_scores_question_as_of_idx").on(table.questionId, table.forecastAsOf),
+    resolutionIdx: index("forecast_trajectory_scores_resolution_idx").on(table.resolutionId),
+    leadTimeIdx: index("forecast_trajectory_scores_lead_time_idx").on(table.leadTimeStatus, table.leadTimeSeconds),
+  }),
+);
 
 export const forecastScores = pgTable("forecast_scores", {
   id: uuid("id").primaryKey().defaultRandom(),

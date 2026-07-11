@@ -1,0 +1,1 @@
+ALTER TABLE "forecast_questions" ADD COLUMN "background" text;

@@ -1,15 +1,26 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   artifactRows,
   calibrationModels,
-  forecastAggregates,
-  forecastAttempts,
+  forecastMemoryEntries,
+  forecastQuestions,
   forecastResolutions,
   forecastScores,
+  forecastSnapshots,
+  forecastUpdateTriggers,
   tasks,
   type createDb,
 } from "@open-superforecaster/db";
-import { scoreBinaryForecast } from "@open-superforecaster/evals";
+import {
+  datePinballLoss,
+  datePredictionIntervalMetrics,
+  dateWeightedIntervalScore,
+  meanQuantileLoss,
+  pinballLoss,
+  predictionIntervalMetrics,
+  scoreBinaryForecast,
+  weightedIntervalScore,
+} from "@open-superforecaster/evals";
 import { readAggregateQualitySnapshot, type AggregateQualitySnapshot } from "./aggregate-quality-metadata";
 import { aggregateSideAgreementBand, attemptCountBand, readAggregateStatsSnapshot, type AggregateStatsSnapshot } from "./aggregate-stats-metadata";
 import { readBaselineSanitySnapshot, type BaselineSanitySnapshot } from "./baseline-sanity-metadata";
@@ -32,7 +43,13 @@ import {
   type PerformanceAttentionSeverity,
 } from "./forecast-attention-policy";
 import { readForecastInputContextSnapshot, type ForecastInputContextSnapshot } from "./forecast-input-context-metadata";
+import {
+  loadExactCommittedForecastLedgerRows,
+  requireCommittedForecastLedgerManifest,
+  type ForecastLedgerManifest,
+} from "./forecast-ledger-manifest";
 import { readForecastRunSnapshot, type ForecastRunSnapshot } from "./forecast-run-metadata";
+import { scoreCanonicalBinaryForecastTrajectory } from "./forecast-trajectory-score-service";
 import { poorScoreThreshold, selectPrimaryScoreMetric, trendDeltaHighThreshold } from "./forecast-score-policy";
 import { readMarketAnchorSnapshot, type MarketAnchorSnapshot } from "./market-anchor-metadata";
 import { readNumericForecastSnapshot, type NumericForecastSnapshot } from "./numeric-forecast-metadata";
@@ -42,6 +59,8 @@ import { readThresholdedForecastSnapshot, type ThresholdedForecastSnapshot } fro
 import { readUncertaintyRangeSnapshot, type UncertaintyRangeSnapshot } from "./uncertainty-range-metadata";
 
 type Db = ReturnType<typeof createDb>["db"];
+type DbTransaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
+type DbExecutor = Db | DbTransaction;
 
 type BinaryResolutionInput = {
   taskId: string;
@@ -155,146 +174,290 @@ export async function resolveBinaryForecastTask(db: Db, input: BinaryResolutionI
 }
 
 export async function resolveForecastTask(db: Db, input: ForecastResolutionInput) {
-  const [task] = await db.select().from(tasks).where(eq(tasks.id, input.taskId)).limit(1);
-  if (!task) {
-    throw new Error(`Task not found: ${input.taskId}`);
-  }
-  if (task.operationMode !== "forecast" || !isResolvableForecastSubmode(task.operationSubmode)) {
-    throw new Error("Manual resolution is only enabled for completed product forecast tasks.");
-  }
-  if (task.benchmarkRunId) {
-    throw new Error("Benchmark tasks must be resolved through benchmark imports, not manual product resolution.");
-  }
-  if (task.status !== "completed") {
-    throw new Error(`Task must be completed before resolution; current status is ${task.status}.`);
-  }
-  if (!task.smithersRunId) {
-    throw new Error("Task has no Smithers run id, so forecast attempts cannot be linked.");
-  }
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select ${tasks.id} from ${tasks} where ${tasks.id} = ${input.taskId} for update`);
+    const [task] = await tx.select().from(tasks).where(eq(tasks.id, input.taskId)).limit(1);
+    if (!task) {
+      throw new Error(`Task not found: ${input.taskId}`);
+    }
+    if (task.operationMode !== "forecast" || !isResolvableForecastSubmode(task.operationSubmode)) {
+      throw new Error("Manual resolution is only enabled for completed product forecast tasks.");
+    }
+    if (task.benchmarkRunId) {
+      throw new Error("Benchmark tasks must be resolved through benchmark imports, not manual product resolution.");
+    }
+    if (task.status !== "completed") {
+      throw new Error(`Task must be completed before resolution; current status is ${task.status}.`);
+    }
+    if (!task.smithersRunId) {
+      throw new Error("Task has no Smithers run id, so its committed forecast ledger cannot be validated.");
+    }
 
-  const forecastType = forecastTypeFromSubmode(task.operationSubmode);
-  validateResolvedValue(forecastType, input.resolvedValue);
-  const resolutionSource = input.resolutionSource?.trim() || "manual";
-  const inputContext = readForecastInputContextSnapshot(task.configJson);
-  const runMetadata = readForecastRunSnapshot(task);
-  const existing = input.forceNew
-    ? null
-    : await findExistingResolution(db, {
+    const forecastType = forecastTypeFromSubmode(task.operationSubmode);
+    validateResolvedValue(forecastType, input.resolvedValue);
+    const manifest = requireCommittedForecastLedgerManifest(task, forecastType);
+    const { attempts, aggregate } = await loadExactCommittedForecastLedgerRows(tx, {
+      taskId: task.id,
+      manifest,
+    });
+    const canonicalQuestion = await lockCommittedCanonicalForecastQuestions(tx, {
+      taskId: task.id,
+      manifest,
+    });
+
+    const resolutionSource = input.resolutionSource?.trim() || "manual";
+    const inputContext = readForecastInputContextSnapshot(task.configJson);
+    const runMetadata = readForecastRunSnapshot(task);
+    const existing = input.forceNew
+      ? null
+      : await findExistingResolution(tx, {
+          taskId: task.id,
+          resolvedValue: input.resolvedValue,
+          resolutionSource,
+        });
+    const resolution =
+      existing ??
+      (await insertResolution(tx, {
         taskId: task.id,
+        smithersRunId: task.smithersRunId,
         resolvedValue: input.resolvedValue,
         resolutionSource,
-      });
-  const resolution =
-    existing ??
-    (await insertResolution(db, {
-      taskId: task.id,
-      smithersRunId: task.smithersRunId,
-      resolvedValue: input.resolvedValue,
-      resolutionSource,
-      resolutionExplanation: input.resolutionExplanation,
-      resolvedAt: input.resolvedAt ?? new Date(),
-      annulled: input.annulled ?? false,
-    }));
-
-  const attempts = await db
-    .select()
-    .from(forecastAttempts)
-    .where(and(eq(forecastAttempts.researchPassId, task.smithersRunId), eq(forecastAttempts.forecastType, forecastType)));
-  const attemptIds = attempts.map((attempt) => attempt.id);
-  if (attemptIds.length === 0) {
-    throw new Error(`No ${forecastType} forecast attempts are available to score.`);
-  }
-
-  const allAggregates = await db
-    .select()
-    .from(forecastAggregates)
-    .where(eq(forecastAggregates.forecastType, forecastType));
-  const aggregates = allAggregates.filter((aggregate) =>
-    aggregate.componentAttemptIds.some((attemptId) => attemptIds.includes(attemptId)),
-  );
-
-  if (resolution.annulled) {
-    return {
+        resolutionExplanation: input.resolutionExplanation,
+        resolvedAt: input.resolvedAt ?? new Date(),
+        annulled: input.annulled ?? false,
+      }));
+    await closeCanonicalForecastQuestions(tx, {
+      questionIds: canonicalQuestion.questionIds,
       resolutionId: resolution.id,
-      createdResolution: !existing,
-      insertedScores: 0,
-      skippedScores: attempts.length + aggregates.length,
-      note: "Resolution is annulled; no scores were written.",
-    };
-  }
+      annulled: resolution.annulled,
+    });
 
-  const insertedScores = [];
-  let skippedScores = 0;
+    if (resolution.annulled) {
+      const trajectoryScoring = forecastType === "binary"
+        ? await scoreCanonicalBinaryForecastTrajectory(tx as unknown as Db, {
+            taskId: task.id,
+            resolutionId: resolution.id,
+            resolved: requireResolvedBinaryValue(resolution.resolvedValue),
+            resolvedAt: resolution.resolvedAt,
+            annulled: true,
+          })
+        : null;
+      return {
+        resolutionId: resolution.id,
+        createdResolution: !existing,
+        insertedScores: 0,
+        skippedScores: attempts.length + 1,
+        trajectoryScoring,
+        note: "Resolution is annulled; no scores were written.",
+      };
+    }
 
-  for (const aggregate of aggregates) {
-    const scoreRows = scoreForecastPrediction({
+    if (forecastType === "binary" && !canonicalQuestion.autonomousScoreEligible) {
+      const trajectoryScoring = await scoreCanonicalBinaryForecastTrajectory(tx as unknown as Db, {
+        taskId: task.id,
+        resolutionId: resolution.id,
+        resolved: requireResolvedBinaryValue(resolution.resolvedValue),
+        resolvedAt: resolution.resolvedAt,
+        annulled: false,
+      });
+      return {
+        resolutionId: resolution.id,
+        createdResolution: !existing,
+        insertedScores: 0,
+        skippedScores: attempts.length + 1,
+        aggregateCount: 1,
+        attemptCount: attempts.length,
+        trajectoryScoring,
+        note: "Resolution recorded, but autonomous scores were withheld because information isolation was not verified.",
+      };
+    }
+
+    const insertedScores: Array<{ id: string }> = [];
+    let skippedScores = 0;
+    const aggregateScoreRows = scoreForecastPrediction({
       forecastType,
       prediction: aggregate.calibratedAggregate ?? aggregate.rawAggregate,
       resolvedValue: input.resolvedValue,
     });
-    if (scoreRows.length === 0) {
+    if (aggregateScoreRows.length === 0) {
       skippedScores += 1;
-      continue;
-    }
-    insertedScores.push(
-      ...(await insertForecastScoreRows(db, {
-        target: "aggregate",
-        targetId: aggregate.id,
-        resolutionId: resolution.id,
-        scoreRows,
-        scoreConfig: {
-          source: "manual_resolution",
-          taskId: task.id,
-          smithersRunId: task.smithersRunId,
+    } else {
+      insertedScores.push(
+        ...(await insertForecastScoreRows(tx, {
           target: "aggregate",
-          forecastType,
-          resolutionSource,
-          ...(inputContext ? { inputContext } : {}),
-          ...(runMetadata ? { runMetadata } : {}),
-        },
-      })),
-    );
-  }
-
-  for (const attempt of attempts) {
-    const scoreRows = scoreForecastPrediction({
-      forecastType,
-      prediction: attempt.parsedPrediction,
-      resolvedValue: input.resolvedValue,
-    });
-    if (scoreRows.length === 0) {
-      skippedScores += 1;
-      continue;
+          targetId: aggregate.id,
+          resolutionId: resolution.id,
+          scoreRows: aggregateScoreRows,
+          scoreConfig: {
+            source: "manual_resolution",
+            taskId: task.id,
+            smithersRunId: task.smithersRunId,
+            target: "aggregate",
+            forecastType,
+            resolutionSource,
+            ...(inputContext ? { inputContext } : {}),
+            ...(runMetadata ? { runMetadata } : {}),
+          },
+        })),
+      );
     }
-    insertedScores.push(
-      ...(await insertForecastScoreRows(db, {
-        target: "attempt",
-        targetId: attempt.id,
-        resolutionId: resolution.id,
-        scoreRows,
-        scoreConfig: {
-          source: "manual_resolution",
-          taskId: task.id,
-          smithersRunId: task.smithersRunId,
+
+    for (const attempt of attempts) {
+      const scoreRows = scoreForecastPrediction({
+        forecastType,
+        prediction: attempt.parsedPrediction,
+        resolvedValue: input.resolvedValue,
+      });
+      if (scoreRows.length === 0) {
+        skippedScores += 1;
+        continue;
+      }
+      insertedScores.push(
+        ...(await insertForecastScoreRows(tx, {
           target: "attempt",
-          forecastType,
-          forecasterLabel: attempt.forecasterLabel,
-          resolutionSource,
-          ...(inputContext ? { inputContext } : {}),
-          ...(runMetadata ? { runMetadata } : {}),
-        },
-      })),
+          targetId: attempt.id,
+          resolutionId: resolution.id,
+          scoreRows,
+          scoreConfig: {
+            source: "manual_resolution",
+            taskId: task.id,
+            smithersRunId: task.smithersRunId,
+            target: "attempt",
+            forecastType,
+            forecasterLabel: attempt.forecasterLabel,
+            resolutionSource,
+            ...(inputContext ? { inputContext } : {}),
+            ...(runMetadata ? { runMetadata } : {}),
+          },
+        })),
+      );
+    }
+
+    const trajectoryScoring = forecastType === "binary"
+      ? await scoreCanonicalBinaryForecastTrajectory(tx as unknown as Db, {
+          taskId: task.id,
+          resolutionId: resolution.id,
+          resolved: requireResolvedBinaryValue(resolution.resolvedValue),
+          resolvedAt: resolution.resolvedAt,
+          annulled: false,
+        })
+      : null;
+
+    return {
+      resolutionId: resolution.id,
+      createdResolution: !existing,
+      insertedScores: insertedScores.length,
+      skippedScores,
+      aggregateCount: 1,
+      attemptCount: attempts.length,
+      trajectoryScoring,
+    };
+  });
+}
+
+async function lockCommittedCanonicalForecastQuestions(
+  db: DbExecutor,
+  input: { taskId: string; manifest: ForecastLedgerManifest },
+) {
+  if (!input.manifest.snapshotId) {
+    return { questionIds: [] as string[], autonomousScoreEligible: true };
+  }
+  const [snapshot] = await db
+    .select({
+      id: forecastSnapshots.id,
+      questionId: forecastSnapshots.questionId,
+      stateId: forecastSnapshots.stateId,
+      taskId: forecastSnapshots.taskId,
+      forecastAggregateId: forecastSnapshots.forecastAggregateId,
+      componentAttemptIds: forecastSnapshots.componentAttemptIds,
+      stateJson: forecastSnapshots.stateJson,
+    })
+    .from(forecastSnapshots)
+    .where(eq(forecastSnapshots.id, input.manifest.snapshotId))
+    .limit(1);
+  if (
+    !snapshot ||
+    snapshot.taskId !== input.taskId ||
+    snapshot.stateId !== input.manifest.stateId ||
+    snapshot.forecastAggregateId !== input.manifest.aggregateId ||
+    !sameOrderedStrings(snapshot.componentAttemptIds, input.manifest.componentAttemptIds)
+  ) {
+    throw new Error(
+      `Committed ForecastState snapshot ${input.manifest.snapshotId} does not match task ${input.taskId}'s ledger manifest.`,
     );
   }
-
+  await db.execute(
+    sql`select ${forecastQuestions.id} from ${forecastQuestions} where ${forecastQuestions.id} = ${snapshot.questionId} for update`,
+  );
+  const [question] = await db
+    .select({ id: forecastQuestions.id })
+    .from(forecastQuestions)
+    .where(eq(forecastQuestions.id, snapshot.questionId))
+    .limit(1);
+  if (!question) {
+    throw new Error(`Canonical forecast question not found for committed snapshot ${snapshot.id}.`);
+  }
   return {
-    resolutionId: resolution.id,
-    createdResolution: !existing,
-    insertedScores: insertedScores.length,
-    skippedScores,
-    aggregateCount: aggregates.length,
-    attemptCount: attempts.length,
+    questionIds: [question.id],
+    autonomousScoreEligible: readSnapshotInformationIsolationStatus(snapshot.stateJson) === "isolated",
   };
+}
+
+function readSnapshotInformationIsolationStatus(state: Record<string, unknown>) {
+  const outputs = asRecord(state.outputs) ?? {};
+  const autonomous = asRecord(outputs.autonomous) ?? {};
+  const isolation = asRecord(autonomous.informationIsolation ?? autonomous.information_isolation) ?? {};
+  return readString(isolation, "status");
+}
+
+async function closeCanonicalForecastQuestions(
+  db: DbExecutor,
+  input: { questionIds: string[]; resolutionId: string; annulled: boolean },
+) {
+  if (input.questionIds.length === 0) {
+    return;
+  }
+  const now = new Date();
+  await db
+    .update(forecastQuestions)
+    .set({
+      status: input.annulled ? "annulled" : "resolved",
+      updateLeaseOwner: null,
+      updateLeaseExpiresAt: null,
+      updateLeaseTriggerId: null,
+      updatedAt: now,
+    })
+    .where(inArray(forecastQuestions.id, input.questionIds));
+  await db
+    .update(forecastUpdateTriggers)
+    .set({ status: "retired", updatedAt: now })
+    .where(and(
+      inArray(forecastUpdateTriggers.questionId, input.questionIds),
+      inArray(forecastUpdateTriggers.status, ["active", "snoozed"]),
+    ));
+  const activeMemory = await db
+    .select()
+    .from(forecastMemoryEntries)
+    .where(and(
+      inArray(forecastMemoryEntries.questionId, input.questionIds),
+      eq(forecastMemoryEntries.scope, "question_local"),
+      eq(forecastMemoryEntries.status, "active"),
+    ));
+  for (const entry of activeMemory) {
+    await db
+      .update(forecastMemoryEntries)
+      .set({
+        status: "deprecated",
+        sourceResolutionIds: uniqueStrings([...entry.sourceResolutionIds, input.resolutionId]),
+        deprecatedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(forecastMemoryEntries.id, entry.id));
+  }
+}
+
+function sameOrderedStrings(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 export async function getResolutionDashboard(db: Db) {
@@ -727,7 +890,7 @@ export async function getForecastPerformanceReport(db: Db) {
 }
 
 async function findExistingResolution(
-  db: Db,
+  db: DbExecutor,
   input: {
     taskId: string;
     resolvedValue: Record<string, unknown>;
@@ -748,7 +911,7 @@ async function findExistingResolution(
 }
 
 async function insertResolution(
-  db: Db,
+  db: DbExecutor,
   input: {
     taskId: string;
     smithersRunId: string;
@@ -825,7 +988,7 @@ async function insertBinaryScoreRows(
 }
 
 async function insertForecastScoreRows(
-  db: Db,
+  db: DbExecutor,
   input: {
     target: ScoreTarget;
     targetId: string;
@@ -867,7 +1030,7 @@ async function insertForecastScoreRows(
     .returning({ id: forecastScores.id });
 }
 
-function scoreForecastPrediction(input: {
+export function scoreForecastPrediction(input: {
   forecastType: "binary" | "date" | "numeric" | "categorical" | "thresholded" | "conditional";
   prediction: Record<string, unknown>;
   resolvedValue: Record<string, unknown>;
@@ -937,6 +1100,7 @@ function scoreForecastPrediction(input: {
         scoreConfig: { predicted, actual, error, ...(numericForecast ? { numericForecast } : {}), ...evidenceConfig },
       });
     }
+    rows.push(...scoreNumericDistribution(input.prediction, actual, evidenceConfig));
     return rows;
   }
 
@@ -950,7 +1114,7 @@ function scoreForecastPrediction(input: {
     const dateForecast = readDateForecastSnapshot({ ...input.prediction, actualDate });
     const errorDays = Math.round(((predicted.getTime() - actual.getTime()) / 86_400_000) * 100) / 100;
     const absoluteDays = Math.abs(errorDays);
-    return [
+    const rows: ScoreRowInput[] = [
       {
         scoreType: "absolute_days_error",
         scoreValue: absoluteDays,
@@ -974,6 +1138,8 @@ function scoreForecastPrediction(input: {
         },
       },
     ];
+    rows.push(...scoreDateDistribution(input.prediction, actualDate, evidenceConfig));
+    return rows;
   }
 
   if (input.forecastType === "categorical") {
@@ -1093,6 +1259,211 @@ function scoreForecastPrediction(input: {
     );
   }
   return rows;
+}
+
+function scoreNumericDistribution(
+  prediction: Record<string, unknown>,
+  actual: number,
+  evidenceConfig: Record<string, unknown>,
+): ScoreRowInput[] {
+  const distribution = asRecord(prediction.distribution) ?? asRecord(prediction.quantiles);
+  if (!distribution) {
+    return [];
+  }
+  const levels = [0.1, 0.25, 0.5, 0.75, 0.9] as const;
+  const values = levels.map((quantile) => ({
+    quantile,
+    value: readNumber(distribution, `p${Math.round(quantile * 100)}`),
+  }));
+  if (values.every((point) => point.value === null)) {
+    return [];
+  }
+  if (values.some((point) => point.value === null)) {
+    return [distributionValidityFailure("numeric", "Numeric distribution is missing one or more required p10/p25/p50/p75/p90 quantiles.", evidenceConfig)];
+  }
+  const quantiles = values.map((point) => ({ quantile: point.quantile, value: point.value as number }));
+  const byQuantile = new Map(quantiles.map((point) => [point.quantile, point.value]));
+  const config = {
+    actual,
+    quantiles,
+    distributionScoringVersion: "proper-quantile-scores-v1",
+    ...evidenceConfig,
+  };
+  try {
+    const interval80 = predictionIntervalMetrics({
+      lower: byQuantile.get(0.1) as number,
+      upper: byQuantile.get(0.9) as number,
+      outcome: actual,
+      miscoverage: 0.2,
+    });
+    const interval50 = predictionIntervalMetrics({
+      lower: byQuantile.get(0.25) as number,
+      upper: byQuantile.get(0.75) as number,
+      outcome: actual,
+      miscoverage: 0.5,
+    });
+    const wis = weightedIntervalScore({
+      median: byQuantile.get(0.5) as number,
+      intervals: [
+        { lower: byQuantile.get(0.1) as number, upper: byQuantile.get(0.9) as number, miscoverage: 0.2 },
+        { lower: byQuantile.get(0.25) as number, upper: byQuantile.get(0.75) as number, miscoverage: 0.5 },
+      ],
+      outcome: actual,
+    });
+    return [
+      ...quantiles.map((point) => ({
+        scoreType: `numeric_pinball_p${Math.round(point.quantile * 100)}`,
+        scoreValue: pinballLoss({ quantile: point.quantile, forecast: point.value, outcome: actual }),
+        scoreConfig: config,
+      })),
+      {
+        scoreType: "numeric_mean_quantile_loss",
+        scoreValue: meanQuantileLoss({ quantiles, outcome: actual }),
+        scoreConfig: config,
+      },
+      {
+        scoreType: "numeric_crps_approx_wis",
+        scoreValue: wis,
+        scoreConfig: config,
+      },
+      ...intervalMetricRows("numeric", "80", interval80, config),
+      ...intervalMetricRows("numeric", "50", interval50, config),
+      {
+        scoreType: "numeric_quantile_coherence_violation",
+        scoreValue: 0,
+        scoreConfig: config,
+      },
+    ];
+  } catch (error) {
+    return [distributionValidityFailure(
+      "numeric",
+      error instanceof Error ? error.message : String(error),
+      config,
+    )];
+  }
+}
+
+function scoreDateDistribution(
+  prediction: Record<string, unknown>,
+  actualDate: string,
+  evidenceConfig: Record<string, unknown>,
+): ScoreRowInput[] {
+  const distribution = asRecord(prediction.dateDistribution) ?? asRecord(prediction.distribution);
+  if (!distribution) {
+    return [];
+  }
+  const levels = [0.1, 0.25, 0.5, 0.75, 0.9] as const;
+  const values = levels.map((quantile) => ({
+    quantile,
+    value: readString(distribution, `p${Math.round(quantile * 100)}`),
+  }));
+  if (values.every((point) => point.value === null)) {
+    return [];
+  }
+  if (values.some((point) => point.value === null)) {
+    return [distributionValidityFailure("date", "Date distribution is missing one or more required p10/p25/p50/p75/p90 quantiles.", evidenceConfig)];
+  }
+  const quantiles = values.map((point) => ({ quantile: point.quantile, value: point.value as string }));
+  const byQuantile = new Map(quantiles.map((point) => [point.quantile, point.value]));
+  const config = {
+    actualDate,
+    quantiles,
+    distributionScoringVersion: "proper-quantile-scores-v1",
+    ...evidenceConfig,
+  };
+  try {
+    const interval80 = datePredictionIntervalMetrics({
+      lower: byQuantile.get(0.1) as string,
+      upper: byQuantile.get(0.9) as string,
+      outcome: actualDate,
+      miscoverage: 0.2,
+    });
+    const interval50 = datePredictionIntervalMetrics({
+      lower: byQuantile.get(0.25) as string,
+      upper: byQuantile.get(0.75) as string,
+      outcome: actualDate,
+      miscoverage: 0.5,
+    });
+    const wis = dateWeightedIntervalScore({
+      median: byQuantile.get(0.5) as string,
+      intervals: [
+        { lower: byQuantile.get(0.1) as string, upper: byQuantile.get(0.9) as string, miscoverage: 0.2 },
+        { lower: byQuantile.get(0.25) as string, upper: byQuantile.get(0.75) as string, miscoverage: 0.5 },
+      ],
+      outcome: actualDate,
+    });
+    return [
+      ...quantiles.map((point) => ({
+        scoreType: `date_pinball_p${Math.round(point.quantile * 100)}`,
+        scoreValue: datePinballLoss({ quantile: point.quantile, forecast: point.value, outcome: actualDate }),
+        scoreConfig: config,
+      })),
+      {
+        scoreType: "date_mean_quantile_loss_days",
+        scoreValue: meanNumber(quantiles.map((point) => datePinballLoss({
+          quantile: point.quantile,
+          forecast: point.value,
+          outcome: actualDate,
+        }))),
+        scoreConfig: config,
+      },
+      {
+        scoreType: "date_crps_approx_wis_days",
+        scoreValue: wis,
+        scoreConfig: config,
+      },
+      ...dateIntervalMetricRows("80", interval80, config),
+      ...dateIntervalMetricRows("50", interval50, config),
+      {
+        scoreType: "date_quantile_coherence_violation",
+        scoreValue: 0,
+        scoreConfig: config,
+      },
+    ];
+  } catch (error) {
+    return [distributionValidityFailure(
+      "date",
+      error instanceof Error ? error.message : String(error),
+      config,
+    )];
+  }
+}
+
+function intervalMetricRows(
+  prefix: string,
+  interval: string,
+  metrics: { coverage: number; width: number; score: number },
+  scoreConfig: Record<string, unknown>,
+): ScoreRowInput[] {
+  return [
+    { scoreType: `${prefix}_${interval}_interval_coverage`, scoreValue: metrics.coverage, scoreConfig },
+    { scoreType: `${prefix}_${interval}_interval_sharpness`, scoreValue: metrics.width, scoreConfig },
+    { scoreType: `${prefix}_${interval}_interval_score`, scoreValue: metrics.score, scoreConfig },
+  ];
+}
+
+function dateIntervalMetricRows(
+  interval: string,
+  metrics: { coverage: number; widthDays: number; intervalScoreDays: number },
+  scoreConfig: Record<string, unknown>,
+): ScoreRowInput[] {
+  return [
+    { scoreType: `date_${interval}_interval_coverage`, scoreValue: metrics.coverage, scoreConfig },
+    { scoreType: `date_${interval}_interval_sharpness_days`, scoreValue: metrics.widthDays, scoreConfig },
+    { scoreType: `date_${interval}_interval_score_days`, scoreValue: metrics.intervalScoreDays, scoreConfig },
+  ];
+}
+
+function distributionValidityFailure(
+  prefix: "numeric" | "date",
+  error: string,
+  scoreConfig: Record<string, unknown>,
+): ScoreRowInput {
+  return {
+    scoreType: `${prefix}_quantile_coherence_violation`,
+    scoreValue: 1,
+    scoreConfig: { ...scoreConfig, error },
+  };
 }
 
 function validateResolvedValue(
@@ -1317,6 +1688,14 @@ function readDate(value: unknown, ...keys: string[]) {
 function readResolved(value: unknown) {
   const record = asRecord(value);
   return typeof record?.resolved === "boolean" ? record.resolved : null;
+}
+
+function requireResolvedBinaryValue(value: unknown) {
+  const resolved = readResolved(value);
+  if (resolved === null) {
+    throw new Error("Binary trajectory scoring requires a boolean resolution value.");
+  }
+  return resolved;
 }
 
 function meanScore(rows: Array<typeof forecastScores.$inferSelect>) {
@@ -3922,12 +4301,17 @@ function renderCaseTable(cases: PerformanceCase[]) {
 }
 
 function formatCalibrationGuard(guard: CalibrationGuardSnapshot | null) {
-  if (!guard || guard.appliedRules.length === 0) {
+  if (!guard || (guard.appliedRules.length === 0 && !guard.experimental)) {
     return "";
   }
   const adjustment = guard.adjustment === null ? "" : `${guard.adjustment >= 0 ? "+" : ""}${roundMetric(guard.adjustment)} pts`;
   const ruleIds = guard.appliedRules.map((rule) => rule.id).join(", ");
-  return [adjustment, ruleIds].filter(Boolean).join(" ");
+  const variant = guard.variant ? `${guard.experimental ? "experimental " : ""}${guard.variant}` : "";
+  const comparison = guard.rawProbability !== null && guard.rawProbability !== undefined &&
+    guard.guardedProbability !== null && guard.guardedProbability !== undefined
+    ? `${roundMetric(guard.rawProbability)} -> ${roundMetric(guard.guardedProbability)}`
+    : "";
+  return [variant, comparison, adjustment, ruleIds].filter(Boolean).join(" ");
 }
 
 function renderTrendTable(trends: PerformanceTrend[]) {

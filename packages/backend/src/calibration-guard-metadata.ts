@@ -1,4 +1,8 @@
 export type CalibrationGuardSnapshot = {
+  variant?: string | null;
+  experimental?: boolean | null;
+  rawProbability?: number | null;
+  guardedProbability?: number | null;
   adjustment: number | null;
   appliedRules: Array<{
     id: string;
@@ -25,6 +29,10 @@ export function readCalibrationGuardSnapshot(value: unknown): CalibrationGuardSn
       }];
     });
   return {
+    variant: readString(guard, "variant"),
+    experimental: readBoolean(guard, "experimental"),
+    rawProbability: readNumber(guard, "rawProbability", "raw_probability"),
+    guardedProbability: readNumber(guard, "guardedProbability", "guarded_probability"),
     adjustment: readNumber(guard, "adjustment"),
     appliedRules,
   };
@@ -50,10 +58,21 @@ function readString(value: unknown, key: string) {
   return typeof raw === "string" && raw.trim() ? raw.trim() : null;
 }
 
-function readNumber(value: unknown, key: string) {
+function readNumber(value: unknown, ...keys: string[]) {
+  const record = asRecord(value);
+  for (const key of keys) {
+    const raw = record?.[key];
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      return raw;
+    }
+  }
+  return null;
+}
+
+function readBoolean(value: unknown, key: string) {
   const record = asRecord(value);
   const raw = record?.[key];
-  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+  return typeof raw === "boolean" ? raw : null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

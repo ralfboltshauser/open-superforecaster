@@ -2,8 +2,16 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
-import { formatAgentRef, loadAgentPolicy, selectAgentRef, type AgentPurpose } from "@open-superforecaster/config";
+import { and, asc, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import {
+  formatAgentRef,
+  loadAppConfig,
+  loadAgentPolicy,
+  parseAgentRef,
+  selectAgentRef,
+  type AgentPurpose,
+  type AgentRef,
+} from "@open-superforecaster/config";
 import {
   artifactRows,
   artifacts,
@@ -23,12 +31,49 @@ import { canonicalCitedSourceKey, type OperationMode } from "@open-superforecast
 import { readAggregateQualitySnapshot } from "./aggregate-quality-metadata";
 import { readCalibrationGuardSnapshot } from "./calibration-guard-metadata";
 import { readComponentWeightingSnapshot } from "./component-weighting-metadata";
+import { requireCommittedForecastLedgerManifest } from "./forecast-ledger-manifest";
+import {
+  ForecastQuestionNotOpenError,
+  parsePersistableForecastState,
+  persistForecastStateInTransaction,
+  reactivateForecastTriggerAfterFailedUpdate,
+} from "./forecast-state-service";
 import { readMarketAnchorSnapshot } from "./market-anchor-metadata";
 import { readResolutionBoundarySnapshot } from "./resolution-boundary-metadata";
-import { inspectSmithersRun, launchSmithersDetached, readSmithersNodeOutput } from "./smithers-launcher";
+import {
+  inspectSmithersRun,
+  launchSmithersDetached,
+  readSmithersNodeExecutionMetadata,
+  readSmithersNodeExecutionMetadataHistory,
+  readSmithersNodeOutput,
+  type SmithersNodeExecutionMetadata,
+} from "./smithers-launcher";
+import {
+  readCodexProviderObservedResearchActivity,
+  type ProviderObservedResearchActivity,
+} from "./smithers-research-activity";
 import { readUncertaintyRangeSnapshot } from "./uncertainty-range-metadata";
 
 type Db = ReturnType<typeof createDb>["db"];
+type DbTransaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
+type DbExecutor = Db | DbTransaction;
+
+const FORECAST_LEDGER_VERSION = "forecast-ledger-v1";
+
+export type ForecastLedgerManifest = {
+  version: typeof FORECAST_LEDGER_VERSION;
+  inputDigest: string;
+  smithersRunId: string;
+  artifactId: string;
+  artifactRowId: string | null;
+  forecastType: string;
+  aggregateId: string;
+  snapshotId: string | null;
+  stateId: string | null;
+  componentAttemptIds: string[];
+  sourceIds: string[];
+  citationIds: string[];
+};
 
 export class TaskNotFoundError extends Error {
   readonly taskId: string;
@@ -53,6 +98,7 @@ export async function createQueuedWorkflowTask(
     operationSubmode: string;
     label: string;
     workflowPath: string;
+    sessionId?: string;
     workflowVersion?: string;
     benchmarkRunId?: string;
     workflowVariantId?: string;
@@ -60,15 +106,15 @@ export async function createQueuedWorkflowTask(
     configJson?: Record<string, unknown>;
   },
 ): Promise<RunLaunchRecord> {
-  const [session] = await db
+  const sessionId = input.sessionId ?? (await db
     .insert(sessions)
     .values({ label: "Local workspace" })
-    .returning({ id: sessions.id });
+    .returning({ id: sessions.id }))[0].id;
 
   const [task] = await db
     .insert(tasks)
     .values({
-      sessionId: session.id,
+      sessionId,
       operationMode: input.operationMode,
       operationSubmode: input.operationSubmode,
       workflowVersion: input.workflowVersion ?? "bootstrap",
@@ -118,7 +164,7 @@ export async function markTaskRunning(db: Db, input: { taskId: string; smithersR
 }
 
 export async function markTaskFailed(db: Db, input: { taskId: string; error: string }) {
-  await db
+  const [failedTask] = await db
     .update(tasks)
     .set({
       status: "failed",
@@ -130,7 +176,45 @@ export async function markTaskFailed(db: Db, input: { taskId: string; error: str
       completedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(eq(tasks.id, input.taskId));
+    .where(and(
+      eq(tasks.id, input.taskId),
+      inArray(tasks.status, ["queued", "running"]),
+    ))
+    .returning({ configJson: tasks.configJson });
+  const updateTriggerId = failedTask && isRecord(failedTask.configJson)
+    ? readString(failedTask.configJson, "forecastUpdateTriggerId")
+    : null;
+  const updateLeaseOwner = failedTask && isRecord(failedTask.configJson)
+    ? readString(failedTask.configJson, "forecastUpdateLeaseOwner")
+    : null;
+  if (updateTriggerId) {
+    await reactivateForecastTriggerAfterFailedUpdate(db, updateTriggerId, {
+      leaseOwner: updateLeaseOwner,
+    });
+  }
+}
+
+async function markTaskCompleted(db: Db, taskId: string) {
+  const now = new Date();
+  const [completed] = await db
+    .update(tasks)
+    .set({
+      status: "completed",
+      error: null,
+      progressPending: 0,
+      progressRunning: 0,
+      progressCompleted: 1,
+      progressFailed: 0,
+      activeWorkers: 0,
+      completedAt: now,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(tasks.id, taskId),
+      eq(tasks.status, "running"),
+    ))
+    .returning({ id: tasks.id });
+  return Boolean(completed);
 }
 
 export async function seedTaskRows(
@@ -417,25 +501,64 @@ export async function getTaskDetail(db: Db, taskId: string) {
     });
   }
 
-  const sourceRecords = await db
-    .select()
-    .from(sourceBankEntries)
-    .where(eq(sourceBankEntries.taskId, task.id))
-    .orderBy(asc(sourceBankEntries.rank), desc(sourceBankEntries.createdAt));
-  const sourceIds = sourceRecords.map((source) => source.id);
-  const citationRecords = sourceIds.length
-    ? await db.select().from(citations).where(inArray(citations.sourceId, sourceIds))
-    : [];
-
-  const attemptRecords = task.smithersRunId
-    ? await db.select().from(forecastAttempts).where(eq(forecastAttempts.researchPassId, task.smithersRunId)).orderBy(desc(forecastAttempts.createdAt))
-    : [];
-  const attemptIds = attemptRecords.map((attempt) => attempt.id);
-  const aggregateRecords = attemptIds.length
-    ? (await db.select().from(forecastAggregates)).filter((aggregate) =>
-        aggregate.componentAttemptIds.some((attemptId) => attemptIds.includes(attemptId)),
+  const forecastTask = isForecastSubmode(task.operationSubmode);
+  const ledgerManifest = task.forecastLedgerCommittedAt && forecastTask
+    ? requireCommittedForecastLedgerManifest(
+        task,
+        task.operationSubmode === "binary_forecast"
+          ? "binary"
+          : forecastTypeFromSubmode(task.operationSubmode),
       )
-    : [];
+    : null;
+  const sourceRecords = ledgerManifest
+    ? ledgerManifest.sourceIds.length
+      ? sortByIdOrder(
+          await db
+            .select()
+            .from(sourceBankEntries)
+            .where(inArray(sourceBankEntries.id, ledgerManifest.sourceIds)),
+          ledgerManifest.sourceIds,
+        )
+      : []
+    : forecastTask
+      ? []
+      : await db
+          .select()
+          .from(sourceBankEntries)
+          .where(eq(sourceBankEntries.taskId, task.id))
+          .orderBy(asc(sourceBankEntries.rank), desc(sourceBankEntries.createdAt));
+  const sourceIds = sourceRecords.map((source) => source.id);
+  const citationRecords = ledgerManifest
+    ? ledgerManifest.citationIds.length
+      ? sortByIdOrder(
+          await db.select().from(citations).where(inArray(citations.id, ledgerManifest.citationIds)),
+          ledgerManifest.citationIds,
+        )
+      : []
+    : sourceIds.length
+      ? await db.select().from(citations).where(inArray(citations.sourceId, sourceIds))
+      : [];
+  const attemptRecords = ledgerManifest
+    ? ledgerManifest.componentAttemptIds.length
+      ? sortByIdOrder(
+          await db
+            .select()
+            .from(forecastAttempts)
+            .where(inArray(forecastAttempts.id, ledgerManifest.componentAttemptIds)),
+          ledgerManifest.componentAttemptIds,
+        )
+      : []
+    : !forecastTask && task.smithersRunId
+      ? await db.select().from(forecastAttempts).where(eq(forecastAttempts.researchPassId, task.smithersRunId)).orderBy(desc(forecastAttempts.createdAt))
+      : [];
+  const attemptIds = attemptRecords.map((attempt) => attempt.id);
+  const aggregateRecords = ledgerManifest
+    ? await db.select().from(forecastAggregates).where(eq(forecastAggregates.id, ledgerManifest.aggregateId))
+    : attemptIds.length
+      ? (await db.select().from(forecastAggregates)).filter((aggregate) =>
+          aggregate.componentAttemptIds.some((attemptId) => attemptIds.includes(attemptId)),
+        )
+      : [];
   const aggregateIds = aggregateRecords.map((aggregate) => aggregate.id);
   const attemptScoreRecords = attemptIds.length
     ? await db.select().from(forecastScores).where(inArray(forecastScores.forecastAttemptId, attemptIds))
@@ -857,12 +980,17 @@ function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited
   const uncertaintyRange = readUncertaintyRangeSnapshot(output);
   const componentWeighting = readComponentWeightingSnapshot(output);
   const aggregateQuality = readAggregateQualitySnapshot(output);
+  const forecastState = readRecord(output, "forecastState", "forecast_state");
   return {
     status: detail.task.status,
     outputPresent: Object.keys(output).length > 0,
     rationalePresent: Boolean(readString(output, "rationale", "summary", "answer")),
     warningCount: warnings.length,
     warnings: warnings.slice(0, 20),
+    calibrationGuardVariant: calibrationGuard?.variant ?? null,
+    calibrationGuardExperimental: calibrationGuard?.experimental ?? null,
+    calibrationGuardRawProbability: calibrationGuard?.rawProbability ?? null,
+    calibrationGuardGuardedProbability: calibrationGuard?.guardedProbability ?? null,
     calibrationGuardAdjustment: calibrationGuard?.adjustment ?? null,
     calibrationGuardRules,
     calibrationGuardRuleCount: calibrationGuardRules.length,
@@ -872,6 +1000,7 @@ function summarizeReportQuality(output: Record<string, unknown>, detail: Awaited
     uncertaintyRange,
     componentWeighting,
     aggregateQuality,
+    forecastState: Object.keys(forecastState).length ? forecastState : null,
     sourceCount: detail.sources.length,
     citationCount: detail.citations.length,
     attemptCount: detail.forecastAttempts.length,
@@ -888,6 +1017,11 @@ function summarizeReportEvidence(detail: Awaited<ReturnType<typeof getTaskDetail
     sourceType: source.sourceType,
     publishedAt: source.publishedAt,
     retrievedAt: source.retrievedAt,
+    archiveUri: source.archiveUri,
+    provenanceMode: source.provenanceMode,
+    cutoffStatus: source.cutoffStatus,
+    dependenceGroup: source.dependenceGroup,
+    query: source.query,
     usedInFinal: source.usedInFinal,
     qualityScore: source.qualityScore,
   }));
@@ -953,6 +1087,7 @@ function renderRunReportMarkdown(report: {
     ...markdownList("Key uncertainties", report.uncertainty.keyUncertainties),
     ...markdownList("Wildcards", report.uncertainty.wildcards),
     ...markdownList("Warnings", report.quality.warnings),
+    ...markdownList("Forecast state", readReportForecastState(report.quality)),
     ...markdownList("Baseline sanity", readReportBaselineSanity(report.quality)),
     ...markdownList("Market anchor", readReportMarketAnchor(report.quality)),
     ...markdownList("Resolution boundary", readReportResolutionBoundary(report.quality)),
@@ -980,6 +1115,28 @@ function readReportBaselineSanity(quality: Record<string, unknown>) {
   const note = readString(baselineSanity, "note");
   return [
     `${status}: baseline ${baselineProbability === null ? "n/a" : `${baselineProbability}%`}, delta ${baselineDelta === null ? "n/a" : `${baselineDelta >= 0 ? "+" : ""}${baselineDelta} pts`}${note ? `. ${note}` : ""}`,
+  ];
+}
+
+function readReportForecastState(quality: Record<string, unknown>) {
+  const state = readRecord(quality, "forecastState", "forecast_state");
+  if (Object.keys(state).length === 0) {
+    return [];
+  }
+  const outputs = readRecord(state, "outputs");
+  const autonomous = readRecord(outputs, "autonomous");
+  const assisted = readRecord(outputs, "crowdAssisted", "crowd_assisted");
+  const isolation = readRecord(autonomous, "informationIsolation", "information_isolation");
+  const temporal = readRecord(state, "temporal");
+  const research = readRecord(state, "research");
+  const diagnostics = readRecord(research, "diagnostics");
+  const update = readRecord(state, "update");
+  const autonomousProbability = readNumber(autonomous, "selectedProbability", "selected_probability");
+  const assistedProbability = readNumber(assisted, "probability");
+  return [
+    `State ${readString(state, "stateId", "state_id") ?? "unknown"}: autonomous ${autonomousProbability === null ? "n/a" : `${autonomousProbability}%`}; assisted candidate ${assistedProbability === null ? "not supplied" : `${assistedProbability}%`}.`,
+    `Temporal trust ${readString(temporal, "trustState", "trust_state") ?? "unknown"}; information isolation ${readString(isolation, "status") ?? "unknown"}; evidence provenance ${readString(research, "provenanceMode", "provenance_mode") ?? "unknown"} (${readNumber(diagnostics, "harnessObservedSourceCount", "harness_observed_source_count") ?? 0} harness-observed source(s)).`,
+    `Update ${readString(update, "kind") ?? "unknown"}; next review ${readString(update, "nextScheduledUpdate", "next_scheduled_update") ?? "not scheduled"}.`,
   ];
 }
 
@@ -1116,6 +1273,13 @@ function uniqueStrings(values: Array<string | null | undefined>) {
   return [...new Set(values.map((value) => value?.trim() ?? "").filter(Boolean))];
 }
 
+function sortByIdOrder<T extends { id: string }>(rows: T[], ids: string[]) {
+  const order = new Map(ids.map((id, index) => [id, index]));
+  return [...rows].sort((left, right) =>
+    (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+    (order.get(right.id) ?? Number.MAX_SAFE_INTEGER));
+}
+
 function summarizeForecastAnswer(output: unknown) {
   if (!isRecord(output)) {
     return { kind: "missing", value: null };
@@ -1143,14 +1307,28 @@ function summarizeForecastAnswer(output: unknown) {
   return { kind: "recorded", value: null };
 }
 
-function readRecord(value: Record<string, unknown>, ...keys: string[]) {
+export function readJsonRecordField(value: Record<string, unknown>, ...keys: string[]) {
   for (const key of keys) {
     const raw = value[key];
     if (isRecord(raw)) {
       return raw;
     }
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (isRecord(parsed)) {
+          return parsed;
+        }
+      } catch {
+        continue;
+      }
+    }
   }
-  return {};
+  return null;
+}
+
+function readRecord(value: Record<string, unknown>, ...keys: string[]) {
+  return readJsonRecordField(value, ...keys) ?? {};
 }
 
 function runLinks(taskId: string) {
@@ -1310,7 +1488,11 @@ export async function reconcileRunningTasks(db: Db, root: string) {
       id: tasks.id,
       smithersRunId: tasks.smithersRunId,
       outputArtifactId: tasks.outputArtifactId,
+      operationMode: tasks.operationMode,
       operationSubmode: tasks.operationSubmode,
+      forecastLedgerVersion: tasks.forecastLedgerVersion,
+      forecastLedgerCommittedAt: tasks.forecastLedgerCommittedAt,
+      forecastLedgerManifest: tasks.forecastLedgerManifest,
       startedAt: tasks.startedAt,
       createdAt: tasks.createdAt,
     })
@@ -1318,6 +1500,27 @@ export async function reconcileRunningTasks(db: Db, root: string) {
     .where(eq(tasks.status, "running"));
 
   for (const task of running) {
+    // The commit marker is the linearization point for forecast materialization.
+    // If the process died before the independent task-status update, recover
+    // from the durable ledger instead of consulting an already-pruned provider
+    // run and accidentally downgrading a completed forecast to failed.
+    if (task.forecastLedgerCommittedAt) {
+      try {
+        requireCommittedForecastLedgerManifest(
+          task,
+          task.operationSubmode === "binary_forecast"
+            ? "binary"
+            : forecastTypeFromSubmode(task.operationSubmode),
+        );
+        await markTaskCompleted(db, task.id);
+      } catch (error) {
+        await markTaskFailed(db, {
+          taskId: task.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      continue;
+    }
     if (!task.smithersRunId) {
       continue;
     }
@@ -1364,6 +1567,15 @@ export async function reconcileRunningTasks(db: Db, root: string) {
         }
       }
 
+      if (!outputArtifactId && isForecastSubmode(task.operationSubmode)) {
+        await markTaskFailed(db, {
+          taskId: task.id,
+          error: `Smithers run ${task.smithersRunId} succeeded, but no output artifact exists for forecast ledger materialization.`,
+        });
+        continue;
+      }
+
+      let committedForecastLedger = false;
       if (outputArtifactId) {
         await db
           .insert(artifactRows)
@@ -1385,14 +1597,26 @@ export async function reconcileRunningTasks(db: Db, root: string) {
           .limit(1);
 
         if (task.operationSubmode === "binary_forecast") {
-          await persistBinaryForecastLedger(db, {
-            taskId: task.id,
-            artifactId: outputArtifactId,
-            artifactRowId: artifactRow?.id ?? null,
-            smithersRunId: task.smithersRunId,
-            aggregateOutput: output,
-            root,
-          });
+          try {
+            await persistBinaryForecastLedger(db, {
+              taskId: task.id,
+              artifactId: outputArtifactId,
+              artifactRowId: artifactRow?.id ?? null,
+              smithersRunId: task.smithersRunId,
+              aggregateOutput: output,
+              root,
+            });
+          } catch (error) {
+            if (!(error instanceof ForecastQuestionNotOpenError)) {
+              throw error;
+            }
+            await markTaskFailed(db, {
+              taskId: task.id,
+              error: error.message,
+            });
+            continue;
+          }
+          committedForecastLedger = true;
         } else if (isForecastSubmode(task.operationSubmode)) {
           await persistNonBinaryForecastLedger(db, {
             taskId: task.id,
@@ -1403,6 +1627,7 @@ export async function reconcileRunningTasks(db: Db, root: string) {
             aggregateOutput: output,
             root,
           });
+          committedForecastLedger = true;
         } else if (task.operationSubmode === "deep_research") {
           await persistCitedSources(db, {
             taskId: task.id,
@@ -1424,24 +1649,51 @@ export async function reconcileRunningTasks(db: Db, root: string) {
         }
       }
 
-      await db
-        .update(tasks)
-        .set({
-          status: "completed",
-          progressRunning: 0,
-          progressCompleted: 1,
-          activeWorkers: 0,
-          completedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(tasks.id, task.id));
+      if (isForecastSubmode(task.operationSubmode) && !committedForecastLedger) {
+        await markTaskFailed(db, {
+          taskId: task.id,
+          error: `Smithers run ${task.smithersRunId} produced no committed forecast ledger.`,
+        });
+        continue;
+      }
+      await markTaskCompleted(db, task.id);
     } else if (status === "failed" || state === "failed") {
       await markTaskFailed(db, {
         taskId: task.id,
         error: `Smithers run ${task.smithersRunId} failed`,
       });
+    } else {
+      const terminalStatus = terminalTaskStatusForSmithers(status, state);
+      if (terminalStatus) {
+        const now = new Date();
+        await db
+          .update(tasks)
+          .set({
+            status: terminalStatus,
+            progressRunning: 0,
+            activeWorkers: 0,
+            completedAt: now,
+            updatedAt: now,
+            error: `Smithers run ${task.smithersRunId} ${terminalStatus}`,
+          })
+          .where(and(
+            eq(tasks.id, task.id),
+            eq(tasks.status, "running"),
+          ));
+      }
     }
   }
+}
+
+export function terminalTaskStatusForSmithers(status: unknown, state: unknown) {
+  const values = [status, state].filter((value): value is string => typeof value === "string");
+  if (values.includes("revoked")) {
+    return "revoked" as const;
+  }
+  if (values.includes("cancelled") || values.includes("canceled")) {
+    return "cancelled" as const;
+  }
+  return null;
 }
 
 function isSmithersRunNotFound(message: string) {
@@ -1486,7 +1738,9 @@ export async function backfillBinaryForecastLedgers(db: Db, root: string) {
       id: tasks.id,
       smithersRunId: tasks.smithersRunId,
       outputArtifactId: tasks.outputArtifactId,
+      operationMode: tasks.operationMode,
       operationSubmode: tasks.operationSubmode,
+      forecastLedgerCommittedAt: tasks.forecastLedgerCommittedAt,
     })
     .from(tasks)
     .where(eq(tasks.status, "completed"));
@@ -1495,13 +1749,18 @@ export async function backfillBinaryForecastLedgers(db: Db, root: string) {
     if (!task.outputArtifactId || !task.smithersRunId || !isForecastSubmode(task.operationSubmode)) {
       continue;
     }
+    if (task.forecastLedgerCommittedAt) {
+      continue;
+    }
 
-    const [existingSource] = await db
-      .select({ id: sourceBankEntries.id })
-      .from(sourceBankEntries)
-      .where(eq(sourceBankEntries.taskId, task.id))
+    const [legacyAttempt] = await db
+      .select({ id: forecastAttempts.id })
+      .from(forecastAttempts)
+      .where(eq(forecastAttempts.researchPassId, task.smithersRunId))
       .limit(1);
-    if (existingSource) {
+    if (legacyAttempt) {
+      // Pre-manifest ledgers can contain partial or duplicated writes. Preserve
+      // them for audit; never guess that they are a complete transaction.
       continue;
     }
 
@@ -1514,25 +1773,41 @@ export async function backfillBinaryForecastLedgers(db: Db, root: string) {
       continue;
     }
 
-    if (task.operationSubmode === "binary_forecast") {
-      await persistBinaryForecastLedger(db, {
-        taskId: task.id,
-        artifactId: task.outputArtifactId,
-        artifactRowId: artifactRow.id,
-        smithersRunId: task.smithersRunId,
-        aggregateOutput: artifactRow.rowJson,
-        root,
-      });
-    } else {
-      await persistNonBinaryForecastLedger(db, {
-        taskId: task.id,
-        artifactId: task.outputArtifactId,
-        artifactRowId: artifactRow.id,
-        smithersRunId: task.smithersRunId,
-        operationSubmode: task.operationSubmode,
-        aggregateOutput: artifactRow.rowJson,
-        root,
-      });
+    try {
+      if (task.operationSubmode === "binary_forecast") {
+        // Pre-ForecastState artifacts cannot satisfy the current binary ledger
+        // contract. Preserve them as quarantined legacy audit data rather than
+        // letting one unreplayable row break every reconciliation/read endpoint.
+        if (
+          task.operationMode === "forecast" &&
+          !readJsonRecordField(artifactRow.rowJson, "forecastState", "forecast_state")
+        ) {
+          continue;
+        }
+        await persistBinaryForecastLedger(db, {
+          taskId: task.id,
+          artifactId: task.outputArtifactId,
+          artifactRowId: artifactRow.id,
+          smithersRunId: task.smithersRunId,
+          aggregateOutput: artifactRow.rowJson,
+          root,
+        });
+      } else {
+        await persistNonBinaryForecastLedger(db, {
+          taskId: task.id,
+          artifactId: task.outputArtifactId,
+          artifactRowId: artifactRow.id,
+          smithersRunId: task.smithersRunId,
+          operationSubmode: task.operationSubmode,
+          aggregateOutput: artifactRow.rowJson,
+          root,
+        });
+      }
+    } catch {
+      // Backfill is best-effort recovery over historical rows. Any task that
+      // cannot satisfy the current contract remains quarantined; it must not
+      // make unrelated read and reconciliation endpoints unavailable.
+      continue;
     }
   }
 }
@@ -1547,116 +1822,264 @@ async function persistBinaryForecastLedger(
     aggregateOutput: Record<string, unknown>;
     root: string;
   },
-) {
-  const lockAcquired = await acquireForecastLedgerLock(db, input.smithersRunId);
-  if (!lockAcquired) {
-    return;
-  }
-  try {
-  if (await hasForecastLedgerForRun(db, input.smithersRunId)) {
-    return;
-  }
-
-  const attemptOutputs = await readBinaryAttemptOutputs(input.smithersRunId, input.root);
+) : Promise<ForecastLedgerManifest> {
+  const observedAttempts = await readBinaryAttemptOutputs(
+    input.smithersRunId,
+    input.root,
+    input.aggregateOutput,
+  );
   const componentFallbacks = readArray(input.aggregateOutput, "componentProbabilities", "component_probabilities");
-  const attemptsToPersist = attemptOutputs.length
-    ? attemptOutputs
-    : componentFallbacks.map((component) => ({
-        forecasterLabel: readString(component, "forecasterLabel", "forecaster_label") ?? "component forecaster",
-        probability: readNumber(component, "probability") ?? readProbability(input.aggregateOutput) ?? 50,
-        rationale: "Component probability imported from aggregate output.",
-      }));
-
-  const componentAttemptIds: string[] = [];
-  for (const attemptOutput of attemptsToPersist) {
-    const probability = readNumber(attemptOutput, "probability") ?? 50;
-    const forecasterLabel = readString(attemptOutput, "forecasterLabel", "forecaster_label") ?? "binary forecaster";
-    const agentRef = configuredAgentRefForAttempt("forecast", readString(attemptOutput, "roleId", "role_id") ?? forecasterLabel);
-    const [attempt] = await db
-      .insert(forecastAttempts)
-      .values({
-        forecasterLabel,
-        forecastType: "binary",
-        researchPassId: input.smithersRunId,
-        model: `${formatAgentRef(agentRef)}${process.env.CODEX_MODEL && agentRef.provider === "codex" ? `:${process.env.CODEX_MODEL}` : ""}`,
-        promptVersion: "binary-forecast-inline-v0",
-        rawPrediction: attemptOutput,
-        parsedPrediction: {
-          probability,
-          strongestYes: readString(attemptOutput, "strongestYes", "strongest_yes"),
-          strongestNo: readString(attemptOutput, "strongestNo", "strongest_no"),
-          keyUncertainties: readArray(attemptOutput, "keyUncertainties", "key_uncertainties"),
-        },
-        rationale: readString(attemptOutput, "rationale") ?? "No rationale was provided.",
-        premortem: readString(attemptOutput, "premortem"),
-        wildcards: readStringArray(attemptOutput, "wildcards"),
-        status: "completed",
-        costProxy: {
-          smithersRunId: input.smithersRunId,
-          source: "smithers-agent",
-          provider: agentRef.provider,
-          profile: agentRef.profile,
-        },
-      })
-      .returning({ id: forecastAttempts.id });
-    componentAttemptIds.push(attempt.id);
-  }
-  await appendTraceEvent(db, {
-    taskId: input.taskId,
-    eventType: "trace_summary",
-    phase: "forecast_attempts",
-    agentLabel: "forecast-ledger",
-    payloadJson: {
-      forecastType: "binary",
-      attemptCount: componentAttemptIds.length,
-      forecasters: attemptsToPersist.map((attempt) => readString(attempt, "forecasterLabel", "forecaster_label") ?? "binary forecaster"),
-    },
+  const attemptsToPersist = reconcileBinaryAttemptOutputs(observedAttempts, componentFallbacks, input.aggregateOutput);
+  const attemptOutputs = attemptsToPersist.map((attempt) => attempt.output);
+  const preparedAttempts = attemptsToPersist.map((attemptEntry) => {
+    const forecasterLabel = readString(
+      attemptEntry.output,
+      "forecasterLabel",
+      "forecaster_label",
+    ) ?? "binary forecaster";
+    const fallbackAgentRef = configuredAgentRefForAttempt(
+      "forecast",
+      readString(attemptEntry.output, "roleId", "role_id") ?? forecasterLabel,
+    );
+    return {
+      ...attemptEntry,
+      attribution: resolveAttemptAttribution(attemptEntry.execution, fallbackAgentRef),
+    };
   });
-
-  await db.insert(forecastAggregates).values({
-    forecastType: "binary",
-    method: readString(input.aggregateOutput, "method") ?? "unknown",
-    componentAttemptIds,
-    rawAggregate: input.aggregateOutput,
-    rationale: readString(input.aggregateOutput, "rationale") ?? "No aggregate rationale was provided.",
-  });
-  await appendTraceEvent(db, {
-    taskId: input.taskId,
-    eventType: "synthesis",
-    phase: "aggregate",
-    agentLabel: "forecast-ledger",
-    payloadJson: {
-      forecastType: "binary",
-      method: readString(input.aggregateOutput, "method") ?? "unknown",
-      componentAttemptCount: componentAttemptIds.length,
-    },
-  });
-
   const citedSources = dedupeSources([
+    ...extractEvidenceWorkspaceSources(input.aggregateOutput),
     ...extractCitedSources(input.aggregateOutput),
     ...attemptOutputs.flatMap((attempt) => extractCitedSources(attempt)),
   ]);
-
-  await persistSources(db, {
-    taskId: input.taskId,
+  const forecastStateValue = readJsonRecordField(
+    input.aggregateOutput,
+    "forecastState",
+    "forecast_state",
+  );
+  const rawForecastState = forecastStateValue
+    ? parsePersistableForecastState(forecastStateValue)
+    : null;
+  const attemptNodeIds = binaryAttemptNodeIdsFromAggregate(input.aggregateOutput);
+  const researchDossier = readJsonRecordField(
+    input.aggregateOutput,
+    "researchDossier",
+    "research_dossier",
+  );
+  const statefulAuditNodeIds = rawForecastState
+    ? [
+        "plan",
+        ...(researchDossier
+          ? ["research-dossier"]
+          : []),
+        ...attemptNodeIds,
+        "candidate-aggregate",
+        "quality-review",
+      ]
+    : attemptNodeIds;
+  const providerExecutionInputs = await readProviderExecutionAuditInputs(
+    input.smithersRunId,
+    statefulAuditNodeIds,
+    input.root,
+  );
+  const providerResearchObservations = await observeProviderResearchActivity(providerExecutionInputs);
+  const researchTreatment = readString(input.aggregateOutput, "researchTreatment", "research_treatment")
+    ?? (readString(input.aggregateOutput, "method")?.includes("fixed_evidence") ? "fixed_evidence_eval" : null);
+  const providerIsolationFlags = providerActivityIsolationFlags(
+    providerResearchObservations,
+    researchTreatment,
+    {
+      sharedResearchSearchBudget: researchDossier
+        ? readNumber(researchDossier, "searchBudget", "search_budget")
+        : null,
+    },
+  );
+  const auditedProjection = applyProviderActivityIsolationAudit(
+    input.aggregateOutput,
+    rawForecastState,
+    providerResearchObservations,
+    providerIsolationFlags,
+    preparedAttempts.flatMap((attempt) =>
+      attempt.attribution.source !== "smithers_attempt_metadata" || !attempt.attribution.resolvedModel
+        ? []
+        : [`${attempt.attribution.provider}:${attempt.attribution.profile}:${attempt.attribution.resolvedModel}`]),
+  );
+  const aggregateOutput = auditedProjection.aggregateOutput;
+  const forecastState = auditedProjection.forecastState;
+  const inputDigest = hashJson({
+    smithersRunId: input.smithersRunId,
     artifactId: input.artifactId,
     artifactRowId: input.artifactRowId,
-    sources: citedSources,
-    sourceType: "agent_reported_citation",
+    forecastType: "binary",
+    aggregateOutput: input.aggregateOutput,
   });
-  await appendTraceEvent(db, {
-    taskId: input.taskId,
-    eventType: "source_added",
-    phase: "source_bank",
-    agentLabel: "forecast-ledger",
-    payloadJson: {
-      sourceCount: citedSources.length,
-      domains: uniqueDomains(citedSources),
-    },
+
+  return db.transaction(async (tx) => {
+    const taskContext = await lockForecastLedgerTask(tx, {
+      taskId: input.taskId,
+      smithersRunId: input.smithersRunId,
+    });
+    const existingManifest = committedForecastLedgerManifest(taskContext, {
+      inputDigest,
+      smithersRunId: input.smithersRunId,
+      artifactId: input.artifactId,
+      artifactRowId: input.artifactRowId,
+      forecastType: "binary",
+    });
+    if (existingManifest) {
+      return existingManifest;
+    }
+    if (taskContext.operationMode === "forecast" && !forecastState) {
+      throw new Error(`Binary product forecast run ${input.smithersRunId} is missing its required ForecastState.`);
+    }
+    await assertNoUncommittedForecastLedger(tx, input.smithersRunId);
+
+    if (input.artifactRowId) {
+      await tx
+        .update(artifactRows)
+        .set({
+          rowJson: aggregateOutput,
+          rowHash: hashJson(aggregateOutput),
+          updatedAt: new Date(),
+        })
+        .where(eq(artifactRows.id, input.artifactRowId));
+    }
+
+    const componentAttemptIds: string[] = [];
+    for (const attemptEntry of preparedAttempts) {
+      const attemptOutput = attemptEntry.output;
+      const probability = readNumber(attemptOutput, "probability") ?? 50;
+      const forecasterLabel = readString(attemptOutput, "forecasterLabel", "forecaster_label") ?? "binary forecaster";
+      const attribution = attemptEntry.attribution;
+      const [attempt] = await tx
+        .insert(forecastAttempts)
+        .values({
+          forecasterLabel,
+          forecastType: "binary",
+          researchPassId: input.smithersRunId,
+          model: attribution.model,
+          promptVersion: "binary-forecast-inline-v0",
+          rawPrediction: attemptOutput,
+          parsedPrediction: {
+            probability,
+            strongestYes: readString(attemptOutput, "strongestYes", "strongest_yes"),
+            strongestNo: readString(attemptOutput, "strongestNo", "strongest_no"),
+            keyUncertainties: readStringArray(attemptOutput, "keyUncertainties", "key_uncertainties"),
+          },
+          rationale: readString(attemptOutput, "rationale") ?? "No rationale was provided.",
+          premortem: readString(attemptOutput, "premortem"),
+          wildcards: readStringArray(attemptOutput, "wildcards"),
+          status: "completed",
+          costProxy: {
+            smithersRunId: input.smithersRunId,
+            source: "smithers-agent",
+            provider: attribution.provider,
+            profile: attribution.profile,
+            resolvedModel: attribution.resolvedModel,
+            attributionSource: attribution.source,
+            agentId: attribution.agentId,
+            agentEngine: attribution.agentEngine,
+            agentResume: attribution.agentResume,
+            smithersNodeId: attemptEntry.nodeId,
+            smithersIteration: attemptEntry.execution?.iteration ?? null,
+            smithersAttempt: attemptEntry.execution?.attempt ?? null,
+            smithersStartedAtMs: attemptEntry.execution?.startedAtMs ?? null,
+            smithersFinishedAtMs: attemptEntry.execution?.finishedAtMs ?? null,
+            outputSource: attemptEntry.source,
+          },
+        })
+        .returning({ id: forecastAttempts.id });
+      componentAttemptIds.push(attempt.id);
+    }
+    await appendTraceEvent(tx, {
+      taskId: input.taskId,
+      eventType: "trace_summary",
+      phase: "forecast_attempts",
+      agentLabel: "forecast-ledger",
+      payloadJson: {
+        forecastType: "binary",
+        attemptCount: componentAttemptIds.length,
+        forecasters: attemptOutputs.map((attempt) => readString(attempt, "forecasterLabel", "forecaster_label") ?? "binary forecaster"),
+        attributions: preparedAttempts.map((attempt) => attempt.attribution),
+      },
+    });
+    await appendProviderResearchObservationTraceEvents(
+      tx,
+      input.taskId,
+      providerResearchObservations,
+    );
+
+    const [aggregate] = await tx
+      .insert(forecastAggregates)
+      .values({
+        forecastType: "binary",
+        method: readString(aggregateOutput, "method") ?? "unknown",
+        componentAttemptIds,
+        rawAggregate: aggregateOutput,
+        rationale: readString(aggregateOutput, "rationale") ?? "No aggregate rationale was provided.",
+      })
+      .returning({ id: forecastAggregates.id });
+
+    const statePersistence = forecastState
+      ? await persistForecastStateInTransaction(tx, {
+          state: forecastState,
+          forecastType: "binary",
+          ...(taskContext.sessionId ? { sessionId: taskContext.sessionId } : {}),
+          taskId: input.taskId,
+          forecastAggregateId: aggregate.id,
+          componentAttemptIds,
+          questionMetadata: {
+            smithersRunId: input.smithersRunId,
+            artifactId: input.artifactId,
+          },
+        })
+      : null;
+    await appendTraceEvent(tx, {
+      taskId: input.taskId,
+      eventType: "synthesis",
+      phase: "aggregate",
+      agentLabel: "forecast-ledger",
+      payloadJson: {
+        forecastType: "binary",
+        method: readString(aggregateOutput, "method") ?? "unknown",
+        componentAttemptCount: componentAttemptIds.length,
+      },
+    });
+
+    const persistedSources = await persistSources(tx, {
+      taskId: input.taskId,
+      artifactId: input.artifactId,
+      artifactRowId: input.artifactRowId,
+      sources: citedSources,
+      sourceType: "agent_reported_citation",
+    });
+    await appendTraceEvent(tx, {
+      taskId: input.taskId,
+      eventType: "source_added",
+      phase: "source_bank",
+      agentLabel: "forecast-ledger",
+      payloadJson: {
+        sourceCount: citedSources.length,
+        domains: uniqueDomains(citedSources),
+      },
+    });
+
+    const manifest: ForecastLedgerManifest = {
+      version: FORECAST_LEDGER_VERSION,
+      inputDigest,
+      smithersRunId: input.smithersRunId,
+      artifactId: input.artifactId,
+      artifactRowId: input.artifactRowId,
+      forecastType: "binary",
+      aggregateId: aggregate.id,
+      snapshotId: statePersistence?.snapshot.id ?? null,
+      stateId: forecastState?.stateId ?? null,
+      componentAttemptIds,
+      sourceIds: persistedSources.sourceIds,
+      citationIds: persistedSources.citationIds,
+    };
+    await commitForecastLedger(tx, input.taskId, manifest);
+    return manifest;
   });
-  } finally {
-    await releaseForecastLedgerLock(db, input.smithersRunId);
-  }
 }
 
 async function persistNonBinaryForecastLedger(
@@ -1670,100 +2093,184 @@ async function persistNonBinaryForecastLedger(
     aggregateOutput: Record<string, unknown>;
     root: string;
   },
-) {
-  const lockAcquired = await acquireForecastLedgerLock(db, input.smithersRunId);
-  if (!lockAcquired) {
-    return;
-  }
-  try {
-  if (await hasForecastLedgerForRun(db, input.smithersRunId)) {
-    return;
-  }
-
+) : Promise<ForecastLedgerManifest> {
   const forecastType = forecastTypeFromSubmode(input.operationSubmode);
-  const attemptOutputs = await readForecastAttemptOutputs(input.smithersRunId, input.root);
-  const componentAttemptIds: string[] = [];
-
-  for (const attemptOutput of attemptOutputs) {
-    const agentRef = configuredAgentRefForAttempt("forecast", forecastType);
-    const [attempt] = await db
-      .insert(forecastAttempts)
-      .values({
-        forecasterLabel: readString(attemptOutput, "forecasterLabel", "forecaster_label") ?? `${forecastType} forecaster`,
-        forecastType,
-        researchPassId: input.smithersRunId,
-        model: `${formatAgentRef(agentRef)}${process.env.CODEX_MODEL && agentRef.provider === "codex" ? `:${process.env.CODEX_MODEL}` : ""}`,
-        promptVersion: `${forecastType}-forecast-inline-v0`,
-        rawPrediction: attemptOutput,
-        parsedPrediction: attemptOutput,
-        rationale: readString(attemptOutput, "rationale") ?? "No rationale was provided.",
-        wildcards: readStringArray(attemptOutput, "wildcards"),
-        status: "completed",
-        costProxy: {
-          smithersRunId: input.smithersRunId,
-          source: "smithers-agent",
-          provider: agentRef.provider,
-          profile: agentRef.profile,
-        },
-      })
-      .returning({ id: forecastAttempts.id });
-    componentAttemptIds.push(attempt.id);
-  }
-  await appendTraceEvent(db, {
-    taskId: input.taskId,
-    eventType: "trace_summary",
-    phase: "forecast_attempts",
-    agentLabel: "forecast-ledger",
-    payloadJson: {
-      forecastType,
-      attemptCount: componentAttemptIds.length,
-      forecasters: attemptOutputs.map((attempt) => readString(attempt, "forecasterLabel", "forecaster_label") ?? `${forecastType} forecaster`),
-    },
-  });
-
-  await db.insert(forecastAggregates).values({
-    forecastType,
-    method: readString(input.aggregateOutput, "method") ?? "unknown",
-    componentAttemptIds,
-    rawAggregate: input.aggregateOutput,
-    rationale: readString(input.aggregateOutput, "rationale") ?? "No aggregate rationale was provided.",
-  });
-  await appendTraceEvent(db, {
-    taskId: input.taskId,
-    eventType: "synthesis",
-    phase: "aggregate",
-    agentLabel: "forecast-ledger",
-    payloadJson: {
-      forecastType,
-      method: readString(input.aggregateOutput, "method") ?? "unknown",
-      componentAttemptCount: componentAttemptIds.length,
-    },
-  });
-
+  const attemptEntries = await readForecastAttemptOutputs(input.smithersRunId, input.root);
+  const attemptOutputs = attemptEntries.map((attempt) => attempt.output);
   const citedSources = dedupeSources([
     ...extractCitedSources(input.aggregateOutput),
     ...attemptOutputs.flatMap((attempt) => extractCitedSources(attempt)),
   ]);
-  await persistSources(db, {
-    taskId: input.taskId,
+  const preparedAttempts = attemptEntries.map((attemptEntry) => ({
+    ...attemptEntry,
+    attribution: resolveAttemptAttribution(
+      attemptEntry.execution,
+      configuredAgentRefForAttempt("forecast", forecastType),
+    ),
+  }));
+  const inputDigest = hashJson({
+    smithersRunId: input.smithersRunId,
     artifactId: input.artifactId,
     artifactRowId: input.artifactRowId,
-    sources: citedSources,
-    sourceType: `agent_reported_${forecastType}_forecast_citation`,
+    forecastType,
+    aggregateOutput: input.aggregateOutput,
   });
-  await appendTraceEvent(db, {
-    taskId: input.taskId,
-    eventType: "source_added",
-    phase: "source_bank",
-    agentLabel: "forecast-ledger",
-    payloadJson: {
-      sourceCount: citedSources.length,
-      domains: uniqueDomains(citedSources),
-    },
+  const providerExecutionInputs = await readProviderExecutionAuditInputs(
+    input.smithersRunId,
+    attemptEntries.flatMap((attempt) => attempt.nodeId ? [attempt.nodeId] : []),
+    input.root,
+  );
+  const providerResearchObservations = await observeProviderResearchActivity(
+    providerExecutionInputs,
+  );
+  const providerIsolationFlags = providerActivityIsolationFlags(providerResearchObservations, null);
+  const aggregateOutput = applyProviderActivityIsolationAudit(
+    input.aggregateOutput,
+    null,
+    providerResearchObservations,
+    providerIsolationFlags,
+  ).aggregateOutput;
+
+  return db.transaction(async (tx) => {
+    const taskContext = await lockForecastLedgerTask(tx, {
+      taskId: input.taskId,
+      smithersRunId: input.smithersRunId,
+    });
+    const existingManifest = committedForecastLedgerManifest(taskContext, {
+      inputDigest,
+      smithersRunId: input.smithersRunId,
+      artifactId: input.artifactId,
+      artifactRowId: input.artifactRowId,
+      forecastType,
+    });
+    if (existingManifest) {
+      return existingManifest;
+    }
+    await assertNoUncommittedForecastLedger(tx, input.smithersRunId);
+
+    if (input.artifactRowId) {
+      await tx
+        .update(artifactRows)
+        .set({
+          rowJson: aggregateOutput,
+          rowHash: hashJson(aggregateOutput),
+          updatedAt: new Date(),
+        })
+        .where(eq(artifactRows.id, input.artifactRowId));
+    }
+
+    const componentAttemptIds: string[] = [];
+    for (const attemptEntry of preparedAttempts) {
+      const attemptOutput = attemptEntry.output;
+      const attribution = attemptEntry.attribution;
+      const [attempt] = await tx
+        .insert(forecastAttempts)
+        .values({
+          forecasterLabel: readString(attemptOutput, "forecasterLabel", "forecaster_label") ?? `${forecastType} forecaster`,
+          forecastType,
+          researchPassId: input.smithersRunId,
+          model: attribution.model,
+          promptVersion: `${forecastType}-forecast-inline-v0`,
+          rawPrediction: attemptOutput,
+          parsedPrediction: attemptOutput,
+          rationale: readString(attemptOutput, "rationale") ?? "No rationale was provided.",
+          wildcards: readStringArray(attemptOutput, "wildcards"),
+          status: "completed",
+          costProxy: {
+            smithersRunId: input.smithersRunId,
+            source: "smithers-agent",
+            provider: attribution.provider,
+            profile: attribution.profile,
+            resolvedModel: attribution.resolvedModel,
+            attributionSource: attribution.source,
+            agentId: attribution.agentId,
+            agentEngine: attribution.agentEngine,
+            agentResume: attribution.agentResume,
+            smithersNodeId: attemptEntry.nodeId,
+            smithersIteration: attemptEntry.execution?.iteration ?? null,
+            smithersAttempt: attemptEntry.execution?.attempt ?? null,
+            smithersStartedAtMs: attemptEntry.execution?.startedAtMs ?? null,
+            smithersFinishedAtMs: attemptEntry.execution?.finishedAtMs ?? null,
+            outputSource: attemptEntry.source,
+          },
+        })
+        .returning({ id: forecastAttempts.id });
+      componentAttemptIds.push(attempt.id);
+    }
+    await appendTraceEvent(tx, {
+      taskId: input.taskId,
+      eventType: "trace_summary",
+      phase: "forecast_attempts",
+      agentLabel: "forecast-ledger",
+      payloadJson: {
+        forecastType,
+        attemptCount: componentAttemptIds.length,
+        forecasters: attemptOutputs.map((attempt) => readString(attempt, "forecasterLabel", "forecaster_label") ?? `${forecastType} forecaster`),
+      },
+    });
+    await appendProviderResearchObservationTraceEvents(
+      tx,
+      input.taskId,
+      providerResearchObservations,
+    );
+
+    const [aggregate] = await tx
+      .insert(forecastAggregates)
+      .values({
+        forecastType,
+        method: readString(aggregateOutput, "method") ?? "unknown",
+        componentAttemptIds,
+        rawAggregate: aggregateOutput,
+        rationale: readString(aggregateOutput, "rationale") ?? "No aggregate rationale was provided.",
+      })
+      .returning({ id: forecastAggregates.id });
+    await appendTraceEvent(tx, {
+      taskId: input.taskId,
+      eventType: "synthesis",
+      phase: "aggregate",
+      agentLabel: "forecast-ledger",
+      payloadJson: {
+        forecastType,
+        method: readString(aggregateOutput, "method") ?? "unknown",
+        componentAttemptCount: componentAttemptIds.length,
+      },
+    });
+
+    const persistedSources = await persistSources(tx, {
+      taskId: input.taskId,
+      artifactId: input.artifactId,
+      artifactRowId: input.artifactRowId,
+      sources: citedSources,
+      sourceType: `agent_reported_${forecastType}_forecast_citation`,
+    });
+    await appendTraceEvent(tx, {
+      taskId: input.taskId,
+      eventType: "source_added",
+      phase: "source_bank",
+      agentLabel: "forecast-ledger",
+      payloadJson: {
+        sourceCount: citedSources.length,
+        domains: uniqueDomains(citedSources),
+      },
+    });
+
+    const manifest: ForecastLedgerManifest = {
+      version: FORECAST_LEDGER_VERSION,
+      inputDigest,
+      smithersRunId: input.smithersRunId,
+      artifactId: input.artifactId,
+      artifactRowId: input.artifactRowId,
+      forecastType,
+      aggregateId: aggregate.id,
+      snapshotId: null,
+      stateId: null,
+      componentAttemptIds,
+      sourceIds: persistedSources.sourceIds,
+      citationIds: persistedSources.citationIds,
+    };
+    await commitForecastLedger(tx, input.taskId, manifest);
+    return manifest;
   });
-  } finally {
-    await releaseForecastLedgerLock(db, input.smithersRunId);
-  }
 }
 
 async function persistCitedSources(
@@ -1831,17 +2338,37 @@ async function persistAgentMapRows(
   });
 }
 
+type PersistableSourceCandidate = {
+  title: string | null;
+  url: string | null;
+  claim: string;
+  publishedAt?: string | null;
+  retrievedAt?: string | null;
+  archiveUri?: string | null;
+  provenanceMode?: string | null;
+  cutoffStatus?: string | null;
+  dependenceGroup?: string | null;
+  query?: string | null;
+  rank?: number | null;
+  qualityScore?: number | null;
+  usedInFinal?: boolean;
+  sourceType?: string | null;
+};
+
 async function persistSources(
-  db: Db,
+  db: DbExecutor,
   input: {
     taskId: string;
     artifactId: string;
     artifactRowId: string | null;
-    sources: Array<{ title: string | null; url: string | null; claim: string; publishedAt?: string | null; sourceType?: string | null }>;
+    sources: PersistableSourceCandidate[];
     sourceType: string;
   },
 ) {
+  const sourceIds: string[] = [];
+  const citationIds: string[] = [];
   for (const source of dedupeSources(input.sources)) {
+    const retrievedAt = parseOptionalDate(source.retrievedAt);
     const [sourceRow] = await db
       .insert(sourceBankEntries)
       .values({
@@ -1852,24 +2379,153 @@ async function persistSources(
         contentSummary: source.claim,
         sourceType: source.sourceType ?? input.sourceType,
         publishedAt: parseOptionalDate(source.publishedAt),
-        usedInFinal: true,
+        archiveUri: source.archiveUri ?? null,
+        provenanceMode: source.provenanceMode ?? "agent_reported",
+        cutoffStatus: source.cutoffStatus ?? "unknown",
+        dependenceGroup: source.dependenceGroup ?? null,
+        query: source.query ?? null,
+        rank: source.rank ?? null,
+        qualityScore: source.qualityScore ?? null,
+        usedInFinal: source.usedInFinal ?? true,
+        ...(retrievedAt ? { retrievedAt } : {}),
       })
       .returning({ id: sourceBankEntries.id });
+    sourceIds.push(sourceRow.id);
 
-    if (input.artifactRowId) {
-      await db.insert(citations).values({
-        sourceId: sourceRow.id,
-        artifactId: input.artifactId,
-        rowId: input.artifactRowId,
-        fieldName: "cited_sources",
-        claimText: source.claim,
-      });
+    if (input.artifactRowId && source.usedInFinal !== false) {
+      const [citation] = await db
+        .insert(citations)
+        .values({
+          sourceId: sourceRow.id,
+          artifactId: input.artifactId,
+          rowId: input.artifactRowId,
+          fieldName: "cited_sources",
+          claimText: source.claim,
+        })
+        .returning({ id: citations.id });
+      citationIds.push(citation.id);
     }
   }
+  return { sourceIds, citationIds };
 }
 
-async function readBinaryAttemptOutputs(smithersRunId: string, root: string) {
-  return readForecastAttemptOutputs(smithersRunId, root);
+export type ForecastAttemptOutputEntry = {
+  nodeId: string | null;
+  output: Record<string, unknown>;
+  execution: SmithersNodeExecutionMetadata | null;
+  source: "smithers_node_output" | "aggregate_component_fallback";
+};
+
+export type AttemptAttribution = {
+  provider: AgentRef["provider"];
+  profile: string;
+  model: string;
+  resolvedModel: string | null;
+  agentId: string | null;
+  agentEngine: string | null;
+  agentResume: string | null;
+  source: "smithers_attempt_metadata" | "smithers_attempt_metadata_partial" | "configured_policy_fallback";
+};
+
+const legacyBinaryAttemptNodeIds = ["attempt-base-rate", "attempt-inside-view", "attempt-skeptic"];
+
+async function readBinaryAttemptOutputs(
+  smithersRunId: string,
+  root: string,
+  aggregateOutput: Record<string, unknown>,
+) {
+  return readForecastAttemptOutputsForNodeIds(
+    smithersRunId,
+    root,
+    binaryAttemptNodeIdsFromAggregate(aggregateOutput),
+  );
+}
+
+export function binaryAttemptNodeIdsFromAggregate(aggregateOutput: Record<string, unknown>) {
+  const components = readArray(aggregateOutput, "componentProbabilities", "component_probabilities");
+  const componentRoleIds = components
+    .map((component) => readString(component, "roleId", "role_id"));
+  const roleIds = uniqueStrings([
+    ...readStringArray(aggregateOutput, "roleIds", "role_ids"),
+    ...componentRoleIds,
+  ]).filter((roleId) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(roleId));
+  const inferredNodeIds = inferredBinaryAttemptNodeIds(components);
+  return roleIds.length
+    ? roleIds.map((roleId) => `attempt-${roleId}`)
+    : inferredNodeIds.length
+      ? inferredNodeIds
+      : [...legacyBinaryAttemptNodeIds];
+}
+
+function inferredBinaryAttemptNodeIds(components: Record<string, unknown>[]) {
+  return uniqueStrings(components.flatMap((component) => {
+    const label = readString(component, "forecasterLabel", "forecaster_label");
+    if (!label) {
+      return [];
+    }
+    const normalized = label.toLowerCase().trim();
+    if (/^rollout-\d+$/.test(normalized)) {
+      return [normalized];
+    }
+    const slug = normalized
+      .replace(/\bforecaster\b/g, "")
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+    const role = slug === "skeptical" ? "skeptic" : slug;
+    return role && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(role)
+      ? [`attempt-${role}`]
+      : [];
+  }));
+}
+
+export function reconcileBinaryAttemptOutputs(
+  observedAttempts: ForecastAttemptOutputEntry[],
+  componentFallbacks: Record<string, unknown>[],
+  aggregateOutput: Record<string, unknown>,
+): ForecastAttemptOutputEntry[] {
+  const reconciled = [...observedAttempts];
+  for (const component of componentFallbacks) {
+    if (reconciled.some((attempt) => sameBinaryComponent(attempt.output, component))) {
+      continue;
+    }
+    const roleId = readString(component, "roleId", "role_id");
+    reconciled.push({
+      nodeId: roleId ? `attempt-${roleId}` : null,
+      output: {
+        ...component,
+        forecasterLabel: readString(component, "forecasterLabel", "forecaster_label") ?? "component forecaster",
+        probability: readNumber(component, "probability") ?? readProbability(aggregateOutput) ?? 50,
+        rationale: readString(component, "rationale") ?? "Component probability imported from aggregate output because its node output was unavailable.",
+      },
+      execution: null,
+      source: "aggregate_component_fallback",
+    });
+  }
+  return reconciled;
+}
+
+export function resolveAttemptAttribution(
+  execution: SmithersNodeExecutionMetadata | null,
+  fallbackRef: AgentRef,
+): AttemptAttribution {
+  const observedRef = agentRefFromExecution(execution);
+  const ref = observedRef ?? fallbackRef;
+  const resolvedModel = execution?.agentModel ?? null;
+  return {
+    provider: ref.provider,
+    profile: ref.profile,
+    model: resolvedModel ? `${formatAgentRef(ref)}:${resolvedModel}` : configuredModelLabel(ref),
+    resolvedModel,
+    agentId: execution?.agentId ?? null,
+    agentEngine: execution?.agentEngine ?? null,
+    agentResume: execution?.agentResume ?? null,
+    source: observedRef && resolvedModel
+      ? "smithers_attempt_metadata"
+      : execution
+        ? "smithers_attempt_metadata_partial"
+        : "configured_policy_fallback",
+  };
 }
 
 function configuredAgentRefForAttempt(purpose: AgentPurpose, slot: string) {
@@ -1877,35 +2533,591 @@ function configuredAgentRefForAttempt(purpose: AgentPurpose, slot: string) {
   return selectAgentRef(policy, purpose, slot);
 }
 
-async function hasForecastLedgerForRun(db: Db, smithersRunId: string) {
+type LockedForecastLedgerTask = {
+  id: string;
+  sessionId: string | null;
+  smithersRunId: string | null;
+  operationMode: string;
+  forecastLedgerVersion: string | null;
+  forecastLedgerCommittedAt: Date | null;
+  forecastLedgerManifest: Record<string, unknown> | null;
+};
+
+async function lockForecastLedgerTask(
+  db: DbExecutor,
+  input: { taskId: string; smithersRunId: string },
+): Promise<LockedForecastLedgerTask> {
+  await db.execute(sql`select ${tasks.id} from ${tasks} where ${tasks.id} = ${input.taskId} for update`);
+  const [task] = await db
+    .select({
+      id: tasks.id,
+      sessionId: tasks.sessionId,
+      smithersRunId: tasks.smithersRunId,
+      operationMode: tasks.operationMode,
+      forecastLedgerVersion: tasks.forecastLedgerVersion,
+      forecastLedgerCommittedAt: tasks.forecastLedgerCommittedAt,
+      forecastLedgerManifest: tasks.forecastLedgerManifest,
+    })
+    .from(tasks)
+    .where(eq(tasks.id, input.taskId))
+    .limit(1);
+  if (!task) {
+    throw new TaskNotFoundError(input.taskId);
+  }
+  if (task.smithersRunId && task.smithersRunId !== input.smithersRunId) {
+    throw new Error(
+      `Forecast ledger run mismatch for task ${input.taskId}: expected ${task.smithersRunId}, got ${input.smithersRunId}.`,
+    );
+  }
+  return task;
+}
+
+function committedForecastLedgerManifest(
+  task: LockedForecastLedgerTask,
+  expected: {
+    inputDigest: string;
+    smithersRunId: string;
+    artifactId: string;
+    artifactRowId: string | null;
+    forecastType: string;
+  },
+): ForecastLedgerManifest | null {
+  const markerParts = [
+    task.forecastLedgerVersion,
+    task.forecastLedgerCommittedAt,
+    task.forecastLedgerManifest,
+  ];
+  if (markerParts.every((value) => value === null)) {
+    return null;
+  }
+  if (markerParts.some((value) => value === null)) {
+    throw new Error(`Forecast ledger marker for task ${task.id} is incomplete and requires repair.`);
+  }
+  if (task.forecastLedgerVersion !== FORECAST_LEDGER_VERSION) {
+    throw new Error(
+      `Forecast ledger marker for task ${task.id} uses unsupported version ${task.forecastLedgerVersion}.`,
+    );
+  }
+  const manifest = parseForecastLedgerManifest(task.forecastLedgerManifest);
+  const mismatches = [
+    manifest.inputDigest === expected.inputDigest ? null : "inputDigest",
+    manifest.smithersRunId === expected.smithersRunId ? null : "smithersRunId",
+    manifest.artifactId === expected.artifactId ? null : "artifactId",
+    manifest.artifactRowId === expected.artifactRowId ? null : "artifactRowId",
+    manifest.forecastType === expected.forecastType ? null : "forecastType",
+  ].filter(Boolean);
+  if (mismatches.length) {
+    throw new Error(
+      `Committed forecast ledger for task ${task.id} does not match retry input: ${mismatches.join(", ")}.`,
+    );
+  }
+  return manifest;
+}
+
+function parseForecastLedgerManifest(value: Record<string, unknown> | null): ForecastLedgerManifest {
+  if (!value) {
+    throw new Error("Forecast ledger manifest is missing.");
+  }
+  const version = readString(value, "version");
+  const inputDigest = readString(value, "inputDigest");
+  const smithersRunId = readString(value, "smithersRunId");
+  const artifactId = readString(value, "artifactId");
+  const forecastType = readString(value, "forecastType");
+  const aggregateId = readString(value, "aggregateId");
+  const artifactRowId = nullableString(value.artifactRowId);
+  const snapshotId = nullableString(value.snapshotId);
+  const stateId = nullableString(value.stateId);
+  if (
+    version !== FORECAST_LEDGER_VERSION ||
+    !inputDigest ||
+    !smithersRunId ||
+    !artifactId ||
+    !forecastType ||
+    !aggregateId ||
+    artifactRowId === undefined ||
+    snapshotId === undefined ||
+    stateId === undefined
+  ) {
+    throw new Error("Forecast ledger manifest is malformed.");
+  }
+  return {
+    version: FORECAST_LEDGER_VERSION,
+    inputDigest,
+    smithersRunId,
+    artifactId,
+    artifactRowId,
+    forecastType,
+    aggregateId,
+    snapshotId,
+    stateId,
+    componentAttemptIds: readStringArray(value, "componentAttemptIds"),
+    sourceIds: readStringArray(value, "sourceIds"),
+    citationIds: readStringArray(value, "citationIds"),
+  };
+}
+
+function nullableString(value: unknown): string | null | undefined {
+  if (value === null) {
+    return null;
+  }
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+async function assertNoUncommittedForecastLedger(db: DbExecutor, smithersRunId: string) {
   const [attempt] = await db
     .select({ id: forecastAttempts.id })
     .from(forecastAttempts)
     .where(eq(forecastAttempts.researchPassId, smithersRunId))
     .limit(1);
-  return Boolean(attempt);
+  if (attempt) {
+    throw new Error(
+      `Forecast run ${smithersRunId} has uncommitted legacy ledger rows; automatic replay is unsafe and requires repair.`,
+    );
+  }
 }
 
-async function acquireForecastLedgerLock(db: Db, smithersRunId: string) {
-  const rows = await db.execute(sql<{ acquired: boolean }>`select pg_try_advisory_lock(hashtext(${smithersRunId})) as acquired`);
-  return Boolean(rows[0]?.acquired);
-}
-
-async function releaseForecastLedgerLock(db: Db, smithersRunId: string) {
-  await db.execute(sql`select pg_advisory_unlock(hashtext(${smithersRunId}))`);
+async function commitForecastLedger(
+  db: DbExecutor,
+  taskId: string,
+  manifest: ForecastLedgerManifest,
+) {
+  const committedAt = new Date();
+  const [committed] = await db
+    .update(tasks)
+    .set({
+      forecastLedgerVersion: FORECAST_LEDGER_VERSION,
+      forecastLedgerCommittedAt: committedAt,
+      forecastLedgerManifest: manifest as unknown as Record<string, unknown>,
+      updatedAt: committedAt,
+    })
+    .where(and(
+      eq(tasks.id, taskId),
+      isNull(tasks.forecastLedgerCommittedAt),
+    ))
+    .returning({ id: tasks.id });
+  if (!committed) {
+    throw new Error(`Forecast ledger commit marker for task ${taskId} changed while its row was locked.`);
+  }
 }
 
 async function readForecastAttemptOutputs(smithersRunId: string, root: string) {
-  const nodeIds = ["attempt-base-rate", "attempt-inside-view", "attempt-skeptic"];
-  const outputs: Array<Record<string, unknown>> = [];
-  for (const nodeId of nodeIds) {
-    try {
-      outputs.push(await readSmithersNodeOutput(smithersRunId, nodeId, root));
-    } catch {
-      // Older or partial runs may lack individual attempt outputs. The aggregate fallback still preserves the final forecast.
+  return readForecastAttemptOutputsForNodeIds(smithersRunId, root, legacyBinaryAttemptNodeIds);
+}
+
+export type ProviderResearchObservation = {
+  nodeId: string;
+  execution: SmithersNodeExecutionMetadata | null;
+  activities: ProviderObservedResearchActivity[];
+  error: string | null;
+};
+
+type ProviderExecutionAuditInput = {
+  nodeId: string;
+  execution: SmithersNodeExecutionMetadata | null;
+  error: string | null;
+};
+
+export function providerActivityIsolationFlags(
+  observations: ProviderResearchObservation[],
+  researchTreatment: string | null,
+  limits: { sharedResearchSearchBudget?: number | null } = {},
+) {
+  const flags: string[] = [];
+  for (const observation of observations) {
+    const nodeId = observation.nodeId;
+    if (observation.error) {
+      flags.push(`provider_activity_observation_incomplete:${nodeId}`);
+      continue;
+    }
+    for (const activity of observation.activities) {
+      const activityIdentity = activity.callId ?? activity.observedAt ?? activity.activityType;
+      const activityText = [
+        activity.query,
+        ...activity.queries,
+        activity.url,
+        activity.pattern,
+      ].filter(Boolean).join(" ");
+      if (looksLikeExplicitHumanForecastActivity(activityText)) {
+        flags.push(`provider_observed_human_forecast_activity:${nodeId}:${activityIdentity}`);
+      }
+      if (providerActivityDisallowedForNode(nodeId, researchTreatment)) {
+        flags.push(`provider_observed_disallowed_external_activity:${nodeId}:${activityIdentity}`);
+      }
     }
   }
-  return outputs;
+  const sharedResearchQueries = uniqueStrings(observations
+    .filter((observation) => observation.nodeId === "research-dossier" && !observation.error)
+    .flatMap((observation) => observation.activities.flatMap((activity) => [
+      ...activity.queries,
+      ...(activity.query ? [activity.query] : []),
+    ])));
+  if (
+    typeof limits.sharedResearchSearchBudget === "number" &&
+    sharedResearchQueries.length > limits.sharedResearchSearchBudget
+  ) {
+    flags.push(
+      `provider_observed_research_budget_exceeded:research-dossier:${sharedResearchQueries.length}>${limits.sharedResearchSearchBudget}`,
+    );
+  }
+  return uniqueStrings(flags);
+}
+
+function providerActivityDisallowedForNode(nodeId: string, researchTreatment: string | null) {
+  if (nodeId === "plan" || nodeId === "candidate-aggregate" || nodeId === "quality-review") {
+    return true;
+  }
+  const judgmentNode = nodeId.startsWith("attempt-") || nodeId.startsWith("rollout-");
+  return judgmentNode && (
+    researchTreatment === "no_external_research" ||
+    researchTreatment === "shared_frozen_dossier" ||
+    researchTreatment === "fixed_evidence_eval"
+  );
+}
+
+function looksLikeExplicitHumanForecastActivity(value: string) {
+  return /\b(metaculus|manifold|polymarket|kalshi|predictit|good[\s-]+judgment[\s-]+open|gjopen|prediction[\s-]+market|forecast[\s-]+market|bookmaker|betting[\s-]+odds|analyst[\s-]+probability|crowd[\s-]+forecast|market[\s-]+implied[\s-]+probability|consensus[\s-]+probability)\b/i.test(value);
+}
+
+export function applyProviderActivityIsolationAudit(
+  aggregateOutput: Record<string, unknown>,
+  forecastState: ReturnType<typeof parsePersistableForecastState> | null,
+  observations: ProviderResearchObservation[],
+  flags: string[],
+  componentProviderIds: string[] = [],
+) {
+  const audit = {
+    version: "provider-activity-isolation-audit-v1",
+    status: flags.length ? "not_verified" : "no_policy_violation_observed",
+    observationCount: observations.length,
+    completedObservationCount: observations.filter((observation) => !observation.error).length,
+    failedObservationCount: observations.filter((observation) => Boolean(observation.error)).length,
+    observedActivityCount: observations.reduce(
+      (sum, observation) => sum + observation.activities.length,
+      0,
+    ),
+    contentObserved: false,
+    flags,
+    componentProviderIds: uniqueStrings(componentProviderIds),
+  };
+  if (!forecastState) {
+    return {
+      aggregateOutput: { ...aggregateOutput, providerActivityIsolationAudit: audit },
+      forecastState: null,
+    };
+  }
+
+  const stateRecord = forecastState as unknown as Record<string, unknown>;
+  const outputs = readRecord(stateRecord, "outputs");
+  const autonomous = readRecord(outputs, "autonomous");
+  const isolation = readRecord(autonomous, "informationIsolation", "information_isolation");
+  const provenance = readRecord(stateRecord, "provenance");
+  const judgment = readRecord(stateRecord, "judgment");
+  const independence = readRecord(judgment, "independence");
+  const observedProviderIds = uniqueStrings(componentProviderIds);
+  const combinedFlags = uniqueStrings([
+    ...readStringArray(isolation, "flags"),
+    ...flags,
+  ]);
+  const informationIsolation = {
+    ...isolation,
+    status: combinedFlags.length
+      ? combinedFlags.some((flag) => flag.includes("human_forecast"))
+        ? "possible_human_forecast_exposure"
+        : "possible_information_leakage"
+      : "isolated",
+    flags: combinedFlags,
+  };
+  const { stateId: _originalStateId, ...stateWithoutId } = stateRecord;
+  const amendedStateWithoutId = {
+    ...stateWithoutId,
+    outputs: {
+      ...outputs,
+      autonomous: {
+        ...autonomous,
+        informationIsolation,
+      },
+    },
+    provenance: {
+      ...provenance,
+      componentProviderIds: observedProviderIds,
+    },
+    judgment: {
+      ...judgment,
+      independence: {
+        ...independence,
+        distinctProviderCount: observedProviderIds.length,
+      },
+    },
+  };
+  const amendedState = parsePersistableForecastState({
+    ...amendedStateWithoutId,
+    stateId: stableForecastStateId(amendedStateWithoutId),
+  });
+  const stateKey = Object.prototype.hasOwnProperty.call(aggregateOutput, "forecastState")
+    ? "forecastState"
+    : "forecast_state";
+  const originalStateValue = aggregateOutput[stateKey];
+  return {
+    aggregateOutput: {
+      ...aggregateOutput,
+      [stateKey]: typeof originalStateValue === "string"
+        ? JSON.stringify(amendedState)
+        : amendedState,
+      providerActivityIsolationAudit: audit,
+    },
+    forecastState: amendedState,
+  };
+}
+
+function stableForecastStateId(value: unknown) {
+  const serialized = JSON.stringify(value);
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < serialized.length; index += 1) {
+    const code = serialized.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193);
+    second = Math.imul(second ^ code, 0x85ebca6b);
+  }
+  return `forecast_state_${(first >>> 0).toString(16).padStart(8, "0")}${(second >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+async function readProviderExecutionAuditInputs(
+  smithersRunId: string,
+  nodeIds: string[],
+  root: string,
+): Promise<ProviderExecutionAuditInput[]> {
+  const perNode = await Promise.all(uniqueStrings(nodeIds).map(async (nodeId) => {
+    try {
+      const executions = await readSmithersNodeExecutionMetadataHistory(
+        smithersRunId,
+        nodeId,
+        root,
+      );
+      return executions.length
+        ? executions.map((execution) => ({ nodeId, execution, error: null }))
+        : [{
+            nodeId,
+            execution: null,
+            error: `No Smithers provider execution metadata was available for expected node ${nodeId}.`,
+          }];
+    } catch (error) {
+      return [{
+        nodeId,
+        execution: null,
+        error: error instanceof Error ? error.message : String(error),
+      }];
+    }
+  }));
+  return perNode.flat();
+}
+
+async function observeProviderResearchActivity(
+  inputs: ProviderExecutionAuditInput[],
+): Promise<ProviderResearchObservation[]> {
+  const codexHome = loadAppConfig(process.env).CODEX_HOME;
+  const seenExecutions = new Set<string>();
+  const observations: ProviderResearchObservation[] = [];
+  for (const input of inputs) {
+    const execution = input.execution;
+    if (!execution) {
+      observations.push({
+        nodeId: input.nodeId,
+        execution: null,
+        activities: [],
+        error: input.error ?? `Provider execution metadata was unavailable for ${input.nodeId}.`,
+      });
+      continue;
+    }
+    const threadId = execution?.agentResume;
+    const isCodex = execution && (
+      execution.agentEngine?.toLowerCase().includes("codex") ||
+      execution.agentId?.toLowerCase().includes(":codex:")
+    );
+    if (!isCodex) {
+      observations.push({
+        nodeId: input.nodeId,
+        execution,
+        activities: [],
+        error: `No exact provider-activity adapter is available for ${execution.agentEngine ?? execution.agentId ?? "unknown provider"}.`,
+      });
+      continue;
+    }
+    if (!threadId) {
+      observations.push({
+        nodeId: input.nodeId,
+        execution,
+        activities: [],
+        error: `Codex execution metadata for ${input.nodeId} has no exact provider thread ID.`,
+      });
+      continue;
+    }
+    const executionKey = [
+      threadId,
+      input.nodeId,
+      execution.iteration,
+      execution.attempt,
+      execution.startedAtMs,
+      execution.finishedAtMs,
+    ].join(":");
+    if (seenExecutions.has(executionKey)) {
+      continue;
+    }
+    seenExecutions.add(executionKey);
+    try {
+      const activities = await readCodexProviderObservedResearchActivity({
+        codexHome,
+        threadId,
+        startedAtMs: execution.startedAtMs,
+        finishedAtMs: execution.finishedAtMs,
+      });
+      observations.push({ nodeId: input.nodeId, execution, activities, error: null });
+    } catch (error) {
+      observations.push({
+        nodeId: input.nodeId,
+        execution,
+        activities: [],
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return observations;
+}
+
+async function appendProviderResearchObservationTraceEvents(
+  db: DbExecutor,
+  taskId: string,
+  observations: ProviderResearchObservation[],
+) {
+  for (const observation of observations) {
+    const execution = observation.execution;
+    if (!observation.error) {
+      await appendTraceEvent(db, {
+        taskId,
+        eventType: "provider_activity_observation_completed",
+        phase: "research_activity",
+        agentLabel: execution?.agentId ?? "codex",
+        payloadJson: {
+          provenanceMode: "provider_observed_activity",
+          provider: "codex",
+          threadId: execution?.agentResume ?? null,
+          smithersNodeId: observation.nodeId,
+          smithersIteration: execution?.iteration ?? null,
+          smithersAttempt: execution?.attempt ?? null,
+          startedAtMs: execution?.startedAtMs ?? null,
+          finishedAtMs: execution?.finishedAtMs ?? null,
+          activityCount: observation.activities.length,
+          contentObserved: false,
+          evidenceSemantics: "action_request_only_not_observed_content",
+        },
+      });
+    } else {
+      await appendTraceEvent(db, {
+        taskId,
+        eventType: "provider_activity_observation_failed",
+        phase: "research_activity",
+        agentLabel: execution?.agentId ?? "provider-activity-audit",
+        payloadJson: {
+          provenanceMode: "provider_observed_activity",
+          provider: "codex",
+          threadId: execution?.agentResume ?? null,
+          smithersNodeId: observation.nodeId,
+          smithersIteration: execution?.iteration ?? null,
+          smithersAttempt: execution?.attempt ?? null,
+          startedAtMs: execution?.startedAtMs ?? null,
+          finishedAtMs: execution?.finishedAtMs ?? null,
+          contentObserved: false,
+          evidenceSemantics: "observation_failed_no_evidence_claim",
+          error: observation.error,
+        },
+      });
+    }
+    for (const activity of observation.activities) {
+      await appendTraceEvent(db, {
+        taskId,
+        eventType: "provider_observed_activity",
+        phase: "research_activity",
+        agentLabel: execution?.agentId ?? "codex",
+        payloadJson: {
+          ...activity,
+          smithersNodeId: observation.nodeId,
+          smithersIteration: execution?.iteration ?? null,
+          smithersAttempt: execution?.attempt ?? null,
+          evidenceSemantics: "action_request_only_not_observed_content",
+        },
+      });
+    }
+  }
+}
+
+async function readForecastAttemptOutputsForNodeIds(
+  smithersRunId: string,
+  root: string,
+  nodeIds: string[],
+) {
+  const attempts = await Promise.all(nodeIds.map(async (nodeId): Promise<ForecastAttemptOutputEntry | null> => {
+    try {
+      const [output, execution] = await Promise.all([
+        readSmithersNodeOutput(smithersRunId, nodeId, root),
+        readSmithersNodeExecutionMetadata(smithersRunId, nodeId, root).catch(() => null),
+      ]);
+      return {
+        nodeId,
+        output,
+        execution,
+        source: "smithers_node_output",
+      };
+    } catch {
+      // Older or partial runs may lack individual attempt outputs. The aggregate fallback still preserves the final forecast.
+      return null;
+    }
+  }));
+  return attempts.filter((attempt): attempt is ForecastAttemptOutputEntry => attempt !== null);
+}
+
+function sameBinaryComponent(left: Record<string, unknown>, right: Record<string, unknown>) {
+  const leftRoleId = readString(left, "roleId", "role_id");
+  const rightRoleId = readString(right, "roleId", "role_id");
+  if (leftRoleId && rightRoleId) {
+    return leftRoleId === rightRoleId;
+  }
+  const leftLabel = readString(left, "forecasterLabel", "forecaster_label");
+  const rightLabel = readString(right, "forecasterLabel", "forecaster_label");
+  return Boolean(leftLabel && rightLabel && leftLabel === rightLabel);
+}
+
+function agentRefFromExecution(execution: SmithersNodeExecutionMetadata | null): AgentRef | null {
+  const agentId = execution?.agentId;
+  if (!agentId) {
+    return null;
+  }
+  const parts = agentId.split(":");
+  if (parts.length < 4) {
+    return null;
+  }
+  try {
+    return parseAgentRef(`${parts.at(-2)}:${parts.at(-1)}`, "observed Smithers agent id");
+  } catch {
+    return null;
+  }
+}
+
+function configuredModelLabel(ref: AgentRef) {
+  const configuredModel = ref.provider === "codex"
+    ? process.env.CODEX_MODEL ?? process.env.AGENT_MODEL ?? "gpt-5.5"
+    : ref.provider === "claude"
+      ? process.env.CLAUDE_MODEL
+      : ref.provider === "kimi"
+        ? process.env.KIMI_MODEL
+        : ref.provider === "pi"
+          ? process.env.PI_MODEL ?? process.env.AGENT_MODEL
+          : ref.provider === "antigravity"
+            ? process.env.ANTIGRAVITY_MODEL
+            : ref.provider === "gemini"
+              ? process.env.GEMINI_MODEL
+              : ref.provider === "opencode"
+                ? process.env.OPENCODE_MODEL
+                : undefined;
+  return configuredModel ? `${formatAgentRef(ref)}:${configuredModel}` : formatAgentRef(ref);
 }
 
 function forecastTypeFromSubmode(operationSubmode: string | null): "date" | "numeric" | "categorical" | "thresholded" | "conditional" {
@@ -1936,18 +3148,84 @@ function extractCitedSources(value: Record<string, unknown>) {
     .filter((source) => source.claim.length > 0);
 }
 
-function dedupeSources(sources: Array<{ title: string | null; url: string | null; claim: string; publishedAt?: string | null; sourceType?: string | null }>) {
-  const seen = new Set<string>();
-  const deduped = [];
+function extractEvidenceWorkspaceSources(value: Record<string, unknown>): PersistableSourceCandidate[] {
+  const forecastState = readRecord(value, "forecastState", "forecast_state");
+  const research = readRecord(forecastState, "research");
+  const claims = readArray(research, "claims");
+  return readArray(research, "sources").map((source) => {
+    const sourceId = readString(source, "id") ?? "unknown-source";
+    const relatedClaims = claims
+      .filter((claim) => readStringArray(claim, "sourceIds", "source_ids").includes(sourceId))
+      .map((claim) => readString(claim, "text"))
+      .filter((claim): claim is string => Boolean(claim));
+    const title = readString(source, "title");
+    const url = readString(source, "url");
+    const provenanceMode = readString(source, "provenance") ?? "agent_reported";
+    const domain = readString(source, "domain");
+    const reportedIndependenceGroup = readString(
+      source,
+      "reportedIndependenceGroup",
+      "reported_independence_group",
+    );
+    return {
+      title,
+      url,
+      claim: relatedClaims.join(" | ") || title || url || `Evidence workspace source ${sourceId}`,
+      publishedAt: readString(source, "publishedAt", "published_at"),
+      retrievedAt: readString(source, "retrievedAt", "retrieved_at"),
+      archiveUri: readString(source, "archiveUri", "archive_uri"),
+      provenanceMode,
+      cutoffStatus: readString(source, "cutoffStatus", "cutoff_status") ?? "unknown",
+      dependenceGroup: reportedIndependenceGroup
+        ? `reported_group:${reportedIndependenceGroup}`
+        : domain
+          ? `domain:${domain}`
+          : `source:${sourceId}`,
+      query: readString(source, "query"),
+      rank: readNumber(source, "rank"),
+      qualityScore: readNumber(source, "qualityScore", "quality_score"),
+      usedInFinal: readBoolean(source, "usedInFinal", "used_in_final") ?? false,
+      sourceType: provenanceMode === "harness_observed"
+        ? "harness_observed_evidence"
+        : "agent_reported_evidence_workspace",
+    };
+  });
+}
+
+function dedupeSources(sources: PersistableSourceCandidate[]) {
+  const byKey = new Map<string, PersistableSourceCandidate>();
   for (const source of sources) {
     const key = canonicalCitedSourceKey(source);
-    if (seen.has(key)) {
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, source);
       continue;
     }
-    seen.add(key);
-    deduped.push(source);
+    const preferIncomingType = source.provenanceMode === "harness_observed"
+      && existing.provenanceMode !== "harness_observed";
+    byKey.set(key, {
+      ...existing,
+      title: existing.title ?? source.title,
+      url: existing.url ?? source.url,
+      claim: existing.claim || source.claim,
+      publishedAt: existing.publishedAt ?? source.publishedAt,
+      retrievedAt: existing.retrievedAt ?? source.retrievedAt,
+      archiveUri: existing.archiveUri ?? source.archiveUri,
+      provenanceMode: preferIncomingType
+        ? source.provenanceMode
+        : existing.provenanceMode ?? source.provenanceMode,
+      cutoffStatus: existing.cutoffStatus === "unknown"
+        ? source.cutoffStatus ?? existing.cutoffStatus
+        : existing.cutoffStatus ?? source.cutoffStatus,
+      dependenceGroup: existing.dependenceGroup ?? source.dependenceGroup,
+      query: existing.query ?? source.query,
+      rank: existing.rank ?? source.rank,
+      qualityScore: existing.qualityScore ?? source.qualityScore,
+      usedInFinal: existing.usedInFinal === true || source.usedInFinal === true,
+      sourceType: preferIncomingType ? source.sourceType : existing.sourceType ?? source.sourceType,
+    });
   }
-  return deduped;
+  return [...byKey.values()];
 }
 
 function uniqueDomains(sources: Array<{ url: string | null }>) {
@@ -1961,7 +3239,7 @@ function uniqueDomains(sources: Array<{ url: string | null }>) {
 }
 
 async function appendTraceEvent(
-  db: Db,
+  db: DbExecutor,
   input: {
     taskId: string;
     eventType: string;
@@ -2103,6 +3381,16 @@ function readStringArray(value: Record<string, unknown>, ...keys: string[]) {
     const raw = value[key];
     if (Array.isArray(raw)) {
       return raw.filter((item): item is string => typeof item === "string");
+    }
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (Array.isArray(parsed)) {
+          return parsed.filter((item): item is string => typeof item === "string");
+        }
+      } catch {
+        continue;
+      }
     }
   }
   return [];

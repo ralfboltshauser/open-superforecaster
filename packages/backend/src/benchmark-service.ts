@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   artifactRows,
   artifacts,
@@ -10,8 +10,6 @@ import {
   benchmarkCases,
   benchmarkRuns,
   benchmarkSuites,
-  forecastAggregates,
-  forecastAttempts,
   forecastResolutions,
   forecastScores,
   sourceBankEntries,
@@ -40,6 +38,7 @@ import {
   blockerFailedOrReviewCasesPresent,
   blockerHumanForecastLeakage,
   blockerInsufficientHoldoutEvidence,
+  blockerInsufficientStatisticalPromotionEvidence,
   blockerLargeProbabilityMisses,
   blockerLowQualitySources,
   blockerMissingAggregateRationale,
@@ -56,8 +55,15 @@ import {
   minimumPromotionHoldoutCases,
   minimumPromotionPairedCases,
   minimumPromotionResultCases,
+  summarizeBenchmarkEvidenceTier,
 } from "./benchmark-promotion-policy";
+import { bootstrapMeanInterval, clusteredBootstrapMeanInterval } from "./benchmark-statistics";
 import { createBootstrapArtifact, createQueuedWorkflowTask, markTaskFailed, markTaskRunning } from "./run-service";
+import {
+  ForecastLedgerIntegrityError,
+  loadExactCommittedForecastLedgerRows,
+  requireCommittedForecastLedgerManifest,
+} from "./forecast-ledger-manifest";
 import { launchSmithersDetached } from "./smithers-launcher";
 import { summarizeSourceDomainCounts } from "./source-domain-summary";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
@@ -76,6 +82,8 @@ import {
 } from "./workflow-proposal-policy";
 
 type Db = ReturnType<typeof createDb>["db"];
+type DbTransaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
+type DbExecutor = Db | DbTransaction;
 type BenchmarkRunRow = typeof benchmarkRuns.$inferSelect;
 type BenchmarkCaseResultRow = typeof benchmarkCaseResults.$inferSelect;
 type BenchmarkCaseSplitRow = {
@@ -87,6 +95,8 @@ type PairedMetricDeltaKey = "brierDelta" | "logDelta";
 type PairedDeltaRow = {
   benchmarkCaseId: string;
   split: string;
+  eventFamilyId: string;
+  eventFamilySource: string;
   candidateBenchmarkCaseResultId: string;
   baselineBenchmarkCaseResultId: string;
   candidateStatus: string;
@@ -135,10 +145,30 @@ export type BenchmarkPromotionGateEvidenceInput = {
   splitFindings?: Record<string, unknown> | null;
   sourceQualityFindings?: Record<string, unknown> | null;
   traceQualityFindings?: Record<string, unknown> | null;
+  pairedCaseCount?: number | null;
+  pairedHoldoutCaseCount?: number | null;
+  independentEventFamilyCount?: number | null;
+  eventFamilyMetadataCoverage?: number | null;
+  requiredEvidenceTier?: "smoke" | "statistical_promotion";
 };
 
 export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotionGateEvidenceInput) {
   const blockers = [];
+  const holdoutCaseCount = input.pairedHoldoutCaseCount
+    ?? readFindingCount(input.splitFindings, "holdoutCaseResults", "holdout_case_results");
+  // Older callers only supplied a comparison status. Preserve their smoke-gate
+  // behavior while new comparison reports provide the observed paired count.
+  const pairedCaseCount = input.pairedCaseCount
+    ?? (input.comparisonStatus === "candidate_better" ? input.resultCount : 0);
+  const evidenceTier = summarizeBenchmarkEvidenceTier({
+    resultCount: input.resultCount,
+    pairedCaseCount,
+    holdoutCaseCount,
+    independentEventFamilyCount: input.independentEventFamilyCount ?? null,
+    eventFamilyMetadataCoverage: input.eventFamilyMetadataCoverage ?? null,
+  });
+  const requiredEvidenceTier = input.requiredEvidenceTier ?? "smoke";
+  const applySmokeCaseLevelQualityBlockers = requiredEvidenceTier === "smoke";
   if (input.runStatus === "running" || input.runStatus === "queued") {
     blockers.push(blockerBenchmarkStillRunning);
   }
@@ -159,16 +189,25 @@ export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotio
   if (readFindingCount(input.baselineSanityFindings, "missingBaselineSanityCases", "missing_baseline_sanity_cases") > 0) {
     blockers.push(blockerMissingBaselineSanity);
   }
-  if (readFindingCount(input.componentDisagreementFindings, "unexplainedHighDisagreementCases", "unexplained_high_disagreement_cases") > 0) {
+  if (
+    applySmokeCaseLevelQualityBlockers &&
+    readFindingCount(input.componentDisagreementFindings, "unexplainedHighDisagreementCases", "unexplained_high_disagreement_cases") > 0
+  ) {
     blockers.push(blockerUnexplainedComponentDisagreement);
   }
-  if (readFindingCount(input.forecastErrorFindings, "largeProbabilityMissCases", "large_probability_miss_cases") > 0) {
+  if (
+    applySmokeCaseLevelQualityBlockers &&
+    readFindingCount(input.forecastErrorFindings, "largeProbabilityMissCases", "large_probability_miss_cases") > 0
+  ) {
     blockers.push(blockerLargeProbabilityMisses);
   }
-  if (readFindingCount(input.forecastErrorFindings, "worseThanBaselineCases", "worse_than_baseline_cases") > 0) {
+  if (
+    applySmokeCaseLevelQualityBlockers &&
+    readFindingCount(input.forecastErrorFindings, "worseThanBaselineCases", "worse_than_baseline_cases") > 0
+  ) {
     blockers.push(blockerWorseThanBaselineCases);
   }
-  if (readFindingCount(input.splitFindings, "holdoutCaseResults", "holdout_case_results") < minimumPromotionHoldoutCases) {
+  if (holdoutCaseCount < minimumPromotionHoldoutCases) {
     blockers.push(blockerInsufficientHoldoutEvidence);
   }
   if (
@@ -204,13 +243,24 @@ export function summarizeBenchmarkPromotionGateEvidence(input: BenchmarkPromotio
   if (readFindingCount(input.traceQualityFindings, "missingAggregateRationaleCases", "missing_aggregate_rationale_cases") > 0) {
     blockers.push(blockerMissingAggregateRationale);
   }
+  if (requiredEvidenceTier === "statistical_promotion" && !evidenceTier.statisticalPromotionReady) {
+    blockers.push(blockerInsufficientStatisticalPromotionEvidence);
+  }
+  const status = blockers.length === 0 ? benchmarkPromotionGateStatusReview : benchmarkPromotionGateStatusNeedsMoreEvidence;
   return {
-    status: blockers.length === 0 ? benchmarkPromotionGateStatusReview : benchmarkPromotionGateStatusNeedsMoreEvidence,
+    status,
     blockers: uniqueStrings(blockers),
     recommendationStatus: input.comparisonStatus,
+    gatePurpose: requiredEvidenceTier === "statistical_promotion" ? "default_promotion" : "smoke_review",
+    requiredEvidenceTier,
+    evidenceTier,
+    statisticalPromotionReady: evidenceTier.statisticalPromotionReady,
+    caseLevelQualityBlockersApplied: applySmokeCaseLevelQualityBlockers,
     summary:
       blockers.length === 0
-        ? "This run has paired evidence of candidate improvement and is ready for human promotion review."
+        ? requiredEvidenceTier === "statistical_promotion"
+          ? "This run meets the statistical evidence floor and other benchmark gates for human promotion review; prospective confirmation is still required."
+          : "This run passes the compatibility smoke gate. It is useful for iteration but is not statistical evidence for changing the default forecaster."
         : "Use this run for iteration, but do not promote until blockers are resolved.",
   };
 }
@@ -301,6 +351,37 @@ function readCaseSplit(benchmarkCase?: BenchmarkCaseSplitRow) {
     return cutoffSplit;
   }
   return readString(benchmarkCase.lineageJson, "split", "caseSplit", "case_split");
+}
+
+function readCaseEventFamily(benchmarkCase: BenchmarkCaseSplitRow | undefined, benchmarkCaseId: string) {
+  const keys = [
+    "eventFamilyId",
+    "event_family_id",
+    "questionFamilyId",
+    "question_family_id",
+    "parentEventId",
+    "parent_event_id",
+    "clusterId",
+    "cluster_id",
+  ];
+  for (const [container, metadata] of [
+    ["lineage", benchmarkCase?.lineageJson ?? {}],
+    ["cutoff_metadata", benchmarkCase?.cutoffMetadataJson ?? {}],
+  ] as const) {
+    const familyId = readString(metadata, ...keys);
+    if (familyId) {
+      return {
+        id: familyId,
+        source: `${container}_explicit`,
+        explicit: true,
+      };
+    }
+  }
+  return {
+    id: `benchmark-case:${benchmarkCaseId}`,
+    source: "benchmark_case_id_fallback",
+    explicit: false,
+  };
 }
 
 function normalizeBenchmarkSplit(raw: string | null) {
@@ -522,6 +603,13 @@ export async function startBenchmarkRun(
   const launchedCases = [];
   for (const benchmarkCase of selectedCases) {
     const question = String(benchmarkCase.inputJson.question ?? "");
+    const legacyPresentDate = readCaseString(benchmarkCase.inputJson, "presentDate", "present_date");
+    const forecastAsOf = readCaseString(benchmarkCase.inputJson, "forecastAsOf", "forecast_as_of")
+      ?? legacyPresentDate;
+    const evidenceAsOf = readCaseString(benchmarkCase.inputJson, "evidenceAsOf", "evidence_as_of")
+      ?? legacyPresentDate;
+    const cutoffDate = readCaseString(benchmarkCase.inputJson, "cutoffDate", "cutoff_date")
+      ?? readCaseString(benchmarkCase.cutoffMetadataJson, "cutoff");
     const record = await createQueuedWorkflowTask(db, {
       operationMode: evalMode === "fixed_evidence" ? "fixed_evidence_eval" : "agentic_pastcasting_eval",
       operationSubmode: "binary_forecast",
@@ -538,6 +626,9 @@ export async function startBenchmarkRun(
         evalMode,
         suiteId: suite.id,
         prompt: question,
+        forecastAsOf,
+        evidenceAsOf,
+        cutoffDate,
         rollouts: input.rollouts,
       },
     });
@@ -570,8 +661,10 @@ export async function startBenchmarkRun(
               resolutionCriteria: benchmarkCase.inputJson.resolutionCriteria,
               background: benchmarkCase.inputJson.background,
               fixedEvidence: readCaseString(benchmarkCase.inputJson, "fixedEvidence", "fixed_evidence", "researchSummary", "research_summary"),
-              presentDate: benchmarkCase.inputJson.presentDate,
-              cutoffDate: benchmarkCase.inputJson.cutoffDate,
+              forecastAsOf,
+              evidenceAsOf,
+              cutoffDate,
+              presentDate: evidenceAsOf,
               cutoffMetadata: benchmarkCase.cutoffMetadataJson,
               rollouts: input.rollouts ?? readDefaultRollouts(suite.caseSelectionPolicy),
             }
@@ -583,8 +676,10 @@ export async function startBenchmarkRun(
               question,
               resolutionCriteria: benchmarkCase.inputJson.resolutionCriteria,
               background: benchmarkCase.inputJson.background,
-              presentDate: benchmarkCase.inputJson.presentDate,
-              cutoffDate: benchmarkCase.inputJson.cutoffDate,
+              forecastAsOf,
+              evidenceAsOf,
+              cutoffDate,
+              presentDate: evidenceAsOf,
               cutoffMetadata: benchmarkCase.cutoffMetadataJson,
               corpusMode: "live_web_date_bounded",
             };
@@ -810,6 +905,7 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
     const traceQualityFindings = readRecord(analysisReportRow, "traceQualityFindings", "trace_quality_findings") ?? null;
     const costLatencyFindings = readRecord(analysisReportRow, "costLatencyFindings", "cost_latency_findings") ?? null;
     const statusCounts = summarizeBenchmarkCaseResultStatuses(results);
+    const comparisonEvidence = readComparisonPromotionEvidence(comparisonReportRow?.rowJson ?? null);
     enriched.push({
       ...row,
       workflowId: variant?.workflowId ?? null,
@@ -836,6 +932,11 @@ export async function listBenchmarkRuns(db: Db, limit = 20) {
         splitFindings,
         sourceQualityFindings,
         traceQualityFindings,
+        pairedCaseCount: comparisonEvidence.pairedCaseCount,
+        pairedHoldoutCaseCount: comparisonEvidence.pairedHoldoutCaseCount,
+        independentEventFamilyCount: comparisonEvidence.independentEventFamilyCount,
+        eventFamilyMetadataCoverage: comparisonEvidence.eventFamilyMetadataCoverage,
+        requiredEvidenceTier: "statistical_promotion",
       }),
       completedCases: statusCounts.completedCases,
       failedCases: statusCounts.failedCases,
@@ -1029,6 +1130,7 @@ export async function getBenchmarkRunDetail(db: Db, benchmarkRunId: string) {
         comparison: comparisonReportRow,
         analysisReport: analysisReportRow,
         splitFindings,
+        requiredEvidenceTier: "statistical_promotion",
       }),
     },
     cases: detailedCases,
@@ -1753,6 +1855,13 @@ function buildBaselineComparison(input: {
     caseDeltas: paired.caseDeltas,
     seedKey: `${input.candidateRun.id}:${input.baselineRun.id}`,
   });
+  const pairedEventFamilyCount = new Set(paired.caseDeltas.map((row) => row.eventFamilyId)).size;
+  const pairedExplicitEventFamilyCaseCount = paired.caseDeltas.filter(
+    (row) => row.eventFamilySource !== "benchmark_case_id_fallback",
+  ).length;
+  const pairedEventFamilyMetadataCoverage = paired.caseDeltas.length === 0
+    ? 0
+    : pairedExplicitEventFamilyCaseCount / paired.caseDeltas.length;
   return {
     baselineBenchmarkRunId: input.baselineRun.id,
     baselineStatus: input.baselineRun.status,
@@ -1773,13 +1882,16 @@ function buildBaselineComparison(input: {
     },
     pairedCaseCount: paired.caseDeltas.length,
     pairedHoldoutCaseCount,
+    pairedEventFamilyCount,
+    pairedExplicitEventFamilyCaseCount,
+    pairedEventFamilyMetadataCoverage,
     pairedMeanBrierDelta: paired.pairedMeanBrierDelta,
     pairedMeanLogDelta: paired.pairedMeanLogDelta,
     pairedUncertainty,
     pairedCaseDeltas: paired.caseDeltas.slice(0, 25),
     interpretation:
       paired.caseDeltas.length > 0
-        ? "Paired comparison is available because candidate and baseline share benchmark case IDs. Bootstrap intervals resample paired cases and are unstable on tiny suites."
+        ? "Paired comparison is available because candidate and baseline share benchmark case IDs. IID intervals remain available for compatibility; event-family intervals resample whole explicit families when metadata coverage is sufficient."
         : "No paired case overlap. Treat aggregate deltas as weak evidence until a paired run exists.",
   };
 }
@@ -1807,7 +1919,11 @@ function pairedBenchmarkCaseDeltas(
   const caseDeltas: PairedDeltaRow[] = [];
   for (const candidate of candidateResults) {
     const baseline = baselineByCase.get(candidate.benchmarkCaseId);
-    if (!baseline) {
+    if (
+      !baseline ||
+      candidate.status !== benchmarkCaseResultStatusCompleted ||
+      baseline.status !== benchmarkCaseResultStatusCompleted
+    ) {
       continue;
     }
     const candidateBrier = scoreValue(candidate.scoreRows, "brier");
@@ -1817,9 +1933,15 @@ function pairedBenchmarkCaseDeltas(
     if (candidateBrier === null && candidateLog === null) {
       continue;
     }
+    const eventFamily = readCaseEventFamily(
+      candidateCasesById.get(candidate.benchmarkCaseId),
+      candidate.benchmarkCaseId,
+    );
     caseDeltas.push({
       benchmarkCaseId: candidate.benchmarkCaseId,
       split: normalizeBenchmarkSplit(readCaseSplit(candidateCasesById.get(candidate.benchmarkCaseId))),
+      eventFamilyId: eventFamily.id,
+      eventFamilySource: eventFamily.source,
       candidateBenchmarkCaseResultId: candidate.id,
       baselineBenchmarkCaseResultId: baseline.id,
       candidateStatus: candidate.status,
@@ -1842,20 +1964,65 @@ function pairedBenchmarkCaseDeltas(
 }
 
 function pairedBootstrapUncertainty(input: { caseDeltas: PairedDeltaRow[]; seedKey: string }) {
+  const samples = 1000;
+  const confidenceLevel = 0.95;
+  const iidBrierDelta = bootstrapMeanInterval(metricDeltas(input.caseDeltas, "brierDelta"), {
+    seedKey: `${input.seedKey}:brier:iid`,
+    samples,
+    confidenceLevel,
+  });
+  const iidLogDelta = bootstrapMeanInterval(metricDeltas(input.caseDeltas, "logDelta"), {
+    seedKey: `${input.seedKey}:log:iid`,
+    samples,
+    confidenceLevel,
+  });
+  const clusteredBrierDelta = clusteredBootstrapMeanInterval(clusterMetricDeltas(input.caseDeltas, "brierDelta"), {
+    seedKey: `${input.seedKey}:brier:event-family`,
+    samples,
+    confidenceLevel,
+  });
+  const clusteredLogDelta = clusteredBootstrapMeanInterval(clusterMetricDeltas(input.caseDeltas, "logDelta"), {
+    seedKey: `${input.seedKey}:log:event-family`,
+    samples,
+    confidenceLevel,
+  });
+  const eventFamilyIds = new Set(input.caseDeltas.map((row) => row.eventFamilyId));
+  const explicitEventFamilyCases = input.caseDeltas.filter((row) => row.eventFamilySource !== "benchmark_case_id_fallback").length;
+  const eventFamilyMetadataCoverage = input.caseDeltas.length === 0
+    ? 0
+    : explicitEventFamilyCases / input.caseDeltas.length;
+  const useClusteredInference = eventFamilyMetadataCoverage >= 0.95;
   return {
+    // Compatibility fields retain the existing IID paired-case bootstrap.
     method: "paired_case_bootstrap",
-    samples: 1000,
-    confidenceLevel: 0.95,
-    brierDelta: bootstrapMeanInterval(metricDeltas(input.caseDeltas, "brierDelta"), {
-      seedKey: `${input.seedKey}:brier`,
-      samples: 1000,
-      confidenceLevel: 0.95,
-    }),
-    logDelta: bootstrapMeanInterval(metricDeltas(input.caseDeltas, "logDelta"), {
-      seedKey: `${input.seedKey}:log`,
-      samples: 1000,
-      confidenceLevel: 0.95,
-    }),
+    samples,
+    confidenceLevel,
+    brierDelta: iidBrierDelta,
+    logDelta: iidLogDelta,
+    iid: {
+      method: "paired_case_bootstrap",
+      brierDelta: iidBrierDelta,
+      logDelta: iidLogDelta,
+    },
+    clustered: {
+      method: "paired_event_family_cluster_bootstrap",
+      eventFamilyCount: eventFamilyIds.size,
+      explicitEventFamilyCases,
+      eventFamilyMetadataCoverage,
+      brierDelta: clusteredBrierDelta,
+      logDelta: clusteredLogDelta,
+      warning:
+        eventFamilyIds.size < 10
+          ? "Fewer than 10 event families. Treat clustered intervals as debugging context, not promotion evidence."
+          : eventFamilyMetadataCoverage < 0.95
+            ? "Event-family metadata covers less than 95% of paired cases. Add explicit family IDs before using clustered intervals for promotion."
+            : null,
+    },
+    preferredMethod: useClusteredInference
+      ? "paired_event_family_cluster_bootstrap"
+      : "paired_case_bootstrap",
+    preferredBrierDelta: useClusteredInference ? clusteredBrierDelta : iidBrierDelta,
+    preferredLogDelta: useClusteredInference ? clusteredLogDelta : iidLogDelta,
     warning:
       input.caseDeltas.length < 10
         ? "Fewer than 10 paired cases. Treat intervals as debugging context, not a promotion gate."
@@ -1867,52 +2034,13 @@ function metricDeltas(rows: PairedDeltaRow[], key: PairedMetricDeltaKey) {
   return rows.map((row) => row[key]).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
 }
 
-function bootstrapMeanInterval(
-  values: number[],
-  input: {
-    seedKey: string;
-    samples: number;
-    confidenceLevel: number;
-  },
-) {
-  const mean = meanNumbers(values);
-  if (values.length === 0 || mean === null) {
-    return {
-      pairedCaseCount: 0,
-      mean: null,
-      lower: null,
-      upper: null,
-      standardError: null,
-    };
-  }
-  if (values.length === 1) {
-    return {
-      pairedCaseCount: 1,
-      mean,
-      lower: mean,
-      upper: mean,
-      standardError: 0,
-    };
-  }
-
-  const sampleMeans: number[] = [];
-  const rng = seededRandom(input.seedKey);
-  for (let sampleIndex = 0; sampleIndex < input.samples; sampleIndex += 1) {
-    let sum = 0;
-    for (let valueIndex = 0; valueIndex < values.length; valueIndex += 1) {
-      sum += values[Math.floor(rng() * values.length)] ?? 0;
-    }
-    sampleMeans.push(sum / values.length);
-  }
-  sampleMeans.sort((a, b) => a - b);
-  const alpha = 1 - input.confidenceLevel;
-  return {
-    pairedCaseCount: values.length,
-    mean,
-    lower: quantile(sampleMeans, alpha / 2),
-    upper: quantile(sampleMeans, 1 - alpha / 2),
-    standardError: standardDeviation(sampleMeans),
-  };
+function clusterMetricDeltas(rows: PairedDeltaRow[], key: PairedMetricDeltaKey) {
+  return rows.flatMap((row) => {
+    const value = row[key];
+    return typeof value === "number" && Number.isFinite(value)
+      ? [{ clusterId: row.eventFamilyId, value }]
+      : [];
+  });
 }
 
 function comparisonRecommendation(input: {
@@ -1940,25 +2068,30 @@ function comparisonRecommendation(input: {
       primaryBaselineBenchmarkRunId: null,
     };
   }
-  if (primaryComparison.pairedCaseCount < 10) {
+  const primaryEvidence = {
+    primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
+    primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
+    primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
+    primaryBaselineEventFamilyCount: primaryComparison.pairedEventFamilyCount,
+    primaryBaselineExplicitEventFamilyCaseCount: primaryComparison.pairedExplicitEventFamilyCaseCount,
+    primaryBaselineEventFamilyMetadataCoverage: primaryComparison.pairedEventFamilyMetadataCoverage,
+    primaryInferenceMethod: primaryComparison.pairedUncertainty.preferredMethod,
+  };
+  if (primaryComparison.pairedCaseCount < minimumPromotionPairedCases) {
     return {
       status: "needs_more_cases",
       summary: `Only ${primaryComparison.pairedCaseCount} paired case(s) are available against the primary baseline. Use this as debugging evidence, not a promotion gate.`,
-      primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
-      primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
-      primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
+      ...primaryEvidence,
     };
   }
   if (primaryComparison.pairedHoldoutCaseCount < minimumPromotionHoldoutCases) {
     return {
       status: "needs_holdout_evidence",
       summary: `Only ${primaryComparison.pairedHoldoutCaseCount} paired held-out case(s) are available against the primary baseline. Run paired holdout cases before promotion review.`,
-      primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
-      primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
-      primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
+      ...primaryEvidence,
     };
   }
-  const brierInterval = primaryComparison.pairedUncertainty.brierDelta;
+  const brierInterval = primaryComparison.pairedUncertainty.preferredBrierDelta;
   if (
     typeof primaryComparison.pairedMeanBrierDelta === "number" &&
     typeof brierInterval.upper === "number" &&
@@ -1967,10 +2100,8 @@ function comparisonRecommendation(input: {
   ) {
     return {
       status: "candidate_better",
-      summary: `Candidate improved paired mean Brier by ${Math.abs(primaryComparison.pairedMeanBrierDelta).toFixed(4)} against the primary baseline and the 95% bootstrap interval stays below zero. Check trace/source regressions before promotion.`,
-      primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
-      primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
-      primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
+      summary: `Candidate improved paired mean Brier by ${Math.abs(primaryComparison.pairedMeanBrierDelta).toFixed(4)} against the primary baseline and the 95% ${primaryComparison.pairedUncertainty.preferredMethod} interval stays below zero. Check trace/source regressions before promotion.`,
+      ...primaryEvidence,
     };
   }
   if (
@@ -1981,18 +2112,14 @@ function comparisonRecommendation(input: {
   ) {
     return {
       status: "candidate_worse",
-      summary: `Candidate worsened paired mean Brier by ${primaryComparison.pairedMeanBrierDelta.toFixed(4)} against the primary baseline and the 95% bootstrap interval stays above zero. Reject or revise the workflow.`,
-      primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
-      primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
-      primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
+      summary: `Candidate worsened paired mean Brier by ${primaryComparison.pairedMeanBrierDelta.toFixed(4)} against the primary baseline and the 95% ${primaryComparison.pairedUncertainty.preferredMethod} interval stays above zero. Reject or revise the workflow.`,
+      ...primaryEvidence,
     };
   }
   return {
     status: "indistinguishable",
     summary: "Candidate and primary baseline are too close or the bootstrap interval crosses zero. Add cases or inspect secondary trace/cost metrics.",
-    primaryBaselineBenchmarkRunId: primaryComparison.baselineBenchmarkRunId,
-    primaryBaselinePairedCaseCount: primaryComparison.pairedCaseCount,
-    primaryBaselinePairedHoldoutCaseCount: primaryComparison.pairedHoldoutCaseCount,
+    ...primaryEvidence,
   };
 }
 
@@ -2044,27 +2171,6 @@ function quantile(sortedValues: number[], q: number) {
   const lower = sortedValues[lowerIndex] ?? sortedValues[0] ?? 0;
   const upper = sortedValues[upperIndex] ?? sortedValues[sortedValues.length - 1] ?? lower;
   return lower + (upper - lower) * (position - lowerIndex);
-}
-
-function standardDeviation(values: number[]) {
-  if (values.length < 2) {
-    return 0;
-  }
-  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (values.length - 1);
-  return Math.sqrt(variance);
-}
-
-function seededRandom(seedKey: string) {
-  const seedBytes = createHash("sha256").update(seedKey).digest();
-  let state = seedBytes.readUInt32LE(0);
-  return () => {
-    state |= 0;
-    state = (state + 0x6d2b79f5) | 0;
-    let value = Math.imul(state ^ (state >>> 15), 1 | state);
-    value ^= value + Math.imul(value ^ (value >>> 7), 61 | value);
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 function workflowPathForEvalMode(evalMode: BenchmarkEvalMode) {
@@ -2256,12 +2362,19 @@ async function reconcileCaseResults(db: Db, input: {
     const probability = readProbability(row.rowJson);
     const resolved = readResolved(benchmarkCase.hiddenResolutionJson);
     const baselineProbability = readBaselineProbability(benchmarkCase.inputJson);
+    const statefulIsolation = readStatefulAutonomousIsolation(row.rowJson);
+    const primaryProbability = statefulIsolation.present && statefulIsolation.status !== "isolated"
+      ? null
+      : probability;
     const failureLabels = [
       ...(probability === null ? ["missing_probability"] : []),
       ...(resolved === null ? ["missing_resolution"] : []),
       ...agenticAuditFailureLabels(row.rowJson, task.operationMode),
     ];
-    const scoreRows = buildScoreRows({ probability, baselineProbability, resolved });
+    const scoreRows = [
+      ...buildScoreRows({ probability: primaryProbability, baselineProbability, resolved }),
+      ...buildForecastTrackScoreRows(row.rowJson, resolved),
+    ];
     const traceBundle = await exportTraceBundle(db, {
       taskId: task.id,
       artifactsDir: input.artifactsDir,
@@ -2283,110 +2396,165 @@ async function reconcileCaseResults(db: Db, input: {
   }
 }
 
-async function backfillBenchmarkForecastScoreRows(db: Db) {
+export async function backfillBenchmarkForecastScoreRows(db: Db) {
   const results = await db
     .select()
     .from(benchmarkCaseResults)
     .where(eq(benchmarkCaseResults.status, benchmarkCaseResultStatusCompleted));
 
   for (const result of results) {
-    if (!result.taskId || result.scoreRows.length === 0) {
-      continue;
-    }
+    await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`select ${benchmarkCaseResults.id} from ${benchmarkCaseResults} where ${benchmarkCaseResults.id} = ${result.id} for update`,
+      );
+      const [currentResult] = await tx
+        .select()
+        .from(benchmarkCaseResults)
+        .where(eq(benchmarkCaseResults.id, result.id))
+        .limit(1);
+      if (!currentResult || currentResult.status !== benchmarkCaseResultStatusCompleted) {
+        return;
+      }
+      if (!currentResult.taskId) {
+        await quarantineBenchmarkForecastLedger(tx, currentResult, "invalid_forecast_ledger");
+        return;
+      }
 
-    const [task] = await db.select().from(tasks).where(eq(tasks.id, result.taskId)).limit(1);
-    const [benchmarkCase] = await db.select().from(benchmarkCases).where(eq(benchmarkCases.id, result.benchmarkCaseId)).limit(1);
-    const resolved = readResolved(benchmarkCase?.hiddenResolutionJson ?? null);
-    if (!task?.smithersRunId || !benchmarkCase || resolved === null) {
-      continue;
-    }
+      const [task] = await tx.select().from(tasks).where(eq(tasks.id, currentResult.taskId)).limit(1);
+      const [benchmarkCase] = await tx
+        .select()
+        .from(benchmarkCases)
+        .where(eq(benchmarkCases.id, currentResult.benchmarkCaseId))
+        .limit(1);
+      const resolved = readResolved(benchmarkCase?.hiddenResolutionJson ?? null);
+      if (!benchmarkCase || resolved === null) {
+        return;
+      }
+      if (
+        !task ||
+        task.status !== "completed" ||
+        task.operationSubmode !== "binary_forecast" ||
+        task.benchmarkRunId !== currentResult.benchmarkRunId
+      ) {
+        await quarantineBenchmarkForecastLedger(tx, currentResult, "invalid_forecast_ledger");
+        return;
+      }
 
-    const attempts = await db
-      .select()
-      .from(forecastAttempts)
-      .where(eq(forecastAttempts.researchPassId, task.smithersRunId));
-    const attemptIds = attempts.map((attempt) => attempt.id);
-    if (attemptIds.length === 0) {
-      continue;
-    }
+      let committedLedger;
+      try {
+        const manifest = requireCommittedForecastLedgerManifest(task, "binary");
+        if (
+          currentResult.smithersRunId !== manifest.smithersRunId ||
+          (currentResult.forecastOutputArtifactId && currentResult.forecastOutputArtifactId !== manifest.artifactId)
+        ) {
+          await quarantineBenchmarkForecastLedger(tx, currentResult, "invalid_forecast_ledger");
+          return;
+        }
+        const rows = await loadExactCommittedForecastLedgerRows(tx, {
+          taskId: task.id,
+          manifest,
+        });
+        committedLedger = { manifest, ...rows };
+      } catch (error) {
+        if (!(error instanceof ForecastLedgerIntegrityError)) {
+          throw error;
+        }
+        await quarantineBenchmarkForecastLedger(
+          tx,
+          currentResult,
+          error.code === "uncommitted" ? "uncommitted_forecast_ledger" : "invalid_forecast_ledger",
+        );
+        return;
+      }
 
-    const allAggregates = await db.select().from(forecastAggregates);
-    const aggregates = allAggregates.filter((aggregate) =>
-      aggregate.componentAttemptIds.some((attemptId) => attemptIds.includes(attemptId)),
-    );
-    const aggregateIds = aggregates.map((aggregate) => aggregate.id);
+      const attemptIds = committedLedger.manifest.componentAttemptIds;
+      const existingAttemptScores = await tx
+        .select({ id: forecastScores.id })
+        .from(forecastScores)
+        .where(inArray(forecastScores.forecastAttemptId, attemptIds));
+      const existingAggregateScores = await tx
+        .select({ id: forecastScores.id })
+        .from(forecastScores)
+        .where(eq(forecastScores.forecastAggregateId, committedLedger.manifest.aggregateId));
+      if (existingAttemptScores.length || existingAggregateScores.length) {
+        return;
+      }
 
-    const existingAttemptScores = await db
-      .select({ id: forecastScores.id })
-      .from(forecastScores)
-      .where(inArray(forecastScores.forecastAttemptId, attemptIds));
-    const existingAggregateScores = aggregateIds.length
-      ? await db
-          .select({ id: forecastScores.id })
-          .from(forecastScores)
-          .where(inArray(forecastScores.forecastAggregateId, aggregateIds))
-      : [];
-    if (existingAttemptScores.length || existingAggregateScores.length) {
-      continue;
-    }
+      const [resolution] = await tx
+        .insert(forecastResolutions)
+        .values({
+          resolvedValue: {
+            ...(benchmarkCase.hiddenResolutionJson ?? {}),
+            resolved,
+          },
+          resolutionSource: `benchmark_import:${benchmarkCase.externalId}`,
+          resolverTraceIds: [],
+          annulled: false,
+          resolvedAt: parseResolutionDate(benchmarkCase.hiddenResolutionJson),
+        })
+        .returning({ id: forecastResolutions.id });
 
-    const [resolution] = await db
-      .insert(forecastResolutions)
-      .values({
-        resolvedValue: {
-          ...(benchmarkCase.hiddenResolutionJson ?? {}),
-          resolved,
-        },
-        resolutionSource: `benchmark_import:${benchmarkCase.externalId}`,
-        resolverTraceIds: [],
-        annulled: false,
-        resolvedAt: parseResolutionDate(benchmarkCase.hiddenResolutionJson),
-      })
-      .returning({ id: forecastResolutions.id });
-
-    for (const aggregate of aggregates) {
-      for (const scoreRow of result.scoreRows.filter((row) => row.scoreType === "brier" || row.scoreType === "log")) {
+      for (const scoreRow of currentResult.scoreRows.filter((row) => isAggregateForecastScoreType(row.scoreType))) {
         if (typeof scoreRow.scoreValue !== "number") {
           continue;
         }
-        await db.insert(forecastScores).values({
-          forecastAggregateId: aggregate.id,
+        await tx.insert(forecastScores).values({
+          forecastAggregateId: committedLedger.aggregate.id,
           resolutionId: resolution.id,
           scoreType: String(scoreRow.scoreType),
           scoreValue: scoreRow.scoreValue,
           scoreConfig: {
             source: "benchmark_case_result",
-            benchmarkRunId: result.benchmarkRunId,
-            benchmarkCaseId: result.benchmarkCaseId,
-            benchmarkCaseResultId: result.id,
+            benchmarkRunId: currentResult.benchmarkRunId,
+            benchmarkCaseId: currentResult.benchmarkCaseId,
+            benchmarkCaseResultId: currentResult.id,
             probability: scoreRow.probability,
+            forecastLedgerVersion: committedLedger.manifest.version,
+            forecastLedgerAggregateId: committedLedger.manifest.aggregateId,
           },
         });
       }
-    }
 
-    for (const attempt of attempts) {
-      const probability = readProbability(attempt.parsedPrediction);
-      if (probability === null) {
-        continue;
+      for (const attempt of committedLedger.attempts) {
+        const probability = readProbability(attempt.parsedPrediction);
+        if (probability === null) {
+          continue;
+        }
+        for (const [scoreType, scoreValue] of Object.entries(scoreBinaryForecast({ probability, resolved }))) {
+          await tx.insert(forecastScores).values({
+            forecastAttemptId: attempt.id,
+            resolutionId: resolution.id,
+            scoreType,
+            scoreValue,
+            scoreConfig: {
+              source: "benchmark_attempt_backfill",
+              benchmarkRunId: currentResult.benchmarkRunId,
+              benchmarkCaseId: currentResult.benchmarkCaseId,
+              benchmarkCaseResultId: currentResult.id,
+              probability,
+              forecastLedgerVersion: committedLedger.manifest.version,
+              forecastLedgerAggregateId: committedLedger.manifest.aggregateId,
+            },
+          });
+        }
       }
-      for (const [scoreType, scoreValue] of Object.entries(scoreBinaryForecast({ probability, resolved }))) {
-        await db.insert(forecastScores).values({
-          forecastAttemptId: attempt.id,
-          resolutionId: resolution.id,
-          scoreType,
-          scoreValue,
-          scoreConfig: {
-            source: "benchmark_attempt_backfill",
-            benchmarkRunId: result.benchmarkRunId,
-            benchmarkCaseId: result.benchmarkCaseId,
-            benchmarkCaseResultId: result.id,
-            probability,
-          },
-        });
-      }
-    }
+    });
   }
+}
+
+async function quarantineBenchmarkForecastLedger(
+  db: DbExecutor,
+  result: BenchmarkCaseResultRow,
+  label: "uncommitted_forecast_ledger" | "invalid_forecast_ledger",
+) {
+  await db
+    .update(benchmarkCaseResults)
+    .set({
+      status: benchmarkCaseResultStatusNeedsReview,
+      failureLabels: uniqueStrings([...result.failureLabels, label]),
+      updatedAt: new Date(),
+    })
+    .where(eq(benchmarkCaseResults.id, result.id));
 }
 
 async function finalizeReadyBenchmarkRuns(db: Db, input: { root?: string } = {}) {
@@ -2411,6 +2579,14 @@ async function finalizeReadyBenchmarkRuns(db: Db, input: { root?: string } = {})
     const meanLog = meanScore(results, "log");
     const meanBaselineBrier = meanScore(results, "baseline_brier");
     const meanBrierDelta = meanScore(results, "baseline_delta_brier");
+    const forecastTrackMetrics = {
+      autonomousMeanBrier: meanScore(results, "autonomous_brier"),
+      crowdAssistedMeanBrier: meanScore(results, "crowd_assisted_brier"),
+      marketMeanBrier: meanScore(results, "market_brier"),
+      crowdAssistedDeltaBrierVsAutonomous: meanScore(results, "crowd_assisted_delta_brier_vs_autonomous"),
+      autonomousDeltaBrierVsMarket: meanScore(results, "autonomous_delta_brier_vs_market"),
+      crowdAssistedDeltaBrierVsMarket: meanScore(results, "crowd_assisted_delta_brier_vs_market"),
+    };
     const statusCounts = summarizeBenchmarkCaseResultStatuses(results);
     const completedCases = statusCounts.completedCases;
     const failedCases = statusCounts.failedCases;
@@ -2441,6 +2617,7 @@ async function finalizeReadyBenchmarkRuns(db: Db, input: { root?: string } = {})
       meanLog,
       meanBaselineBrier,
       meanBrierDelta,
+      forecastTrackMetrics,
       splitFindings,
       generatedAt: new Date().toISOString(),
       caseAnalyses,
@@ -2842,6 +3019,9 @@ async function buildBenchmarkCaseAnalyses(
             domain: sourceBankEntries.domain,
             title: sourceBankEntries.title,
             sourceType: sourceBankEntries.sourceType,
+            provenanceMode: sourceBankEntries.provenanceMode,
+            cutoffStatus: sourceBankEntries.cutoffStatus,
+            archiveUri: sourceBankEntries.archiveUri,
             contentSummary: sourceBankEntries.contentSummary,
             retrievedAt: sourceBankEntries.retrievedAt,
             publishedAt: sourceBankEntries.publishedAt,
@@ -2855,7 +3035,9 @@ async function buildBenchmarkCaseAnalyses(
 
     const inputJson = benchmarkCase?.inputJson ?? {};
     const output = outputRow?.rowJson ?? {};
-    const cutoffDate = readString(inputJson, "cutoffDate", "cutoff_date") ?? readString(benchmarkCase?.cutoffMetadataJson ?? {}, "cutoff");
+    const cutoffDate = readString(inputJson, "cutoffDate", "cutoff_date")
+      ?? readString(inputJson, "evidenceAsOf", "evidence_as_of", "presentDate", "present_date")
+      ?? readString(benchmarkCase?.cutoffMetadataJson ?? {}, "cutoff");
     const cutoff = parseOptionalDateForAnalysis(cutoffDate);
     const probability = readProbability(output);
     const resolved = readResolved(benchmarkCase?.hiddenResolutionJson ?? null);
@@ -2881,6 +3063,13 @@ async function buildBenchmarkCaseAnalyses(
       output,
       cutoff,
       isFixedEvidence: input.evalMode === "fixed_evidence",
+      fixedEvidenceText: readCaseString(
+        inputJson,
+        "fixedEvidence",
+        "fixed_evidence",
+        "researchSummary",
+        "research_summary",
+      ) ?? "",
       failureLabels,
     });
     const traceAudit = buildTraceAudit({
@@ -3012,6 +3201,9 @@ function buildSourceAudit(input: {
     domain: string | null;
     title: string | null;
     sourceType: string;
+    provenanceMode: string;
+    cutoffStatus: string;
+    archiveUri: string | null;
     contentSummary: string;
     publishedAt: Date | null;
     usedInFinal: boolean;
@@ -3020,18 +3212,38 @@ function buildSourceAudit(input: {
   output: Record<string, unknown>;
   cutoff: Date | null;
   isFixedEvidence: boolean;
+  fixedEvidenceText: string;
   failureLabels: string[];
 }) {
-  const postCutoffSources = input.cutoff
-    ? input.sources.filter((source) => source.publishedAt && source.publishedAt.getTime() > input.cutoff!.getTime())
-    : [];
+  const postCutoffSources = input.sources.filter((source) => (
+    source.cutoffStatus === "after_cutoff"
+    || Boolean(input.cutoff && source.publishedAt && source.publishedAt.getTime() > input.cutoff.getTime())
+  ));
   const humanForecastSources = input.sources.filter((source) =>
     looksLikeHumanForecastSource(`${source.domain ?? ""} ${source.title ?? ""} ${source.sourceType} ${source.contentSummary}`),
   );
+  const fixedEvidenceHumanForecastRedacted = input.isFixedEvidence
+    && readString(input.output, "inputIsolationStatus", "input_isolation_status") === "human_forecast_redacted";
+  const fixedEvidenceHumanForecastExposure = input.isFixedEvidence
+    && looksLikeHumanForecastSource(input.fixedEvidenceText)
+    && !fixedEvidenceHumanForecastRedacted;
   const sourceDomains = summarizeSourceDomainCounts(input.sources);
   const topSourceDomain = sourceDomains[0] ?? null;
   const lowQualitySources = input.sources.filter((source) => source.qualityScore !== null && source.qualityScore < 0.5);
-  const searchQueries = readStringArray(input.output, "searchQueries", "search_queries");
+  const forecastState = readRecord(input.output, "forecastState", "forecast_state") ?? {};
+  const research = readRecord(forecastState, "research") ?? {};
+  const workspaceQueries = readAnyArray(research, "searchHistory", "search_history")
+    .flatMap((query) => {
+      const record = query && typeof query === "object" && !Array.isArray(query)
+        ? query as Record<string, unknown>
+        : null;
+      const value = record ? readString(record, "query") : null;
+      return value ? [value] : [];
+    });
+  const searchQueries = uniqueStrings([
+    ...readStringArray(input.output, "searchQueries", "search_queries"),
+    ...workspaceQueries,
+  ]);
   const explicitProbabilityQuotes = readStringArray(input.output, "explicitProbabilityQuotes", "explicit_probability_quotes");
   const outputLeakageFlags = readStringArray(input.output, "leakageFlags", "leakage_flags");
   return {
@@ -3045,13 +3257,18 @@ function buildSourceAudit(input: {
     missingPublishedAtCount: input.sources.filter((source) => !source.publishedAt).length,
     lowQualitySourceCount: lowQualitySources.length,
     lowQualityUsedInFinalSourceCount: lowQualitySources.filter((source) => source.usedInFinal).length,
+    harnessObservedSourceCount: input.sources.filter((source) => source.provenanceMode === "harness_observed").length,
+    agentReportedSourceCount: input.sources.filter((source) => source.provenanceMode !== "harness_observed").length,
+    archivedSourceCount: input.sources.filter((source) => source.archiveUri).length,
     postCutoffSourceCount: postCutoffSources.length,
     postCutoffSources: postCutoffSources.slice(0, 5).map((source) => ({
       title: source.title,
       url: source.url,
       publishedAt: source.publishedAt?.toISOString() ?? null,
     })),
-    humanForecastSourceCount: humanForecastSources.length,
+    humanForecastSourceCount: humanForecastSources.length + (fixedEvidenceHumanForecastExposure ? 1 : 0),
+    fixedEvidenceHumanForecastExposure,
+    fixedEvidenceHumanForecastRedacted,
     humanForecastSources: humanForecastSources.slice(0, 5).map((source) => ({
       title: source.title,
       url: source.url,
@@ -3065,14 +3282,18 @@ function buildSourceAudit(input: {
       ? "fixed_evidence_packet_only"
       : readString(input.output, "cutoffPolicy", "cutoff_policy") ?? "agent_reported_live_web",
     sourceAuditStatus: input.isFixedEvidence
-      ? "fixed_evidence_not_web"
+      ? fixedEvidenceHumanForecastExposure
+        ? "failed_forecast_market_isolation"
+        : "fixed_evidence_not_web"
       : input.failureLabels.includes("source_leakage") || postCutoffSources.length > 0
         ? "failed_cutoff_provenance"
         : humanForecastSources.length > 0 || explicitProbabilityQuotes.length > 0
           ? "failed_forecast_market_isolation"
           : input.sources.length === 0
             ? "weak_no_sources"
-            : "pass_agent_reported",
+            : input.sources.every((source) => source.provenanceMode === "harness_observed")
+              ? "pass_harness_observed"
+              : "pass_agent_reported",
   };
 }
 
@@ -3356,9 +3577,14 @@ function sourceQualityFindingsForRun(
 ) {
   if (isFixedEvidence) {
     return {
-      note: "Fixed-evidence eval intentionally removes live search. Source quality is represented by the frozen evidence packet, not cited web sources.",
+      note: "Fixed-evidence eval removes live search, but frozen packets are still audited for forbidden human or market forecasts.",
       sourceLeakageCases: 0,
-      informationAdvantageCases: 0,
+      informationAdvantageCases: caseAnalyses.filter((analysis) =>
+        analysis.sourceAudit.sourceAuditStatus === "failed_forecast_market_isolation"
+      ).length,
+      humanForecastSourceCases: caseAnalyses.filter((analysis) =>
+        Number(analysis.sourceAudit.humanForecastSourceCount ?? 0) > 0
+      ).length,
       postCutoffSourceCases: 0,
       dominantSourceDomainCases: 0,
       lowQualitySourceCases: 0,
@@ -3869,8 +4095,107 @@ function buildScoreRows(input: {
   return scoreRows;
 }
 
-function meanScore(results: Array<{ scoreRows: Array<Record<string, unknown>> }>, scoreType: string) {
+export function buildForecastTrackScoreRows(output: Record<string, unknown>, resolved: boolean | null) {
+  if (resolved === null) {
+    return [];
+  }
+  const state = readRecord(output, "forecastState", "forecast_state") ?? {};
+  const outputs = readRecord(state, "outputs") ?? {};
+  const autonomous = readRecord(outputs, "autonomous") ?? {};
+  const assisted = readRecord(outputs, "crowdAssisted", "crowd_assisted") ?? {};
+  const informationIsolation = readRecord(autonomous, "informationIsolation", "information_isolation") ?? {};
+  const informationIsolationStatus = readString(informationIsolation, "status");
+  const autonomousTracksEligible = informationIsolationStatus === "isolated";
+  const autonomousProbability = readNumber(autonomous, "selectedProbability", "selected_probability");
+  const assistedProbability = readNumber(assisted, "probability");
+  const marketProbability = readNumber(assisted, "marketProbability", "market_probability");
+  const tracks = [
+    { id: "autonomous", probability: autonomousTracksEligible ? autonomousProbability : null },
+    { id: "crowd_assisted", probability: autonomousTracksEligible ? assistedProbability : null },
+    { id: "market", probability: marketProbability },
+  ].filter((track): track is { id: string; probability: number } => track.probability !== null);
+  const rows: Array<Record<string, unknown>> = [];
+  const brierByTrack = new Map<string, number>();
+  for (const track of tracks) {
+    const scores = scoreBinaryForecast({ probability: track.probability, resolved });
+    brierByTrack.set(track.id, scores.brier);
+    rows.push(
+      {
+        scoreType: `${track.id}_brier`,
+        scoreValue: scores.brier,
+        probability: track.probability,
+        resolved,
+        track: track.id,
+        source: "forecast_state_track",
+      },
+      {
+        scoreType: `${track.id}_log`,
+        scoreValue: scores.log,
+        probability: track.probability,
+        resolved,
+        track: track.id,
+        source: "forecast_state_track",
+      },
+    );
+  }
+  pushTrackDelta(rows, brierByTrack, "crowd_assisted", "autonomous");
+  pushTrackDelta(rows, brierByTrack, "autonomous", "market");
+  pushTrackDelta(rows, brierByTrack, "crowd_assisted", "market");
+  return rows;
+}
+
+function readStatefulAutonomousIsolation(output: Record<string, unknown>) {
+  const state = readRecord(output, "forecastState", "forecast_state");
+  if (!state || Object.keys(state).length === 0) {
+    return { present: false, status: null as string | null };
+  }
+  const outputs = readRecord(state, "outputs") ?? {};
+  const autonomous = readRecord(outputs, "autonomous") ?? {};
+  const informationIsolation = readRecord(
+    autonomous,
+    "informationIsolation",
+    "information_isolation",
+  ) ?? {};
+  return {
+    present: true,
+    status: readString(informationIsolation, "status"),
+  };
+}
+
+function pushTrackDelta(
+  rows: Array<Record<string, unknown>>,
+  brierByTrack: Map<string, number>,
+  candidate: string,
+  baseline: string,
+) {
+  const candidateBrier = brierByTrack.get(candidate);
+  const baselineBrier = brierByTrack.get(baseline);
+  if (candidateBrier === undefined || baselineBrier === undefined) {
+    return;
+  }
+  rows.push({
+    scoreType: `${candidate}_delta_brier_vs_${baseline}`,
+    scoreValue: candidateBrier - baselineBrier,
+    candidateTrack: candidate,
+    baselineTrack: baseline,
+    source: "forecast_state_track_comparison",
+  });
+}
+
+function isAggregateForecastScoreType(value: unknown) {
+  return typeof value === "string" && (
+    value === "brier"
+    || value === "log"
+    || /^(autonomous|crowd_assisted|market)_(brier|log|delta_brier_vs_)/.test(value)
+  );
+}
+
+function meanScore(
+  results: Array<{ scoreRows: Array<Record<string, unknown>>; status?: string }>,
+  scoreType: string,
+) {
   const values = results
+    .filter((result) => result.status === undefined || result.status === benchmarkCaseResultStatusCompleted)
     .flatMap((result) => result.scoreRows)
     .filter((row) => row.scoreType === scoreType && typeof row.scoreValue === "number")
     .map((row) => row.scoreValue as number);
@@ -3912,8 +4237,23 @@ function caseBrier(result: { scoreRows: Array<Record<string, unknown>> }) {
 }
 
 function agenticAuditFailureLabels(rowJson: Record<string, unknown>, operationMode: string) {
+  const statefulIsolation = readStatefulAutonomousIsolation(rowJson);
+  const providerAudit = readRecord(
+    rowJson,
+    "providerActivityIsolationAudit",
+    "provider_activity_isolation_audit",
+  );
+  const providerFlags = providerAudit
+    ? readStringArray(providerAudit, "flags")
+    : [];
+  const genericLabels = [
+    ...(statefulIsolation.present && statefulIsolation.status !== "isolated"
+      ? ["autonomous_information_isolation_not_verified"]
+      : []),
+    ...(providerFlags.length ? ["provider_activity_isolation_not_verified"] : []),
+  ];
   if (operationMode !== "agentic_pastcasting_eval") {
-    return [];
+    return genericLabels;
   }
   const candidateLabels = readStringArray(rowJson, "failureModeCandidates", "failure_mode_candidates")
     .filter((label) => label !== "weak_live_web_cutoff");
@@ -3921,6 +4261,7 @@ function agenticAuditFailureLabels(rowJson: Record<string, unknown>, operationMo
   const informationAdvantage = readString(rowJson, "informationAdvantage", "information_advantage");
   const traceCompletenessScore = readNumber(rowJson, "traceCompletenessScore", "trace_completeness_score");
   return uniqueStrings([
+    ...genericLabels,
     ...candidateLabels,
     ...(leakageFlags.length ? ["source_leakage"] : []),
     ...(informationAdvantage === "market_used" || informationAdvantage === "market_visible" ? ["information_advantage"] : []),
@@ -4006,9 +4347,11 @@ function benchmarkPromotionGateSummary(input: {
   comparison: Record<string, unknown> | null;
   analysisReport: Record<string, unknown> | null;
   splitFindings?: Record<string, unknown> | null;
+  requiredEvidenceTier?: "smoke" | "statistical_promotion";
 }) {
   const traceMissing = input.results.filter((result) => !result.traceBundleUri).length;
   const reviewOrFailed = input.metrics.failedCases + input.metrics.reviewCases;
+  const comparisonEvidence = readComparisonPromotionEvidence(input.comparison);
   return summarizeBenchmarkPromotionGateEvidence({
     runStatus: input.run.status,
     resultCount: input.results.length,
@@ -4021,6 +4364,11 @@ function benchmarkPromotionGateSummary(input: {
     splitFindings: input.splitFindings ?? readRecord(input.analysisReport, "splitFindings", "split_findings"),
     sourceQualityFindings: readRecord(input.analysisReport, "sourceQualityFindings", "source_quality_findings"),
     traceQualityFindings: readRecord(input.analysisReport, "traceQualityFindings", "trace_quality_findings"),
+    pairedCaseCount: comparisonEvidence.pairedCaseCount,
+    pairedHoldoutCaseCount: comparisonEvidence.pairedHoldoutCaseCount,
+    independentEventFamilyCount: comparisonEvidence.independentEventFamilyCount,
+    eventFamilyMetadataCoverage: comparisonEvidence.eventFamilyMetadataCoverage,
+    requiredEvidenceTier: input.requiredEvidenceTier,
   });
 }
 
@@ -4043,6 +4391,7 @@ async function benchmarkPromotionGateForRun(db: Db, run: BenchmarkRunRow) {
       results,
       casesById: splitRowsById(await loadBenchmarkCaseSplitRows(db, results)),
     }),
+    requiredEvidenceTier: "statistical_promotion",
   });
 }
 
@@ -4058,11 +4407,21 @@ function readComparisonRecommendationStatus(comparison: Record<string, unknown> 
   return typeof recommendationRecord.status === "string" ? recommendationRecord.status : null;
 }
 
+function readComparisonPromotionEvidence(comparison: Record<string, unknown> | null) {
+  const recommendation = readRecord(comparison, "recommendation");
+  return {
+    pairedCaseCount: recommendation ? readNumber(recommendation, "primaryBaselinePairedCaseCount") : null,
+    pairedHoldoutCaseCount: recommendation ? readNumber(recommendation, "primaryBaselinePairedHoldoutCaseCount") : null,
+    independentEventFamilyCount: recommendation ? readNumber(recommendation, "primaryBaselineEventFamilyCount") : null,
+    eventFamilyMetadataCoverage: recommendation ? readNumber(recommendation, "primaryBaselineEventFamilyMetadataCoverage") : null,
+  };
+}
+
 function parseOptionalDateForAnalysis(raw: string | null) {
   if (!raw) {
     return null;
   }
-  const date = new Date(raw);
+  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T23:59:59.999Z` : raw);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -4098,6 +4457,16 @@ function readRecord(value: Record<string, unknown> | null, ...keys: string[]) {
     const raw = value[key];
     if (raw && typeof raw === "object" && !Array.isArray(raw)) {
       return raw as Record<string, unknown>;
+    }
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          return parsed as Record<string, unknown>;
+        }
+      } catch {
+        continue;
+      }
     }
   }
   return null;

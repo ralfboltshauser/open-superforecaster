@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, lte } from "drizzle-orm";
 import {
   artifactRows,
   artifacts,
@@ -8,8 +8,13 @@ import {
   citations,
   forecastAggregates,
   forecastAttempts,
+  forecastMemoryEntries,
+  forecastQuestions,
   forecastResolutions,
   forecastScores,
+  forecastSnapshots,
+  forecastTrajectoryScores,
+  forecastUpdateTriggers,
   sourceBankEntries,
   tasks,
   traceEvents,
@@ -17,16 +22,18 @@ import {
 } from "@open-superforecaster/db";
 import type { ObjectStorageTarget } from "@open-superforecaster/artifact-store";
 import { tryPutObject } from "./object-storage";
+import { requireCommittedForecastLedgerManifest } from "./forecast-ledger-manifest";
 import { readSmithersTokenUsage, summarizeSmithersTokenUsage } from "./smithers-usage";
 
 type Db = ReturnType<typeof createDb>["db"];
 
 export type TraceBundle = {
   manifest: {
-    schemaVersion: 1;
+    schemaVersion: 4;
     taskId: string;
     smithersRunId: string | null;
     exportedAt: string;
+    scope: "ledger_commit_projection" | "task_history";
   };
   task: Record<string, unknown>;
   artifacts: Array<Record<string, unknown> & { rows: Array<Record<string, unknown>> }>;
@@ -35,6 +42,11 @@ export type TraceBundle = {
   citations: Array<Record<string, unknown>>;
   forecastAttempts: Array<Record<string, unknown>>;
   forecastAggregates: Array<Record<string, unknown>>;
+  forecastQuestions: Array<Record<string, unknown>>;
+  forecastSnapshots: Array<Record<string, unknown>>;
+  forecastTrajectoryScores: Array<Record<string, unknown>>;
+  forecastUpdateTriggers: Array<Record<string, unknown>>;
+  forecastMemoryEntries: Array<Record<string, unknown>>;
   forecastResolutions: Array<Record<string, unknown>>;
   forecastScores: Array<Record<string, unknown>>;
   benchmarkCaseResults: Array<Record<string, unknown>>;
@@ -71,26 +83,107 @@ export async function exportTraceBundle(db: Db, input: {
     });
   }
 
+  const forecastTask = isForecastSubmode(task.operationSubmode);
+  const ledgerManifest = task.forecastLedgerCommittedAt && forecastTask
+    ? requireCommittedForecastLedgerManifest(
+        task,
+        forecastTypeFromSubmode(task.operationSubmode),
+      )
+    : null;
+  const commitBoundary = task.forecastLedgerCommittedAt;
   const events = await db
     .select()
     .from(traceEvents)
-    .where(eq(traceEvents.taskId, input.taskId))
+    .where(and(
+      eq(traceEvents.taskId, input.taskId),
+      ...(commitBoundary ? [lte(traceEvents.createdAt, commitBoundary)] : []),
+    ))
     .orderBy(asc(traceEvents.sequenceNumber));
 
-  const sources = await db.select().from(sourceBankEntries).where(eq(sourceBankEntries.taskId, input.taskId));
+  const sources = ledgerManifest
+    ? ledgerManifest.sourceIds.length
+      ? await db.select().from(sourceBankEntries).where(inArray(sourceBankEntries.id, ledgerManifest.sourceIds))
+      : []
+    : forecastTask
+      ? []
+      : await db.select().from(sourceBankEntries).where(eq(sourceBankEntries.taskId, input.taskId));
   const sourceIds = sources.map((source) => source.id);
-  const citationRows = sourceIds.length
-    ? await db.select().from(citations).where(inArray(citations.sourceId, sourceIds))
-    : [];
-  const attempts = task.smithersRunId
-    ? await db.select().from(forecastAttempts).where(eq(forecastAttempts.researchPassId, task.smithersRunId))
-    : [];
+  const citationRows = ledgerManifest
+    ? ledgerManifest.citationIds.length
+      ? await db.select().from(citations).where(inArray(citations.id, ledgerManifest.citationIds))
+      : []
+    : sourceIds.length
+      ? await db.select().from(citations).where(inArray(citations.sourceId, sourceIds))
+      : [];
+  const attempts = ledgerManifest
+    ? ledgerManifest.componentAttemptIds.length
+      ? await db.select().from(forecastAttempts).where(inArray(forecastAttempts.id, ledgerManifest.componentAttemptIds))
+      : []
+    : !forecastTask && task.smithersRunId
+      ? await db.select().from(forecastAttempts).where(eq(forecastAttempts.researchPassId, task.smithersRunId))
+      : [];
   const attemptIds = attempts.map((attempt) => attempt.id);
-  const allAggregates = await db.select().from(forecastAggregates);
-  const aggregates = allAggregates.filter((aggregate) =>
-    aggregate.componentAttemptIds.some((attemptId) => attemptIds.includes(attemptId)),
-  );
+  const aggregates = ledgerManifest
+    ? await db.select().from(forecastAggregates).where(eq(forecastAggregates.id, ledgerManifest.aggregateId))
+    : (await db.select().from(forecastAggregates)).filter((aggregate) =>
+        aggregate.componentAttemptIds.some((attemptId) => attemptIds.includes(attemptId)),
+      );
   const aggregateIds = aggregates.map((aggregate) => aggregate.id);
+  const committedSnapshotId = ledgerManifest?.snapshotId ?? null;
+  const snapshots = committedSnapshotId
+    ? await db.select().from(forecastSnapshots).where(eq(forecastSnapshots.id, committedSnapshotId))
+    : [];
+  const questionIds = [...new Set(snapshots.map((snapshot) => snapshot.questionId))];
+  const snapshotIds = snapshots.map((snapshot) => snapshot.id);
+  const trajectoryScores = snapshotIds.length
+    ? await db.select().from(forecastTrajectoryScores).where(inArray(forecastTrajectoryScores.snapshotId, snapshotIds))
+    : [];
+  const currentQuestions = questionIds.length
+    ? await db.select().from(forecastQuestions).where(inArray(forecastQuestions.id, questionIds))
+    : [];
+  const snapshotIdByQuestion = new Map(snapshots.map((snapshot) => [snapshot.questionId, snapshot.id]));
+  const questions = currentQuestions.map((question) => ({
+    ...question,
+    latestSnapshotIdAtExport: question.latestSnapshotId,
+    statusAtExport: question.status,
+    latestSnapshotId: snapshotIdByQuestion.get(question.id) ?? null,
+    status: "open" as const,
+    updateLeaseOwner: null,
+    updateLeaseExpiresAt: null,
+    updateLeaseTriggerId: null,
+    replayProjection: "ledger_commit" as const,
+  }));
+  const updateTriggers = snapshotIds.length
+    ? (await db
+        .select()
+        .from(forecastUpdateTriggers)
+        .where(and(
+          inArray(forecastUpdateTriggers.sourceSnapshotId, snapshotIds),
+          ...(commitBoundary ? [lte(forecastUpdateTriggers.createdAt, commitBoundary)] : []),
+        )))
+        .map((trigger) => ({
+          ...trigger,
+          statusAtExport: trigger.status,
+          status: "active" as const,
+          replayProjection: "ledger_commit" as const,
+        }))
+    : [];
+  const memoryEntries = snapshotIds.length
+    ? (await db
+        .select()
+        .from(forecastMemoryEntries)
+        .where(and(
+          inArray(forecastMemoryEntries.sourceSnapshotId, snapshotIds),
+          ...(commitBoundary ? [lte(forecastMemoryEntries.createdAt, commitBoundary)] : []),
+        )))
+        .map((entry) => ({
+          ...entry,
+          statusAtExport: entry.status,
+          status: "active" as const,
+          deprecatedAt: null,
+          replayProjection: "ledger_commit" as const,
+        }))
+    : [];
   const scoreRows = [
     ...(attemptIds.length
       ? await db.select().from(forecastScores).where(inArray(forecastScores.forecastAttemptId, attemptIds))
@@ -121,12 +214,23 @@ export async function exportTraceBundle(db: Db, input: {
     ? await readSmithersTokenUsage(input.root, task.smithersRunId)
     : [];
 
+  if (ledgerManifest) {
+    assertExactCommittedRows("forecast attempts", attempts, ledgerManifest.componentAttemptIds);
+    assertExactCommittedRows("forecast aggregate", aggregates, [ledgerManifest.aggregateId]);
+    assertExactCommittedRows("sources", sources, ledgerManifest.sourceIds);
+    assertExactCommittedRows("citations", citationRows, ledgerManifest.citationIds);
+    if (committedSnapshotId) {
+      assertExactCommittedRows("forecast snapshot", snapshots, [committedSnapshotId]);
+    }
+  }
+
   const bundle: TraceBundle = {
     manifest: {
-      schemaVersion: 1,
+      schemaVersion: 4,
       taskId: input.taskId,
       smithersRunId: task.smithersRunId,
       exportedAt: new Date().toISOString(),
+      scope: ledgerManifest ? "ledger_commit_projection" : "task_history",
     },
     task,
     artifacts: artifactsWithRows,
@@ -135,6 +239,11 @@ export async function exportTraceBundle(db: Db, input: {
     citations: citationRows,
     forecastAttempts: attempts,
     forecastAggregates: aggregates,
+    forecastQuestions: questions,
+    forecastSnapshots: snapshots,
+    forecastTrajectoryScores: trajectoryScores,
+    forecastUpdateTriggers: updateTriggers,
+    forecastMemoryEntries: memoryEntries,
     forecastResolutions: resolutions,
     forecastScores: scoreRows,
     benchmarkCaseResults: benchmarkResults,
@@ -163,4 +272,38 @@ export async function exportTraceBundle(db: Db, input: {
     objectStorage: objectUpload,
     bundle,
   };
+}
+
+function assertExactCommittedRows(
+  label: string,
+  rows: Array<{ id: string }>,
+  expectedIds: string[],
+) {
+  const actual = new Set(rows.map((row) => row.id));
+  const expected = new Set(expectedIds);
+  const missing = [...expected].filter((id) => !actual.has(id));
+  const unexpected = [...actual].filter((id) => !expected.has(id));
+  if (missing.length || unexpected.length || actual.size !== expected.size) {
+    throw new Error(
+      `Committed trace read set for ${label} is inconsistent (missing ${missing.length}, unexpected ${unexpected.length}).`,
+    );
+  }
+}
+
+function isForecastSubmode(operationSubmode: string | null) {
+  return operationSubmode === "binary_forecast"
+    || operationSubmode === "date_forecast"
+    || operationSubmode === "numeric_forecast"
+    || operationSubmode === "categorical_forecast"
+    || operationSubmode === "thresholded_forecast"
+    || operationSubmode === "conditional_forecast";
+}
+
+function forecastTypeFromSubmode(operationSubmode: string | null) {
+  if (operationSubmode === "binary_forecast") return "binary" as const;
+  if (operationSubmode === "date_forecast") return "date" as const;
+  if (operationSubmode === "numeric_forecast") return "numeric" as const;
+  if (operationSubmode === "thresholded_forecast") return "thresholded" as const;
+  if (operationSubmode === "conditional_forecast") return "conditional" as const;
+  return "categorical" as const;
 }

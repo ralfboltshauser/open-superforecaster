@@ -1,5 +1,9 @@
 ## Development Log
 
+This file records completed implementation work. For the evidence base, target
+architecture, known gaps, and proposed sequence of changes, see
+[`docs/agentic-superforecasting.md`](docs/agentic-superforecasting.md).
+
 - Phase 0 complete: repo/runtime skeleton, local web shell, Bun worker,
   Docker Compose, Codex auth mount contract, persistent Smithers/Postgres/MinIO
   data mounts, OTEL stack configuration, role-aware Codex health checks, and
@@ -191,3 +195,122 @@ This is still not a full benchmark-quality forecasting system. The built-in
 smoke suites are tiny infrastructure checks. Imported BTF-2 subsets are useful
 for workflow iteration, but promotion decisions still need larger paired runs
 and careful contamination caveats for models with late-2025/2026 cutoffs.
+
+- Stateful agentic-superforecasting core complete for v1: binary forecasts now
+  materialize deterministic `ForecastState` snapshots containing the exact
+  question and temporal contract, evidence workspace, all selected component
+  judgments, independence diagnostics, immutable ensemble controls, explicit
+  autonomous and crowd-assisted tracks, update deltas, bounded local memory, and
+  version provenance. The production binary selection is the unweighted mean;
+  LLM aggregation, logit pooling, prior shrinkage, topical guards, and market
+  blending remain named experimental candidates.
+- Research-treatment and disagreement loop complete for v1: binary runs support
+  no-external-research, shared frozen dossier, independent research, and shared
+  dossier plus targeted follow-up conditions. The disagreement controller
+  commissions bounded fact/base-rate/boundary checks without directly assigning
+  the production probability. Opaque CLI search remains truthfully labelled
+  agent-reported until harness-level tool interception exists.
+- Live forecast lifecycle complete for v1 scheduled use: canonical unresolved
+  questions, immutable snapshots, scheduled and signpost trigger records,
+  question-local memory, deterministic boundary-aware review cadence, and the
+  dry-run-first `forecast:update-due` runner are persisted through migrations
+  `0008`–`0013`. Execute mode atomically leases one question per runner,
+  recovers failed or expired leases, and rejects stale or backdated successor
+  snapshots. Signpost records await external event-source adapters.
+- Statistical evaluation hardening complete for v1: numeric/date quantiles receive
+  distributional proper scores; BTF data is explicitly public development;
+  autonomous, assisted, and market tracks are scored separately; event-family
+  clustered bootstrap intervals are available; and actual promotion requires
+  statistical-scale paired, holdout, and family evidence rather than the legacy
+  smoke threshold.
+- Inactive statistical calibration candidates complete for v1: deterministic
+  L2 Platt fitting uses only earlier available labels, embargoes unresolved
+  training rows, separates and equal-weights event families, and requires later
+  Brier and log-loss improvement with paired intervals below zero. Converged
+  candidates may be retained in `calibration_models` for audit but are always
+  inactive; no workflow default or activation API was added.
+- Canonical implementation recovery guide added at
+  [`docs/agentic-superforecasting-implementation.md`](docs/agentic-superforecasting-implementation.md),
+  including invariants, file map, operations, capability limits, validation, and
+  a context-loss checklist.
+- Evidence continuity and quarantine complete for v1: post-cutoff and explicit
+  human-forecast dossier sources never reach judges; raw dossiers retain a
+  structured isolation audit; previous valid claims carry into later snapshots
+  until their stable IDs are explicitly invalidated.
+- Binary trajectory scoring complete for v1: resolution writes Brier and log
+  rows for every canonical ForecastState snapshot with lead time, update kind,
+  probability delta, temporal eligibility, lineage, and method versions, plus a
+  dedicated DuckDB mart and trace-bundle records.
+- Host Codex authentication resolution corrected: workflow agents now use the
+  central `CODEX_HOME` default (`${HOME}/.codex`) during direct host development,
+  while Docker and copied profiles continue to work through an explicit mounted
+  `CODEX_HOME`. This matches `.env.host.example` and avoids silently preferring a
+  stale project-local credential copy.
+- Live Codex compatibility and health corrected: Smithers invocations pin the
+  API-supported `CODEX_REASONING_EFFORT` value instead of inheriting personal
+  aliases, and health checks resolve the same default `CODEX_HOME` used by the
+  actual agent.
+- Forecast-ledger materialization hardened to exact-once semantics: a task-row
+  lock and single Postgres transaction now cover attempts, aggregate,
+  ForecastState, canonical pointer, triggers, local memory, sources, citations,
+  and trace events. A versioned task manifest is committed last; concurrent
+  reconciliation returns the same IDs and legacy partial ledgers are not
+  guessed complete.
+- Live binary canary completed through real Smithers/Codex agents with four
+  selected roles, one aggregate, one ForecastState snapshot, raw mean 52.1,
+  raw median 52.0, complete temporal provenance, scheduled/signpost triggers,
+  and bounded memory. Five concurrent reconciliation calls produced exactly
+  four attempts, one aggregate, and one snapshot.
+- Provider research telemetry now resolves exact Codex thread IDs and records
+  only search/open/find action requests as `provider_observed_activity` with
+  `contentObserved=false`. Smithers timestamp-based session backfill was found
+  to cross-attach unrelated searches and is explicitly excluded from evidence
+  provenance.
+- Autonomous information isolation no longer keyword-matches negative warnings
+  such as “No prediction-market evidence was used” as contamination; only
+  structured exposure admissions, quarantined sources, or non-negated supplied
+  forecast context create exposure flags.
+- Adversarial lifecycle review closed the remaining exact-once races: committed
+  ledgers recover stale running tasks without provider inspection, every
+  terminal transition is compare-and-set, forecasts cannot complete without an
+  output artifact and manifest, closed questions reject successor snapshots,
+  and resolution/question closure/lease cleanup/scoring share one transaction.
+- Legacy ledger quarantine now reaches every consumer. Run detail, schema-v4
+  trace export, manual resolution, trajectory scoring, and benchmark backfill
+  use exact supported manifest IDs; unmarked or inconsistent rows are excluded
+  from scores and benchmark promotion evidence instead of being inferred from a
+  Smithers run ID.
+- Autonomous isolation now redacts explicit human forecasts from background and
+  fixed evidence before every model stage, projects prior state without assisted
+  probabilities or free-form memory/update text, audits citations and content
+  across all review rounds, and withholds product, benchmark, and trajectory
+  scores unless isolation is explicitly `isolated`.
+- Exact provider activity auditing now enumerates planner, dossier, every
+  judgment retry/iteration, candidate aggregate, and quality review sessions;
+  verifies the exact provider thread and Smithers execution window; rejects
+  malformed or ambiguous rollouts; flags forbidden/human-forecast actions and
+  shared-dossier budget overruns; and writes the resulting policy status back
+  into the immutable ForecastState identity without claiming page content was
+  observed.
+- Question-local state now has deterministic hard caps of 64 active factors, 32
+  unresolved information needs, and 32 trigger conditions. The shared dossier
+  schema also requires recorded query history to agree with and stay within its
+  declared search budget; per-judge tool-call enforcement still awaits a
+  pre-consumption harness.
+- A second live Codex canary exercised the final provider and ledger audits: all
+  seven Smithers node executions were matched to exact provider threads, four
+  component attempts committed to one aggregate and one snapshot, provider
+  activity reported no policy violations, and the deterministic output retained
+  raw mean 52.9 and median 53.1. The intentionally inconsistent temporal input
+  was marked untrusted, and a comma-separated model declaration of non-use was
+  found to trigger an isolation false positive; the classifier and an exact-text
+  regression test now distinguish that declaration from affirmative exposure.
+- Post-fix prospective canary `0aa96085-d450-4fdb-afe9-52576e280ba7` passed the
+  complete acceptance path. Its temporal trust state is `complete`; an injected
+  99% Metaculus forecast was redacted before autonomous prompting; information
+  isolation is explicitly `isolated`; all seven provider executions were
+  observed without a policy flag; and the committed ledger contains exactly
+  four attempts, one aggregate, and one snapshot. Production selected the raw
+  unweighted mean of 53.0 (median 53.3), while the schema-v4 trace bundle projects
+  the exact manifest read set. Earlier false-positive snapshots remain immutable
+  and score-ineligible rather than being rewritten after the classifier fix.

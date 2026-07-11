@@ -203,6 +203,7 @@ async function collectTaskRefs(sql: any, taskId: string) {
     forecastAggregates: aggregateIds.length,
     forecastResolutions: resolutionIds.length,
     forecastScores: await countForecastScores(sql, { attemptIds, aggregateIds, resolutionIds }),
+    forecastSnapshotsDetached: await countRows(sql`select count(*) from forecast_snapshots where task_id = ${taskId}`),
     benchmarkCaseResultsDetached: benchmarkCaseResultIds.length,
   };
 
@@ -335,6 +336,17 @@ async function deleteTask(sql: any, taskId: string) {
   assertFound(refs.taskFound, `Task not found: ${taskId}`);
   const deleted: Record<string, number> = {};
 
+  deleted.forecastSnapshotsDetached = (await sql`
+    update forecast_snapshots
+    set task_id = null,
+        task_row_id = null,
+        forecast_aggregate_id = null,
+        updated_at = now()
+    where task_id = ${taskId}
+       or task_row_id = any(${sql.array(refs.taskRowIds, UUID_ARRAY)})
+       or forecast_aggregate_id = any(${sql.array(refs.aggregateIds, UUID_ARRAY)})
+    returning id
+  `).length;
   deleted.forecastScores = await deleteForecastScores(sql, refs);
   deleted.forecastAggregates = await deleteByIds(sql, "forecast_aggregates", refs.aggregateIds);
   deleted.forecastAttempts = await deleteByIds(sql, "forecast_attempts", refs.attemptIds);

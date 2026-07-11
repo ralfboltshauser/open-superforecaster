@@ -3,7 +3,7 @@ import { createSmithers, Parallel, Sequence, Task } from "smithers-orchestrator"
 import { z } from "zod";
 import { codexResearchAgent } from "./agents";
 import { collectCitedSources, collectKeyUncertainties } from "./forecast-evidence";
-import { readForecastTiming } from "./forecast-timing";
+import { forecastTimingArtifactFields, readForecastTiming } from "./forecast-timing";
 
 const citedSource = z.object({
   title: z.string().optional(),
@@ -54,6 +54,9 @@ const conditionalAggregate = z.object({
   })),
   citedSources: z.array(citedSource).default([]),
   keyUncertainties: z.array(z.string()).default([]),
+  forecastAsOf: z.string().optional(),
+  evidenceAsOf: z.string().optional(),
+  cutoffDate: z.string().optional(),
   evidenceAsOfDate: z.string().optional(),
 });
 
@@ -188,7 +191,7 @@ Explain why the condition changes, or does not change, the outcome. Include bran
             componentBranches,
             citedSources,
             keyUncertainties,
-            ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
+            ...forecastTimingArtifactFields(timing),
           }}
         </Task>
       </Sequence>

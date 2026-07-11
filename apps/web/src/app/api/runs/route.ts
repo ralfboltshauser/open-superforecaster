@@ -18,7 +18,18 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  const plan = createRunPlan(body);
+  let plan: ReturnType<typeof createRunPlan>;
+  try {
+    plan = createRunPlan(body);
+  } catch (error) {
+    return Response.json(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "Invalid run request.",
+      },
+      { status: 400 },
+    );
+  }
   const { db, root, sql } = getServerContext();
   const record = await createQueuedWorkflowTask(db, {
     operationMode: plan.operationMode,

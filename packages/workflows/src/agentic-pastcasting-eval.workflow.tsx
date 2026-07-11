@@ -2,6 +2,11 @@
 import { createSmithers, Parallel, Sequence, Task } from "smithers-orchestrator";
 import { z } from "zod";
 import { codexResearchAgent } from "./agents";
+import {
+  sanitizeAutonomousContextText,
+  textReportsPossibleHumanForecastExposure,
+} from "./forecast-information-isolation";
+import { forecastTimingArtifactFields, readForecastTiming } from "./forecast-timing";
 
 const citedSource = z.object({
   title: z.string().optional(),
@@ -45,8 +50,12 @@ const agenticPastcastingAggregate = z.object({
   pagesReadCount: z.number().int(),
   sourceCount: z.number().int(),
   corpusMode: z.string(),
+  forecastAsOf: z.string().optional(),
+  evidenceAsOf: z.string().optional(),
+  evidenceAsOfDate: z.string().optional(),
   presentDate: z.string(),
-  cutoffDate: z.string(),
+  cutoffDate: z.string().optional(),
+  temporalTrustState: z.enum(["complete", "missing_forecast_as_of", "missing_evidence_as_of", "missing_cutoff"]),
   cutoffPolicy: z.string(),
   cutoffComplianceNotes: z.string(),
   leakageFlags: z.array(z.string()).default([]),
@@ -58,6 +67,8 @@ const agenticPastcastingAggregate = z.object({
   traceProvenance: z.enum(["agent_reported", "harness_observed"]),
   runtimeCostNotes: z.string(),
   failureModeCandidates: z.array(z.string()).default([]),
+  inputIsolationStatus: z.enum(["clean", "human_forecast_redacted"]),
+  inputIsolationFlags: z.array(z.string()).default([]),
 });
 
 const { Workflow, smithers, outputs } = createSmithers({
@@ -89,6 +100,8 @@ export default smithers((ctx) => {
     prompt?: unknown;
     resolutionCriteria?: unknown;
     background?: unknown;
+    forecastAsOf?: unknown;
+    evidenceAsOf?: unknown;
     presentDate?: unknown;
     cutoffDate?: unknown;
     corpusMode?: unknown;
@@ -98,8 +111,20 @@ export default smithers((ctx) => {
   const question = String(input.question ?? input.prompt ?? "");
   const resolutionCriteria = String(input.resolutionCriteria ?? "Resolve according to the plain-language question.");
   const background = String(input.background ?? "");
-  const presentDate = String(input.presentDate ?? "unspecified");
-  const cutoffDate = String(input.cutoffDate ?? presentDate);
+  const autonomousBackground = sanitizeAutonomousContextText(background);
+  const inputIsolationFlags = textReportsPossibleHumanForecastExposure(background)
+    ? ["background_human_forecast_redacted_before_autonomous_prompt"]
+    : [];
+  const timing = readForecastTiming(input);
+  const presentDate = timing.evidenceAsOf ?? "unspecified";
+  const evidenceBoundary = timing.cutoffDate ?? timing.evidenceAsOf ?? "";
+  const temporalTrustState = !timing.forecastAsOf
+    ? "missing_forecast_as_of" as const
+    : !timing.evidenceAsOf
+      ? "missing_evidence_as_of" as const
+      : !timing.cutoffDate
+        ? "missing_cutoff" as const
+        : "complete" as const;
   const corpusMode = String(input.corpusMode ?? input.allowedCorpus ?? "live_web_date_bounded");
   const cutoffMetadata = JSON.stringify(input.cutoffMetadata ?? {}, null, 2);
   const attemptIds = forecasterBriefs.map((brief) => `attempt-${brief.id}`);
@@ -121,7 +146,7 @@ export default smithers((ctx) => {
   const explicitProbabilityQuotes = uniqueStrings(attempts.flatMap((attempt) => attempt.explicitProbabilityQuotes ?? []));
   const leakageFlags = uniqueStrings([
     ...attempts.flatMap((attempt) => attempt.possibleLeakage ?? []),
-    ...postCutoffSourceFlags(citedSources, cutoffDate),
+    ...postCutoffSourceFlags(citedSources, evidenceBoundary),
   ]);
   const informationAdvantage =
     humanForecastSourcesRead.length > 0 || explicitProbabilityQuotes.length > 0
@@ -136,6 +161,7 @@ export default smithers((ctx) => {
     leakageCount: leakageFlags.length,
   });
   const failureModeCandidates = [
+    ...(temporalTrustState === "complete" ? [] : ["temporal_boundary_incomplete"]),
     ...(leakageFlags.length ? ["source_leakage"] : []),
     ...(informationAdvantage !== "none" ? ["information_advantage"] : []),
     ...(traceCompletenessScore < 0.7 ? ["trace_incomplete"] : []),
@@ -164,13 +190,9 @@ Resolution criteria:
 ${resolutionCriteria}
 
 Background:
-${background || "No extra background provided."}
+${autonomousBackground || "No extra background provided."}
 
-Present date:
-${presentDate}
-
-Cutoff date:
-${cutoffDate}
+${timing.promptBlock}
 
 Allowed corpus mode:
 ${corpusMode}
@@ -200,8 +222,9 @@ Return a binary probability from 0 to 100 plus source, cutoff, leakage, and trac
             pagesReadCount: attempts.reduce((sum, attempt) => sum + (attempt.pagesRead?.length ?? 0), 0),
             sourceCount: citedSources.length,
             corpusMode,
+            ...forecastTimingArtifactFields(timing),
             presentDate,
-            cutoffDate,
+            temporalTrustState,
             cutoffPolicy:
               corpusMode === "live_web_date_bounded"
                 ? "Prompt-level live-web date bounding. This is useful for plumbing but vulnerable to leakage."
@@ -223,6 +246,10 @@ Return a binary probability from 0 to 100 plus source, cutoff, leakage, and trac
             runtimeCostNotes:
               "V1 records Smithers run IDs and agent-reported source traces; token/cost extraction remains pending OTEL ingestion.",
             failureModeCandidates,
+            inputIsolationStatus: inputIsolationFlags.length
+              ? "human_forecast_redacted" as const
+              : "clean" as const,
+            inputIsolationFlags,
             rationale:
               attempts.length === 0
                 ? "No attempts were available; this fallback should only appear in graph rendering."
@@ -257,7 +284,9 @@ function dedupeSources(sources: Array<z.infer<typeof citedSource>>) {
 }
 
 function postCutoffSourceFlags(sources: Array<z.infer<typeof citedSource>>, cutoffDate: string) {
-  const cutoff = Date.parse(cutoffDate);
+  const cutoff = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(cutoffDate)
+    ? `${cutoffDate}T23:59:59.999Z`
+    : cutoffDate);
   if (!Number.isFinite(cutoff)) {
     return [];
   }

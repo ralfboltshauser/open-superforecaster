@@ -8,7 +8,7 @@ import {
 } from "@open-superforecaster/workflow-contracts";
 import { codexResearchAgent } from "./agents";
 import { collectCitedSources, collectKeyUncertainties } from "./forecast-evidence";
-import { readForecastTiming } from "./forecast-timing";
+import { forecastTimingArtifactFields, readForecastTiming } from "./forecast-timing";
 
 const citedSource = z.object({
   title: z.string().optional(),
@@ -41,6 +41,9 @@ const dateAggregate = z.object({
   })),
   citedSources: z.array(citedSource).default([]),
   keyUncertainties: z.array(z.string()).default([]),
+  forecastAsOf: z.string().optional(),
+  evidenceAsOf: z.string().optional(),
+  cutoffDate: z.string().optional(),
   evidenceAsOfDate: z.string().optional(),
   rationale: z.string(),
 });
@@ -143,7 +146,7 @@ Return a date forecast as a calibrated date distribution. Provide dateDistributi
             componentDates,
             citedSources,
             keyUncertainties,
-            ...(timing.evidenceAsOfDate ? { evidenceAsOfDate: timing.evidenceAsOfDate } : {}),
+            ...forecastTimingArtifactFields(timing),
             rationale:
               attempts.length === 0
                 ? "No attempts were available; this fallback should only appear in graph rendering."

@@ -29,6 +29,12 @@ and runnable: a Docker Compose stack you can spin up on your own machine if you
 have a Codex subscription, with Smithers orchestrating durable agent work under
 the hood.
 
+See [`docs/agentic-superforecasting.md`](docs/agentic-superforecasting.md) for
+the research basis, target architecture, repository gap analysis, and benchmark
+roadmap. See
+[`docs/agentic-superforecasting-implementation.md`](docs/agentic-superforecasting-implementation.md)
+for the implemented system, operational contract, and current limitations.
+
 If you build on it or find a useful decision workflow, share it with
 [ralf@boltshauser.com](mailto:ralf@boltshauser.com). I want to see where people
 take open forecasting infrastructure.
@@ -39,6 +45,11 @@ take open forecasting infrastructure.
   questions from the web UI.
 - Fan out multiple CodexAgent researchers, then inspect their component
   forecasts, aggregate answer, rationale, and citations.
+- Preserve each binary forecast as an immutable `ForecastState` with exact
+  timing, evidence, component judgments, deterministic controls, update deltas,
+  and version provenance.
+- Track one unresolved question across scheduled snapshots and score autonomous,
+  market-assisted, and experimental forecast tracks separately.
 - Run local benchmark and pastcasting loops before trusting workflow changes;
   promotion review requires enough paired held-out cases and a comparison
   showing the candidate beat the baseline, not merely matched it.
@@ -75,17 +86,44 @@ Forecast requests can carry structured context in addition to the plain-language
 question. Use these fields when available instead of burying them in prose:
 
 - `resolutionCriteria` and `resolutionDate`
+- `forecastAsOf`, `evidenceAsOf`, and `cutoffDate`; these have different meanings
+  and are never silently substituted for one another
 - `background`
 - `marketPrice`, `marketPriceAsOf`, `marketCreationDate`, `marketPlatform`,
   and `marketUrl`
 - `categories` and `categoriesExhaustive` for categorical forecasts
 - `thresholds`, `thresholdDirection`, and `unit` for thresholded forecasts
+- `researchTreatment` for binary experiments: `no_external_research`,
+  `shared_frozen_dossier`, `independent_research`, or the default
+  `shared_plus_followup`
 
 Numeric and date forecasts emit p10, p25, p50, p75, and p90 distributions.
 Categorical forecasts normalize probability mass over a frozen option set when
 one is provided. Thresholded forecasts preserve explicit threshold order and
 return a validation artifact instead of inventing generic thresholds when the
 input is underspecified.
+
+## Binary Forecast Selection
+
+The current production binary probability is the unweighted arithmetic mean of
+the persisted component forecasts. Mean, median, logit pool, prior shrinkage,
+the constrained agentic aggregate, and any market-assisted output remain
+inspectable together, but only the mean is selected by default. Market and crowd
+probabilities are excluded from the autonomous prompt and may affect only the
+separately labelled assisted candidate.
+
+Resolved chronological data can be used to fit an inactive, versioned Platt
+calibration candidate. Training labels must have been available before the
+later validation period; event families are separated and equal-weighted; and
+held-out Brier and log loss must both improve with paired uncertainty intervals.
+Passing candidates still remain inactive until an explicit future promotion
+path is implemented.
+
+Research query and source provenance is currently agent-reported unless a record
+is explicitly marked harness-observed. The application does not claim to have
+intercepted opaque agent web activity that it did not actually observe.
+Post-cutoff and explicit human-forecast dossier sources are quarantined before
+judgment, while the raw dossier remains available for audit.
 
 ## Getting Started
 
@@ -133,7 +171,13 @@ AGENT_RESEARCH=codex:default
 AGENT_FORECAST=codex:default
 AGENT_CRITIC=codex:default
 AGENT_ALLOW_NATIVE_WEB=false
+CODEX_MODEL=gpt-5.5
+CODEX_REASONING_EFFORT=xhigh
 ```
+
+`CODEX_REASONING_EFFORT` is pinned per Smithers invocation so a personal Codex
+alias such as `ultra` cannot be translated into an obsolete API wire value.
+Supported values are `none`, `minimal`, `low`, `medium`, `high`, and `xhigh`.
 
 Each value is `provider:profile`. Docker mounts one auth root and keeps
 provider-specific profiles underneath it:
@@ -294,17 +338,18 @@ calibration rule: it lets resolved-score analytics separate useful
 market-disagreement from avoidable drift before any default adjustment is
 considered.
 
-Binary forecast generation also applies a deterministic final calibration guard
-for known threshold, timing, and production-ramp failure modes. The guard is an
-explicit rule registry in `packages/workflows/src/binary-calibration-guard.ts`
-so measured calibration rules can be reviewed, tested, and added outside the
-workflow orchestration. Final binary aggregates include a structured
-`calibrationGuard` block with applied rule ids and point adjustments plus a
+Binary forecast generation does not apply a topical calibration guard by
+default. The former threshold, timing, and production-ramp rules remain in the
+explicit registry in `packages/workflows/src/binary-calibration-guard.ts` only
+as the named `topical_regex_experimental_v1` variant. When explicitly requested,
+its result is retained as an unselected experimental candidate for paired
+evaluation. Final binary aggregates include a structured `calibrationGuard`
+block with variant, candidate rule ids, and point adjustments plus a
 deterministic `baselineSanity` audit comparing the final probability with the
 mean component base-rate anchor and a `marketAnchor` audit for structured
 market-price divergence. They also include a deterministic `resolutionBoundary`
 audit summarizing component boundary reviews and ambiguity flags. Run reports
-surface those guard rules, baseline deltas, market-anchor deltas, and
+surface any candidate guard rules, baseline deltas, market-anchor deltas, and
 resolution-boundary status for review. They also persist an `uncertaintyRange`
 audit over component probability ranges and a `componentWeighting` audit over
 component audit weights. Future binary score rows persist
@@ -541,8 +586,26 @@ bun run db:migrate
 bun run dev
 ```
 
+Stateful binary forecasts create scheduled review triggers. Inspect due reviews
+without changing state, then explicitly launch them when desired:
+
+```bash
+bun run forecast:update-due
+bun run forecast:update-due -- --execute
+```
+
+The first command is always a dry run. Event signposts are persisted, but require
+a future source adapter to observe a change and fire them. Execute mode uses a
+recoverable question-level lease so concurrent runners cannot launch duplicate
+updates, and snapshots must advance monotonically from the current latest state.
+
 ## More Detail
 
+- Documentation index: [`docs/README.md`](docs/README.md)
+- Agentic superforecasting research and roadmap:
+  [`docs/agentic-superforecasting.md`](docs/agentic-superforecasting.md)
+- Agentic superforecasting implementation and operations:
+  [`docs/agentic-superforecasting-implementation.md`](docs/agentic-superforecasting-implementation.md)
 - Development and validation: [`docs/development.md`](docs/development.md)
 - Development history: [`DEVELOPMENT_LOG.md`](DEVELOPMENT_LOG.md)
 - Example inputs: [`examples/`](examples/)

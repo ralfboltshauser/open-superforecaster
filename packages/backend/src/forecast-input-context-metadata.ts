@@ -17,9 +17,15 @@ export type ForecastInputContextSnapshot = {
   resolutionCriteriaLengthBand: "absent" | "thin" | "adequate" | "detailed" | "unknown";
   hasResolutionDate: boolean;
   resolutionDate: string | null;
+  hasForecastAsOf: boolean;
+  forecastAsOf: string | null;
+  forecastAsOfBand: "specified" | "missing" | "unknown";
   hasEvidenceAsOfDate: boolean;
   evidenceAsOfDate: string | null;
   evidenceAsOfDateBand: "specified" | "missing" | "unknown";
+  hasCutoffDate: boolean;
+  cutoffDate: string | null;
+  cutoffDateBand: "specified" | "missing" | "unknown";
   resolutionHorizonDays: number | null;
   resolutionHorizonBand: "elapsed" | "near" | "short" | "medium" | "long" | "unknown";
   hasBackground: boolean;
@@ -91,8 +97,12 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
   const resolutionCriteriaLength = normalized.resolutionCriteria?.trim() ? wordCount(normalized.resolutionCriteria) : null;
   const hasResolutionDate = Boolean(normalized.resolutionDate?.trim());
   const resolutionDate = readIsoDate(raw, "resolutionDate", "resolution_date");
-  const evidenceAsOfDate = readIsoDate(raw, "presentDate", "present_date", "evidenceAsOfDate", "evidence_as_of_date", "asOfDate", "as_of_date", "cutoffDate", "cutoff_date", "cutoff");
+  const forecastAsOf = normalized.forecastAsOf ?? null;
+  const hasForecastAsOf = forecastAsOf !== null;
+  const evidenceAsOfDate = normalized.evidenceAsOf ?? null;
   const hasEvidenceAsOfDate = evidenceAsOfDate !== null;
+  const cutoffDate = normalized.cutoffDate ?? null;
+  const hasCutoffDate = cutoffDate !== null;
   const resolutionHorizonDays = horizonDays(evidenceAsOfDate, resolutionDate);
   const hasBackground = Boolean(normalized.background?.trim());
   const backgroundLength = normalized.background?.trim() ? wordCount(normalized.background) : null;
@@ -147,9 +157,15 @@ export function readForecastInputContextSnapshot(value: unknown): ForecastInputC
     resolutionCriteriaLengthBand: resolutionCriteriaLengthBand(resolutionCriteriaLength),
     hasResolutionDate,
     resolutionDate,
+    hasForecastAsOf,
+    forecastAsOf,
+    forecastAsOfBand: evidenceAsOfDateBand(hasForecastAsOf),
     hasEvidenceAsOfDate,
     evidenceAsOfDate,
     evidenceAsOfDateBand: evidenceAsOfDateBand(hasEvidenceAsOfDate),
+    hasCutoffDate,
+    cutoffDate,
+    cutoffDateBand: evidenceAsOfDateBand(hasCutoffDate),
     resolutionHorizonDays,
     resolutionHorizonBand: resolutionHorizonBand(resolutionHorizonDays),
     hasBackground,
@@ -215,9 +231,15 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
   const thresholdValueCount = readNumber(value, "thresholdValueCount");
   const thresholdDirection = readInputThresholdDirectionValue(value);
   const resolutionHorizonDays = readNumber(value, "resolutionHorizonDays");
+  const forecastAsOf = readString(value, "forecastAsOf");
+  const hasForecastAsOf = readBoolean(value, "hasForecastAsOf");
+  const forecastAsOfBandValue = readString(value, "forecastAsOfBand");
   const hasEvidenceAsOfDate = readBoolean(value, "hasEvidenceAsOfDate");
   const evidenceAsOfDate = readString(value, "evidenceAsOfDate");
   const evidenceAsOfDateBandValue = readString(value, "evidenceAsOfDateBand");
+  const cutoffDate = readString(value, "cutoffDate");
+  const hasCutoffDate = readBoolean(value, "hasCutoffDate");
+  const cutoffDateBandValue = readString(value, "cutoffDateBand");
   const marketPriceAgeDays = readNumber(value, "marketPriceAgeDays");
   const marketCreationAgeDays = readNumber(value, "marketCreationAgeDays");
   const backgroundLength = readNumber(value, "backgroundLength");
@@ -267,11 +289,21 @@ function readPersistedSnapshot(value: Record<string, unknown>): ForecastInputCon
       : resolutionCriteriaLengthBand(resolutionCriteriaLength),
     hasResolutionDate: readBoolean(value, "hasResolutionDate") ?? false,
     resolutionDate: readString(value, "resolutionDate"),
+    hasForecastAsOf: hasForecastAsOf ?? Boolean(forecastAsOf),
+    forecastAsOf,
+    forecastAsOfBand: isEvidenceAsOfDateBand(forecastAsOfBandValue)
+      ? forecastAsOfBandValue
+      : evidenceAsOfDateBand(hasForecastAsOf ?? Boolean(forecastAsOf)),
     hasEvidenceAsOfDate: hasEvidenceAsOfDate ?? Boolean(evidenceAsOfDate),
     evidenceAsOfDate,
     evidenceAsOfDateBand: isEvidenceAsOfDateBand(evidenceAsOfDateBandValue)
       ? evidenceAsOfDateBandValue
       : evidenceAsOfDateBand(hasEvidenceAsOfDate ?? Boolean(evidenceAsOfDate)),
+    hasCutoffDate: hasCutoffDate ?? Boolean(cutoffDate),
+    cutoffDate,
+    cutoffDateBand: isEvidenceAsOfDateBand(cutoffDateBandValue)
+      ? cutoffDateBandValue
+      : evidenceAsOfDateBand(hasCutoffDate ?? Boolean(cutoffDate)),
     resolutionHorizonDays,
     resolutionHorizonBand: isResolutionHorizonBand(resolutionHorizonBandValue)
       ? resolutionHorizonBandValue

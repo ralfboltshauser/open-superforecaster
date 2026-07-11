@@ -48,6 +48,7 @@
         "@open-superforecaster/backend": "workspace:*",
         "@open-superforecaster/config": "workspace:*",
         "@open-superforecaster/db": "workspace:*",
+        "@open-superforecaster/workflow-contracts": "workspace:*",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "lucide-react": "^1.23.0",

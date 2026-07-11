@@ -44,6 +44,7 @@ const envSchema = z.object({
   AGENT_ALLOW_NATIVE_WEB: z.enum(["true", "false"]).default("false"),
   CODEX_HOME: z.string().min(1).default(`${process.env.HOME ?? "/home/bun"}/.codex`),
   CODEX_MODEL: z.string().min(1).default("gpt-5.5"),
+  CODEX_REASONING_EFFORT: z.enum(["none", "minimal", "low", "medium", "high", "xhigh"]).default("xhigh"),
   CODEX_AUTH_MODE: z.enum(["mount", "copy"]).default("mount"),
   CLAUDE_CONFIG_DIR: z.string().optional(),
   CLAUDE_MODEL: z.string().optional(),

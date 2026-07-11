@@ -16,8 +16,10 @@ import {
 import {
   agentAuthPath,
   formatAgentRef,
+  loadAppConfig,
   loadAgentPolicy,
   selectAgentRef,
+  type AppConfig,
   type AgentPurpose,
   type AgentRef,
 } from "@open-superforecaster/config";
@@ -29,6 +31,7 @@ type AgentFactoryInput = {
 };
 
 const policy = loadAgentPolicy(process.env, process.cwd());
+const appConfig = loadAppConfig(process.env);
 
 export const agents = {
   structured(slot = "structured") {
@@ -60,7 +63,14 @@ export function createConfiguredAgent(input: AgentFactoryInput): AgentLike {
       return new CodexAgent({
         ...common,
         model: process.env.CODEX_MODEL ?? process.env.AGENT_MODEL ?? "gpt-5.5",
-        configDir: process.env.CODEX_HOME ?? authPath(ref),
+        // Do not inherit a user-level alias such as `ultra`: model-specific
+        // Codex normalization can translate it to the obsolete API value
+        // `max`. Pin the exact, currently supported wire value per run.
+        config: codexConfigOverrides(appConfig),
+        // Match the documented host contract: CODEX_HOME defaults to the
+        // user's live ~/.codex login. Docker supplies an explicit mounted
+        // CODEX_HOME, and custom copied profiles can do the same.
+        configDir: appConfig.CODEX_HOME,
         sandbox: "workspace-write",
         skipGitRepoCheck: true,
         nativeStructuredOutput: input.structured === true,
@@ -119,6 +129,12 @@ export function createConfiguredAgent(input: AgentFactoryInput): AgentLike {
     case "vibe":
       return new VibeAgent({ ...common, agent: process.env.VIBE_AGENT });
   }
+}
+
+export function codexConfigOverrides(config: Pick<AppConfig, "CODEX_REASONING_EFFORT">) {
+  return {
+    model_reasoning_effort: config.CODEX_REASONING_EFFORT,
+  };
 }
 
 function authPath(ref: AgentRef, ...parts: string[]) {

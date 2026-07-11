@@ -2,6 +2,11 @@
 import { createSmithers, Parallel, Sequence, Task } from "smithers-orchestrator";
 import { z } from "zod";
 import { codexStructuredAgent } from "./agents";
+import {
+  sanitizeAutonomousContextText,
+  textReportsPossibleHumanForecastExposure,
+} from "./forecast-information-isolation";
+import { forecastTimingArtifactFields, readForecastTiming } from "./forecast-timing";
 
 const citedSource = z.object({
   title: z.string().optional(),
@@ -26,6 +31,8 @@ const fixedEvidenceAttempt = z.object({
   evidenceUsageNotes: z.string(),
   overconfidenceFlags: z.array(z.string()).default([]),
   citedSources: z.array(citedSource).default([]),
+  inputIsolationStatus: z.enum(["clean", "human_forecast_redacted"]),
+  inputIsolationFlags: z.array(z.string()).default([]),
 });
 
 const fixedEvidenceAggregate = z.object({
@@ -47,6 +54,11 @@ const fixedEvidenceAggregate = z.object({
     forecasterLabel: z.string(),
     probability: z.number(),
   })),
+  forecastAsOf: z.string().optional(),
+  evidenceAsOf: z.string().optional(),
+  cutoffDate: z.string().optional(),
+  evidenceAsOfDate: z.string().optional(),
+  temporalTrustState: z.enum(["complete", "missing_forecast_as_of", "missing_evidence_as_of", "missing_cutoff"]),
   citedSources: z.array(citedSource).default([]),
 });
 
@@ -62,6 +74,8 @@ export default smithers((ctx) => {
     background?: unknown;
     fixedEvidence?: unknown;
     baselineProbability?: unknown;
+    forecastAsOf?: unknown;
+    evidenceAsOf?: unknown;
     presentDate?: unknown;
     cutoffDate?: unknown;
     rollouts?: unknown;
@@ -70,9 +84,25 @@ export default smithers((ctx) => {
   const resolutionCriteria = String(input.resolutionCriteria ?? "Resolve according to the plain-language question.");
   const background = String(input.background ?? "");
   const fixedEvidence = String(input.fixedEvidence ?? "");
+  const autonomousBackground = sanitizeAutonomousContextText(background);
+  const autonomousFixedEvidence = sanitizeAutonomousContextText(fixedEvidence);
+  const inputIsolationFlags = [
+    ...(textReportsPossibleHumanForecastExposure(background)
+      ? ["background_human_forecast_redacted_before_autonomous_prompt"]
+      : []),
+    ...(textReportsPossibleHumanForecastExposure(fixedEvidence)
+      ? ["fixed_evidence_human_forecast_redacted_before_autonomous_prompt"]
+      : []),
+  ];
   const baselineProbability = readProbability(input.baselineProbability);
-  const presentDate = String(input.presentDate ?? "unspecified");
-  const cutoffDate = String(input.cutoffDate ?? "unspecified");
+  const timing = readForecastTiming(input);
+  const temporalTrustState = !timing.forecastAsOf
+    ? "missing_forecast_as_of" as const
+    : !timing.evidenceAsOf
+      ? "missing_evidence_as_of" as const
+      : !timing.cutoffDate
+        ? "missing_cutoff" as const
+        : "complete" as const;
   const rolloutCount = clampRollouts(input.rollouts);
   const rolloutIds = Array.from({ length: rolloutCount }, (_, index) => `rollout-${index + 1}`);
   const rolloutNeeds = Object.fromEntries(rolloutIds.map((id) => [id, id]));
@@ -103,7 +133,7 @@ export default smithers((ctx) => {
 
 This is a benchmark judgment task. You must use only the fixed evidence packet below.
 Do not use web search, file reads, shell commands, browser tools, memory, or any external information.
-Assume the present date is ${presentDate} and no information after the cutoff date ${cutoffDate} is available.
+${timing.promptBlock}
 The resolution is intentionally hidden. Do not infer from benchmark metadata.
 
 Question:
@@ -113,13 +143,13 @@ Resolution criteria:
 ${resolutionCriteria}
 
 Background:
-${background || "No extra background provided."}
+${autonomousBackground || "No extra background provided."}
 
 Baseline probability:
 ${baselineProbability === null ? "No numeric baseline was provided." : `${baselineProbability}%`}
 
 Fixed evidence packet:
-${fixedEvidence || "No fixed evidence provided. State this as a major limitation."}
+${autonomousFixedEvidence || "No admissible fixed evidence remained after deterministic isolation. State this as a major limitation."}
 
 Return a binary probability from 0 to 100. Explain how the fixed evidence moves you from a base rate to the final probability. If a baseline probability is provided, explicitly explain whether and why your final answer should move above, below, or stay near that baseline. Include cited sources when available. For cited sources, include publishedAt as an ISO date when the source date is known; omit it when unknown. Set forecasterLabel to "${rolloutId}".`}
             </Task>
@@ -146,7 +176,13 @@ Return a binary probability from 0 to 100. Explain how the fixed evidence moves 
             method: "mean_fixed_evidence_rollouts_v0",
             attemptCount: attempts.length,
             componentProbabilities,
+            ...forecastTimingArtifactFields(timing),
+            temporalTrustState,
             citedSources,
+            inputIsolationStatus: inputIsolationFlags.length
+              ? "human_forecast_redacted" as const
+              : "clean" as const,
+            inputIsolationFlags,
             overconfidenceFlags,
             evidenceUsageNotes:
               attempts.length === 0

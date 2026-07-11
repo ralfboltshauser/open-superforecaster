@@ -397,6 +397,7 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
     const statusCounts = summarizeBenchmarkCaseResultStatuses(caseRows);
     const comparisonReport = run.comparisonReportArtifactId ? reportRowsByArtifactId.get(run.comparisonReportArtifactId) ?? null : null;
     const analysisReport = run.analysisReportArtifactId ? reportRowsByArtifactId.get(run.analysisReportArtifactId) ?? null : null;
+    const comparisonRecommendation = readRecord(comparisonReport, "recommendation");
     const promotionGate = summarizeBenchmarkPromotionGateEvidence({
       runStatus: run.status,
       resultCount: statusCounts.totalCases,
@@ -409,6 +410,11 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       splitFindings: readRecord(analysisReport, "splitFindings", "split_findings"),
       sourceQualityFindings: readRecord(analysisReport, "sourceQualityFindings", "source_quality_findings"),
       traceQualityFindings: readRecord(analysisReport, "traceQualityFindings", "trace_quality_findings"),
+      pairedCaseCount: readNumber(comparisonRecommendation, "primaryBaselinePairedCaseCount"),
+      pairedHoldoutCaseCount: readNumber(comparisonRecommendation, "primaryBaselinePairedHoldoutCaseCount"),
+      independentEventFamilyCount: readNumber(comparisonRecommendation, "primaryBaselineEventFamilyCount"),
+      eventFamilyMetadataCoverage: readNumber(comparisonRecommendation, "primaryBaselineEventFamilyMetadataCoverage"),
+      requiredEvidenceTier: "statistical_promotion",
     });
     const costLatencyFindings = readRecord(analysisReport, "costLatencyFindings", "cost_latency_findings");
     const sourceQualityFindings = readRecord(analysisReport, "sourceQualityFindings", "source_quality_findings");
@@ -416,6 +422,11 @@ export async function renderPrometheusMetrics(db: Db, options: { root?: string }
       ...labels,
       gate_status: promotionGate.status,
       recommendation_status: promotionGate.recommendationStatus ?? "none",
+    });
+    metrics.gauge("open_superforecaster_benchmark_evidence_tier", "Highest benchmark evidence tier reached by the recent run.", 1, {
+      ...labels,
+      evidence_tier: promotionGate.evidenceTier.achievedTier,
+      statistical_promotion_ready: promotionGate.statisticalPromotionReady ? "true" : "false",
     });
     for (const blocker of promotionGate.blockers) {
       metrics.gauge("open_superforecaster_benchmark_promotion_gate_blocker", "Recent benchmark promotion gate blockers.", 1, {

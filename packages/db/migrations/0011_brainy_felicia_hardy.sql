@@ -1,0 +1,1 @@
+ALTER TABLE "forecast_snapshots" ADD COLUMN "scheduler_version" text;

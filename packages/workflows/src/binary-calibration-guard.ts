@@ -5,14 +5,28 @@ export type BinaryCalibrationGuardInput = {
   background: string;
   fixedEvidence: string;
   cutoffHorizonDays?: number;
+  variant?: BinaryCalibrationGuardVariant;
 };
 
 export type BinaryCalibrationGuardResult = {
+  variant: BinaryCalibrationGuardVariant;
+  experimental: boolean;
+  rawProbability: number;
   probability: number;
   adjustment: number;
   notes: string[];
   appliedRules: BinaryCalibrationGuardRule[];
 };
+
+export const binaryCalibrationGuardVariantNone = "none" as const;
+export const binaryCalibrationGuardVariantTopicalRegexExperimentalV1 = "topical_regex_experimental_v1" as const;
+
+export const binaryCalibrationGuardVariants = [
+  binaryCalibrationGuardVariantNone,
+  binaryCalibrationGuardVariantTopicalRegexExperimentalV1,
+] as const;
+
+export type BinaryCalibrationGuardVariant = typeof binaryCalibrationGuardVariants[number];
 
 export type BinaryCalibrationGuardRule = {
   id: string;
@@ -86,8 +100,22 @@ export const BINARY_CALIBRATION_GUARD_RULES: readonly BinaryCalibrationGuardRule
 ];
 
 export function applyBinaryCalibrationGuard(input: BinaryCalibrationGuardInput): BinaryCalibrationGuardResult {
+  const variant = input.variant ?? binaryCalibrationGuardVariantNone;
+  const rawProbability = roundProbability(Math.min(100, Math.max(0, input.probability)));
+  if (variant === binaryCalibrationGuardVariantNone) {
+    return {
+      variant,
+      experimental: false,
+      rawProbability,
+      probability: rawProbability,
+      adjustment: 0,
+      notes: [],
+      appliedRules: [],
+    };
+  }
+
   const context = buildCalibrationGuardContext(input);
-  let probability = input.probability;
+  let probability = rawProbability;
   const appliedRules: BinaryCalibrationGuardRule[] = [];
 
   for (const rule of BINARY_CALIBRATION_GUARD_RULES) {
@@ -100,11 +128,20 @@ export function applyBinaryCalibrationGuard(input: BinaryCalibrationGuardInput):
 
   const calibratedProbability = roundProbability(Math.min(100, Math.max(0, probability)));
   return {
+    variant,
+    experimental: true,
+    rawProbability,
     probability: calibratedProbability,
-    adjustment: roundProbability(calibratedProbability - input.probability),
+    adjustment: roundProbability(calibratedProbability - rawProbability),
     notes: appliedRules.map((rule) => rule.note),
     appliedRules,
   };
+}
+
+export function readBinaryCalibrationGuardVariant(value: unknown): BinaryCalibrationGuardVariant {
+  return value === binaryCalibrationGuardVariantTopicalRegexExperimentalV1
+    ? binaryCalibrationGuardVariantTopicalRegexExperimentalV1
+    : binaryCalibrationGuardVariantNone;
 }
 
 function buildCalibrationGuardContext(input: BinaryCalibrationGuardInput): BinaryCalibrationGuardContext {

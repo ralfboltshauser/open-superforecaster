@@ -57,7 +57,11 @@ import { readThresholdedForecastSnapshot } from "../packages/backend/src/thresho
 import { readUncertaintyRangeSnapshot } from "../packages/backend/src/uncertainty-range-metadata";
 import { canonicalCitedSourceKey } from "../packages/workflow-contracts/src/index";
 import { buildBinaryBaselineSanityAudit } from "../packages/workflows/src/binary-baseline-sanity";
-import { applyBinaryCalibrationGuard, BINARY_CALIBRATION_GUARD_RULES } from "../packages/workflows/src/binary-calibration-guard";
+import {
+  applyBinaryCalibrationGuard,
+  BINARY_CALIBRATION_GUARD_RULES,
+  binaryCalibrationGuardVariantTopicalRegexExperimentalV1,
+} from "../packages/workflows/src/binary-calibration-guard";
 import { buildBinaryMarketAnchorAudit } from "../packages/workflows/src/binary-market-anchor";
 import { buildBinaryResolutionBoundaryAudit } from "../packages/workflows/src/binary-resolution-boundary";
 import { buildBinaryUncertaintyRangeAudit } from "../packages/workflows/src/binary-uncertainty-range";
@@ -2593,7 +2597,8 @@ await check("binary forecast aggregates persist market anchor audit", async () =
   assert(snapshot?.marketDelta === 30, "market anchor snapshot delta mismatch");
   assert(workflowSource.includes("marketAnchor"), "binary aggregate schema missing market anchor");
   assert(workflowSource.includes("buildBinaryMarketAnchorAudit"), "binary workflow does not use shared market anchor builder");
-  assert(workflowSource.includes("structured market price is provided"), "binary workflow does not require market divergence justification");
+  assert(workflowSource.includes("Structured market metadata is intentionally hidden from this panel"), "binary workflow does not isolate the autonomous track from market metadata");
+  assert(workflowSource.includes("separate crowd-assisted output"), "binary workflow does not preserve a separately measurable assisted track");
   assert(resolutionSource.includes("readMarketAnchorSnapshot(input.prediction)"), "resolution scoring does not persist market anchor");
   assert(resolutionSource.includes("byMarketAnchor"), "performance report does not group by market anchor");
   assert(resolutionSource.includes("market_anchor_miss"), "performance report does not turn poor market divergence into attention");
@@ -3869,6 +3874,7 @@ await check("binary forecast calibration guard preserves deterministic adjustmen
     resolutionCriteria: "Resolve from official delivery totals.",
     background: "Recent output has recently begun from limited initial production.",
     fixedEvidence: "The ramp is hard and unusual manufacturing constraints remain.",
+    variant: binaryCalibrationGuardVariantTopicalRegexExperimentalV1,
   });
   assert(productionRamp.probability === 20, "production ramp probability adjustment mismatch");
   assert(productionRamp.adjustment === -5, "production ramp adjustment mismatch");
@@ -3883,18 +3889,33 @@ await check("binary forecast calibration guard preserves deterministic adjustmen
     background: "The central bank discussed a cut but officials were not committed.",
     fixedEvidence: "Recent minutes emphasized caution and data dependence before any reduction.",
     cutoffHorizonDays: 45,
+    variant: binaryCalibrationGuardVariantTopicalRegexExperimentalV1,
   });
   assert(centralBankCut.probability === 26.5, "central bank probability adjustment mismatch");
   assert(centralBankCut.adjustment === -3.5, "central bank adjustment mismatch");
   assert(centralBankCut.appliedRules.length === 1, "central bank applied rule count mismatch");
   assert(centralBankCut.appliedRules[0].id === "near-deadline-central-bank-easing", "central bank applied rule id mismatch");
   assert(centralBankCut.notes.some((note) => note.includes("near-deadline central-bank easing")), "central bank note missing");
-  return "binary calibration guard is extracted and behavior-stable";
+  const defaultProductionRamp = applyBinaryCalibrationGuard({
+    probability: 25,
+    question: "Will the company deliver at least 100000 units before the deadline?",
+    resolutionCriteria: "Resolve from official delivery totals.",
+    background: "Recent output has recently begun from limited initial production.",
+    fixedEvidence: "The ramp is hard and unusual manufacturing constraints remain.",
+  });
+  assert(defaultProductionRamp.probability === 25, "topical calibration rules must be disabled by default");
+  assert(defaultProductionRamp.adjustment === 0, "default calibration guard must preserve the raw probability");
+  assert(defaultProductionRamp.appliedRules.length === 0, "default calibration guard must not apply topical rules");
+  return "topical calibration guard is opt-in, named, and behavior-stable";
 });
 
 await check("calibration guard metadata snapshots are stable", async () => {
   const snapshot = readCalibrationGuardSnapshot({
     calibrationGuard: {
+      variant: "topical_regex_experimental_v1",
+      experimental: true,
+      rawProbability: 25,
+      guardedProbability: 20,
       adjustment: -5,
       appliedRules: [
         { id: "production-ramp-threshold", adjustment: -5, note: "Subtracted 5 points." },
@@ -3903,6 +3924,10 @@ await check("calibration guard metadata snapshots are stable", async () => {
     },
   });
   assert(snapshot, "calibration guard snapshot missing");
+  assert(snapshot.variant === "topical_regex_experimental_v1", "calibration guard variant mismatch");
+  assert(snapshot.experimental === true, "calibration guard experimental marker mismatch");
+  assert(snapshot.rawProbability === 25, "calibration guard raw probability mismatch");
+  assert(snapshot.guardedProbability === 20, "calibration guard guarded probability mismatch");
   assert(snapshot.adjustment === -5, "calibration guard adjustment mismatch");
   assert(snapshot.appliedRules.length === 1, "calibration guard applied rule count mismatch");
   assert(snapshot.appliedRules[0].id === "production-ramp-threshold", "calibration guard applied rule id mismatch");
