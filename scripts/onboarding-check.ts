@@ -17,12 +17,22 @@ type ComposePort = {
   target?: number;
 };
 
+type ComposeVolume = {
+  source?: string;
+  target?: string;
+  type?: string;
+  volume?: {
+    nocopy?: boolean;
+  };
+};
+
 type ComposeService = {
   command?: string | string[];
   depends_on?: Record<string, ComposeDependency>;
   environment?: Record<string, string>;
   image?: string;
   ports?: ComposePort[];
+  volumes?: ComposeVolume[];
 };
 
 type ComposeConfig = {
@@ -57,6 +67,42 @@ const minioInitCommand = normalizeCommand(minioInit?.command);
 const minioInitEnv = minioInit?.environment ?? {};
 const appDependsOnMinioInit = normalizedCompose?.services?.app?.depends_on?.["minio-init"]?.condition;
 const smithersDependsOnMinioInit = normalizedCompose?.services?.smithers?.depends_on?.["minio-init"]?.condition;
+const dependencyConsumers = ["migrate", "app", "marketing", "smithers"];
+const depsService = normalizedCompose?.services?.deps;
+const dependencyCommand = normalizeCommand(depsService?.command);
+const dependenciesRunBeforeConsumers = dependencyConsumers.every((serviceName) =>
+  normalizedCompose?.services?.[serviceName]?.depends_on?.deps?.condition === "service_completed_successfully"
+);
+const dependencyVolumeIsShared = ["deps", ...dependencyConsumers].every((serviceName) =>
+  hasVolume(normalizedCompose?.services?.[serviceName], "app-node-modules", "/app/node_modules")
+);
+const installCacheIsNarrowlyMounted = ["deps", ...dependencyConsumers].every((serviceName) => {
+  const service = normalizedCompose?.services?.[serviceName];
+  return hasVolume(service, "bun-install-cache", "/root/.bun/install/cache") &&
+    !service?.volumes?.some((volume) => volume.target === "/root/.bun");
+});
+const appService = normalizedCompose?.services?.app;
+const appUsesContainerSafeWatcher = commandTokens(appService?.command).join(" ") ===
+    "bun --cwd apps/web dev --webpack" &&
+  appService?.environment?.WATCHPACK_POLLING === "true" &&
+  appService?.environment?.VITE_USE_POLLING === undefined;
+const containerBuildOutputsAreIsolated = hasNoCopyVolume(
+  appService,
+  "web-next",
+  "/app/apps/web/.next",
+) && hasNoCopyVolume(
+  normalizedCompose?.services?.marketing,
+  "marketing-astro",
+  "/app/apps/marketing/.astro",
+) && hasNoCopyVolume(
+  normalizedCompose?.services?.marketing,
+  "marketing-dist",
+  "/app/apps/marketing/dist",
+) && hasNoCopyVolume(
+  normalizedCompose?.services?.marketing,
+  "marketing-vite-cache",
+  "/app/apps/marketing/node_modules/.vite",
+);
 
 record(
   "docker env uses service hostnames",
@@ -117,6 +163,35 @@ record(
     compose.includes("command: bun run db:migrate") &&
     countOccurrences(compose, "condition: service_completed_successfully") >= 2,
   "Docker first-run should apply Postgres migrations before app and worker start.",
+);
+
+record(
+  "compose refreshes workspace dependencies before consumers",
+  dependencyCommand.includes("bun install --frozen-lockfile") &&
+    dependencyCommand.includes("stat -c %u /app") &&
+    dependencyCommand.includes("stat -c %g /app") &&
+    dependencyCommand.includes("chown -hR") &&
+    dependencyVolumeIsShared &&
+    dependenciesRunBeforeConsumers,
+  "A serialized frozen-lockfile install must refresh the shared node_modules volume before migrations, app, marketing, or worker startup.",
+);
+
+record(
+  "compose cache preserves image-installed agent CLIs",
+  installCacheIsNarrowlyMounted,
+  "Only Bun's download cache should be mounted; mounting all of /root/.bun can hide the Codex and Claude versions installed in the image.",
+);
+
+record(
+  "compose uses a container-safe Next.js watcher",
+  appUsesContainerSafeWatcher,
+  "The bind-mounted web app should use webpack polling so host inotify limits cannot crash the container with EMFILE.",
+);
+
+record(
+  "compose isolates generated framework output",
+  containerBuildOutputsAreIsolated,
+  "Container-owned Next.js and Astro output must stay in no-copy volumes so host builds never inherit root-owned generated files.",
 );
 
 record(
@@ -210,6 +285,25 @@ function normalizeCommand(command: string | string[] | undefined) {
     return command.join("\n");
   }
   return command ?? "";
+}
+
+function commandTokens(command: string | string[] | undefined) {
+  return Array.isArray(command) ? command : command?.trim().split(/\s+/).filter(Boolean) ?? [];
+}
+
+function hasVolume(service: ComposeService | undefined, source: string, target: string) {
+  return service?.volumes?.some((volume) =>
+    volume.type === "volume" && volume.source === source && volume.target === target
+  ) ?? false;
+}
+
+function hasNoCopyVolume(service: ComposeService | undefined, source: string, target: string) {
+  return service?.volumes?.some((volume) =>
+    volume.type === "volume" &&
+    volume.source === source &&
+    volume.target === target &&
+    volume.volume?.nocopy === true
+  ) ?? false;
 }
 
 function findPublishedPort(service: ComposeService | undefined, target: number, published: number) {

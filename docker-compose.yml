@@ -1,4 +1,23 @@
 services:
+  deps:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        set -eu
+        bun install --frozen-lockfile
+        host_uid="$$(stat -c %u /app)"
+        host_gid="$$(stat -c %g /app)"
+        find apps packages -mindepth 2 -maxdepth 2 -type d -name node_modules \
+          -exec chown -hR "$${host_uid}:$${host_gid}" {} +
+    volumes:
+      - .:/app
+      - bun-install-cache:/root/.bun/install/cache
+      - app-node-modules:/app/node_modules
+
   migrate:
     build:
       context: .
@@ -11,9 +30,11 @@ services:
       DATABASE_URL: postgres://open_superforecaster:open_superforecaster@postgres:5432/open_superforecaster
     volumes:
       - .:/app
-      - bun-cache:/root/.bun
+      - bun-install-cache:/root/.bun/install/cache
       - app-node-modules:/app/node_modules
     depends_on:
+      deps:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
 
@@ -21,14 +42,14 @@ services:
     build:
       context: .
       dockerfile: docker/app/Dockerfile
-    command: bun --cwd apps/web dev
+    command: bun --cwd apps/web dev --webpack
     env_file:
       - path: .env
         required: false
     environment:
       APP_HOST: 0.0.0.0
       APP_PORT: 3000
-      VITE_USE_POLLING: "true"
+      WATCHPACK_POLLING: "true"
       DATABASE_URL: postgres://open_superforecaster:open_superforecaster@postgres:5432/open_superforecaster
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: http://minio:9000
@@ -45,8 +66,13 @@ services:
       - "${OSF_WEB_BIND_ADDRESS:-127.0.0.1}:3000:3000"
     volumes:
       - .:/app
-      - bun-cache:/root/.bun
+      - bun-install-cache:/root/.bun/install/cache
       - app-node-modules:/app/node_modules
+      - type: volume
+        source: web-next
+        target: /app/apps/web/.next
+        volume:
+          nocopy: true
       - ./data/duckdb:/data/duckdb
       - ./data/artifacts:/data/artifacts
       - ./data/exports:/data/exports
@@ -54,6 +80,8 @@ services:
       - ./data/smithers:/data/smithers
       - ${AGENT_AUTH_HOST_ROOT:-./data/agent-auth}:${AGENT_AUTH_CONTAINER_ROOT:-/agent-auth}
     depends_on:
+      deps:
+        condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
       minio-init:
@@ -82,8 +110,26 @@ services:
       - "${OSF_MARKETING_BIND_ADDRESS:-127.0.0.1}:3002:3002"
     volumes:
       - .:/app
-      - bun-cache:/root/.bun
+      - bun-install-cache:/root/.bun/install/cache
       - app-node-modules:/app/node_modules
+      - type: volume
+        source: marketing-astro
+        target: /app/apps/marketing/.astro
+        volume:
+          nocopy: true
+      - type: volume
+        source: marketing-dist
+        target: /app/apps/marketing/dist
+        volume:
+          nocopy: true
+      - type: volume
+        source: marketing-vite-cache
+        target: /app/apps/marketing/node_modules/.vite
+        volume:
+          nocopy: true
+    depends_on:
+      deps:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3002').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 20s
@@ -117,7 +163,7 @@ services:
       - "127.0.0.1:3010:3010"
     volumes:
       - .:/app
-      - bun-cache:/root/.bun
+      - bun-install-cache:/root/.bun/install/cache
       - app-node-modules:/app/node_modules
       - ./data/duckdb:/data/duckdb
       - ./data/artifacts:/data/artifacts
@@ -126,6 +172,8 @@ services:
       - ./data/smithers:/data/smithers
       - ${AGENT_AUTH_HOST_ROOT:-./data/agent-auth}:${AGENT_AUTH_CONTAINER_ROOT:-/agent-auth}
     depends_on:
+      deps:
+        condition: service_completed_successfully
       migrate:
         condition: service_completed_successfully
       minio-init:
@@ -245,5 +293,9 @@ services:
       - tempo
 
 volumes:
-  bun-cache:
+  bun-install-cache:
   app-node-modules:
+  web-next:
+  marketing-astro:
+  marketing-dist:
+  marketing-vite-cache:
