@@ -351,6 +351,7 @@ function componentAgreement(output: JsonRecord, forecastType: string | null): De
 }
 
 function latestEvents(streamState: RunStreamState, traceEvents: JsonRecord[]) {
+  const liveLabels = streamState.activity?.recentActivity.map((event) => event.detail ? `${event.label} · ${event.detail}` : event.label) ?? []
   const events = [streamState.lastEvent, ...traceEvents].filter((event): event is JsonRecord => Boolean(event))
   const labels = events.map((event) => {
     const eventType = String(event.eventType ?? "trace")
@@ -358,10 +359,13 @@ function latestEvents(streamState: RunStreamState, traceEvents: JsonRecord[]) {
     const agent = readString(event, "agentLabel")
     return truncate(agent ? `${eventType} · ${phase} · ${agent}` : `${eventType} · ${phase}`, 120)
   })
-  return Array.from(new Set(labels)).slice(0, 3)
+  return Array.from(new Set([...liveLabels, ...labels])).slice(0, 3)
 }
 
 function progressPercent(task: JsonRecord, streamState: RunStreamState) {
+  if (streamState.activity?.progress) {
+    return streamState.activity.progress.percent
+  }
   const progress = streamState.progress
   if (progress && progress.total > 0) {
     return Math.round(((progress.completed + progress.failed) / progress.total) * 100)

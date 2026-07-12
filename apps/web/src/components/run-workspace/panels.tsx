@@ -1,20 +1,26 @@
 "use client"
 
 import Link from "next/link"
+import { useEffect, useState } from "react"
 import {
   BarChart3,
   Bot,
+  Check,
   CheckCircle2,
+  Circle,
   CircleDot,
+  Clock3,
   FileJson,
   FileText,
   LinkIcon,
   Loader2,
   Network,
   RotateCcw,
+  Search,
 } from "lucide-react"
 
 import { parseRecord, sourceDomain } from "@/components/run-workspace/run-detail"
+import type { LiveTokenUsage } from "@/components/run-workspace/live-activity"
 import type { RunStreamState } from "@/components/run-workspace/use-run-workspace"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -26,10 +32,13 @@ import { cn } from "@/lib/utils"
 import { formatModeLabel, questionTitle, readArray, readNumber, readString, truncate, type JsonRecord } from "@/lib/records"
 
 export function RunStreamPanel({ streamState }: { streamState: RunStreamState }) {
-  const progress = streamState.progress
+  const progress = streamState.activity?.progress ?? streamState.progress
   const percent = progress && progress.total > 0 ? Math.round(((progress.completed + progress.failed) / progress.total) * 100) : 0
+  const working = streamState.activity?.progress.running ?? 0
+  const executionFinished = streamState.activity?.status === "completed" || (!streamState.activity && percent >= 100)
   const streamLabel =
-    percent >= 100 ? "Run events complete" : streamState.connected ? "Receiving run events" : "Waiting for run events"
+    executionFinished ? "Execution complete" : working > 0 ? `${working} agent${working === 1 ? "" : "s"} working` : streamState.connected ? "Moving to the next stage" : "Reconnecting to execution"
+  const latestActivity = streamState.activity?.recentActivity[0]
   return (
     <Card size="sm" className="min-w-72 bg-card/60">
       <CardContent className="flex flex-col gap-2">
@@ -38,7 +47,9 @@ export function RunStreamPanel({ streamState }: { streamState: RunStreamState })
           <span>{percent}%</span>
         </div>
         <Progress value={percent} />
-        {streamState.lastEvent ? (
+        {latestActivity ? (
+          <p className="truncate text-xs text-muted-foreground">{latestActivity.label}</p>
+        ) : streamState.lastEvent ? (
           <p className="truncate text-xs text-muted-foreground">
             {traceLabel(streamState.lastEvent)}
           </p>
@@ -46,6 +57,126 @@ export function RunStreamPanel({ streamState }: { streamState: RunStreamState })
       </CardContent>
     </Card>
   )
+}
+
+export function LiveRunActivityPanel({ streamState, task }: { streamState: RunStreamState; task: JsonRecord }) {
+  const activity = streamState.activity
+  const productStatus = String(task.status ?? streamState.status)
+  const taskRunning = ["queued", "running"].includes(productStatus)
+  const productComplete = productStatus === "completed"
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!taskRunning) return
+    const interval = window.setInterval(() => setNow(Date.now()), 1_000)
+    return () => window.clearInterval(interval)
+  }, [taskRunning])
+
+  const progress = activity?.progress
+  const working = progress?.running ?? 0
+  const lastActivityAgeMs = activity?.lastActivityAt ? now - new Date(activity.lastActivityAt).getTime() : 0
+  const activityStale = taskRunning && Boolean(activity?.lastActivityAt) && Number.isFinite(lastActivityAgeMs) && lastActivityAgeMs > 30_000
+  const headline = productComplete ? "Forecast completed and saved"
+    : activityStale ? `No execution heartbeat for ${relativeActivityTime(activity?.lastActivityAt ?? "", now)} — checking status`
+    : !activity
+    ? streamState.connected ? "Connected — preparing execution graph" : "Connecting to live execution"
+    : activity.status === "completed" ? "Execution finished — saving the forecast"
+      : working > 0 ? `${working} research agent${working === 1 ? " is" : "s are"} working now`
+        : progress && progress.completed > 0 ? "Moving to the next workflow stage" : "Workflow is starting"
+  const lastSeen = activity?.lastActivityAt ? relativeActivityTime(activity.lastActivityAt, now) : null
+
+  return (
+    <Card className="overflow-hidden border-primary/25 bg-card/85 shadow-[0_0_0_1px_hsl(var(--primary)/0.05)]">
+      <CardHeader>
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base md:text-lg">
+              <span className="relative flex size-3 items-center justify-center" aria-hidden="true">
+                {taskRunning && !activityStale ? <span className="absolute size-3 rounded-full bg-success/35 motion-safe:animate-ping" /> : null}
+                <span className={cn("relative size-2 rounded-full", activityStale ? "bg-forecast" : taskRunning ? "bg-success" : "bg-muted-foreground")} />
+              </span>
+              Live execution
+            </CardTitle>
+            <CardDescription className="mt-1">Real Smithers node and research activity, not estimated progress.</CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <Badge variant={streamState.connected ? "secondary" : "outline"}>
+              {streamState.connected ? "stream connected" : productComplete ? "stream closed normally" : "reconnecting"}
+            </Badge>
+            {lastSeen ? <span className="flex items-center gap-1 text-muted-foreground"><Clock3 className="size-3" />{lastSeen}</span> : null}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-5">
+        <div className="rounded-lg border border-primary/15 bg-primary/5 p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-medium text-foreground">{headline}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {progress ? `${progress.completed} of ${progress.total} workflow nodes completed · ${progress.pending} waiting` : "The first execution event normally arrives within a second."}
+              </p>
+            </div>
+            {progress ? <span className="text-2xl font-medium tabular-nums text-success">{progress.percent}%</span> : null}
+          </div>
+          {progress ? <Progress className="mt-3" value={progress.percent} /> : null}
+        </div>
+
+        {streamState.activityError ? (
+          <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{streamState.activityError}</p>
+        ) : null}
+
+        {activity?.nodes.length ? (
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {activity.nodes.map((node) => (
+              <div className="flex min-w-0 items-center gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3" key={node.id}>
+                <LiveNodeIcon stale={activityStale} status={node.status} />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-foreground">{node.label}</p>
+                  <p className="mt-0.5 text-xs capitalize text-muted-foreground">{node.status}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {activity?.recentActivity.length ? (
+          <div>
+            <p className="mb-2 text-xs uppercase tracking-[0.16em] text-muted-foreground">Latest verified activity</p>
+            <div className="grid gap-2">
+              {activity.recentActivity.slice(0, 6).map((item) => (
+                <div className="flex gap-3 rounded-md border border-border/60 bg-background/45 px-3 py-2.5" key={item.id}>
+                  {item.type === "search" ? <Search className="mt-0.5 size-4 shrink-0 text-primary" /> : <CircleDot className="mt-0.5 size-4 shrink-0 text-success" />}
+                  <div className="min-w-0">
+                    <p className="text-sm text-foreground">{item.label}</p>
+                    {item.detail ? <p className="mt-1 truncate text-xs text-muted-foreground">{item.detail}</p> : null}
+                  </div>
+                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">{relativeActivityTime(item.timestamp, now)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+function LiveNodeIcon({ status, stale = false }: { status: "pending" | "running" | "completed" | "failed"; stale?: boolean }) {
+  if (status === "completed") return <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-success/15 text-success"><Check className="size-4" /></span>
+  if (status === "running" && stale) return <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-forecast/15 text-forecast"><Clock3 className="size-4" /></span>
+  if (status === "running") return <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"><Loader2 className="size-4 motion-safe:animate-spin" /></span>
+  if (status === "failed") return <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-destructive"><CircleDot className="size-4" /></span>
+  return <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"><Circle className="size-3" /></span>
+}
+
+function relativeActivityTime(value: string, now: number) {
+  const timestamp = new Date(value).getTime()
+  if (!Number.isFinite(timestamp)) return "recently"
+  const seconds = Math.max(0, Math.floor((now - timestamp) / 1_000))
+  if (seconds < 5) return "just now"
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}m ago`
 }
 
 export function LoadingRunState() {
@@ -109,8 +240,10 @@ export function ResearchNarrativePanel({
   streamState: RunStreamState
   traceEvents: JsonRecord[]
 }) {
+  const liveLatest = streamState.activity?.recentActivity[0]
   const latest = streamState.lastEvent ?? traceEvents[0] ?? null
-  const latestTime = latest ? readString(latest, "createdAt") ?? readString(latest, "timestamp") ?? "latest" : "pending"
+  const latestTime = liveLatest?.timestamp ?? (latest ? readString(latest, "createdAt") ?? readString(latest, "timestamp") ?? "latest" : "pending")
+  const currentStep = liveLatest?.label ?? "Briefing researchers"
   return (
     <Card className="fs-panel">
       <CardHeader>
@@ -121,7 +254,7 @@ export function ResearchNarrativePanel({
         <div className="rounded-lg border bg-background/45 p-4 text-foreground">{questionTitle(task)}</div>
         <div className="flex items-center gap-3 rounded-md border bg-muted/25 px-3 py-2">
           <span className="text-xs text-muted-foreground">{latestTime}</span>
-          <span className="font-medium uppercase tracking-[0.16em] text-forecast">briefing researchers</span>
+          <span className="truncate font-medium text-forecast">{currentStep}</span>
           <span className="ml-auto flex items-center gap-1 text-xs text-success">
             <CircleDot />
             {streamState.connected ? "live" : "idle"}
@@ -136,7 +269,11 @@ export function ResearchNarrativePanel({
           ))}
           {sources.length === 0 ? <span className="fs-citation">sources pending</span> : null}
         </div>
-        {latest ? (
+        {liveLatest ? (
+          <p className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs">
+            Latest activity: {liveLatest.detail ? `${liveLatest.label} — ${liveLatest.detail}` : liveLatest.label}
+          </p>
+        ) : latest ? (
           <p className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs">
             Latest event: {traceLabel(latest)}
           </p>
@@ -1018,12 +1155,17 @@ export function ResearchTeamPanel({
   expanded?: boolean
 }) {
   const shown = expanded ? traceEvents.slice(0, 20) : traceEvents.slice(0, 5)
+  const liveNodes = streamState.activity?.nodes ?? []
+  const liveActivity = streamState.activity?.recentActivity ?? []
+  const activeNodes = liveNodes.filter((node) => node.status === "running").length
   return (
     <Card>
       <CardHeader>
         <CardTitle>Research team</CardTitle>
         <CardDescription>
-          {attempts.length} attempts · {traceEvents.length} trace events · {streamState.connected ? "on task" : "idle"}
+          {liveNodes.length
+            ? `${liveNodes.length} workflow nodes · ${activeNodes} active · ${streamState.activity?.progress.completed ?? 0} completed`
+            : `${attempts.length} attempts · ${traceEvents.length} trace events · ${streamState.connected ? "on task" : "idle"}`}
         </CardDescription>
         <CardAction>
           <Bot className="text-primary" />
@@ -1031,11 +1173,13 @@ export function ResearchTeamPanel({
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="grid grid-cols-8 gap-2">
-          {Array.from({ length: Math.max(8, Math.min(24, attempts.length || 12)) }, (_, index) => (
+          {Array.from({ length: Math.max(8, Math.min(24, liveNodes.length || attempts.length || 12)) }, (_, index) => (
             <span
               className={cn(
                 "flex size-8 items-center justify-center rounded-full border",
-                index < attempts.length ? "border-primary text-primary" : "border-muted text-muted-foreground",
+                liveNodes[index]?.status === "completed" ? "border-success bg-success/10 text-success"
+                  : liveNodes[index]?.status === "running" ? "border-primary bg-primary/10 text-primary"
+                    : index < attempts.length ? "border-primary text-primary" : "border-muted text-muted-foreground",
               )}
               key={index}
             >
@@ -1044,12 +1188,18 @@ export function ResearchTeamPanel({
           ))}
         </div>
         <div className="flex flex-col gap-2">
-          {shown.map((event, index) => (
+          {liveActivity.slice(0, expanded ? 12 : 5).map((event) => (
+            <div className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-3 py-2 text-xs" key={event.id}>
+              <span className="truncate">{event.detail ? `${event.label} — ${event.detail}` : event.label}</span>
+              <span className="shrink-0 text-muted-foreground">live</span>
+            </div>
+          ))}
+          {liveActivity.length === 0 ? shown.map((event, index) => (
             <div className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-3 py-2 text-xs" key={String(event.id ?? index)}>
               <span className="truncate">{traceLabel(event)}</span>
               <span className="shrink-0 text-muted-foreground">{readString(event, "agentLabel") ?? readString(event, "phase") ?? "workflow"}</span>
             </div>
-          ))}
+          )) : null}
         </div>
       </CardContent>
     </Card>
@@ -1155,20 +1305,66 @@ export function SourceList({ sources }: { sources: JsonRecord[] }) {
   )
 }
 
-export function MetricGrid({ task, artifacts, sources, taskId }: { task: JsonRecord; artifacts: JsonRecord[]; sources: JsonRecord[]; taskId: string }) {
+export function MetricGrid({
+  task,
+  artifacts,
+  sources,
+  taskId,
+  tokenUsage,
+}: {
+  task: JsonRecord
+  artifacts: JsonRecord[]
+  sources: JsonRecord[]
+  taskId: string
+  tokenUsage: LiveTokenUsage | null
+}) {
   return (
-    <div className="grid gap-3 md:grid-cols-4">
-      <StatTile label="Mode" value={formatModeLabel(task.operationSubmode ?? task.operationMode)} />
-      <StatTile label="Artifacts" value={artifacts.length} />
-      <StatTile label="Sources" value={sources.length} />
-      <Card size="sm">
+    <div className="grid gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Total token consumption</CardTitle>
+          <CardDescription>
+            Every recorded model call across all workflow nodes, researchers, iterations, and retries.
+          </CardDescription>
+        </CardHeader>
         <CardContent>
-          <Button variant="outline" size="sm" nativeButton={false} render={<Link href={`/api/runs/${taskId}/trace-bundle`} />}>
-            <FileJson data-icon="inline-start" />
-            Trace bundle
-          </Button>
+          {tokenUsage ? (
+            <>
+              <div className="grid gap-3 md:grid-cols-3">
+                <StatTile label="Input tokens" value={formatNumber(tokenUsage.inputTokens)} />
+                <StatTile label="Output tokens" value={formatNumber(tokenUsage.outputTokens)} />
+                <div className="rounded-lg border border-primary/25 bg-primary/5 p-4">
+                  <p className="text-sm text-muted-foreground">Total tokens</p>
+                  <p className="mt-2 text-3xl font-medium tabular-nums text-primary">{formatNumber(tokenUsage.totalTokens)}</p>
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                {formatNumber(tokenUsage.calls)} recorded model {tokenUsage.calls === 1 ? "call" : "calls"}
+                {tokenUsage.cachedInputTokens > 0 ? ` · ${formatNumber(tokenUsage.cachedInputTokens)} cached input tokens` : ""}
+                {tokenUsage.reasoningOutputTokens > 0 ? ` · ${formatNumber(tokenUsage.reasoningOutputTokens)} reasoning output tokens` : ""}.
+                {" "}Duplicate provider usage events are counted once. Deterministic orchestration consumes no model tokens.
+              </p>
+            </>
+          ) : (
+            <div className="rounded-lg bg-muted/40 p-4 text-sm text-muted-foreground">
+              Waiting for the execution usage ledger…
+            </div>
+          )}
         </CardContent>
       </Card>
+      <div className="grid gap-3 md:grid-cols-4">
+        <StatTile label="Mode" value={formatModeLabel(task.operationSubmode ?? task.operationMode)} />
+        <StatTile label="Artifacts" value={artifacts.length} />
+        <StatTile label="Sources" value={sources.length} />
+        <Card size="sm">
+          <CardContent>
+            <Button variant="outline" size="sm" nativeButton={false} render={<Link href={`/api/runs/${taskId}/trace-bundle`} />}>
+              <FileJson data-icon="inline-start" />
+              Trace bundle
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }
@@ -1200,14 +1396,22 @@ export function TaskRows({ rows, retryingRowId, onRetry }: { rows: JsonRecord[];
   )
 }
 
-export function TraceEvents({ events }: { events: JsonRecord[] }) {
+export function TraceEvents({ events, streamState }: { events: JsonRecord[]; streamState: RunStreamState }) {
+  const liveActivity = streamState.activity?.recentActivity ?? []
   return (
     <Card>
       <CardHeader>
         <CardTitle>Trace</CardTitle>
-        <CardDescription>{events.length} recent persisted events</CardDescription>
+        <CardDescription>{liveActivity.length} live activities · {events.length} recent persisted events</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
+        {liveActivity.map((event) => (
+          <div className="grid gap-2 rounded-md border border-primary/20 bg-primary/5 p-3 text-xs md:grid-cols-[1fr_1fr_auto]" key={event.id}>
+            <span className="truncate">{event.label}</span>
+            <span className="truncate text-muted-foreground">{event.detail ?? event.nodeId ?? "workflow"}</span>
+            <Badge variant="outline" className="border-primary/30 text-primary">live</Badge>
+          </div>
+        ))}
         {events.slice(0, 40).map((event, index) => (
           <div className="grid gap-2 rounded-md border p-3 text-xs md:grid-cols-[1fr_1fr_auto]" key={String(event.id ?? index)}>
             <span className="truncate">{String(event.eventType ?? "event")}</span>

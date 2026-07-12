@@ -1,6 +1,7 @@
 import {
   backfillBinaryForecastLedgers,
   getRunEventSnapshot,
+  readSmithersLiveSnapshot,
   reconcileRunningTasks,
 } from "@open-superforecaster/backend";
 import { getServerContext } from "@/lib/server-db";
@@ -15,8 +16,20 @@ export async function GET(
   const { db, root, sql } = getServerContext();
   const encoder = new TextEncoder();
   let closed = false;
-  let ticking = false;
+  let stateTicking = false;
+  let liveTicking = false;
   let lastSequenceNumber = readLastEventId(request.headers.get("last-event-id"));
+  let lastLiveCursor = -1;
+  let smithersRunId: string | null = null;
+  let stateInterval: ReturnType<typeof setInterval> | null = null;
+  let liveInterval: ReturnType<typeof setInterval> | null = null;
+
+  const clearTimers = () => {
+    if (stateInterval) clearInterval(stateInterval);
+    if (liveInterval) clearInterval(liveInterval);
+    stateInterval = null;
+    liveInterval = null;
+  };
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -25,7 +38,7 @@ export async function GET(
           return;
         }
         closed = true;
-        clearInterval(interval);
+        clearTimers();
         await sql.end().catch(() => {});
         try {
           controller.close();
@@ -52,15 +65,40 @@ export async function GET(
         }
       };
 
-      const tick = async () => {
-        if (closed || ticking) {
+      const liveTick = async () => {
+        if (closed || liveTicking || !smithersRunId) {
           return;
         }
-        ticking = true;
+        liveTicking = true;
+        try {
+          const activity = await readSmithersLiveSnapshot(root, smithersRunId);
+          if (activity && activity.cursor !== lastLiveCursor) {
+            lastLiveCursor = activity.cursor;
+            send("activity", activity);
+          }
+        } catch (error) {
+          console.error("Smithers live activity read failed", {
+            taskId,
+            smithersRunId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          send("activity_error", { message: "Live execution activity is temporarily unavailable." });
+        } finally {
+          liveTicking = false;
+        }
+      };
+
+      const stateTick = async () => {
+        if (closed || stateTicking) {
+          return;
+        }
+        stateTicking = true;
         try {
           await reconcileRunningTasks(db, root);
           await backfillBinaryForecastLedgers(db, root);
           const snapshot = await getRunEventSnapshot(db, taskId, lastSequenceNumber);
+          smithersRunId = snapshot.task.smithersRunId;
+          await liveTick();
           send("status", snapshot.task, snapshot.lastSequenceNumber);
           for (const event of snapshot.events) {
             lastSequenceNumber = event.sequenceNumber;
@@ -74,21 +112,38 @@ export async function GET(
           send("error", { message: error instanceof Error ? error.message : String(error) });
           await close();
         } finally {
-          ticking = false;
+          stateTicking = false;
         }
       };
 
-      const interval = setInterval(() => {
-        void tick();
+      const initialize = async () => {
+        try {
+          const snapshot = await getRunEventSnapshot(db, taskId, lastSequenceNumber);
+          smithersRunId = snapshot.task.smithersRunId;
+          send("status", snapshot.task, snapshot.lastSequenceNumber);
+          await liveTick();
+          void stateTick();
+        } catch (error) {
+          send("error", { message: error instanceof Error ? error.message : String(error) });
+          await close();
+        }
+      };
+
+      stateInterval = setInterval(() => {
+        void stateTick();
       }, 2_000);
+      liveInterval = setInterval(() => {
+        void liveTick();
+      }, 1_000);
       request.signal.addEventListener("abort", () => {
         void close();
       });
-      void tick();
+      void initialize();
     },
     cancel: async () => {
       if (!closed) {
         closed = true;
+        clearTimers();
         await sql.end().catch(() => {});
       }
     },

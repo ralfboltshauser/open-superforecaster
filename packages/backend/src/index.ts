@@ -31,6 +31,7 @@ export * from "./responses";
 export * from "./resolution-service";
 export * from "./run-service";
 export * from "./smithers-launcher";
+export * from "./smithers-live-events";
 export * from "./smithers-research-activity";
 export * from "./smithers-usage";
 export * from "./trace-bundle";

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { buildRunDetail } from "@/components/run-workspace/run-detail"
+import { parseLiveRunSnapshot, type LiveRunSnapshot } from "@/components/run-workspace/live-activity"
 import { useRuns } from "@/hooks/use-runs"
 import { fetchJson } from "@/lib/api-client"
 import { isRecord, parseEventData, readNumber, readString, type JsonRecord } from "@/lib/records"
@@ -12,6 +13,8 @@ export type RunStreamState = {
   status: string
   progress: { total: number; running: number; completed: number; failed: number } | null
   lastEvent: JsonRecord | null
+  activity: LiveRunSnapshot | null
+  activityError: string | null
 }
 
 export function useRunWorkspace(taskId: string) {
@@ -26,6 +29,8 @@ export function useRunWorkspace(taskId: string) {
     status: "connecting",
     progress: null,
     lastEvent: null,
+    activity: null,
+    activityError: null,
   })
 
   const loadRun = useCallback(async () => {
@@ -104,6 +109,23 @@ export function useRunWorkspace(taskId: string) {
         traceRefreshTimer.current = null
         void loadRun().catch(() => undefined)
       }, 100)
+    })
+    events.addEventListener("activity", (event) => {
+      const activity = parseLiveRunSnapshot(parseEventData(event))
+      if (!activity) return
+      setStreamState((current) => ({
+        ...current,
+        connected: true,
+        activity,
+        activityError: null,
+      }))
+    })
+    events.addEventListener("activity_error", (event) => {
+      const payload = parseEventData(event)
+      setStreamState((current) => ({
+        ...current,
+        activityError: readString(payload, "message") ?? "Live execution activity is temporarily unavailable.",
+      }))
     })
     events.addEventListener("done", (event) => {
       const done = parseEventData(event)

@@ -9,6 +9,7 @@ import {
   ForecastLedger,
   ForecastResultPanel,
   LoadingRunState,
+  LiveRunActivityPanel,
   MetricGrid,
   ResearchNarrativePanel,
   ResearchTeamPanel,
@@ -47,7 +48,7 @@ export function RunWorkspace({ taskId }: { taskId: string }) {
         {detail.task ? (
           <Tabs defaultValue="overview" className="mt-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div className="-mx-1 overflow-x-auto px-1">
+              <div className="no-scrollbar -mx-1 overflow-x-auto px-1">
                 <TabsList className="min-w-max">
                   <TabsTrigger value="overview">overview</TabsTrigger>
                   <TabsTrigger value="results">results</TabsTrigger>
@@ -61,6 +62,7 @@ export function RunWorkspace({ taskId }: { taskId: string }) {
 
             <TabsContent value="overview" className="mt-6">
               <div className="grid gap-6">
+                <LiveRunActivityPanel task={detail.task} streamState={streamState} />
                 <DecisionBriefPanel
                   task={detail.task}
                   output={detail.forecastOutput}
@@ -103,9 +105,15 @@ export function RunWorkspace({ taskId }: { taskId: string }) {
 
             <TabsContent value="debug" className="mt-6">
               <div className="grid gap-6">
-                <MetricGrid task={detail.task} artifacts={detail.artifacts} sources={detail.sources} taskId={taskId} />
+                <MetricGrid
+                  task={detail.task}
+                  artifacts={detail.artifacts}
+                  sources={detail.sources}
+                  taskId={taskId}
+                  tokenUsage={streamState.activity?.tokenUsage ?? null}
+                />
                 <TaskRows rows={detail.taskRows} retryingRowId={retryingRowId} onRetry={(rowId) => void retryTaskRow(rowId)} />
-                <TraceEvents events={detail.traceEvents} />
+                <TraceEvents events={detail.traceEvents} streamState={streamState} />
               </div>
             </TabsContent>
           </Tabs>
@@ -124,6 +132,7 @@ function RunHeader({
   streamState: ReturnType<typeof useRunWorkspace>["streamState"]
   taskId: string
 }) {
+  const productComplete = detail.task?.status === "completed"
   return (
     <header className="flex flex-col gap-5 border-b border-border/70 pb-6 md:flex-row md:items-start md:justify-between">
       <div className="max-w-4xl">
@@ -146,8 +155,13 @@ function RunHeader({
         ) : null}
         <div className="flex flex-wrap gap-2">
           <Badge variant="outline" className={cn(streamState.connected && "border-primary text-primary")}>
-            {streamState.connected ? "Live" : "Idle"}
+            {streamState.connected ? "Live feed" : productComplete ? "Feed complete" : "Disconnected"}
           </Badge>
+          {streamState.activity?.progress.running ? (
+            <Badge variant="outline" className="border-success/50 text-success">
+              {streamState.activity.progress.running} working
+            </Badge>
+          ) : null}
           <Badge variant="secondary" className={statusTone(detail.task?.status)}>
             {String(detail.task?.status ?? streamState.status)}
           </Badge>

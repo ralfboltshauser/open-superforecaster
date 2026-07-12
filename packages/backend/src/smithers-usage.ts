@@ -30,6 +30,10 @@ export async function readSmithersTokenUsage(root: string, runId: string) {
     return [];
   }
 
+  return parseSmithersTokenUsage(text);
+}
+
+export function parseSmithersTokenUsage(text: string) {
   const byNodeAttempt = new Map<string, Candidate>();
   for (const line of text.split(/\n+/)) {
     if (!line.trim()) {

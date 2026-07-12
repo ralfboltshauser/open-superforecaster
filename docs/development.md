@@ -64,6 +64,14 @@ and redacts credential-shaped object fields. It never reports transport errors
 through the patched console, which prevents a failed forwarding request from
 creating a logging loop.
 
+## Live Run Feedback
+
+The forecast workspace projects Smithers' durable execution stream into a
+resumable, sanitized SSE activity snapshot. Transport liveness, execution
+activity, and committed product status are intentionally separate. See
+[`live-run-updates.md`](live-run-updates.md) for the contract, architecture,
+progress semantics, and extension checklist.
+
 ## Clean, Cleanup, and Reset Are Different
 
 - `bun run clean` removes only `apps/web/.next`.

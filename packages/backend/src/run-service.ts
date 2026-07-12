@@ -594,11 +594,11 @@ export async function getRunStatus(db: Db, taskId: string) {
   const [task] = await db
     .select({
       id: tasks.id,
+      smithersRunId: tasks.smithersRunId,
       status: tasks.status,
       label: tasks.label,
       operationMode: tasks.operationMode,
       operationSubmode: tasks.operationSubmode,
-      smithersRunId: tasks.smithersRunId,
       outputArtifactId: tasks.outputArtifactId,
       progressTotal: tasks.progressTotal,
       progressPending: tasks.progressPending,
@@ -736,6 +736,7 @@ export async function getRunEventSnapshot(db: Db, taskId: string, afterSequenceN
   const [task] = await db
     .select({
       id: tasks.id,
+      smithersRunId: tasks.smithersRunId,
       status: tasks.status,
       progressTotal: tasks.progressTotal,
       progressPending: tasks.progressPending,
