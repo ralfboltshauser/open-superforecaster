@@ -41,6 +41,7 @@ export function createRunPlan(body: RunRequestBody, options: RunPlanOptions = {}
   const rankRows = objectRows.length ? objectRows : rows;
   const independentTableRows = isAgentMap ? rows : isRank ? rankRows : [];
   const thresholds = extractThresholds(body);
+  const categories = extractCategories(body, classification.forecastType);
   const prompt = String(body.prompt ?? "");
   const smithersInput = smithersInputFor({
     body,
@@ -59,6 +60,7 @@ export function createRunPlan(body: RunRequestBody, options: RunPlanOptions = {}
     rows,
     temporalContext,
     thresholds,
+    categories,
   });
 
   return {
@@ -283,6 +285,7 @@ function smithersInputFor(input: {
   rows: Array<Record<string, unknown>>;
   temporalContext: ForecastTemporalContext | undefined;
   thresholds: string[];
+  categories: string[];
 }) {
   if (input.isForecast) {
     return {
@@ -303,7 +306,7 @@ function smithersInputFor(input: {
       marketCreationDate: input.body.marketCreationDate,
       marketPlatform: input.body.marketPlatform ?? input.body.platform,
       marketUrl: input.body.marketUrl,
-      categories: input.body.categories,
+      categories: input.categories,
       categoriesExhaustive: input.body.categoriesExhaustive,
       unit: input.body.unit ?? input.body.units,
       ...(input.classification.forecastType === "thresholded"
@@ -581,10 +584,41 @@ function extractThresholds(body: RunRequestBody) {
     return body.thresholds.map((threshold) => String(threshold).trim()).filter(Boolean).slice(0, 50);
   }
   const prompt = String(body.prompt ?? "");
-  const matches = [...prompt.matchAll(/(?:[$€£]\s*)?\b\d+(?:\.\d+)?\s*(?:k|m|b|bn|million|billion|trillion|%|percent|launches|users|usd|dollars)?\b/gi)]
+  // Resolution dates are context, not curve breakpoints. Remove common date
+  // forms before extracting numeric thresholds so "July 31, 2026" cannot
+  // silently add 31 and 2026 to a price curve.
+  const withoutDates = prompt
+    .replace(/\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?\b/gi, " ")
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, " ")
+    .replace(/\b20\d{2}\b/g, " ");
+  const matches = [...withoutDates.matchAll(/(?:[$€£]\s*)?\b\d+(?:\.\d+)?\s*(?:k|m|b|bn|million|billion|trillion|%|percent|launches|users|usd|dollars)?\b/gi)]
     .map((match) => match[0].trim())
     .filter((value, index, values) => values.indexOf(value) === index);
   return matches.slice(0, 50);
+}
+
+function extractCategories(body: RunRequestBody, forecastType: string | undefined) {
+  if (Array.isArray(body.categories)) {
+    return normalizeCategories(body.categories.map(String));
+  }
+  if (forecastType !== "categorical") {
+    return [];
+  }
+
+  const prompt = String(body.prompt ?? "");
+  const enumerated = prompt.match(/:\s*([^?]+)\?/)?.[1];
+  if (!enumerated) {
+    return [];
+  }
+  return normalizeCategories(enumerated.split(/\s*,\s*|\s+or\s+/i));
+}
+
+function normalizeCategories(values: string[]) {
+  const categories = values
+    .map((value) => value.trim().replace(/[.;:]$/, ""))
+    .filter(Boolean)
+    .map((value) => /^(?:or\s+)?(?:an?other|another)\b/i.test(value) ? "Other" : value);
+  return [...new Map(categories.map((category) => [category.toLowerCase(), category])).values()].slice(0, 50);
 }
 
 function normalizeThresholdDirection(raw: unknown, prompt: string) {

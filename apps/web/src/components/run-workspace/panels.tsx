@@ -605,7 +605,7 @@ function CategoricalForecastReport({ output, expanded }: { output: JsonRecord; e
       <HeroMetric label="top category" value={topCategory} />
       <div className="grid gap-3">
         {probabilities.map((item) => (
-          <ProbabilityRow key={item.category} label={item.category} probability={item.probability} />
+          <ProbabilityRow key={item.category} label={item.category} probability={item.probability} percentagePoints />
         ))}
       </div>
       <ReportSection label="component picks">
@@ -650,6 +650,7 @@ function ThresholdedForecastReport({ output, expanded }: { output: JsonRecord; e
             key={item.threshold}
             label={item.threshold}
             probability={item.probability}
+            percentagePoints
             meta={expanded ? item.rationale ?? undefined : undefined}
           />
         ))}
@@ -749,6 +750,11 @@ function isForecastReportType(value: string | null): value is ForecastReportType
 function formatProbabilityPercent(probability: number) {
   const percent = probability >= 0 && probability <= 1 ? probability * 100 : probability
   const rounded = Math.round(percent * 10) / 10
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}%`
+}
+
+function formatPercentagePoints(probability: number) {
+  const rounded = Math.round(probability * 10) / 10
   return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}%`
 }
 
@@ -871,7 +877,7 @@ function summarizeCurve(points: JsonRecord[]) {
   const labels = points.slice(0, 3).flatMap((point) => {
     const threshold = readString(point, "threshold")
     const probability = readNumber(point, "probability")
-    return threshold && probability !== null ? [`${threshold}: ${formatProbabilityPercent(probability)}`] : []
+    return threshold && probability !== null ? [`${threshold}: ${formatPercentagePoints(probability)}`] : []
   })
   return labels.length ? labels.join(" · ") : "not set"
 }
@@ -920,18 +926,20 @@ function ProbabilityRow({
   probability,
   markers = [],
   meta,
+  percentagePoints = false,
 }: {
   label: string
   probability: number
   markers?: Array<{ label: string; value: number | null }>
   meta?: string
+  percentagePoints?: boolean
 }) {
-  const percent = normalizePercent(probability)
+  const percent = percentagePoints ? clampPercent(probability) : normalizePercent(probability)
   return (
     <div className="grid gap-2 rounded-md border border-border/70 bg-muted/20 px-3 py-2">
       <div className="flex items-center justify-between gap-3 text-sm">
         <span className="min-w-0 truncate text-foreground">{label}</span>
-        <span className="shrink-0 font-medium text-success">{formatProbabilityPercent(probability)}</span>
+        <span className="shrink-0 font-medium text-success">{percentagePoints ? formatPercentagePoints(probability) : formatProbabilityPercent(probability)}</span>
       </div>
       <div className="relative h-2 overflow-hidden rounded-full bg-muted">
         <div className="h-full rounded-full bg-success" style={{ width: `${percent}%` }} />
@@ -982,6 +990,10 @@ function CompactValue({ label, value, meta }: { label: string; value: string; me
 
 function normalizePercent(probability: number) {
   const percent = probability >= 0 && probability <= 1 ? probability * 100 : probability
+  return clampPercent(percent)
+}
+
+function clampPercent(percent: number) {
   return Math.max(0, Math.min(100, percent))
 }
 

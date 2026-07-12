@@ -179,6 +179,7 @@ export async function markTaskFailed(db: Db, input: { taskId: string; error: str
     .where(and(
       eq(tasks.id, input.taskId),
       inArray(tasks.status, ["queued", "running"]),
+      isNull(tasks.forecastLedgerCommittedAt),
     ))
     .returning({ configJson: tasks.configJson });
   const updateTriggerId = failedTask && isRecord(failedTask.configJson)
@@ -1482,7 +1483,25 @@ export async function createBootstrapArtifact(
   return artifact;
 }
 
+let runningTaskReconciliation: Promise<void> | null = null;
+
 export async function reconcileRunningTasks(db: Db, root: string) {
+  if (runningTaskReconciliation) {
+    return runningTaskReconciliation;
+  }
+
+  const reconciliation = reconcileRunningTasksOnce(db, root);
+  runningTaskReconciliation = reconciliation;
+  try {
+    await reconciliation;
+  } finally {
+    if (runningTaskReconciliation === reconciliation) {
+      runningTaskReconciliation = null;
+    }
+  }
+}
+
+async function reconcileRunningTasksOnce(db: Db, root: string) {
   const running = await db
     .select({
       id: tasks.id,
@@ -1697,7 +1716,9 @@ export function terminalTaskStatusForSmithers(status: unknown, state: unknown) {
 }
 
 function isSmithersRunNotFound(message: string) {
-  return message.includes("RUN_NOT_FOUND") || /Run not found:/i.test(message);
+  return message.includes("RUN_NOT_FOUND") ||
+    /Run not found:/i.test(message) ||
+    /No Smithers run history found/i.test(message);
 }
 
 function outputNodeForSubmode(operationSubmode: string | null) {

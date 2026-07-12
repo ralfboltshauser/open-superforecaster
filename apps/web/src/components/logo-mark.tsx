@@ -15,6 +15,7 @@ export function LogoMark({ className, title = "Open Superforecaster" }: LogoMark
       className={cn("shrink-0 object-contain", className)}
       width={1536}
       height={1024}
+      loading="eager"
       draggable={false}
     />
   )

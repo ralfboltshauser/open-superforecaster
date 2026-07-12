@@ -15,6 +15,7 @@ export async function GET(
   const { db, root, sql } = getServerContext();
   const encoder = new TextEncoder();
   let closed = false;
+  let ticking = false;
   let lastSequenceNumber = readLastEventId(request.headers.get("last-event-id"));
 
   const stream = new ReadableStream<Uint8Array>({
@@ -52,6 +53,10 @@ export async function GET(
       };
 
       const tick = async () => {
+        if (closed || ticking) {
+          return;
+        }
+        ticking = true;
         try {
           await reconcileRunningTasks(db, root);
           await backfillBinaryForecastLedgers(db, root);
@@ -68,6 +73,8 @@ export async function GET(
         } catch (error) {
           send("error", { message: error instanceof Error ? error.message : String(error) });
           await close();
+        } finally {
+          ticking = false;
         }
       };
 

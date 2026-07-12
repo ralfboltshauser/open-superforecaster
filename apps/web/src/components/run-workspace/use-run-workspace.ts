@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { buildRunDetail } from "@/components/run-workspace/run-detail"
 import { useRuns } from "@/hooks/use-runs"
@@ -20,6 +20,7 @@ export function useRunWorkspace(taskId: string) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [retryingRowId, setRetryingRowId] = useState<string | null>(null)
+  const traceRefreshTimer = useRef<number | null>(null)
   const [streamState, setStreamState] = useState<RunStreamState>({
     connected: false,
     status: "connecting",
@@ -56,12 +57,18 @@ export function useRunWorkspace(taskId: string) {
     }
 
     void load()
-    const interval = window.setInterval(() => void load(), streamState.status === "completed" ? 15000 : 5000)
     return () => {
       cancelled = true
-      window.clearInterval(interval)
     }
-  }, [loadWorkspace, streamState.status])
+  }, [loadWorkspace])
+
+  useEffect(() => {
+    if (streamState.connected || ["completed", "failed", "cancelled", "revoked", "partial_failure"].includes(streamState.status)) {
+      return
+    }
+    const interval = window.setInterval(() => void loadWorkspace().catch(() => undefined), 15_000)
+    return () => window.clearInterval(interval)
+  }, [loadWorkspace, streamState.connected, streamState.status])
 
   useEffect(() => {
     const events = new EventSource(`/api/runs/${taskId}/events`)
@@ -84,7 +91,6 @@ export function useRunWorkspace(taskId: string) {
             }
           : current.progress,
       }))
-      void loadRun().catch(() => undefined)
     })
     events.addEventListener("trace", (event) => {
       const traceEvent = parseEventData(event)
@@ -93,7 +99,11 @@ export function useRunWorkspace(taskId: string) {
         connected: true,
         lastEvent: traceEvent,
       }))
-      void loadRun().catch(() => undefined)
+      if (traceRefreshTimer.current !== null) window.clearTimeout(traceRefreshTimer.current)
+      traceRefreshTimer.current = window.setTimeout(() => {
+        traceRefreshTimer.current = null
+        void loadRun().catch(() => undefined)
+      }, 100)
     })
     events.addEventListener("done", (event) => {
       const done = parseEventData(event)
@@ -102,14 +112,24 @@ export function useRunWorkspace(taskId: string) {
         connected: false,
         status: readString(done, "status") ?? current.status,
       }))
-      void loadRun().catch(() => undefined)
+      if (traceRefreshTimer.current !== null) {
+        window.clearTimeout(traceRefreshTimer.current)
+        traceRefreshTimer.current = null
+      }
+      void loadWorkspace().catch(() => undefined)
       events.close()
     })
     events.onerror = () => {
       setStreamState((current) => ({ ...current, connected: false }))
     }
-    return () => events.close()
-  }, [taskId, loadRun])
+    return () => {
+      events.close()
+      if (traceRefreshTimer.current !== null) {
+        window.clearTimeout(traceRefreshTimer.current)
+        traceRefreshTimer.current = null
+      }
+    }
+  }, [taskId, loadRun, loadWorkspace])
 
   const detail = useMemo(() => buildRunDetail(run), [run])
 

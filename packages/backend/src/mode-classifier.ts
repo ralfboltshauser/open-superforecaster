@@ -291,10 +291,10 @@ function inferForecastType(lower: string): RunClassification["forecastType"] {
   if (looksThresholded(lower)) {
     return "thresholded";
   }
-  if (/\b(when|what date|by what date)\b/.test(lower)) {
+  if (/\b(when|what (?:calendar )?date|by what (?:calendar )?date)\b/.test(lower)) {
     return "date";
   }
-  if (/\b(how many|how much|number|count|price|revenue|launches|users)\b/.test(lower)) {
+  if (/\b(how many|how much|what (?:will|is) (?:the )?(?:value|amount|level|price|count)|number|count|value|amount|level|price|revenue|temperature|index points|launches|users)\b/.test(lower)) {
     return "numeric";
   }
   if (/\b(which|who|winner|category)\b/.test(lower)) {
@@ -354,7 +354,15 @@ function workflowForForecastType(forecastType: RunClassification["forecastType"]
 }
 
 function looksConditional(lower: string) {
-  return /\b(if|conditional on|assuming|given that|provided that|conditioned on)\b/.test(lower);
+  if (/\b(conditional on|assuming|given that|provided that|conditioned on)\b/.test(lower)) {
+    return true;
+  }
+
+  // A bare "if" in a resolution rule (for example, "Resolve Yes if...")
+  // describes how a binary question resolves; it is not a conditional forecast.
+  // Reserve bare-if detection for prompts whose question is explicitly conditioned
+  // at the beginning of a sentence.
+  return /(?:^|[.!?]\s+)if\b[^?]{1,300},\s*(?:what|when|which|who|will|would|is|are|how|estimate|forecast|predict)\b/.test(lower);
 }
 
 function looksBinaryQuestion(lower: string) {

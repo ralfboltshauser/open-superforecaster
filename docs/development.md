@@ -43,6 +43,27 @@ failure.
 that the web port stays on `127.0.0.1` by default while honoring an explicit
 `OSF_WEB_BIND_ADDRESS=0.0.0.0` request.
 
+## Browser Logs in the Server Console
+
+The web app installs client instrumentation before React hydration. Calls to
+`console.debug`, `console.info`, `console.log`, `console.warn`,
+`console.error`, and `console.trace`, plus uncaught browser errors and unhandled
+promise rejections, are batched to `/api/browser-logs`. The API writes each
+entry to the Next.js server console as one JSON line prefixed with
+`[browser-console]`.
+
+In the Compose stack, an agent can inspect recent browser output without access
+to the browser UI:
+
+```bash
+docker compose logs app | rg '\[browser-console\]'
+```
+
+Forwarding is bounded, truncates oversized values, handles circular objects,
+and redacts credential-shaped object fields. It never reports transport errors
+through the patched console, which prevents a failed forwarding request from
+creating a logging loop.
+
 ## Clean, Cleanup, and Reset Are Different
 
 - `bun run clean` removes only `apps/web/.next`.

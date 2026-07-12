@@ -110,7 +110,7 @@ export function DecisionBriefPanel({
               <div className="mt-4 border-t border-border/70 pt-3">
                 <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Recent work</p>
                 <div className="mt-2 flex flex-col gap-1.5 text-xs text-muted-foreground">
-                  {brief.work.events.map((event) => <span className="truncate" key={event}>{event}</span>)}
+                  {brief.work.events.map((event, index) => <span className="truncate" key={`${index}:${event}`}>{event}</span>)}
                 </div>
               </div>
             ) : null}
@@ -351,13 +351,14 @@ function componentAgreement(output: JsonRecord, forecastType: string | null): De
 }
 
 function latestEvents(streamState: RunStreamState, traceEvents: JsonRecord[]) {
-  const events = [streamState.lastEvent, ...traceEvents].filter((event): event is JsonRecord => Boolean(event)).slice(0, 3)
-  return events.map((event) => {
+  const events = [streamState.lastEvent, ...traceEvents].filter((event): event is JsonRecord => Boolean(event))
+  const labels = events.map((event) => {
     const eventType = String(event.eventType ?? "trace")
     const phase = String(event.phase ?? "workflow")
     const agent = readString(event, "agentLabel")
     return truncate(agent ? `${eventType} · ${phase} · ${agent}` : `${eventType} · ${phase}`, 120)
   })
+  return Array.from(new Set(labels)).slice(0, 3)
 }
 
 function progressPercent(task: JsonRecord, streamState: RunStreamState) {
