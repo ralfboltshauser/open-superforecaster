@@ -12,13 +12,22 @@ type RunsPayload = {
 
 export function useRuns({ intervalMs = 5000, poll = true }: { intervalMs?: number; poll?: boolean } = {}) {
   const [runs, setRuns] = useState<JsonRecord[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
 
   const refreshRuns = useCallback(async () => {
-    const payload = await fetchJson<RunsPayload>("/api/runs").catch(() => ({ runs: [] }))
-    setRuns(Array.isArray(payload.runs) ? payload.runs : [])
+    try {
+      const payload = await fetchJson<RunsPayload>("/api/runs")
+      setRuns(Array.isArray(payload.runs) ? payload.runs : [])
+      setError(null)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught))
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   usePolling(refreshRuns, intervalMs, poll)
 
-  return { refreshRuns, runs }
+  return { error, loading, refreshRuns, runs }
 }

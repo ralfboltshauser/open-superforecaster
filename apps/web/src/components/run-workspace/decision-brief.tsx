@@ -56,8 +56,8 @@ export function DecisionBriefPanel({
       <CardHeader>
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
-            <CardTitle className="text-lg md:text-xl">Decision brief</CardTitle>
-            <CardDescription>What is known from this run, what produced it, and what remains uncertain.</CardDescription>
+            <CardTitle className="text-lg md:text-xl">Forecast brief</CardTitle>
+            <CardDescription>What this run estimates, what produced it, and what remains uncertain. Decisions require a separate payoff and action analysis.</CardDescription>
           </div>
           <Badge variant="outline" className="border-primary/40 text-primary">
             {brief.work.value}

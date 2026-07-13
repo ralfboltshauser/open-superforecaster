@@ -2,19 +2,25 @@
 
 import { useRouter } from "next/navigation"
 import { useState } from "react"
-import { Loader2, Paperclip, SendHorizonal } from "lucide-react"
+import { Loader2, SendHorizonal } from "lucide-react"
 
+import { QuestionStudio } from "@/components/question-studio"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { postJson } from "@/lib/api-client"
 import { cn } from "@/lib/utils"
 
-const DEFAULT_PROMPT =
-  "When will an open-weight LLM become comparable to Claude Mythos for professional software engineering and cybersecurity work?"
-
 export function ForecastComposer({ className, compact = false }: { className?: string; compact?: boolean }) {
+  if (!compact) {
+    return <QuestionStudio className={className} />
+  }
+
+  return <CompactForecastComposer className={className} />
+}
+
+function CompactForecastComposer({ className }: { className?: string }) {
   const router = useRouter()
-  const [prompt, setPrompt] = useState(DEFAULT_PROMPT)
+  const [prompt, setPrompt] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -52,17 +58,12 @@ export function ForecastComposer({ className, compact = false }: { className?: s
               void submit()
             }
           }}
-          className={cn(
-            "max-h-52 min-h-24 resize-none rounded-md border-0 bg-transparent text-sm leading-6 shadow-none placeholder:text-muted-foreground/65 focus-visible:ring-0 md:text-base",
-            compact && "min-h-16 text-sm",
-          )}
+          className="max-h-52 min-h-16 resize-none rounded-md border-0 bg-transparent text-sm leading-6 shadow-none placeholder:text-muted-foreground/65 focus-visible:ring-0"
           aria-label="Forecast prompt"
-          placeholder="Ask a forecasting or research question"
+          placeholder="Quick forecast question"
         />
         <div className="flex items-center justify-between gap-3 border-t border-border/80 px-1 pt-2">
-          <Button type="button" variant="ghost" size="icon-sm" aria-label="Attach context" className="text-primary/80 hover:bg-primary/10 hover:text-primary">
-            <Paperclip data-icon="inline-start" />
-          </Button>
+          <p className="px-1 text-xs text-muted-foreground">For a scored question, use the guided studio on the home screen.</p>
           <Button
             type="button"
             onClick={() => void submit()}

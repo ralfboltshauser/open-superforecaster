@@ -439,6 +439,7 @@ export async function listRecentTasks(db: Db, limit = 20) {
     .select({
       id: tasks.id,
       label: tasks.label,
+      configJson: tasks.configJson,
       status: tasks.status,
       operationMode: tasks.operationMode,
       operationSubmode: tasks.operationSubmode,

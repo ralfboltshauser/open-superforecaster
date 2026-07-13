@@ -172,6 +172,7 @@ export function useRunWorkspace(taskId: string) {
     detail,
     error,
     loading,
+    refreshWorkspace: loadWorkspace,
     retryingRowId,
     retryTaskRow,
     runs,

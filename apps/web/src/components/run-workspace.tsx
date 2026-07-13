@@ -1,9 +1,17 @@
 "use client"
 
 import Link from "next/link"
-import { ArrowLeft, FileText } from "lucide-react"
+import { ArrowLeft, FileText, RefreshCw, Settings2 } from "lucide-react"
 
 import { DecisionBriefPanel } from "@/components/run-workspace/decision-brief"
+import {
+  EvidenceTrustGuide,
+  ForecastLifecyclePanel,
+  ForecastReadingGuide,
+  ForecastReasoningGuide,
+  QuestionContractPanel,
+  UserPriorPanel,
+} from "@/components/run-workspace/forecast-learning"
 import {
   EvidenceStrip,
   ForecastLedger,
@@ -29,7 +37,7 @@ import { formatModeLabel, statusTone } from "@/lib/records"
 import { cn } from "@/lib/utils"
 
 export function RunWorkspace({ taskId }: { taskId: string }) {
-  const { detail, error, loading, retryingRowId, retryTaskRow, runs, streamState } = useRunWorkspace(taskId)
+  const { detail, error, loading, refreshWorkspace, retryingRowId, retryTaskRow, runs, streamState } = useRunWorkspace(taskId)
 
   return (
     <main className="relative min-h-svh overflow-hidden px-4 py-4 md:px-8">
@@ -39,30 +47,46 @@ export function RunWorkspace({ taskId }: { taskId: string }) {
 
         {error ? (
           <Card className="mt-6 border-destructive/40">
-            <CardContent className="text-sm text-destructive">{error}</CardContent>
+            <CardContent className="grid gap-4 py-1">
+              <div>
+                <p className="text-sm font-medium text-destructive">This forecast could not be loaded.</p>
+                <p className="mt-1 break-words text-sm leading-6 text-muted-foreground">{error}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => void refreshWorkspace()}>
+                  <RefreshCw data-icon="inline-start" />
+                  Try again
+                </Button>
+                <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/setup" />}>
+                  <Settings2 data-icon="inline-start" />
+                  Check system setup
+                </Button>
+              </div>
+            </CardContent>
           </Card>
         ) : null}
 
         {loading && !detail.task ? <LoadingRunState /> : null}
 
         {detail.task ? (
-          <Tabs defaultValue="overview" className="mt-6">
+          <Tabs defaultValue="summary" className="mt-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div className="no-scrollbar -mx-1 overflow-x-auto px-1">
                 <TabsList className="min-w-max">
-                  <TabsTrigger value="overview">overview</TabsTrigger>
-                  <TabsTrigger value="results">results</TabsTrigger>
-                  <TabsTrigger value="researchers">researchers</TabsTrigger>
-                  <TabsTrigger value="sources">sources</TabsTrigger>
-                  <TabsTrigger value="debug">debug</TabsTrigger>
+                  <TabsTrigger value="summary">summary</TabsTrigger>
+                  <TabsTrigger value="reasoning">reasoning</TabsTrigger>
+                  <TabsTrigger value="forecasts">forecasts</TabsTrigger>
+                  <TabsTrigger value="evidence">evidence</TabsTrigger>
+                  <TabsTrigger value="lifecycle">updates & score</TabsTrigger>
+                  <TabsTrigger value="audit">audit</TabsTrigger>
                 </TabsList>
               </div>
               <RunStreamPanel streamState={streamState} />
             </div>
 
-            <TabsContent value="overview" className="mt-6">
+            <TabsContent value="summary" className="mt-6">
               <div className="grid gap-6">
-                <LiveRunActivityPanel task={detail.task} streamState={streamState} />
+                <QuestionContractPanel task={detail.task} />
                 <DecisionBriefPanel
                   task={detail.task}
                   output={detail.forecastOutput}
@@ -74,37 +98,53 @@ export function RunWorkspace({ taskId }: { taskId: string }) {
                   traceEvents={detail.traceEvents}
                   streamState={streamState}
                 />
-                <div className="grid gap-4 xl:grid-cols-[minmax(360px,0.52fr)_minmax(0,0.48fr)]">
-                  <div className="grid gap-6">
-                    <ResearchNarrativePanel task={detail.task} sources={detail.sources} streamState={streamState} traceEvents={detail.traceEvents} />
-                    <ResearchTeamPanel attempts={detail.attempts} traceEvents={detail.traceEvents} streamState={streamState} />
-                    <SourceMap sources={detail.sources} />
-                  </div>
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.65fr)]">
                   <ForecastResultPanel output={detail.forecastOutput} task={detail.task} />
+                  <ForecastReadingGuide />
                 </div>
+                <LiveRunActivityPanel task={detail.task} streamState={streamState} />
               </div>
             </TabsContent>
 
-            <TabsContent value="results" className="mt-6">
+            <TabsContent value="reasoning" className="mt-6">
               <div className="grid gap-6">
-                <ForecastResultPanel output={detail.forecastOutput} task={detail.task} expanded />
-                <EvidenceStrip sources={detail.sources} />
-              </div>
-            </TabsContent>
-
-            <TabsContent value="researchers" className="mt-6">
-              <div className="grid gap-6">
+                <div className="grid gap-6 xl:grid-cols-[minmax(320px,0.62fr)_minmax(0,1fr)]">
+                  <ForecastReasoningGuide />
+                  <ResearchNarrativePanel task={detail.task} sources={detail.sources} streamState={streamState} traceEvents={detail.traceEvents} />
+                </div>
                 <ResearchTeamPanel attempts={detail.attempts} traceEvents={detail.traceEvents} streamState={streamState} expanded />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="forecasts" className="mt-6">
+              <div className="grid gap-6">
+                <UserPriorPanel taskId={taskId} />
+                <ForecastResultPanel output={detail.forecastOutput} task={detail.task} expanded />
                 <ForecastLedger attempts={detail.attempts} aggregates={detail.aggregates} scores={detail.scores} />
               </div>
             </TabsContent>
 
-            <TabsContent value="sources" className="mt-6">
-              <SourceList sources={detail.sources} />
+            <TabsContent value="evidence" className="mt-6">
+              <div className="grid gap-6">
+                <EvidenceTrustGuide sources={detail.sources} task={detail.task} />
+                <EvidenceStrip sources={detail.sources} />
+                <div className="grid gap-6 xl:grid-cols-[minmax(320px,0.7fr)_minmax(0,1fr)]">
+                  <SourceMap sources={detail.sources} />
+                  <SourceList sources={detail.sources} />
+                </div>
+              </div>
             </TabsContent>
 
-            <TabsContent value="debug" className="mt-6">
+            <TabsContent value="lifecycle" className="mt-6">
               <div className="grid gap-6">
+                <ForecastLifecyclePanel output={detail.forecastOutput} scores={detail.scores} task={detail.task} />
+                <LiveRunActivityPanel task={detail.task} streamState={streamState} />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="audit" className="mt-6">
+              <div className="grid gap-6">
+                <ResearchTeamPanel attempts={detail.attempts} traceEvents={detail.traceEvents} streamState={streamState} expanded />
                 <MetricGrid
                   task={detail.task}
                   artifacts={detail.artifacts}
@@ -165,6 +205,9 @@ function RunHeader({
           <Badge variant="secondary" className={statusTone(detail.task?.status)}>
             {String(detail.task?.status ?? streamState.status)}
           </Badge>
+          {detail.forecastReady && !productComplete ? (
+            <Badge variant="outline" className="border-success/40 text-success">Forecast ready · finalizing run</Badge>
+          ) : null}
         </div>
       </div>
     </header>

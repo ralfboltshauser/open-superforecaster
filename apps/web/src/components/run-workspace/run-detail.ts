@@ -19,10 +19,9 @@ export function buildRunDetail(run: JsonRecord | null) {
   const scores = readArray(run, "forecastScores").filter(isRecord)
   const traceEvents = dedupeRecords(readArray(run, "traceEvents").filter(isRecord), traceEventKey)
   const forecastOutput = firstAggregateOutput(aggregates) ?? firstArtifactOutput(artifacts)
-  const effectiveTask = task && forecastOutput && task.status === "running" ? { ...task, status: "completed" } : task
 
   return {
-    task: effectiveTask,
+    task,
     taskRows,
     artifacts,
     sources,
@@ -31,6 +30,7 @@ export function buildRunDetail(run: JsonRecord | null) {
     scores,
     traceEvents,
     forecastOutput,
+    forecastReady: Boolean(forecastOutput),
     title: task ? questionTitle(task) : "Loading run",
   }
 }

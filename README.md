@@ -141,9 +141,15 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000), ask a forecast, and inspect
-the run from the sidebar. Open [http://localhost:3000/setup](http://localhost:3000/setup)
-to inspect the active agent-provider policy and auth profile health.
+Open [http://localhost:3000](http://localhost:3000) to turn a draft into a
+confirmed question contract before launching it. New forecasters can start with
+the interactive course at [http://localhost:3000/onboarding](http://localhost:3000/onboarding),
+continue through the field guide at [http://localhost:3000/learn](http://localhost:3000/learn),
+and follow the resolution loop through `/forecasts` and `/performance`.
+
+Open [http://localhost:3000/setup](http://localhost:3000/setup) to inspect the
+active agent-provider policy and auth profile health. Product education and
+system/provider setup are deliberately separate.
 
 The app binds to `127.0.0.1` by default because this local v1 does not include
 user auth. To test from another machine on your LAN, set this in `.env` first:
@@ -235,9 +241,10 @@ should stay off for fixed-evidence and pastcasting evaluation.
 See [`docs/agent-providers.md`](docs/agent-providers.md) for provider setup,
 Docker mount details, and troubleshooting.
 
-### Check Your Setup
+### Check Your System Setup
 
-After the stack is running, use the built-in onboarding check:
+After the stack is running, use the infrastructure readiness check. This is
+separate from the forecasting onboarding in the web app:
 
 ```bash
 bun run onboarding:check

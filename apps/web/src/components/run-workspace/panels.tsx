@@ -295,7 +295,7 @@ export function ForecastResultPanel({ output, task, expanded = false }: { output
         <CardAction>
           <span className="flex items-center gap-2 text-xs text-muted-foreground">
             <CheckCircle2 />
-            researchers 1-3
+            recorded forecast
           </span>
         </CardAction>
       </CardHeader>

@@ -54,9 +54,17 @@ export function statusTone(status: unknown) {
 
 export function runTitle(run: JsonRecord) {
   const label = String(run.label ?? "").trim()
-  const preview = String(run.outputPreview ?? "").trim()
+  const previewRecord = isRecord(run.outputPreview) ? run.outputPreview : {}
+  const config = isRecord(run.configJson) ? run.configJson : {}
+  const forecastInput = isRecord(config.forecastInput) ? config.forecastInput : {}
+  const question =
+    readString(previewRecord, "question") ??
+    readString(forecastInput, "question") ??
+    readString(config, "prompt")
+  const preview = typeof run.outputPreview === "string" ? run.outputPreview.trim() : ""
   const fallback = String(run.operationSubmode ?? run.operationMode ?? "Forecast").trim()
-  return truncate(label && label !== "Forecast" ? label : preview || fallback, 72)
+  const genericForecastLabel = /^(binary|date|numeric|categorical|thresholded|conditional) forecast$/i.test(label)
+  return truncate(question || (!genericForecastLabel && label && label !== "Forecast" ? label : preview || fallback), 72)
 }
 
 export function questionTitle(task: JsonRecord) {

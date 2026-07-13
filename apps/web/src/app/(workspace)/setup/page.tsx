@@ -19,10 +19,10 @@ export default async function SetupPage() {
   return (
     <main className="min-h-svh px-4 py-4 md:px-8">
       <header className="border-b pb-6">
-        <p className="text-xs uppercase tracking-[0.24em] text-primary/80">Setup</p>
-        <h1 className="mt-3 text-3xl font-medium md:text-5xl">Agent providers and auth</h1>
+        <p className="text-xs uppercase tracking-[0.24em] text-primary/80">System setup</p>
+        <h1 className="mt-3 text-3xl font-medium md:text-5xl">Agent providers and authentication</h1>
         <p className="mt-3 max-w-3xl text-muted-foreground">
-          Configure which Smithers CLI agents run each workflow role, then mount one provider-auth root into Docker.
+          Configure the runtime that produces forecasts. To learn how to frame questions and interpret probabilities, use the Learn area instead.
         </p>
       </header>
 

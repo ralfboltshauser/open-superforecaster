@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
-import { BarChart3, FlaskConical, KeyRound, MessageSquarePlus, Settings2, Workflow } from "lucide-react"
+import { BarChart3, BookOpenCheck, FlaskConical, History, KeyRound, MessageSquarePlus, Settings2, Workflow } from "lucide-react"
 
 import { LogoMark } from "@/components/logo-mark"
 import {
@@ -34,8 +34,14 @@ type SidebarNavItem = {
 
 const nav: SidebarNavItem[] = [
   { href: "/", label: "New Forecast", icon: MessageSquarePlus, path: "/" },
+  { href: "/forecasts", label: "Forecasts", icon: History, path: "/forecasts" },
+  { href: "/learn", label: "Learn", icon: BookOpenCheck, path: "/learn" },
+  { href: "/performance", label: "Performance", icon: BarChart3, path: "/performance" },
+]
+
+const systemNav: SidebarNavItem[] = [
   { href: "/lab", label: "Lab", icon: FlaskConical, path: "/lab" },
-  { href: "/setup", label: "Setup", icon: Settings2, path: "/setup" },
+  { href: "/setup", label: "System Setup", icon: Settings2, path: "/setup" },
 ]
 
 const labNav: SidebarNavItem[] = [
@@ -88,10 +94,10 @@ export function AppShell({ children, runs = [] }: { children: React.ReactNode; r
           </SidebarGroup>
           <SidebarSeparator />
           <SidebarGroup>
-            <SidebarGroupLabel>Lab</SidebarGroupLabel>
+            <SidebarGroupLabel>System</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {labNav.map((item) => {
+                {systemNav.map((item) => {
                   const Icon = item.icon
                   const active = isNavItemActive(pathname, currentHash, item)
                   return (
@@ -111,9 +117,35 @@ export function AppShell({ children, runs = [] }: { children: React.ReactNode; r
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
+          {pathname === "/lab" ? (
+            <SidebarGroup>
+              <SidebarGroupLabel>Lab sections</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {labNav.map((item) => {
+                    const Icon = item.icon
+                    const active = isNavItemActive(pathname, currentHash, item)
+                    return (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton
+                          tooltip={item.label}
+                          isActive={active}
+                          aria-current={active ? "page" : undefined}
+                          render={<Link href={item.href} />}
+                        >
+                          <Icon />
+                          <span>{item.label}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ) : null}
           <SidebarGroup className="min-h-0 flex-1">
             <SidebarGroupLabel>
-              <span className="truncate">Conversations</span>
+              <span className="truncate">Recent forecasts</span>
               <span className="ml-auto text-[10px] tabular-nums text-sidebar-foreground/50">{recentRuns.length}</span>
             </SidebarGroupLabel>
             <SidebarGroupContent>
@@ -139,7 +171,7 @@ export function AppShell({ children, runs = [] }: { children: React.ReactNode; r
                 </SidebarMenu>
               ) : (
                 <p className="px-2 py-1 text-xs leading-5 text-sidebar-foreground/55 group-data-[collapsible=icon]:hidden">
-                  No conversations yet
+                  No forecasts yet
                 </p>
               )}
             </SidebarGroupContent>

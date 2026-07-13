@@ -80,6 +80,8 @@
   --chart-4: oklch(0.68 0.16 30);
   --chart-5: oklch(0.7 0.13 312);
   --radius: 0.625rem;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --sidebar: oklch(0.095 0.012 257);
   --sidebar-foreground: oklch(0.87 0.012 252);
   --sidebar-primary: oklch(0.76 0.12 244);
@@ -88,6 +90,21 @@
   --sidebar-accent-foreground: oklch(0.94 0.012 252);
   --sidebar-border: oklch(0.84 0.055 244 / 12%);
   --sidebar-ring: oklch(0.76 0.12 244);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .dark {

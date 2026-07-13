@@ -41,7 +41,7 @@ const proofChain = [
 ]
 
 const modes = [
-  ["Binary", "P(event) as a calibrated yes/no probability."],
+  ["Binary", "P(event) as an explicit yes/no probability."],
   ["Numeric", "A point estimate with a percentile range over a continuous quantity."],
   ["Date", "When an event resolves, expressed as a distribution over time."],
   ["Categorical", "Probabilities across a set of mutually exclusive outcomes."],
@@ -88,8 +88,8 @@ const stack = [
           <p class="hero-lede">Turn a hard question into cited probabilities you can audit.</p>
           <div class="fs-blueprint-line" style="margin:1.35rem auto 0;max-width:16rem"></div>
           <p class="hero-subtitle">
-            A self-hosted forecasting appliance. It fans your question out to parallel research agents, aggregates their findings into a
-            calibrated probability, and keeps every source, attempt, trace, and benchmark score on your own machine.
+            A self-hosted forecasting appliance. It fans your question out to parallel research agents, aggregates their findings into an
+            inspectable probability estimate, and keeps every source, attempt, trace, and benchmark score on your own machine.
           </p>
           <div class="hero-actions">
             <a class="button primary" href={repo}>View on GitHub</a>
