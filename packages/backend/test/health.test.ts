@@ -20,3 +20,23 @@ describe("health agent auth paths", () => {
       .toBe("/home/example/.codex");
   });
 });
+
+describe("legacy agent engine compatibility", () => {
+  test("maps the old Claude engine switch into the unified provider policy", () => {
+    const policy = loadAgentPolicy({
+      ...process.env,
+      AGENT_ENGINE: "claude",
+      CLAUDE_WEB_SEARCH: "on",
+      AGENT_DEFAULT: undefined,
+      AGENT_STRUCTURED: undefined,
+      AGENT_RESEARCH: undefined,
+      AGENT_FORECAST: undefined,
+      AGENT_CRITIC: undefined,
+      AGENT_ALLOW_NATIVE_WEB: undefined,
+    }, process.cwd());
+
+    expect(policy.defaultRef).toEqual({ provider: "claude", profile: "default" });
+    expect(policy.purposes.forecast).toEqual([{ provider: "claude", profile: "default" }]);
+    expect(policy.allowNativeWeb).toBe(true);
+  });
+});

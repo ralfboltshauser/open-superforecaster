@@ -23,6 +23,8 @@ data/forecast-ops/
 data/resolutions/
 data/reports/
 data/agent-auth/
+# Legacy Claude auth location used before the unified agent-profile layout.
+data/claude/
 .smithers/executions/
 .smithers/runs/
 .smithers/state/

@@ -41,7 +41,8 @@ const purposeEnv: Record<AgentPurpose, string> = {
 
 export function loadAgentPolicy(env: NodeJS.ProcessEnv = process.env, root = process.cwd()): AgentPolicy {
   const authRoot = resolveMaybeRelative(root, env.AGENT_AUTH_ROOT ?? env.AGENT_AUTH_CONTAINER_ROOT ?? "./data/agent-auth");
-  const defaultRef = parseAgentRef(env.AGENT_DEFAULT ?? "codex:default", "AGENT_DEFAULT");
+  const legacyDefault = legacyEngineRef(env.AGENT_ENGINE);
+  const defaultRef = parseAgentRef(env.AGENT_DEFAULT ?? legacyDefault ?? "codex:default", "AGENT_DEFAULT");
   const purposes = Object.fromEntries(
     Object.entries(purposeEnv).map(([purpose, envName]) => [
       purpose,
@@ -52,10 +53,22 @@ export function loadAgentPolicy(env: NodeJS.ProcessEnv = process.env, root = pro
   return {
     authRoot,
     defaultRef,
-    allowNativeWeb: env.AGENT_ALLOW_NATIVE_WEB === "true",
+    allowNativeWeb: env.AGENT_ALLOW_NATIVE_WEB === "true" ||
+      (env.AGENT_ALLOW_NATIVE_WEB === undefined && env.CLAUDE_WEB_SEARCH === "on"),
     purposes,
     roleOverrides: parseRoleOverrides(env),
   };
+}
+
+function legacyEngineRef(value: string | undefined) {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === "claude" || normalized === "claude-code" || normalized === "anthropic") {
+    return "claude:default";
+  }
+  if (normalized === "codex") {
+    return "codex:default";
+  }
+  return undefined;
 }
 
 export function parseAgentRef(value: string, source = "agent ref"): AgentRef {
