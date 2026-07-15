@@ -2,7 +2,7 @@
 
 Status: canonical implementation map and operational contract
 
-Implementation snapshot: 2026-07-10
+Implementation snapshot: 2026-07-15
 
 Read this document together with
 [`agentic-superforecasting.md`](agentic-superforecasting.md). The research memo
@@ -109,6 +109,20 @@ and remaining uncertainty. The evidence workspace deduplicates reported claims
 and sources and distinguishes `agent_reported` from `harness_observed`
 provenance.
 
+The complete evidence workspace remains the outer audit ledger and is never
+trimmed to fit a prompt. Downstream judgment, candidate aggregation, quality
+review, and prior-state summaries receive a deterministic inner-tier working
+set instead. Its default caps are 24 claims, 24 source records, 10 recent search
+records, 12 unresolved information needs, and 24,000 rendered characters.
+Model-reported source diagnosticity supplies semantic priority; deterministic
+selection preserves YES/NO stance coverage, prioritizes referenced and stronger
+provenance, reports every omitted count, and exposes used/remaining research
+budgets. A source labelled high-diagnosticity remains agent-reported unless the
+harness actually observed its content. The character marker is a conservative
+prompt contract, not provider token telemetry. Runs using this prompt contract
+record workflow version `binary-forecast-stateful-v2`; scheduled updates launch
+the same version.
+
 Per-judge treatment budgets remain configuration and prompt contracts. The
 dossier schema rejects a reported query history or `searchesUsed` count that
 exceeds its declared budget or disagrees with the recorded history. Exact Codex
@@ -146,6 +160,7 @@ Primary code:
 
 - [`packages/workflows/src/forecast-research-dossier.ts`](../packages/workflows/src/forecast-research-dossier.ts)
 - [`packages/workflows/src/forecast-evidence-workspace.ts`](../packages/workflows/src/forecast-evidence-workspace.ts)
+- [`packages/workflows/src/forecast-evidence-working-set.ts`](../packages/workflows/src/forecast-evidence-working-set.ts)
 - [`packages/workflows/src/binary-forecast.workflow.tsx`](../packages/workflows/src/binary-forecast.workflow.tsx)
 - [`packages/backend/src/smithers-research-activity.ts`](../packages/backend/src/smithers-research-activity.ts)
 
@@ -405,8 +420,9 @@ The following remain deliberately incomplete:
 - harness-level pre-consumption interception, immutable page archives, content
   hashes/spans, and proof of what page text the model actually received;
 - harness-enforced per-judge research/follow-up call budgets and retention caps
-  for the accumulated evidence graph (local memory and trigger arrays are
-  bounded, but evidence history can still grow across updates);
+  for the accumulated outer evidence graph. The prompt-facing working set is
+  bounded, and local memory and trigger arrays are bounded, but the complete
+  evidence history intentionally continues to grow across updates;
 - source adapters that detect signpost changes and fire event triggers;
 - an automated repair tool for pre-0014 unmarked legacy ledgers (they are
   quarantined rather than guessed complete);
@@ -459,6 +475,9 @@ When conversation context is gone:
 
 ## Revision Log
 
+- 2026-07-15: Added a Harness-1-inspired two-tier evidence contract: complete
+  outer provenance state plus one deterministic, stance-balanced, budgeted
+  prompt renderer shared by judgment, aggregation, review, and update context.
 - 2026-07-10: Adversarial integrity pass added atomic resolution/question
   closure, fail-closed manifest-only scoring, closed-question snapshot guards,
   CAS terminal reconciliation, schema-v4 point-in-time trace bundles,

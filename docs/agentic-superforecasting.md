@@ -3,7 +3,7 @@
 Status: canonical research and design memo. For current implemented behavior,
 read [`agentic-superforecasting-implementation.md`](agentic-superforecasting-implementation.md).
 
-Research snapshot: 2026-07-10
+Research snapshot: 2026-07-15
 
 Search terms: Harness-1, FutureSearch, AIA Forecaster, Bayesian Linguistic
 Forecaster, BLF, Milkyway, ForecastCompass, Foresight Learning, ForecastBench,
@@ -156,6 +156,28 @@ agent" should not be read as "fully local 20B system."
 
 The design lesson is strong: the model should not repeatedly reconstruct
 epistemic state from an append-only transcript.
+
+A 2026-07-15 audit of the paper and released code at commit
+`8ac4012167858f6478fb2a8fd840e4550e2af161` sharpened that lesson. The most
+relevant paired inference-time ablations are about selection and usable state,
+not raw search volume: removing importance tags reduced final-answer evidence
+recall by 7.9% relative, removing sentence compression reduced it by 7.0%, and
+hiding the evidence graph reduced it by 5.4%. Content-fingerprint deduplication
+was not a retrieval-recall win in that experiment: disabling it nominally
+improved both reported recall measures, although the authors report that dedup
+reduced downstream context redundancy. These are 100-query retrieval ablations
+on one checkpoint and benchmark, so they justify testing a bounded evidence
+working set; they do not establish a forecasting uplift.
+
+The released implementation also makes the useful division of labor concrete.
+The policy assigns semantic importance and decides what to investigate, verify,
+retain, or stop. Deterministic code owns the capacity limit, stable state,
+full-text outer store, compact prompt view, and budget marker. Open
+Superforecaster now applies that division to its prompt-facing evidence state:
+the full provenance ledger remains intact, while a bounded view selects
+diagnostic, stance-balanced evidence for downstream judgment. This is a local
+architectural candidate, not a promoted forecasting method; it still requires
+paired chronological evaluation.
 
 ### 2. Test-time scaling: FutureSearch
 
@@ -808,6 +830,10 @@ and BLF without first depending on proprietary models or reinforcement learning.
 
 ## Revision Log
 
+- 2026-07-15: Audited the Harness-1 paper and public release, recorded its
+  component-ablation limits, and added the bounded inner-tier evidence working
+  set as an experimental architecture change while retaining the complete audit
+  ledger.
 - 2026-07-10: Tightened the implementation boundary after adversarial review:
   exact attempt-window telemetry now affects score eligibility, autonomous
   context is redacted/projected before model exposure, and resolution/scoring

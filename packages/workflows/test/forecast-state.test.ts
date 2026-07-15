@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { buildBinaryEnsemble } from "../src/forecast-aggregation";
 import { buildDisagreementAgenda } from "../src/forecast-disagreement";
 import { buildEvidenceWorkspace } from "../src/forecast-evidence-workspace";
+import { renderEvidenceWorkingSet } from "../src/forecast-evidence-working-set";
 import { buildForecastIndependenceDiagnostics } from "../src/forecast-independence";
 import {
   researchDossierAsEvidenceAttempt,
@@ -291,9 +292,79 @@ describe("forecast evidence workspace", () => {
       query: "official launch schedule",
       qualityScore: 0.9,
       reportedIndependenceGroup: "official-schedule",
+      reportedDiagnosticity: "high",
       provenance: "agent_reported",
     });
     expect(workspace.integrityFlags.some((flag) => flag.startsWith("query_not_harness_observed:"))).toBe(true);
+  });
+
+  test("renders a bounded, stance-balanced working set without truncating the audit ledger", () => {
+    const attempts = Array.from({ length: 40 }, (_, index) => {
+      const claim = `Claim ${index}: ${"diagnostic evidence ".repeat(20)}`;
+      const supportsYes = index % 2 === 0;
+      return {
+        roleId: `research-${index}`,
+        ...(supportsYes ? { evidenceFor: [claim] } : { evidenceAgainst: [claim] }),
+        keyUncertainties: [`Unresolved need ${index}: ${"detail ".repeat(20)}`],
+        citedSources: [{
+          title: `Source ${index}`,
+          url: `https://source-${index}.example/report`,
+          publishedAt: "2026-01-01",
+          claim,
+          diagnosticity: index >= 38 ? "high" as const : "low" as const,
+          qualityScore: index / 40,
+        }],
+      };
+    });
+    const workspace = buildEvidenceWorkspace({
+      attempts,
+      reportedSearchQueries: Array.from({ length: 20 }, (_, index) => `query ${index}`),
+      budget: { maxQueries: 12, maxPages: 30 },
+    });
+
+    const first = renderEvidenceWorkingSet(workspace, {
+      maxClaims: 6,
+      maxSources: 4,
+      maxSearchHistory: 3,
+      maxInformationNeeds: 3,
+      maxCharacters: 5_000,
+    });
+    const second = renderEvidenceWorkingSet(workspace, {
+      maxClaims: 6,
+      maxSources: 4,
+      maxSearchHistory: 3,
+      maxInformationNeeds: 3,
+      maxCharacters: 5_000,
+    });
+    const view = JSON.parse(first) as {
+      outerLedgerCounts: { claims: number; sources: number };
+      includedCounts: { claims: number; sources: number };
+      omittedCounts: { claims: number; sources: number };
+      claims: Array<{ stance: string }>;
+      sources: Array<{ reportedDiagnosticity: string | null }>;
+      researchBudget: { queries: { remaining: number | null; exceeded: boolean | null } };
+      contextBudget: { unit: string; rendered: number; limit: number; remaining: number };
+    };
+
+    expect(first).toBe(second);
+    expect(first.length).toBeLessThanOrEqual(5_000);
+    expect(view.contextBudget).toEqual({
+      rendered: first.length,
+      limit: 5_000,
+      remaining: 5_000 - first.length,
+      unit: "characters",
+    });
+    expect(view.outerLedgerCounts).toMatchObject({ claims: 40, sources: 40 });
+    expect(view.includedCounts.claims).toBeLessThanOrEqual(6);
+    expect(view.includedCounts.sources).toBeLessThanOrEqual(4);
+    expect(view.omittedCounts.claims).toBeGreaterThan(0);
+    expect(view.omittedCounts.sources).toBeGreaterThan(0);
+    expect(view.claims.map((claim) => claim.stance)).toContain("supports_yes");
+    expect(view.claims.map((claim) => claim.stance)).toContain("supports_no");
+    expect(view.sources.map((source) => source.reportedDiagnosticity)).toContain("high");
+    expect(view.researchBudget.queries).toMatchObject({ remaining: 0, exceeded: true });
+    expect(workspace.claims).toHaveLength(40);
+    expect(workspace.sources).toHaveLength(40);
   });
 
   test("does not promote a search result into inspected-source provenance", () => {

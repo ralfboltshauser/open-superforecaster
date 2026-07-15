@@ -100,7 +100,7 @@ async function main() {
         operationSubmode: "binary_forecast",
         label: `Update: ${plan.context.question.question}`,
         workflowPath: binaryWorkflowPath,
-        workflowVersion: "binary-forecast-stateful-v1",
+        workflowVersion: "binary-forecast-stateful-v2",
         ...(plan.context.question.sessionId ? { sessionId: plan.context.question.sessionId } : {}),
         configJson: {
           forecastQuestionId: plan.context.question.id,

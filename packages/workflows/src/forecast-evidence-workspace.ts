@@ -14,6 +14,7 @@ export const evidenceSourceSchema = z.object({
   rank: z.number().int().positive().nullable(),
   sourceType: z.string(),
   qualityScore: z.number().min(0).max(1).nullable(),
+  reportedDiagnosticity: z.enum(["low", "medium", "high"]).nullable().default(null),
   archiveUri: z.string().nullable(),
   reportedIndependenceGroup: z.string().nullable(),
   provenance: evidenceProvenanceSchema,
@@ -94,6 +95,7 @@ export type EvidenceAttempt = {
     query?: string;
     rank?: number;
     qualityScore?: number | null;
+    diagnosticity?: "low" | "medium" | "high";
     independenceGroup?: string;
     claim: string;
   }>;
@@ -166,6 +168,7 @@ export function buildEvidenceWorkspace(input: BuildEvidenceWorkspaceInput): Evid
       rank: positiveIntegerOrNull(event.rank),
       sourceType: cleanOptional(event.sourceType) ?? "unknown",
       qualityScore: boundedScoreOrNull(event.qualityScore),
+      reportedDiagnosticity: null,
       archiveUri: cleanOptional(event.archiveUri),
       reportedIndependenceGroup: null,
       provenance: "harness_observed",
@@ -193,6 +196,7 @@ export function buildEvidenceWorkspace(input: BuildEvidenceWorkspaceInput): Evid
         rank: positiveIntegerOrNull(citation.rank),
         sourceType: cleanOptional(citation.sourceType) ?? "unknown",
         qualityScore: boundedScoreOrNull(citation.qualityScore ?? undefined),
+        reportedDiagnosticity: citation.diagnosticity ?? null,
         archiveUri: null,
         reportedIndependenceGroup: cleanOptional(citation.independenceGroup),
         provenance: observedUrlKeys.has(key) ? "harness_observed" : "agent_reported",
@@ -299,6 +303,10 @@ export function mergeEvidenceWorkspaces(input: {
       rank: source.rank ?? existing?.rank ?? null,
       sourceType: source.sourceType === "unknown" ? existing?.sourceType ?? "unknown" : source.sourceType,
       qualityScore: source.qualityScore ?? existing?.qualityScore ?? null,
+      reportedDiagnosticity: strongerDiagnosticity(
+        source.reportedDiagnosticity,
+        existing?.reportedDiagnosticity,
+      ),
       archiveUri: source.archiveUri ?? existing?.archiveUri ?? null,
       reportedIndependenceGroup:
         source.reportedIndependenceGroup ?? existing?.reportedIndependenceGroup ?? null,
@@ -427,6 +435,10 @@ function upsertSource(
     rank: input.rank ?? existing?.rank ?? null,
     sourceType: input.sourceType === "unknown" ? existing?.sourceType ?? "unknown" : input.sourceType,
     qualityScore: input.qualityScore ?? existing?.qualityScore ?? null,
+    reportedDiagnosticity: strongerDiagnosticity(
+      input.reportedDiagnosticity,
+      existing?.reportedDiagnosticity,
+    ),
     archiveUri: input.archiveUri ?? existing?.archiveUri ?? null,
     reportedIndependenceGroup: input.reportedIndependenceGroup ?? existing?.reportedIndependenceGroup ?? null,
     provenance,
@@ -689,6 +701,20 @@ function positiveIntegerOrNull(value?: number) {
 
 function boundedScoreOrNull(value?: number) {
   return Number.isFinite(value) && Number(value) >= 0 && Number(value) <= 1 ? Number(value) : null;
+}
+
+function strongerDiagnosticity(
+  left?: MutableSource["reportedDiagnosticity"],
+  right?: MutableSource["reportedDiagnosticity"],
+) {
+  const rank = { high: 3, medium: 2, low: 1 } as const;
+  if (!left) {
+    return right ?? null;
+  }
+  if (!right) {
+    return left;
+  }
+  return rank[left] >= rank[right] ? left : right;
 }
 
 function uniqueStrings(values: string[]) {

@@ -19,6 +19,7 @@ import { buildBinaryResolutionBoundaryAudit } from "./binary-resolution-boundary
 import { buildBinaryUncertaintyRangeAudit } from "./binary-uncertainty-range";
 import { buildDisagreementAgenda, disagreementAgendaSchema } from "./forecast-disagreement";
 import { buildEvidenceWorkspace, evidenceWorkspaceSchema } from "./forecast-evidence-workspace";
+import { renderEvidenceWorkingSet } from "./forecast-evidence-working-set";
 import { collectCitedSources, collectKeyUncertainties } from "./forecast-evidence";
 import {
   componentEvidenceIsolationFlags,
@@ -510,7 +511,9 @@ function summarizePreviousForecastState(
           calibration: autonomous.calibration ?? null,
         }
       : null,
-    evidenceClaims: previous?.research?.claims.slice(0, 100) ?? [],
+    evidenceWorkingSet: previous?.research
+      ? JSON.parse(renderEvidenceWorkingSet(previous.research))
+      : null,
     priorUpdate: update
       ? {
           kind: update.kind ?? null,
@@ -707,15 +710,22 @@ export default smithers((ctx) => {
     ...(timing.evidenceAsOf ? { evidenceAsOf: timing.evidenceAsOf } : {}),
     ...(timing.cutoffDate ? { cutoffDate: timing.cutoffDate } : {}),
   });
+  const sharedDossierEvidenceWorkspace = buildEvidenceWorkspace({
+    attempts: evidenceAttemptsPrefix,
+    reportedSearchQueries: researchDossierQueries(admissibleResearchDossier),
+    budget: { maxQueries: dossierSearchBudget },
+    ...(timing.evidenceAsOf ? { evidenceAsOf: timing.evidenceAsOf } : {}),
+    ...(timing.cutoffDate ? { cutoffDate: timing.cutoffDate } : {}),
+  });
   const currentDisagreementAgenda = currentAttempts.length
     ? buildDisagreementAgenda(
       currentAttempts,
       plan?.qualityThresholds.maxUnexplainedDisagreement ?? 20,
     )
     : null;
-  const evidenceWorkspaceSummary = summarizeJson(currentEvidenceWorkspace);
+  const evidenceWorkspaceSummary = renderEvidenceWorkingSet(currentEvidenceWorkspace);
+  const sharedDossierWorkingSetSummary = renderEvidenceWorkingSet(sharedDossierEvidenceWorkspace);
   const disagreementAgendaSummary = summarizeJson(currentDisagreementAgenda);
-  const researchDossierSummary = summarizeJson(admissibleResearchDossier ?? null);
   const judgmentResearchInstructions = fixedEvidence
     ? "Use only the fixed evidence packet. External research is disallowed."
     : researchTreatment === "no_external_research"
@@ -811,7 +821,7 @@ export default smithers((ctx) => {
           },
         }),
       provenance: {
-        workflowVersion: "binary-forecast-stateful-v1",
+        workflowVersion: "binary-forecast-stateful-v2",
         dossierVersion: fixedEvidence
           ? "fixed-evidence-input-v1"
           : researchDossier?.version ?? "independent-agent-reported-evidence-v1",
@@ -932,11 +942,11 @@ Rules:
 1. Restate the exact YES/NO boundary internally and search first for authoritative resolution definitions, empirical base rates, current state, causal drivers, blockers, and scheduled signposts.
 2. Prefer primary and dated sources. Distinguish multiple articles repeating one underlying report by assigning the same independenceGroup.
 3. Record every query in queryHistory and every source actually inspected in sources. On each source include the query that surfaced it and its result rank when known. Never invent a URL, publication date, page read, query, rank, or source-quality observation.
-4. Each source gets one atomic claim, stance, diagnosticity, a conservative qualityScore or null, independenceGroup, and cutoffStatus.
+4. Each source gets one atomic claim, stance, diagnosticity, a conservative qualityScore or null, independenceGroup, and cutoffStatus. Diagnosticity is your semantic curation priority: high means the claim could materially move the probability or resolution interpretation, medium is useful corroboration or mechanism evidence, and low is background or a weak lead.
 5. Check important claims across sources. Mark contradictions and dependence warnings in claimChecks.
 6. Enforce cutoffDate as the hard admissibility boundary. A source after cutoffDate is not admissible and must be listed in possibleLeakage. If a source is newer than evidenceAsOf but still within cutoffDate, flag the evidence-recency mismatch separately rather than calling it cutoff leakage.
 7. Do not seek or use prediction-market prices, Metaculus/Manifold/Polymarket/Kalshi probabilities, bookmaker odds, analyst probabilities, or other explicit human forecasts. If encountered accidentally, record the exposure in possibleLeakage and do not include its probability as evidence.
-8. Stop when the evidence is sufficient, marginal queries repeat the same source chain, the budget is exhausted, or tools fail. Record the real stopReason.
+8. Stop when the evidence is sufficient, marginal queries repeat the same source chain, the budget is exhausted, or tools fail. Record the real stopReason. Do not keep searching merely to accumulate more sources; prefer a small discriminative set that covers both YES and NO pathways.
 9. This CLI research trace is not intercepted by the harness yet. Set provenance exactly to "agent_reported"; do not claim that queries or pages were harness-observed.
 10. For an update, compare against previous evidence claim IDs. Put a prior claim ID in invalidatedPreviousClaimIds only when new evidence actually contradicts or supersedes it; absence of a new mention is not invalidation.
 
@@ -970,8 +980,8 @@ ${planSummary}
 Research treatment: ${researchTreatment}
 ${judgmentResearchInstructions}
 
-${researchDossier ? `Shared research dossier (all query/page provenance is agent-reported unless explicitly marked otherwise):
-${researchDossierSummary}` : "No shared research dossier is available for this treatment."}
+${admissibleResearchDossier ? `Bounded shared evidence working set. The complete dossier remains in the outer audit ledger; omittedCounts reports evidence not rendered here. All query/page provenance is agent-reported unless explicitly marked otherwise:
+${sharedDossierWorkingSetSummary}` : "No shared research dossier is available for this treatment."}
 
 Previous ForecastState:
 ${previousStateSummary}
@@ -1064,7 +1074,7 @@ Computed aggregate anchors for round ${round}:
 Component forecasts:
 ${attemptSummary}
 
-Environment-owned evidence workspace:
+Bounded environment-owned evidence working set. The complete workspace remains in the outer audit ledger; omittedCounts reports evidence not rendered here:
 ${evidenceWorkspaceSummary}
 
 Deterministic disagreement agenda:
@@ -1117,7 +1127,7 @@ ${planSummary}
 Current round ${round} component forecasts:
 ${attemptSummary}
 
-Environment-owned evidence workspace:
+Bounded environment-owned evidence working set. The complete workspace remains in the outer audit ledger; omittedCounts reports evidence not rendered here:
 ${evidenceWorkspaceSummary}
 
 Deterministic disagreement agenda:

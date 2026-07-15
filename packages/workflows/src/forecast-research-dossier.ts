@@ -216,6 +216,7 @@ export function researchDossierAsEvidenceAttempt(dossier: ResearchDossier): Evid
       ...(source.query ? { query: source.query } : {}),
       ...(source.rank ? { rank: source.rank } : {}),
       qualityScore: source.qualityScore,
+      diagnosticity: source.diagnosticity,
       independenceGroup: source.independenceGroup,
       claim: source.claim,
     })),
