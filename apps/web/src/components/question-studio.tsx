@@ -68,7 +68,7 @@ export function QuestionStudio({ className }: { className?: string }) {
     setError(null)
   }
 
-  async function prepare() {
+  async function prepare(nextStage: Extract<StudioStage, "contract" | "review"> = "contract") {
     if (!draft.prompt.trim() || preparing) {
       return
     }
@@ -78,7 +78,7 @@ export function QuestionStudio({ className }: { className?: string }) {
       const response = await postJson<{ ok: true; preparation: QuestionPreparation }>("/api/questions/prepare", draft)
       setPreparation(response.preparation)
       setDraft((current) => ({ ...current, forecastType: current.forecastType ?? response.preparation.forecastType }))
-      setStage("contract")
+      setStage(nextStage)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
     } finally {
@@ -97,9 +97,7 @@ export function QuestionStudio({ className }: { className?: string }) {
 
   async function launch() {
     const latest = prepareQuestionDraft(draft)
-    if (!latest.ready || submitting) {
-      setStage("contract")
-      setError("Complete every required contract item before launching.")
+    if (submitting) {
       return
     }
 
@@ -142,7 +140,7 @@ export function QuestionStudio({ className }: { className?: string }) {
               <p className="fs-eyebrow text-primary/90">Question studio</p>
             </div>
             <h2 id="question-studio-title" className="mt-1 text-base font-medium tracking-tight sm:text-lg">
-              Turn an idea into a resolvable forecast
+              Turn an idea into a forecast
             </h2>
           </div>
           <StageIndicator stage={stage} />
@@ -157,7 +155,8 @@ export function QuestionStudio({ className }: { className?: string }) {
               setDraft({ ...example })
               setPreparation(null)
             }}
-            onPrepare={() => void prepare()}
+            onPrepare={() => void prepare("contract")}
+            onSkipDetails={() => void prepare("review")}
           />
         ) : null}
 
@@ -168,12 +167,8 @@ export function QuestionStudio({ className }: { className?: string }) {
             onDraft={updateDraft}
             onBack={() => setStage("draft")}
             onReview={() => {
-              if (currentPreparation.ready) {
-                setError(null)
-                setStage("review")
-              } else {
-                setError("Complete every required contract item before reviewing.")
-              }
+              setError(null)
+              setStage("review")
             }}
           />
         ) : null}
@@ -217,12 +212,14 @@ function DraftStage({
   onDraft,
   onExample,
   onPrepare,
+  onSkipDetails,
 }: {
   draft: QuestionStudioDraft
   preparing: boolean
   onDraft: (patch: Partial<QuestionStudioDraft>) => void
   onExample: (draft: QuestionStudioDraft) => void
   onPrepare: () => void
+  onSkipDetails: () => void
 }) {
   return (
     <div className="p-5 sm:p-6">
@@ -230,7 +227,7 @@ function DraftStage({
         What uncertain future outcome do you want to forecast?
       </label>
       <p className="mt-1 text-xs leading-5 text-muted-foreground">
-        Write naturally. Next, you will define the deadline and exact resolution rule before anything launches.
+        Write naturally. You can add resolution details for a sharper forecast, or skip them and continue with just your question.
       </p>
       <Textarea
         id="question-draft"
@@ -239,7 +236,7 @@ function DraftStage({
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
             event.preventDefault()
-            onPrepare()
+            onSkipDetails()
           }
         }}
         className="mt-4 min-h-32 resize-y border-primary/20 bg-background/45 text-base leading-7 shadow-inner md:text-base"
@@ -259,12 +256,17 @@ function DraftStage({
       <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-border/70 pt-4">
         <div className="flex max-w-lg items-start gap-2 text-xs leading-5 text-muted-foreground">
           <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" />
-          <span>Your wording is preserved. The studio checks the contract but never silently rewrites your question.</span>
+          <span>Your wording is preserved. Resolution details are suggestions, never a launch requirement.</span>
         </div>
-        <Button type="button" onClick={onPrepare} disabled={preparing || draft.prompt.trim().length < 12}>
-          {preparing ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <ArrowRight data-icon="inline-start" />}
-          Prepare question
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={onPrepare} disabled={preparing || draft.prompt.trim().length < 12}>
+            Add helpful details
+          </Button>
+          <Button type="button" onClick={onSkipDetails} disabled={preparing || draft.prompt.trim().length < 12}>
+            {preparing ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <ArrowRight data-icon="inline-start" />}
+            Continue to review
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -286,6 +288,16 @@ function ContractStage({
   return (
     <div className="grid lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="space-y-5 p-5 sm:p-6 lg:border-r lg:border-border/70">
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-medium">Improve the question details</h3>
+            <Badge variant="outline">Optional</Badge>
+          </div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            These fields make the result easier to interpret and score. Fill in what is useful, or leave them blank and continue.
+          </p>
+        </div>
+
         <Field label="Exact question" hint="This exact text—not a rewritten version—will be forecast.">
           <Textarea value={draft.prompt} onChange={(event) => onDraft({ prompt: event.target.value })} className="min-h-24 resize-y" />
         </Field>
@@ -342,8 +354,8 @@ function ContractStage({
             <ArrowLeft data-icon="inline-start" />
             Back
           </Button>
-          <Button type="button" onClick={onReview} disabled={!preparation.ready}>
-            Review exact contract
+          <Button type="button" onClick={onReview}>
+            {preparation.ready ? "Review question details" : "Skip missing details and review"}
             <ArrowRight data-icon="inline-end" />
           </Button>
         </div>
@@ -488,7 +500,7 @@ function ReviewStage({
     <div className="p-5 sm:p-6">
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div>
-          <p className="fs-eyebrow text-primary/85">Exact launch contract</p>
+          <p className="fs-eyebrow text-primary/85">Question and optional details</p>
           <blockquote className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-4 text-base font-medium leading-7">
             {draft.prompt.trim()}
           </blockquote>
@@ -502,9 +514,22 @@ function ReviewStage({
             <ReviewItem label="Forecast as of" value="Launch time" />
           </dl>
 
-          <div className="mt-5 flex items-start gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs leading-5 text-muted-foreground">
-            <Check className="mt-0.5 size-4 shrink-0 text-emerald-500" />
-            <span>The forecast starts only after you confirm this exact contract. Recommended warnings do not block an intentional forecast.</span>
+          <div
+            className={cn(
+              "mt-5 flex items-start gap-2 rounded-lg border p-3 text-xs leading-5 text-muted-foreground",
+              preparation.ready ? "border-emerald-500/20 bg-emerald-500/5" : "border-amber-500/20 bg-amber-500/5",
+            )}
+          >
+            {preparation.ready ? (
+              <Check className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+            ) : (
+              <Info className="mt-0.5 size-4 shrink-0 text-amber-500" />
+            )}
+            <span>
+              {preparation.ready
+                ? "These details make the forecast easier to resolve and score."
+                : "Some resolution details are missing. You can still launch; treat the result as exploratory until you define how it should resolve."}
+            </span>
           </div>
         </div>
 
@@ -543,7 +568,7 @@ function ReviewStage({
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-4">
         <Button type="button" variant="ghost" onClick={onBack}>
           <ArrowLeft data-icon="inline-start" />
-          Edit contract
+          Edit details
         </Button>
         <Button type="button" onClick={onLaunch} disabled={submitting} className="min-w-36">
           {submitting ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <SendHorizonal data-icon="inline-start" />}
@@ -568,7 +593,7 @@ function ReviewItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-border/65 bg-background/35 p-3">
       <dt className="text-[0.65rem] uppercase tracking-[0.18em] text-muted-foreground">{label}</dt>
-      <dd className="mt-1 break-words leading-6">{value}</dd>
+      <dd className={cn("mt-1 break-words leading-6", !value && "text-muted-foreground")}>{value || "Not provided"}</dd>
     </div>
   )
 }
@@ -577,7 +602,7 @@ function StageIndicator({ stage }: { stage: StudioStage }) {
   const active = stage === "draft" ? 0 : stage === "contract" ? 1 : 2
   return (
     <ol className="flex items-center gap-1" aria-label="Question studio progress">
-      {["Draft", "Contract", "Review"].map((label, index) => (
+      {["Draft", "Details", "Review"].map((label, index) => (
         <li key={label} className="flex items-center gap-1">
           {index > 0 ? <span className="h-px w-3 bg-border" aria-hidden="true" /> : null}
           <span

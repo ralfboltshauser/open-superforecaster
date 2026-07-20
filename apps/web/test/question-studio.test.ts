@@ -28,7 +28,7 @@ describe("question studio preparation", () => {
     })
   })
 
-  test("blocks a forecast without a deadline and objective resolution rule", () => {
+  test("flags missing resolution details without changing the draft", () => {
     const result = prepareQuestionDraft(
       {
         ...emptyQuestionDraft(),
@@ -38,10 +38,27 @@ describe("question studio preparation", () => {
     )
 
     expect(result.ready).toBe(false)
+    expect(result.originalPrompt).toBe("Will a crewed spacecraft land on Mars before 2035?")
     expect(result.checks.filter((check) => check.level === "required" && check.status !== "pass").map((check) => check.id)).toEqual([
       "deadline",
       "resolution",
     ])
+  })
+
+  test("creates a launch payload when optional resolution details are skipped", () => {
+    const question = "Will a crewed spacecraft land on Mars before 2035?"
+    const payload = toRunPayload({
+      ...emptyQuestionDraft(),
+      prompt: question,
+    })
+
+    expect(payload).toMatchObject({
+      prompt: question,
+      mode: "forecast",
+      forecastType: "binary",
+    })
+    expect(payload.resolutionDate).toBeUndefined()
+    expect(payload.resolutionCriteria).toBeUndefined()
   })
 
   test("requires type-specific fields", () => {
