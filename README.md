@@ -35,8 +35,8 @@ roadmap. See
 [`docs/agentic-superforecasting-implementation.md`](docs/agentic-superforecasting-implementation.md)
 for the implemented system, operational contract, and current limitations.
 
-If you build on it or find a useful decision workflow, share it with
-[ralf@boltshauser.com](mailto:ralf@boltshauser.com). I want to see where people
+If you build on it or find a useful decision workflow, share it with me on
+[LinkedIn](https://www.linkedin.com/in/ralfboltshauser/). I want to see where people
 take open forecasting infrastructure.
 
 ## What You Can Do
